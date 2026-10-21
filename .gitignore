@@ -1,0 +1,23 @@
+# Build and cache outputs
+*.iml
+.gradle/
+/build/
+/app/build/
+.kotlin/
+.externalNativeBuild/
+.cxx/
+/captures
+
+# IDE specific files
+/.idea/
+.DS_Store
+
+# Local configuration files
+/local.properties
+local.properties
+
+# Signing keys and credentials
+*.jks
+*.keystore
+keystore.properties
+.env
