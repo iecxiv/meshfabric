@@ -13,7 +13,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.4"
-
+        //20261023
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
