@@ -15,7 +15,7 @@ A native **unofficial** Android client for **MeshCentral** remote management, pr
 ---
 
 ## TODO:
-- When a large zip file is compressed until it does not end up on the server side, browsing through the file manager is frozen for the device itself until the generation of the zip file ends, it is pending to repair and give it an efficient logic.
+- Implement the ability to select multiple files for actions such as copying, cutting, compressing, deleting, and downloading.
 - When there is a network change the tunnel in terminal is broken, storing the buffer and indicating that the session has been broken, storing the old buffer to consult until it is closed or deleted manually. It is convenient to add a reconnection logic keeping the old buffer, pending to shape and implement it, either automatically and/or manually
 
 ---
