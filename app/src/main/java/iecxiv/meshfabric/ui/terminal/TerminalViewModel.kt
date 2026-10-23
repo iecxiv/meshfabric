@@ -2,6 +2,7 @@ package iecxiv.meshfabric.ui.terminal
 
 import androidx.lifecycle.ViewModel
 import iecxiv.meshfabric.data.remote.MeshCentralClient
+import iecxiv.meshfabric.data.remote.TerminalConnectionStatus
 import iecxiv.meshfabric.data.remote.TerminalRelayClient
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +14,10 @@ class TerminalViewModel(
 
     fun isConnected(nodeId: String): StateFlow<Boolean> {
         return terminalClient.getConnectionState(nodeId)
+    }
+
+    fun connectionStatus(nodeId: String): StateFlow<TerminalConnectionStatus> {
+        return terminalClient.getConnectionStatus(nodeId)
     }
 
     fun incomingDataFlow(nodeId: String): SharedFlow<String> {

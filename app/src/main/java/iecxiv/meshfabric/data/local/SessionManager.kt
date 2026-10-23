@@ -56,6 +56,7 @@ class SessionManager(context: Context) {
         private const val KEY_CUSTOM_ICON_PATH = "custom_icon_path"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_HIDE_SETTINGS_ICON = "hide_settings_icon"
+        private const val KEY_SAVE_TERMINAL_BUFFERS = "save_terminal_buffers"
     }
 
     private val _appNameFlow = MutableStateFlow(
@@ -243,5 +244,19 @@ class SessionManager(context: Context) {
 
     fun isAllGroupsExpanded(): Boolean {
         return prefs.getBoolean(KEY_ALL_GROUPS_EXPANDED, true)
+    }
+
+    private val _saveTerminalBuffersFlow = MutableStateFlow(
+        prefs.getBoolean(KEY_SAVE_TERMINAL_BUFFERS, true)
+    )
+    val saveTerminalBuffersFlow: StateFlow<Boolean> = _saveTerminalBuffersFlow.asStateFlow()
+
+    fun saveTerminalBuffersSetting(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, enabled).apply()
+        _saveTerminalBuffersFlow.value = enabled
+    }
+
+    fun isSaveTerminalBuffersEnabled(): Boolean {
+        return prefs.getBoolean(KEY_SAVE_TERMINAL_BUFFERS, true)
     }
 }

@@ -1,0 +1,181 @@
+package iecxiv.meshfabric.service
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
+import androidx.core.app.NotificationCompat
+import iecxiv.meshfabric.R
+
+class KeepAliveService : Service() {
+
+    companion object {
+        const val CHANNEL_ID = "mesh_keep_alive_channel"
+        const val NOTIFICATION_ID = 1001
+
+        const val ACTION_START = "iecxiv.meshfabric.action.START_KEEP_ALIVE"
+        const val ACTION_STOP = "iecxiv.meshfabric.action.STOP_KEEP_ALIVE"
+        const val EXTRA_HAS_ACTIVE_CONNECTED = "extra_has_active_connected"
+        const val EXTRA_HAS_DISCONNECTED_BUFFER = "extra_has_disconnected_buffer"
+
+        var isServiceRunning = false
+            private set
+
+        var onTaskRemovedListener: (() -> Unit)? = null
+
+        fun startService(
+            context: Context,
+            hasActiveConnected: Boolean = true,
+            hasDisconnectedBuffer: Boolean = false
+        ) {
+            val intent = Intent(context, KeepAliveService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_HAS_ACTIVE_CONNECTED, hasActiveConnected)
+                putExtra(EXTRA_HAS_DISCONNECTED_BUFFER, hasDisconnectedBuffer)
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        fun updateNotification(
+            context: Context,
+            hasActiveConnected: Boolean = true,
+            hasDisconnectedBuffer: Boolean = false
+        ) {
+            if (isServiceRunning) {
+                startService(context, hasActiveConnected, hasDisconnectedBuffer)
+            }
+        }
+
+        fun stopService(context: Context) {
+            val intent = Intent(context, KeepAliveService::class.java).apply {
+                action = ACTION_STOP
+            }
+            try {
+                context.startService(intent)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            isServiceRunning = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        val hasActiveConnected = intent?.getBooleanExtra(EXTRA_HAS_ACTIVE_CONNECTED, true) ?: true
+        val hasDisconnectedBuffer = intent?.getBooleanExtra(EXTRA_HAS_DISCONNECTED_BUFFER, false) ?: false
+        val notification = createNotification(hasActiveConnected, hasDisconnectedBuffer)
+
+        if (isServiceRunning) {
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager?.notify(NOTIFICATION_ID, notification)
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    try {
+                        startForeground(
+                            NOTIFICATION_ID,
+                            notification,
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                        )
+                    } catch (_: Exception) {
+                        startForeground(NOTIFICATION_ID, notification)
+                    }
+                } else {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                    )
+                }
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            isServiceRunning = true
+        }
+
+        return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        isServiceRunning = false
+        onTaskRemovedListener?.invoke()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        isServiceRunning = false
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "Sesiones Activas MeshFabric",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Mantiene las sesiones de MeshFabric activas en segundo plano"
+                setShowBadge(false)
+            }
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    private fun createNotification(
+        hasActiveConnected: Boolean,
+        hasDisconnectedBuffer: Boolean
+    ): Notification {
+        val titleText = "MeshFabric"
+        val contentText = try {
+            val app = iecxiv.meshfabric.MeshFabricApp.instance
+            when {
+                hasActiveConnected && hasDisconnectedBuffer -> app.getString(R.string.notification_sessions_mixed)
+                hasDisconnectedBuffer -> app.getString(R.string.notification_sessions_disconnected)
+                else -> app.getString(R.string.notification_sessions_active)
+            }
+        } catch (_: Exception) {
+            when {
+                hasActiveConnected && hasDisconnectedBuffer -> "sesiones activas en segundo plano + sesiones desconectadas guardadas"
+                hasDisconnectedBuffer -> "sesiones desconectadas, cambio de red / tunel cerrado"
+                else -> "sesiones activas en segundo plano"
+            }
+        }
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(titleText)
+            .setContentText(contentText)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .build()
+    }
+}

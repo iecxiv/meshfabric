@@ -53,6 +53,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -94,9 +95,9 @@ fun DeviceListScreen(
     val userInfo by viewModel.userInfo.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
 
-    val activeDesktopNodes by viewModel.activeDesktopNodes.collectAsState()
-    val activeTerminalNodes by viewModel.activeTerminalNodes.collectAsState()
-    val activeFileNodes by viewModel.activeFileNodes.collectAsState()
+    val terminalSessionsStatus by viewModel.terminalSessionsStatus.collectAsState()
+    val desktopSessionsStatus by viewModel.desktopSessionsStatus.collectAsState()
+    val fileSessionsStatus by viewModel.fileSessionsStatus.collectAsState()
 
     val collapsedGroups by viewModel.collapsedGroups.collectAsState()
     val appName by (viewModel.sessionManager?.appNameFlow ?: remember { kotlinx.coroutines.flow.MutableStateFlow("MeshFabric") }).collectAsState()
@@ -108,8 +109,18 @@ fun DeviceListScreen(
         if (allIds.isEmpty()) true else allIds.any { it !in collapsedGroups }
     }
 
-    LaunchedEffect(Unit) {
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
         viewModel.refreshActiveSessions()
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshActiveSessions()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val dotColor = when (connectionStatus) {
@@ -385,9 +396,9 @@ fun DeviceListScreen(
                             val cleanId = node.id.removePrefix("node//").removePrefix("node/").trim()
                             DeviceCard(
                                 node = node,
-                                isDesktopActive = cleanId in activeDesktopNodes,
-                                isTerminalActive = cleanId in activeTerminalNodes,
-                                isFilesActive = cleanId in activeFileNodes,
+                                desktopStatus = desktopSessionsStatus[cleanId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                                terminalStatus = terminalSessionsStatus[cleanId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                                fileStatus = fileSessionsStatus[cleanId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
                                 onOpenDesktop = { onOpenDesktop(node.id, node.name) },
                                 onOpenTerminal = { onOpenTerminal(node.id, node.name) },
                                 onOpenFiles = { onOpenFiles(node.id, node.name) }
@@ -468,9 +479,9 @@ fun GroupHeaderCard(
 @Composable
 fun DeviceCard(
     node: MeshNode,
-    isDesktopActive: Boolean = false,
-    isTerminalActive: Boolean = false,
-    isFilesActive: Boolean = false,
+    desktopStatus: iecxiv.meshfabric.data.model.SessionStatus = iecxiv.meshfabric.data.model.SessionStatus.NONE,
+    terminalStatus: iecxiv.meshfabric.data.model.SessionStatus = iecxiv.meshfabric.data.model.SessionStatus.NONE,
+    fileStatus: iecxiv.meshfabric.data.model.SessionStatus = iecxiv.meshfabric.data.model.SessionStatus.NONE,
     onOpenDesktop: () -> Unit,
     onOpenTerminal: () -> Unit,
     onOpenFiles: () -> Unit
@@ -557,96 +568,100 @@ fun DeviceCard(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     if (node.supportsDesktop) {
-                        OutlinedButton(
-                            onClick = onOpenDesktop,
-                            modifier = Modifier.weight(1f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = if (isDesktopActive) 2.dp else 1.dp,
-                                color = if (isDesktopActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            ),
-                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isDesktopActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
-                            ),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.DesktopWindows,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (isDesktopActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                stringResource(R.string.desktop),
-                                fontSize = 11.sp,
-                                fontWeight = if (isDesktopActive) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
+                        SessionActionButton(
+                            title = stringResource(R.string.desktop),
+                            icon = Icons.Default.DesktopWindows,
+                            status = desktopStatus,
+                            onOpen = onOpenDesktop,
+                            modifier = Modifier.weight(1f)
+                        )
                     } else {
                         Spacer(modifier = Modifier.weight(1f))
                     }
 
                     if (node.supportsTerminal) {
-                        OutlinedButton(
-                            onClick = onOpenTerminal,
-                            modifier = Modifier.weight(1f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = if (isTerminalActive) 2.dp else 1.dp,
-                                color = if (isTerminalActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            ),
-                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isTerminalActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
-                            ),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Terminal,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (isTerminalActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                stringResource(R.string.terminal),
-                                fontSize = 11.sp,
-                                fontWeight = if (isTerminalActive) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
+                        SessionActionButton(
+                            title = stringResource(R.string.terminal),
+                            icon = Icons.Default.Terminal,
+                            status = terminalStatus,
+                            onOpen = onOpenTerminal,
+                            modifier = Modifier.weight(1f)
+                        )
                     } else {
                         Spacer(modifier = Modifier.weight(1f))
                     }
 
                     if (node.supportsFiles) {
-                        OutlinedButton(
-                            onClick = onOpenFiles,
-                            modifier = Modifier.weight(1f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = if (isFilesActive) 2.dp else 1.dp,
-                                color = if (isFilesActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
-                            ),
-                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isFilesActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Unspecified
-                            ),
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Folder,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (isFilesActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                stringResource(R.string.files),
-                                fontSize = 11.sp,
-                                fontWeight = if (isFilesActive) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
+                        SessionActionButton(
+                            title = stringResource(R.string.files),
+                            icon = Icons.Default.Folder,
+                            status = fileStatus,
+                            onOpen = onOpenFiles,
+                            modifier = Modifier.weight(1f)
+                        )
                     } else {
                         Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun SessionActionButton(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    status: iecxiv.meshfabric.data.model.SessionStatus,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isConnected = status == iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+    val isDisconnectedWithBuffer = status == iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+    val isActiveOrBuffered = isConnected || isDisconnectedWithBuffer
+
+    val borderColor = when {
+        isDisconnectedWithBuffer -> MaterialTheme.colorScheme.error
+        isConnected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outline
+    }
+
+    val containerColor = when {
+        isDisconnectedWithBuffer -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+        isConnected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+        else -> Color.Unspecified
+    }
+
+    val contentColor = when {
+        isDisconnectedWithBuffer -> MaterialTheme.colorScheme.error
+        isConnected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    OutlinedButton(
+        onClick = onOpen,
+        modifier = modifier,
+        border = androidx.compose.foundation.BorderStroke(
+            width = if (isActiveOrBuffered) 2.dp else 1.dp,
+            color = borderColor
+        ),
+        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+            containerColor = containerColor
+        ),
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = contentColor
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = title,
+            fontSize = 11.sp,
+            fontWeight = if (isActiveOrBuffered) FontWeight.Bold else FontWeight.Normal,
+            color = contentColor
+        )
     }
 }

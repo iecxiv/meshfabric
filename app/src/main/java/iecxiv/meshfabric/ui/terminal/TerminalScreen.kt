@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.terminal
 
+import iecxiv.meshfabric.data.remote.TerminalConnectionStatus
 import android.annotation.SuppressLint
 import android.util.Log
 import android.view.ViewGroup
@@ -105,7 +106,7 @@ fun TerminalScreen(
     viewModel: TerminalViewModel,
     onBack: () -> Unit
 ) {
-    val isConnected by viewModel.isConnected(nodeId).collectAsState()
+    val connectionStatus by viewModel.connectionStatus(nodeId).collectAsState()
     val gson = remember { Gson() }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -192,9 +193,13 @@ fun TerminalScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = if (isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_connecting),
+                            text = when (connectionStatus) {
+                                TerminalConnectionStatus.CONNECTED -> stringResource(R.string.status_connected)
+                                TerminalConnectionStatus.CONNECTING -> stringResource(R.string.status_connecting)
+                                TerminalConnectionStatus.DISCONNECTED -> stringResource(R.string.status_disconnected)
+                            },
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isConnected) Color.Green else Color.Yellow,
+                            color = if (connectionStatus == TerminalConnectionStatus.CONNECTED) Color.Green else Color.Yellow,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )

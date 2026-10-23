@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.data.remote
 
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,20 +18,28 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.random.Random
+
+enum class TerminalConnectionStatus {
+    DISCONNECTED,
+    CONNECTING,
+    CONNECTED
+}
 
 class TerminalSession(
     val nodeId: String,
     val meshClient: MeshCentralClient,
     private val scope: CoroutineScope
 ) {
-    val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/")
+    val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/").trim()
     val fullNodeId = "node//$cleanNodeId"
 
     var activeSocket: WebSocket? = null
     var isUserDisconnect = false
+    var hasPrintedDisconnectMessage = false
     var reconnectJob: Job? = null
     var activeTunnelId = Random.nextInt(100000, 999999).toString()
 
@@ -41,6 +50,9 @@ class TerminalSession(
 
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
+
+    private val _connectionStatus = MutableStateFlow(TerminalConnectionStatus.CONNECTING)
+    val connectionStatus: StateFlow<TerminalConnectionStatus> = _connectionStatus.asStateFlow()
 
     private val _incomingDataFlow = MutableSharedFlow<String>(extraBufferCapacity = 512)
     val incomingDataFlow: SharedFlow<String> = _incomingDataFlow.asSharedFlow()
@@ -59,6 +71,76 @@ class TerminalSession(
         sessionHistory.clear()
     }
 
+    private fun getBufferFile(context: Context): File {
+        val dir = File(context.filesDir, "terminal_buffers")
+        if (!dir.exists()) dir.mkdirs()
+        return File(dir, "buffer_$cleanNodeId.txt")
+    }
+
+    fun saveBufferToDisk(context: Context) {
+        try {
+            val file = getBufferFile(context)
+            synchronized(sessionHistory) {
+                if (sessionHistory.isNotEmpty()) {
+                    file.writeText(sessionHistory.toString())
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun loadBufferFromDisk(context: Context): Boolean {
+        return try {
+            val file = getBufferFile(context)
+            if (file.exists() && file.length() > 0) {
+                val content = file.readText()
+                synchronized(sessionHistory) {
+                    sessionHistory.clear()
+                    sessionHistory.append(content)
+                }
+                hasPrintedDisconnectMessage = true
+                _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
+                true
+            } else false
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    fun deleteBufferFromDisk(context: Context) {
+        try {
+            val file = getBufferFile(context)
+            if (file.exists()) {
+                file.delete()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun getDisconnectMessage(): String {
+        return try {
+            iecxiv.meshfabric.MeshFabricApp.instance.getString(iecxiv.meshfabric.R.string.terminal_session_disconnected)
+        } catch (_: Exception) {
+            "[--sesion desconectada, cambio de red / tunel cerrado--]"
+        }
+    }
+
+    private fun emitDisconnectBanner() {
+        if (isUserDisconnect || hasPrintedDisconnectMessage) return
+        hasPrintedDisconnectMessage = true
+        val msg = getDisconnectMessage()
+        val disconnectBanner = "\r\n\u001b[38;5;130m$msg\u001b[0m\r\n"
+        synchronized(sessionHistory) {
+            sessionHistory.append(disconnectBanner)
+        }
+        _incomingDataFlow.tryEmit(disconnectBanner)
+        saveBufferToDisk(iecxiv.meshfabric.MeshFabricApp.instance)
+        onStateChanged?.invoke()
+    }
+
     fun connect(sendTunnelMsg: Boolean = true) {
         if (_connectionState.value && activeSocket != null) {
             Log.d("TerminalSession", "Session for $cleanNodeId ALREADY connected. Skipping connect.")
@@ -69,9 +151,16 @@ class TerminalSession(
             return
         }
 
+        if (!_connectionState.value && sessionHistory.isNotEmpty() && !isUserDisconnect) {
+            Log.d("TerminalSession", "Session for $cleanNodeId is disconnected with buffer. Preserving buffer for consultation.")
+            _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
+            return
+        }
+
         isUserDisconnect = false
         reconnectJob?.cancel()
         reconnectJob = null
+        _connectionStatus.value = TerminalConnectionStatus.CONNECTING
 
         val serverUrl = meshClient.serverUrl
         val cookie = meshClient.authCookie
@@ -120,63 +209,62 @@ class TerminalSession(
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                if (activeSocket == webSocket) {
-                    _connectionState.value = false
+                if (activeSocket == webSocket || _connectionState.value) {
+                    updateState(false)
                 }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (activeSocket == webSocket) {
-                    _connectionState.value = false
+                val wasActive = (activeSocket == webSocket || _connectionState.value)
+                if (wasActive) {
                     activeSocket = null
-                    if (!isUserDisconnect && !_connectionState.value) {
-                        scheduleReconnect()
+                    updateState(false)
+                    if (!isUserDisconnect) {
+                        emitDisconnectBanner()
                     }
                 }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e("TerminalSession", "WS onFailure ($cleanNodeId): ${t.localizedMessage}", t)
-                if (activeSocket == webSocket) {
-                    _connectionState.value = false
+                val wasActive = (activeSocket == webSocket || _connectionState.value)
+                if (wasActive) {
                     activeSocket = null
-                    if (!isUserDisconnect && !_connectionState.value) {
-                        scheduleReconnect()
+                    updateState(false)
+                    if (!isUserDisconnect) {
+                        emitDisconnectBanner()
                     }
                 }
             }
         })
     }
 
-    private fun scheduleReconnect() {
-        if (_connectionState.value) return
-        reconnectJob?.cancel()
-        reconnectJob = scope.launch {
-            delay(1500)
-            if (!isUserDisconnect && !_connectionState.value) {
-                connect(sendTunnelMsg = false)
-            }
-        }
-    }
-
     private fun handleIncomingData(webSocket: WebSocket, data: String) {
-        if (!_connectionState.value && (data == "c" || data == "cr")) {
-            Log.d("TerminalSession", "Handshake received ($cleanNodeId): $data. Sending protocol 1")
+        if (data == "c" || data == "cr" || data == "1") {
+            Log.d("TerminalSession", "Handshake received ($cleanNodeId): $data")
+            val wasConnected = _connectionState.value
             updateState(true)
+            hasPrintedDisconnectMessage = false
             reconnectJob?.cancel()
             reconnectJob = null
-            webSocket.send("1")
 
-            val c = lastCols
-            val r = lastRows
-            lastCols = 0
-            lastRows = 0
+            if (!wasConnected) {
+                webSocket.send("1")
 
-            scope.launch {
-                delay(100)
-                sendResize(if (c >= 5) c else 80, if (r >= 2) r else 25, force = true)
+                val c = lastCols
+                val r = lastRows
+                lastCols = 0
+                lastRows = 0
+
+                scope.launch {
+                    delay(100)
+                    sendResize(if (c >= 5) c else 80, if (r >= 2) r else 25, force = true)
+                }
             }
-        } else if (_connectionState.value) {
+            return
+        }
+
+        if (_connectionState.value) {
             synchronized(sessionHistory) {
                 sessionHistory.append(data)
                 if (sessionHistory.length > 200000) {
@@ -184,6 +272,15 @@ class TerminalSession(
                 }
             }
             _incomingDataFlow.tryEmit(data)
+        }
+    }
+
+    fun onNetworkChanged() {
+        if (!isUserDisconnect && _connectionState.value) {
+            Log.d("TerminalSession", "Network change detected for $cleanNodeId, closing tunnel...")
+            emitDisconnectBanner()
+            closeSocketOnly()
+            updateState(false)
         }
     }
 
@@ -219,8 +316,8 @@ class TerminalSession(
         }
     }
 
-    private fun closeSocketOnly() {
-        activeSocket?.close(1000, "Reconnecting terminal session")
+    fun closeSocketOnly() {
+        activeSocket?.close(1000, "Terminal session closed")
         activeSocket = null
     }
 
@@ -228,17 +325,20 @@ class TerminalSession(
 
     fun updateState(connected: Boolean) {
         _connectionState.value = connected
+        _connectionStatus.value = if (connected) TerminalConnectionStatus.CONNECTED else TerminalConnectionStatus.DISCONNECTED
         onStateChanged?.invoke()
     }
 
     fun disconnect() {
         isUserDisconnect = true
+        hasPrintedDisconnectMessage = false
         reconnectJob?.cancel()
         reconnectJob = null
         activeSocket?.close(1000, "Disconnecting terminal session")
         activeSocket = null
         updateState(false)
         clearHistory()
+        deleteBufferFromDisk(iecxiv.meshfabric.MeshFabricApp.instance)
     }
 }
 
@@ -249,6 +349,66 @@ class TerminalRelayClient {
 
     private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
     val activeNodesFlow: StateFlow<Set<String>> = _activeNodes.asStateFlow()
+
+    private val _sessionsStatus = MutableStateFlow<Map<String, iecxiv.meshfabric.data.model.SessionStatus>>(emptyMap())
+    val terminalSessionsStatusFlow: StateFlow<Map<String, iecxiv.meshfabric.data.model.SessionStatus>> = _sessionsStatus.asStateFlow()
+
+    fun initBuffersFromDisk(context: Context, meshClient: MeshCentralClient, isEnabled: Boolean = true) {
+        try {
+            val dir = File(context.filesDir, "terminal_buffers")
+            if (!isEnabled) {
+                if (dir.exists()) {
+                    dir.deleteRecursively()
+                }
+                return
+            }
+            if (dir.exists() && dir.isDirectory) {
+                val files = dir.listFiles() ?: return
+                for (f in files) {
+                    if (f.name.startsWith("buffer_") && f.name.endsWith(".txt") && f.length() > 0) {
+                        val key = f.name.removePrefix("buffer_").removeSuffix(".txt")
+                        val session = getSession(meshClient, key)
+                        session.loadBufferFromDisk(context)
+                    }
+                }
+                updateSessionsStatus()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun saveAllBuffersAndClose(context: Context, isEnabled: Boolean = true) {
+        val dir = File(context.filesDir, "terminal_buffers")
+        for (session in sessions.values) {
+            if (!session.isUserDisconnect) {
+                if (isEnabled) {
+                    session.saveBufferToDisk(context)
+                } else {
+                    session.deleteBufferFromDisk(context)
+                }
+                session.closeSocketOnly()
+                session.updateState(false)
+            }
+        }
+        if (!isEnabled && dir.exists()) {
+            dir.deleteRecursively()
+        }
+        updateSessionsStatus()
+    }
+
+    fun updateSessionsStatus() {
+        val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
+            val sess = entry.value
+            when {
+                sess.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+                sess.getFullHistory().isNotEmpty() && !sess.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+                else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
+            }
+        }
+        _sessionsStatus.value = map
+        updateActiveNodes()
+    }
 
     fun updateActiveNodes() {
         val active = sessions.entries
@@ -267,7 +427,7 @@ class TerminalRelayClient {
         val key = cleanKey(nodeId)
         return sessions.getOrPut(key) {
             TerminalSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
-                sess.onStateChanged = { updateActiveNodes() }
+                sess.onStateChanged = { updateSessionsStatus() }
             }
         }
     }
@@ -280,6 +440,11 @@ class TerminalRelayClient {
     fun getConnectionState(nodeId: String): StateFlow<Boolean> {
         val session = sessions[cleanKey(nodeId)]
         return session?.connectionState ?: MutableStateFlow(false).asStateFlow()
+    }
+
+    fun getConnectionStatus(nodeId: String): StateFlow<TerminalConnectionStatus> {
+        val session = sessions[cleanKey(nodeId)]
+        return session?.connectionStatus ?: MutableStateFlow(TerminalConnectionStatus.CONNECTING).asStateFlow()
     }
 
     fun getIncomingDataFlow(nodeId: String): SharedFlow<String> {
@@ -295,7 +460,49 @@ class TerminalRelayClient {
     fun connect(meshClient: MeshCentralClient, nodeId: String) {
         val session = getSession(meshClient, nodeId)
         session.connect(sendTunnelMsg = true)
-        updateActiveNodes()
+        updateSessionsStatus()
+    }
+
+    fun restartSession(meshClient: MeshCentralClient, nodeId: String) {
+        val key = cleanKey(nodeId)
+        val session = sessions.remove(key)
+        session?.disconnect()
+
+        val newSession = getSession(meshClient, nodeId)
+        newSession.isUserDisconnect = false
+        newSession.clearHistory()
+        newSession.deleteBufferFromDisk(context = iecxiv.meshfabric.MeshFabricApp.instance)
+        newSession.connect(sendTunnelMsg = true)
+        updateSessionsStatus()
+    }
+
+    fun hasActiveSessions(): Boolean {
+        return sessions.values.any { it.isConnected() }
+    }
+
+    fun getSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus {
+        val session = sessions[cleanKey(nodeId)] ?: return iecxiv.meshfabric.data.model.SessionStatus.NONE
+        return when {
+            session.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+            session.getFullHistory().isNotEmpty() && !session.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+            else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
+        }
+    }
+
+    fun hasDisconnectedWithBuffer(): Boolean {
+        return sessions.values.any { !it.isConnected() && it.getFullHistory().isNotEmpty() && !it.isUserDisconnect }
+    }
+
+    fun getSessionCount(): Int {
+        return sessions.values.count { (it.isConnected() || it.getFullHistory().isNotEmpty()) && !it.isUserDisconnect }
+    }
+
+    fun onNetworkChanged() {
+        for (session in sessions.values) {
+            if (!session.isUserDisconnect) {
+                session.onNetworkChanged()
+            }
+        }
     }
 
     fun sendInput(nodeId: String, text: String) {
@@ -314,7 +521,7 @@ class TerminalRelayClient {
         val key = cleanKey(nodeId)
         val session = sessions.remove(key)
         session?.disconnect()
-        updateActiveNodes()
+        updateSessionsStatus()
     }
 
     fun disconnectAll() {
@@ -322,6 +529,6 @@ class TerminalRelayClient {
             session.disconnect()
         }
         sessions.clear()
-        updateActiveNodes()
+        updateSessionsStatus()
     }
 }

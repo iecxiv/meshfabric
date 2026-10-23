@@ -24,6 +24,7 @@ class SettingsViewModel(
     val customIconPath: StateFlow<String?> = sessionManager.customIconPathFlow
     val themeMode: StateFlow<AppThemeMode> = sessionManager.themeModeFlow
     val hideSettingsIcon: StateFlow<Boolean> = sessionManager.hideSettingsIconFlow
+    val saveTerminalBuffers: StateFlow<Boolean> = sessionManager.saveTerminalBuffersFlow
 
     fun saveAppName(newName: String) {
         sessionManager.saveCustomAppName(newName)
@@ -47,6 +48,10 @@ class SettingsViewModel(
 
     fun setHideSettingsIcon(hide: Boolean) {
         sessionManager.saveHideSettingsIcon(hide)
+    }
+
+    fun setSaveTerminalBuffers(enabled: Boolean) {
+        sessionManager.saveTerminalBuffersSetting(enabled)
     }
 
     fun createHomeShortcut(context: Context): Boolean {

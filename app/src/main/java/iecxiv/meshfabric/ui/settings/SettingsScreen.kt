@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SettingsSuggest
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Title
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -81,6 +82,7 @@ fun SettingsScreen(
     val customIconPath by viewModel.customIconPath.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val hideSettingsIcon by viewModel.hideSettingsIcon.collectAsState()
+    val saveTerminalBuffers by viewModel.saveTerminalBuffers.collectAsState()
 
     var editedName by remember(currentAppName) { mutableStateOf(currentAppName) }
 
@@ -419,6 +421,53 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            // Section 5: Save Terminal Buffers Setting
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Terminal,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.settings_save_terminal_buffers_title),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_save_terminal_buffers_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = saveTerminalBuffers,
+                            onCheckedChange = { viewModel.setSaveTerminalBuffers(it) }
+                        )
+                    }
                 }
             }
 

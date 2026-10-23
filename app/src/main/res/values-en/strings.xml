@@ -202,4 +202,10 @@
     <string name="settings_info_note">Custom name and icon will update immediately in the header, login screen, app dialogs, and recent apps task switcher.</string>
     <string name="confirm_logout_msg_custom">Are you sure you want to sign out of %1$s?</string>
     <string name="version_info">Version %1$s</string>
+    <string name="terminal_session_disconnected">[--session disconnected, network change / tunnel closed--]</string>
+    <string name="notification_sessions_active">active sessions in background</string>
+    <string name="notification_sessions_disconnected">disconnected sessions, network change / tunnel closed</string>
+    <string name="notification_sessions_mixed">active sessions in background + saved disconnected sessions</string>
+    <string name="settings_save_terminal_buffers_title">Memorize terminal buffers</string>
+    <string name="settings_save_terminal_buffers_desc">Preserve disconnected terminal scrollback history when closing the app</string>
 </resources>

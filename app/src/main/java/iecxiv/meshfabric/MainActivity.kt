@@ -19,6 +19,7 @@ import iecxiv.meshfabric.data.remote.DesktopRelayClient
 import iecxiv.meshfabric.data.remote.FileRelayClient
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import iecxiv.meshfabric.data.remote.TerminalRelayClient
+import iecxiv.meshfabric.service.KeepAliveService
 import iecxiv.meshfabric.ui.desktop.RemoteDesktopViewModel
 import iecxiv.meshfabric.ui.devices.DeviceListViewModel
 import iecxiv.meshfabric.ui.files.FileManagerViewModel
@@ -60,6 +61,34 @@ class MainActivity : ComponentActivity() {
         terminalViewModel = TerminalViewModel(meshClient, terminalClient)
         fileManagerViewModel = FileManagerViewModel(meshClient, fileClient)
         settingsViewModel = SettingsViewModel(sessionManager)
+
+        val isSaveBuffersEnabled = sessionManager.isSaveTerminalBuffersEnabled()
+        terminalClient.initBuffersFromDisk(applicationContext, meshClient, isSaveBuffersEnabled)
+
+        KeepAliveService.onTaskRemovedListener = {
+            val isSaveBuffersEnabledOnExit = sessionManager.isSaveTerminalBuffersEnabled()
+            meshClient.disconnect()
+            terminalClient.saveAllBuffersAndClose(applicationContext, isSaveBuffersEnabledOnExit)
+            desktopClient.disconnectAll()
+            fileClient.disconnectAll()
+        }
+
+        MeshFabricApp.onNetworkChangedListener = {
+            meshClient.onNetworkChanged()
+            terminalClient.onNetworkChanged()
+            desktopClient.onNetworkChanged()
+            fileClient.onNetworkChanged()
+
+            val hasActiveConnected = terminalClient.hasActiveSessions() ||
+                    desktopClient.hasActiveSessions() ||
+                    fileClient.hasActiveSessions()
+
+            val hasDisconnected = terminalClient.hasDisconnectedWithBuffer() ||
+                    desktopClient.hasDisconnectedWithBuffer() ||
+                    fileClient.hasDisconnectedWithBuffer()
+
+            KeepAliveService.updateNotification(applicationContext, hasActiveConnected, hasDisconnected)
+        }
 
         setContent {
             val themeMode by sessionManager.themeModeFlow.collectAsState()
@@ -108,6 +137,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        KeepAliveService.stopService(applicationContext)
+    }
+
     override fun onResume() {
         super.onResume()
         val session = sessionManager.getSession()
@@ -122,8 +156,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        val totalActiveSessions = terminalClient.getSessionCount() +
+                desktopClient.getSessionCount() +
+                fileClient.getSessionCount()
+
+        val hasActiveConnected = terminalClient.hasActiveSessions() ||
+                desktopClient.hasActiveSessions() ||
+                fileClient.hasActiveSessions()
+
+        val hasDisconnectedSessions = terminalClient.hasDisconnectedWithBuffer() ||
+                desktopClient.hasDisconnectedWithBuffer() ||
+                fileClient.hasDisconnectedWithBuffer()
+
+        if (totalActiveSessions > 0) {
+            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions)
+        } else {
+            KeepAliveService.stopService(applicationContext)
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        // Keep active sessions alive when navigating or leaving the app
+        // Keep active sessions alive unless destroyed by user action or task removed
     }
 }

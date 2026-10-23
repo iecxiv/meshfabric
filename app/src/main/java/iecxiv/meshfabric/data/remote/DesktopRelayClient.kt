@@ -706,6 +706,22 @@ class DesktopRelayClient {
     private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
     val activeNodesFlow: StateFlow<Set<String>> = _activeNodes.asStateFlow()
 
+    private val _sessionsStatus = MutableStateFlow<Map<String, iecxiv.meshfabric.data.model.SessionStatus>>(emptyMap())
+    val desktopSessionsStatusFlow: StateFlow<Map<String, iecxiv.meshfabric.data.model.SessionStatus>> = _sessionsStatus.asStateFlow()
+
+    fun updateSessionsStatus() {
+        val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
+            val sess = entry.value
+            when {
+                sess.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+                sess.desktopBitmap.value != null && !sess.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+                else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
+            }
+        }
+        _sessionsStatus.value = map
+        updateActiveNodes()
+    }
+
     private fun cleanKey(nodeId: String): String {
         return nodeId.removePrefix("node//").removePrefix("node/").trim()
     }
@@ -727,7 +743,7 @@ class DesktopRelayClient {
         }
         return sessions.getOrPut(key) {
             DesktopSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
-                sess.onStateChanged = { updateActiveNodes() }
+                sess.onStateChanged = { updateSessionsStatus() }
             }
         }
     }
@@ -832,6 +848,35 @@ class DesktopRelayClient {
 
     fun refreshDisplay(nodeId: String) {
         sessions[cleanKey(nodeId)]?.refreshDisplay()
+    }
+
+    fun hasActiveSessions(): Boolean {
+        return sessions.values.any { it.isConnected() }
+    }
+
+    fun getSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus {
+        val session = sessions[cleanKey(nodeId)] ?: return iecxiv.meshfabric.data.model.SessionStatus.NONE
+        return when {
+            session.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+            session.desktopBitmap.value != null && !session.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+            else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
+        }
+    }
+
+    fun hasDisconnectedWithBuffer(): Boolean {
+        return sessions.values.any { !it.isConnected() && it.desktopBitmap.value != null && !it.isUserDisconnect }
+    }
+
+    fun getSessionCount(): Int {
+        return sessions.values.count { (it.isConnected() || it.desktopBitmap.value != null) && !it.isUserDisconnect }
+    }
+
+    fun onNetworkChanged() {
+        for (session in sessions.values) {
+            if (!session.isUserDisconnect && !session.isConnected()) {
+                session.connect()
+            }
+        }
     }
 
     fun disconnectSession(nodeId: String) {

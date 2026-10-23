@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.ui.files
 
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.data.model.TransferType
 import androidx.compose.ui.res.stringResource
 import android.Manifest
 import android.content.pm.PackageManager
@@ -139,15 +140,15 @@ fun FileManagerScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val isConnected by viewModel.isConnected.collectAsState()
-    val currentPath by viewModel.currentPath.collectAsState()
-    val fileList by viewModel.fileList.collectAsState()
-    val statusMessage by viewModel.statusMessage.collectAsState()
-    val clipboardItem by viewModel.clipboardItem.collectAsState()
-    val isCutMode by viewModel.isCutMode.collectAsState()
-    val fileContentState by viewModel.fileContent.collectAsState()
-    val fileReadingProgress by viewModel.fileReadingProgress.collectAsState()
-    val activeTransfers by viewModel.activeTransfers.collectAsState()
+    val isConnected by viewModel.isConnected(nodeId).collectAsState()
+    val currentPath by viewModel.currentPath(nodeId).collectAsState()
+    val fileList by viewModel.fileList(nodeId).collectAsState()
+    val statusMessage by viewModel.statusMessage(nodeId).collectAsState()
+    val clipboardItem by viewModel.clipboardItem(nodeId).collectAsState()
+    val isCutMode by viewModel.isCutMode(nodeId).collectAsState()
+    val fileContentState by viewModel.fileContent(nodeId).collectAsState()
+    val fileReadingProgress by viewModel.fileReadingProgress(nodeId).collectAsState()
+    val activeTransfers by viewModel.activeTransfers(nodeId).collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -165,6 +166,9 @@ fun FileManagerScreen(
     var selectedItemForAction by remember { mutableStateOf<FileItem?>(null) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameInput by remember { mutableStateOf("") }
+    var showRenameOverwriteConfirmDialog by remember { mutableStateOf(false) }
+    var pendingRenameItem by remember { mutableStateOf<FileItem?>(null) }
+    var pendingRenameNewName by remember { mutableStateOf("") }
 
     var itemToDelete by remember { mutableStateOf<FileItem?>(null) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -178,7 +182,8 @@ fun FileManagerScreen(
     var showZipOverwriteConfirmDialog by remember { mutableStateOf(false) }
     var pendingZipName by remember { mutableStateOf("") }
 
-    var showPasteConflictDialog by remember { mutableStateOf(false) }
+    var showPasteConflictConfirmDialog by remember { mutableStateOf(false) }
+    var showPasteRenameDialog by remember { mutableStateOf(false) }
     var pasteTargetNameInput by remember { mutableStateOf("") }
 
     var isTransfersPanelExpanded by remember { mutableStateOf(true) }
@@ -216,7 +221,7 @@ fun FileManagerScreen(
                 val bytes = inputStream?.readBytes()
                 val fileName = getFileNameFromUri(context, uri)
                 if (bytes != null && fileName.isNotBlank()) {
-                    viewModel.uploadRawFile(context, fileName, bytes)
+                    viewModel.uploadRawFile(nodeId, context, fileName, bytes)
                     Toast.makeText(context, "Subiendo $fileName...", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
@@ -229,7 +234,7 @@ fun FileManagerScreen(
         val msg = statusMessage
         if (!msg.isNullOrBlank()) {
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            viewModel.fileClient.clearStatus()
+            viewModel.clearStatus(nodeId)
         }
     }
 
@@ -241,20 +246,9 @@ fun FileManagerScreen(
         }
     }
 
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner, nodeId) {
+    DisposableEffect(nodeId) {
         viewModel.startSession(nodeId)
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                if (!isConnected) {
-                    viewModel.startSession(nodeId)
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { }
     }
 
     val filteredList = remember(fileList, searchQuery) {
@@ -320,14 +314,14 @@ fun FileManagerScreen(
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Ir a Ruta")
                     }
                     IconButton(
-                        onClick = { viewModel.refresh() },
+                        onClick = { viewModel.refresh(nodeId) },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refrescar")
                     }
                     IconButton(
                         onClick = {
-                            viewModel.stopSession()
+                            viewModel.stopSession(nodeId)
                             onBack()
                         },
                         modifier = Modifier.size(36.dp)
@@ -380,9 +374,15 @@ fun FileManagerScreen(
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
+                                val summaryLabel = when (activeTransfers[0].type) {
+                                    TransferType.DOWNLOAD -> "Descargando"
+                                    TransferType.UPLOAD -> "Subiendo"
+                                    TransferType.COPY -> "Copiando"
+                                    TransferType.MOVE -> "Moviendo"
+                                }
                                 Text(
                                     text = if (activeCount == 1) {
-                                        "${if (activeTransfers[0].isUpload) "Subiendo" else "Descargando"}: ${activeTransfers[0].fileName} ($overallPercentage%)"
+                                        "$summaryLabel: ${activeTransfers[0].fileName} ($overallPercentage%)"
                                     } else {
                                         "$activeCount transferencias activas ($overallPercentage%)"
                                     },
@@ -463,6 +463,18 @@ fun FileManagerScreen(
                                         .verticalScroll(rememberScrollState())
                                 ) {
                                     activeTransfers.forEach { transfer ->
+                                        val transferIcon = when (transfer.type) {
+                                            TransferType.DOWNLOAD -> Icons.Default.Download
+                                            TransferType.UPLOAD -> Icons.Default.Upload
+                                            TransferType.COPY -> Icons.Default.ContentCopy
+                                            TransferType.MOVE -> Icons.Default.ContentCut
+                                        }
+                                        val transferLabel = when (transfer.type) {
+                                            TransferType.DOWNLOAD -> "Descargando"
+                                            TransferType.UPLOAD -> "Subiendo"
+                                            TransferType.COPY -> "Copiando"
+                                            TransferType.MOVE -> "Moviendo"
+                                        }
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -470,7 +482,7 @@ fun FileManagerScreen(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
-                                                imageVector = if (transfer.isUpload) Icons.Default.Upload else Icons.Default.Download,
+                                                imageVector = transferIcon,
                                                 contentDescription = null,
                                                 tint = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.size(22.dp)
@@ -484,7 +496,7 @@ fun FileManagerScreen(
                                                     horizontalArrangement = Arrangement.SpaceBetween
                                                 ) {
                                                     Text(
-                                                        text = "${if (transfer.isUpload) "Subiendo" else "Descargando"}: ${transfer.fileName}",
+                                                        text = "$transferLabel: ${transfer.fileName}",
                                                         style = MaterialTheme.typography.bodySmall,
                                                         fontWeight = FontWeight.Bold,
                                                         maxLines = 1,
@@ -511,7 +523,7 @@ fun FileManagerScreen(
                                             }
 
                                             IconButton(
-                                                onClick = { viewModel.cancelTransfer(transfer.filePath) },
+                                                onClick = { viewModel.cancelTransfer(nodeId, transfer.filePath) },
                                                 modifier = Modifier.size(28.dp)
                                             ) {
                                                 Icon(
@@ -646,7 +658,7 @@ fun FileManagerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = { viewModel.navigateUp() },
+                        onClick = { viewModel.navigateUp(nodeId) },
                         enabled = currentPath.isNotEmpty() && currentPath != "/"
                     ) {
                         Icon(Icons.Default.ArrowUpward, contentDescription = "Subir carpeta")
@@ -666,7 +678,17 @@ fun FileManagerScreen(
                     if (clipboardItem != null) {
                         Button(
                             onClick = {
-                                viewModel.pasteItem()
+                                val source = clipboardItem
+                                if (source != null) {
+                                    val defaultTargetName = source.name
+                                    val fileExists = fileList.any { it.name.equals(defaultTargetName, ignoreCase = true) }
+                                    if (fileExists) {
+                                        pasteTargetNameInput = defaultTargetName
+                                        showPasteConflictConfirmDialog = true
+                                    } else {
+                                        viewModel.pasteItem(nodeId, context = context)
+                                    }
+                                }
                             },
                             modifier = Modifier.padding(start = 4.dp)
                         ) {
@@ -678,7 +700,7 @@ fun FileManagerScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(if (isCutMode) stringResource(R.string.move) else stringResource(R.string.paste))
                         }
-                        IconButton(onClick = { viewModel.clearClipboard() }) {
+                        IconButton(onClick = { viewModel.clearClipboard(nodeId) }) {
                             Icon(Icons.Default.Clear, contentDescription = "Cancelar portapapeles")
                         }
                     }
@@ -717,7 +739,7 @@ fun FileManagerScreen(
                             modifier = Modifier.weight(1f)
                         )
                         IconButton(
-                            onClick = { viewModel.cancelFileReading() },
+                            onClick = { viewModel.cancelFileReading(nodeId) },
                             modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
@@ -763,7 +785,7 @@ fun FileManagerScreen(
                                     .padding(vertical = 3.dp)
                                     .clickable {
                                         if (item.isDir) {
-                                            viewModel.openDirectory(item.path)
+                                            viewModel.openDirectory(nodeId, item.path)
                                         } else {
                                             viewModel.downloadFileToDownloads(context, nodeId, item)
                                         }
@@ -844,7 +866,7 @@ fun FileManagerScreen(
                                                     leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
                                                     onClick = {
                                                         menuExpanded = false
-                                                        viewModel.copyItem(item)
+                                                        viewModel.copyItem(nodeId, item)
                                                     }
                                                 )
                                                 DropdownMenuItem(
@@ -852,7 +874,7 @@ fun FileManagerScreen(
                                                     leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },
                                                     onClick = {
                                                         menuExpanded = false
-                                                        viewModel.cutItem(item)
+                                                        viewModel.cutItem(nodeId, item)
                                                     }
                                                 )
                                                 HorizontalDivider()
@@ -873,7 +895,7 @@ fun FileManagerScreen(
                                                     leadingIcon = { Icon(Icons.Default.Unarchive, contentDescription = null) },
                                                     onClick = {
                                                         menuExpanded = false
-                                                        viewModel.decompressZip(item)
+                                                        viewModel.decompressZip(nodeId, item)
                                                     }
                                                 )
                                             }
@@ -945,7 +967,7 @@ fun FileManagerScreen(
                             Button(
                                 onClick = {
                                     if (newFolderName.isNotBlank()) {
-                                        viewModel.createFolder(newFolderName.trim())
+                                        viewModel.createFolder(nodeId, newFolderName.trim())
                                         newFolderName = ""
                                     }
                                     showCreateFolderDialog = false
@@ -1007,7 +1029,7 @@ fun FileManagerScreen(
                             Button(
                                 onClick = {
                                     if (newFileName.isNotBlank()) {
-                                        viewModel.createFile(newFileName.trim(), initialFileContent)
+                                        viewModel.createFile(nodeId, newFileName.trim(), initialFileContent)
                                         newFileName = ""
                                         initialFileContent = ""
                                     }
@@ -1060,7 +1082,7 @@ fun FileManagerScreen(
                             Button(
                                 onClick = {
                                     if (goToPathInput.isNotBlank()) {
-                                        viewModel.openDirectory(goToPathInput.trim())
+                                        viewModel.openDirectory(nodeId, goToPathInput.trim())
                                     }
                                     showGoToDialog = false
                                 },
@@ -1083,7 +1105,7 @@ fun FileManagerScreen(
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = {
                     editingFilePath = null
-                    viewModel.clearFileContent()
+                    viewModel.clearFileContent(nodeId)
                 },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {
@@ -1207,7 +1229,7 @@ fun FileManagerScreen(
                             TextButton(
                                 onClick = {
                                     editingFilePath = null
-                                    viewModel.clearFileContent()
+                                    viewModel.clearFileContent(nodeId)
                                 },
                                 modifier = Modifier.height(36.dp)
                             ) {
@@ -1218,10 +1240,10 @@ fun FileManagerScreen(
                                 onClick = {
                                     val path = editingFilePath
                                     if (path != null) {
-                                        viewModel.saveFileContent(path, editingFileText)
+                                        viewModel.saveFileContent(nodeId, path, editingFileText)
                                     }
                                     editingFilePath = null
-                                    viewModel.clearFileContent()
+                                    viewModel.clearFileContent(nodeId)
                                 },
                                 modifier = Modifier.height(38.dp)
                             ) {
@@ -1270,10 +1292,20 @@ fun FileManagerScreen(
                             Button(
                                 onClick = {
                                     val item = selectedItemForAction
-                                    if (item != null && renameInput.isNotBlank()) {
-                                        viewModel.renameItem(nodeId, item, renameInput.trim())
+                                    val newName = renameInput.trim()
+                                    if (item != null && newName.isNotBlank()) {
+                                        val fileExists = fileList.any {
+                                            it.path != item.path && it.name.equals(newName, ignoreCase = true)
+                                        }
+                                        if (fileExists) {
+                                            pendingRenameItem = item
+                                            pendingRenameNewName = newName
+                                            showRenameOverwriteConfirmDialog = true
+                                        } else {
+                                            viewModel.renameItem(nodeId, item, newName)
+                                            showRenameDialog = false
+                                        }
                                     }
-                                    showRenameDialog = false
                                 },
                                 modifier = Modifier.height(38.dp)
                             ) {
@@ -1283,6 +1315,43 @@ fun FileManagerScreen(
                     }
                 }
             }
+        }
+
+        // Rename Overwrite Confirmation Dialog
+        if (showRenameOverwriteConfirmDialog && pendingRenameItem != null) {
+            val target = pendingRenameItem
+            val newName = pendingRenameNewName
+            AlertDialog(
+                onDismissRequest = {
+                    showRenameOverwriteConfirmDialog = false
+                },
+                title = { Text(stringResource(R.string.file_exists_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                text = {
+                    Text(stringResource(R.string.file_exists_overwrite_confirm, newName))
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (target != null && newName.isNotBlank()) {
+                                viewModel.renameItem(nodeId, target, newName)
+                            }
+                            showRenameOverwriteConfirmDialog = false
+                            showRenameDialog = false
+                        }
+                    ) {
+                        Text(stringResource(R.string.overwrite))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showRenameOverwriteConfirmDialog = false
+                        }
+                    ) {
+                        Text(stringResource(R.string.change_name))
+                    }
+                }
+            )
         }
 
         // Delete Confirmation Dialog
@@ -1384,7 +1453,7 @@ fun FileManagerScreen(
                                     pendingZipName = finalZipName
                                     showZipOverwriteConfirmDialog = true
                                 } else {
-                                    viewModel.compressZip(target, finalZipName)
+                                    viewModel.compressZip(nodeId, target, finalZipName)
                                     showZipDialog = false
                                     itemToZip = null
                                 }
@@ -1422,7 +1491,7 @@ fun FileManagerScreen(
                     Button(
                         onClick = {
                             if (target != null && pendingZipName.isNotEmpty()) {
-                                viewModel.compressZip(target, pendingZipName)
+                                viewModel.compressZip(nodeId, target, pendingZipName)
                             }
                             showZipOverwriteConfirmDialog = false
                             showZipDialog = false
@@ -1444,11 +1513,44 @@ fun FileManagerScreen(
             )
         }
 
-        // Paste Name Conflict / Duplication Dialog
-        if (showPasteConflictDialog && clipboardItem != null) {
+        // Paste Conflict Overwrite Confirmation Dialog
+        if (showPasteConflictConfirmDialog && clipboardItem != null) {
             AlertDialog(
                 onDismissRequest = {
-                    showPasteConflictDialog = false
+                    showPasteConflictConfirmDialog = false
+                },
+                title = { Text(stringResource(R.string.file_exists_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                text = {
+                    Text(stringResource(R.string.file_exists_overwrite_confirm, pasteTargetNameInput))
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.pasteItem(nodeId, pasteTargetNameInput.trim(), context = context)
+                            showPasteConflictConfirmDialog = false
+                        }
+                    ) {
+                        Text(stringResource(R.string.overwrite))
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showPasteConflictConfirmDialog = false
+                            showPasteRenameDialog = true
+                        }
+                    ) {
+                        Text(stringResource(R.string.change_name))
+                    }
+                }
+            )
+        }
+
+        // Paste Rename Dialog
+        if (showPasteRenameDialog && clipboardItem != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    showPasteRenameDialog = false
                 },
                 title = { Text(if (isCutMode) stringResource(R.string.move_item_title) else stringResource(R.string.copy_item_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                 text = {
@@ -1467,9 +1569,9 @@ fun FileManagerScreen(
                     Button(
                         onClick = {
                             if (pasteTargetNameInput.isNotBlank()) {
-                                viewModel.pasteItem(pasteTargetNameInput.trim())
+                                viewModel.pasteItem(nodeId, pasteTargetNameInput.trim(), context = context)
                             }
-                            showPasteConflictDialog = false
+                            showPasteRenameDialog = false
                         }
                     ) {
                         Text(if (isCutMode) stringResource(R.string.move) else stringResource(R.string.paste))
@@ -1478,7 +1580,7 @@ fun FileManagerScreen(
                 dismissButton = {
                     TextButton(
                         onClick = {
-                            showPasteConflictDialog = false
+                            showPasteRenameDialog = false
                         }
                     ) {
                         Text(stringResource(R.string.cancel))

@@ -3,24 +3,26 @@ package iecxiv.meshfabric.ui.files
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import iecxiv.meshfabric.data.model.FileItem
+import iecxiv.meshfabric.data.model.TransferProgress
 import iecxiv.meshfabric.data.remote.FileRelayClient
 import iecxiv.meshfabric.data.remote.MeshCentralClient
+import kotlinx.coroutines.flow.StateFlow
 
 class FileManagerViewModel(
     val meshClient: MeshCentralClient,
     val fileClient: FileRelayClient
 ) : ViewModel() {
 
-    val isConnected = fileClient.connectionState
-    val currentPath = fileClient.currentPath
-    val fileList = fileClient.fileList
-    val statusMessage = fileClient.statusMessage
-    val clipboardItem = fileClient.clipboardItem
-    val isCutMode = fileClient.isCutMode
-    val fileContent = fileClient.fileContent
-    val fileReadingProgress = fileClient.fileReadingProgress
-    val activeTransfer = fileClient.activeTransfer
-    val activeTransfers = fileClient.activeTransfers
+    fun isConnected(nodeId: String): StateFlow<Boolean> = fileClient.getConnectionState(meshClient, nodeId)
+    fun currentPath(nodeId: String): StateFlow<String> = fileClient.getCurrentPath(meshClient, nodeId)
+    fun fileList(nodeId: String): StateFlow<List<FileItem>> = fileClient.getFileList(meshClient, nodeId)
+    fun statusMessage(nodeId: String): StateFlow<String?> = fileClient.getStatusMessage(meshClient, nodeId)
+    fun clipboardItem(nodeId: String): StateFlow<FileItem?> = fileClient.getClipboardItem(meshClient, nodeId)
+    fun isCutMode(nodeId: String): StateFlow<Boolean> = fileClient.getIsCutMode(meshClient, nodeId)
+    fun fileContent(nodeId: String): StateFlow<Pair<String, String>?> = fileClient.getFileContent(meshClient, nodeId)
+    fun fileReadingProgress(nodeId: String): StateFlow<Float?> = fileClient.getFileReadingProgress(meshClient, nodeId)
+    fun activeTransfers(nodeId: String): StateFlow<List<TransferProgress>> = fileClient.getActiveTransfers(meshClient, nodeId)
+    fun activeTransfer(nodeId: String): StateFlow<TransferProgress?> = fileClient.getActiveTransfer(meshClient, nodeId)
 
     fun startSession(nodeId: String) {
         fileClient.connect(
@@ -33,18 +35,18 @@ class FileManagerViewModel(
         fileClient.downloadFileToDownloads(context, meshClient, nodeId, item)
     }
 
-    fun cancelTransfer(filePath: String) {
+    fun cancelTransfer(nodeId: String, filePath: String) {
         fileClient.cancelTransfer(filePath)
     }
 
-    fun openDirectory(path: String) {
-        fileClient.listDirectory(path)
+    fun openDirectory(nodeId: String, path: String) {
+        fileClient.listDirectory(nodeId, path)
     }
 
-    fun navigateUp() {
-        val path = currentPath.value.trimEnd('/')
+    fun navigateUp(nodeId: String) {
+        val path = currentPath(nodeId).value.trimEnd('/')
         if (path.isEmpty() || path == "/") {
-            fileClient.listDirectory("/")
+            fileClient.listDirectory(nodeId, "/")
             return
         }
         val parentPath = if (path.contains('/')) {
@@ -55,63 +57,63 @@ class FileManagerViewModel(
         } else {
             "/"
         }
-        fileClient.listDirectory(parentPath)
+        fileClient.listDirectory(nodeId, parentPath)
     }
 
-    fun createFolder(folderName: String) {
-        fileClient.createFolder(folderName)
+    fun createFolder(nodeId: String, folderName: String) {
+        fileClient.createFolder(nodeId, folderName)
     }
 
-    fun createFile(fileName: String, content: String = "") {
-        fileClient.createFile(fileName, content)
+    fun createFile(nodeId: String, fileName: String, content: String = "") {
+        fileClient.createFile(nodeId, fileName, content)
     }
 
-    fun uploadRawFile(context: Context, fileName: String, bytes: ByteArray) {
-        fileClient.uploadRawFile(fileName, bytes, context)
+    fun uploadRawFile(nodeId: String, context: Context, fileName: String, bytes: ByteArray) {
+        fileClient.uploadRawFile(nodeId, fileName, bytes, context)
     }
 
     fun readFileContent(nodeId: String, item: FileItem) {
         fileClient.readFileContent(meshClient, nodeId, item)
     }
 
-    fun cancelFileReading() {
-        fileClient.cancelFileReading()
+    fun cancelFileReading(nodeId: String) {
+        fileClient.cancelFileReading(nodeId)
     }
 
-    fun saveFileContent(filePath: String, newContent: String) {
-        fileClient.saveFileContent(filePath, newContent)
+    fun saveFileContent(nodeId: String, filePath: String, newContent: String) {
+        fileClient.saveFileContent(nodeId, filePath, newContent)
     }
 
-    fun clearFileContent() {
-        fileClient.clearFileContent()
+    fun clearFileContent(nodeId: String) {
+        fileClient.clearFileContent(nodeId)
     }
 
-    fun copyItem(item: FileItem) {
-        fileClient.copyItem(item)
+    fun copyItem(nodeId: String, item: FileItem) {
+        fileClient.copyItem(nodeId, item)
     }
 
-    fun cutItem(item: FileItem) {
-        fileClient.cutItem(item)
+    fun cutItem(nodeId: String, item: FileItem) {
+        fileClient.cutItem(nodeId, item)
     }
 
-    fun clearClipboard() {
-        fileClient.clearClipboard()
+    fun clearClipboard(nodeId: String) {
+        fileClient.clearClipboard(nodeId)
     }
 
-    fun pasteItem(customTargetName: String? = null) {
-        fileClient.pasteItem(customTargetName)
+    fun pasteItem(nodeId: String, customTargetName: String? = null, context: Context? = null) {
+        fileClient.pasteItem(nodeId, customTargetName, context)
     }
 
-    fun compressZip(item: FileItem, customZipName: String? = null) {
-        fileClient.compressZip(item, customZipName)
+    fun compressZip(nodeId: String, item: FileItem, customZipName: String? = null) {
+        fileClient.compressZip(nodeId, item, customZipName)
     }
 
-    fun decompressZip(item: FileItem) {
-        fileClient.decompressZip(item)
+    fun decompressZip(nodeId: String, item: FileItem) {
+        fileClient.decompressZip(nodeId, item)
     }
 
-    fun openOnRemoteDevice(item: FileItem) {
-        fileClient.openOnRemoteDevice(item)
+    fun openOnRemoteDevice(nodeId: String, item: FileItem) {
+        fileClient.openOnRemoteDevice(nodeId, item)
     }
 
     fun deleteItem(nodeId: String, item: FileItem) {
@@ -122,16 +124,20 @@ class FileManagerViewModel(
         fileClient.renameItem(meshClient, nodeId, item, newName)
     }
 
-    fun refresh() {
-        fileClient.listDirectory(currentPath.value)
+    fun refresh(nodeId: String) {
+        fileClient.listDirectory(nodeId, currentPath(nodeId).value)
     }
 
-    fun stopSession() {
-        fileClient.disconnect()
+    fun clearStatus(nodeId: String) {
+        fileClient.clearStatus(nodeId)
+    }
+
+    fun stopSession(nodeId: String) {
+        fileClient.disconnectSession(nodeId)
     }
 
     override fun onCleared() {
         super.onCleared()
-        stopSession()
+        fileClient.disconnectAll()
     }
 }

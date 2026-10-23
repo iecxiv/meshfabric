@@ -681,6 +681,16 @@ class MeshCentralClient {
         }
     }
 
+    fun hasActiveSessions(): Boolean {
+        return _connectionState.value && webSocket != null
+    }
+
+    fun onNetworkChanged() {
+        if (!isUserLogout && !_connectionState.value) {
+            reconnectNow()
+        }
+    }
+
     fun disconnect() {
         isUserLogout = true
         reconnectJob?.cancel()

@@ -16,7 +16,7 @@ object OkHttpHelper {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.SECONDS) // For WebSockets
             .writeTimeout(15, TimeUnit.SECONDS)
-            .pingInterval(0, TimeUnit.SECONDS) // Disable automatic OkHttp WebSocket ping/pong timeout
+            .pingInterval(5, TimeUnit.SECONDS) // Automatic OkHttp WebSocket ping/pong to detect broken tunnels immediately
 
         if (ignoreSsl) {
             val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {

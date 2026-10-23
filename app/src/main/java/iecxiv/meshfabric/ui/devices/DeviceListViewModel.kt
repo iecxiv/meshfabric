@@ -98,14 +98,33 @@ class DeviceListViewModel(
         initialValue = emptyList()
     )
 
-    val activeDesktopNodes = desktopClient.activeNodesFlow
-    val activeTerminalNodes = terminalClient.activeNodesFlow
-    val activeFileNodes = fileClient.activeNodesFlow
+    val terminalSessionsStatus = terminalClient.terminalSessionsStatusFlow
+    val desktopSessionsStatus = desktopClient.desktopSessionsStatusFlow
+    val fileSessionsStatus = fileClient.fileSessionsStatusFlow
 
     fun refreshActiveSessions() {
-        desktopClient.updateActiveNodes()
-        terminalClient.updateActiveNodes()
-        fileClient.updateActiveNodes()
+        desktopClient.updateSessionsStatus()
+        terminalClient.updateSessionsStatus()
+        fileClient.updateSessionsStatus()
+    }
+
+    fun getDesktopSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus = desktopClient.getSessionStatus(nodeId)
+    fun getTerminalSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus = terminalClient.getSessionStatus(nodeId)
+    fun getFileSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus = fileClient.getSessionStatus(nodeId)
+
+    fun closeDesktopSession(nodeId: String) {
+        desktopClient.disconnectSession(nodeId)
+        refreshActiveSessions()
+    }
+
+    fun closeTerminalSession(nodeId: String) {
+        terminalClient.disconnectSession(nodeId)
+        refreshActiveSessions()
+    }
+
+    fun closeFileSession(nodeId: String) {
+        fileClient.disconnectSession(nodeId)
+        refreshActiveSessions()
     }
 
     fun isDesktopActive(nodeId: String): Boolean = desktopClient.isConnectedToNode(nodeId)
@@ -113,9 +132,10 @@ class DeviceListViewModel(
     fun isFilesActive(nodeId: String): Boolean = fileClient.isConnectedToNode(nodeId)
 
     fun closeAllActiveSessions() {
-        desktopClient.disconnect()
+        desktopClient.disconnectAll()
         terminalClient.disconnectAll()
-        fileClient.disconnect()
+        fileClient.disconnectAll()
+        refreshActiveSessions()
     }
 
     fun refresh() {

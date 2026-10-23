@@ -86,13 +86,21 @@ data class FileItem(
     val path: String = ""
 )
 
+enum class TransferType {
+    DOWNLOAD,
+    UPLOAD,
+    COPY,
+    MOVE
+}
+
 data class TransferProgress(
     val fileName: String = "",
     val filePath: String = "",
     val isUpload: Boolean = false,
     val bytesTransferred: Long = 0L,
     val totalBytes: Long = 0L,
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val type: TransferType = if (isUpload) TransferType.UPLOAD else TransferType.DOWNLOAD
 ) {
     val percentage: Float
         get() = if (totalBytes > 0) (bytesTransferred.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
@@ -110,3 +118,9 @@ data class SessionData(
     val ignoreSsl: Boolean = false,
     val isRemembered: Boolean = false
 )
+
+enum class SessionStatus {
+    NONE,
+    CONNECTED,
+    DISCONNECTED_WITH_BUFFER
+}

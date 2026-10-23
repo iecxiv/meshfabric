@@ -202,4 +202,10 @@
     <string name="settings_info_note">El nombre y el icono personalizados se actualizarán inmediatamente en la cabecera (header), pantalla de inicio de sesión, diálogos de la app y en el conmutador de aplicaciones recientes.</string>
     <string name="confirm_logout_msg_custom">¿Está seguro de que desea cerrar la sesión de %1$s?</string>
     <string name="version_info">Versión %1$s</string>
+    <string name="terminal_session_disconnected">[--sesion desconectada, cambio de red / tunel cerrado--]</string>
+    <string name="notification_sessions_active">sesiones activas en segundo plano</string>
+    <string name="notification_sessions_disconnected">sesiones desconectadas, cambio de red / tunel cerrado</string>
+    <string name="notification_sessions_mixed">sesiones activas en segundo plano + sesiones desconectadas guardadas</string>
+    <string name="settings_save_terminal_buffers_title">Memorizar búfer de terminales</string>
+    <string name="settings_save_terminal_buffers_desc">Conserva el historial de terminales desconectadas al cerrar la app</string>
 </resources>

@@ -3,24 +3,31 @@ package iecxiv.meshfabric.data.remote
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import iecxiv.meshfabric.data.model.FileItem
+import iecxiv.meshfabric.data.model.SessionStatus
 import iecxiv.meshfabric.data.model.TransferProgress
+import iecxiv.meshfabric.data.model.TransferType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -30,20 +37,15 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.OutputStream
 import java.net.URLEncoder
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.random.Random
-
-import android.content.ContentValues
-import android.provider.MediaStore
-import java.io.OutputStream
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.stateIn
-import java.util.concurrent.ConcurrentHashMap
 
 class ActiveDownloadSession(
     val filePath: String,
@@ -64,15 +66,35 @@ class ActiveUploadSession(
     val context: Context?
 )
 
-class FileRelayClient {
+class ActiveCopyMoveSession(
+    val filePath: String,
+    val fileName: String,
+    val isMove: Boolean,
+    var transferredBytes: Long,
+    val totalSize: Long,
+    var job: Job?,
+    val context: Context?
+)
 
-    companion object {
-        var activeInstance: FileRelayClient? = null
-    }
+class FileSession(
+    val nodeId: String,
+    val meshClient: MeshCentralClient,
+    private val scope: CoroutineScope
+) {
+    val cleanNodeId = if (nodeId.startsWith("node//")) {
+        nodeId.substring(6)
+    } else if (nodeId.startsWith("node/")) {
+        nodeId.substring(5)
+    } else {
+        nodeId
+    }.trimStart('/').trim()
+
+    val fullNodeId = "node//$cleanNodeId"
 
     private val gson = Gson()
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
-    private var webSocket: WebSocket? = null
+    var webSocket: WebSocket? = null
+    var isUserDisconnect = false
+    var onStateChanged: (() -> Unit)? = null
 
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
@@ -94,15 +116,16 @@ class FileRelayClient {
 
     private var clipboardNodeId: String? = null
 
-    private val _fileContent = MutableStateFlow<Pair<String, String>?>(null) // Pair(path, text)
+    private val _fileContent = MutableStateFlow<Pair<String, String>?>(null)
     val fileContent: StateFlow<Pair<String, String>?> = _fileContent.asStateFlow()
 
-    private val _fileReadingProgress = MutableStateFlow<Float?>(null) // null = not reading, 0.0f..1.0f = progress
+    private val _fileReadingProgress = MutableStateFlow<Float?>(null)
     val fileReadingProgress: StateFlow<Float?> = _fileReadingProgress.asStateFlow()
 
-    private val activeDownloads = ConcurrentHashMap<String, ActiveDownloadSession>()
-    private val activeUploads = ConcurrentHashMap<String, ActiveUploadSession>()
-    private val savedFileContents = ConcurrentHashMap<String, String>()
+    val activeDownloads = ConcurrentHashMap<String, ActiveDownloadSession>()
+    val activeUploads = ConcurrentHashMap<String, ActiveUploadSession>()
+    val activeCopyMoveSessions = ConcurrentHashMap<String, ActiveCopyMoveSession>()
+    val savedFileContents = ConcurrentHashMap<String, String>()
     private val _activeTransfers = MutableStateFlow<List<TransferProgress>>(emptyList())
     val activeTransfers: StateFlow<List<TransferProgress>> = _activeTransfers.asStateFlow()
 
@@ -118,23 +141,21 @@ class FileRelayClient {
     private var copyingDestPath: String? = null
     private var copyingTotalSize: Long = 0L
     private var copyingReceivedBytes: Long = 0L
-    private var copyingBuffer: ByteArrayOutputStream? = null
+    private var copyingTempFile: File? = null
+    private var copyingFileOutputStream: FileOutputStream? = null
 
     // Internal File Reading State
     private var readingFilePath: String? = null
     private var readingTotalSize: Long = 0L
     private var readingReceivedBytes: Long = 0L
     private var readingBuffer: ByteArrayOutputStream? = null
-    private var currentReadingReqId: Int = 0
 
     // Download State
-    private var downloadingPath: String? = null
-    private var downloadingName: String? = null
-    private var downloadingTotalSize: Long = 0L
-    private var downloadingReceivedBytes: Long = 0L
-    private var downloadOutputStream: FileOutputStream? = null
-    private var downloadContext: Context? = null
     private var lastProgressNotificationTime = 0L
+
+    fun isConnected(): Boolean {
+        return _connectionState.value && webSocket != null
+    }
 
     private fun isProtocolJsonMessage(text: String): Boolean {
         val trimmed = text.trim()
@@ -152,33 +173,7 @@ class FileRelayClient {
         }
     }
 
-    var activeNodeId: String = ""
-        private set
-
-    private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
-    val activeNodesFlow: StateFlow<Set<String>> = _activeNodes.asStateFlow()
-
-    private fun cleanKey(nodeId: String): String {
-        return if (nodeId.startsWith("node//")) {
-            nodeId.substring(6)
-        } else if (nodeId.startsWith("node/")) {
-            nodeId.substring(5)
-        } else {
-            nodeId
-        }.trimStart('/').trim()
-    }
-
-    fun updateActiveNodes() {
-        _activeNodes.value = if (_connectionState.value && activeNodeId.isNotEmpty()) {
-            setOf(cleanKey(activeNodeId))
-        } else {
-            emptySet()
-        }
-    }
-
-    private var activeMeshClient: MeshCentralClient? = null
-
-    suspend fun ensureControlSocketConnected(meshClient: MeshCentralClient): Boolean {
+    suspend fun ensureControlSocketConnected(): Boolean {
         if (meshClient.connectionState.value) return true
         Log.d("MeshFiles", "Control socket not connected, triggering immediate reconnect...")
         meshClient.reconnectNow()
@@ -191,43 +186,27 @@ class FileRelayClient {
     }
 
     suspend fun ensureConnected(): Boolean {
-        val client = activeMeshClient ?: return false
-        ensureControlSocketConnected(client)
-
+        ensureControlSocketConnected()
         if (_connectionState.value && webSocket != null) return true
-        val nodeId = activeNodeId.ifEmpty { return false }
-        Log.d("MeshFiles", "Auto-reconnecting file relay for node '$nodeId'...")
-        connect(client, nodeId)
+
+        if (webSocket == null || isUserDisconnect) {
+            Log.d("MeshFiles", "Auto-reconnecting file relay for node '$cleanNodeId'...")
+            connect()
+        }
+
         var waitMs = 0
-        while (!_connectionState.value && waitMs < 4000) {
+        while (!_connectionState.value && waitMs < 6000) {
             delay(100)
             waitMs += 100
         }
         return _connectionState.value
     }
 
-    fun isConnectedToNode(nodeId: String): Boolean {
-        val cleanCurrent = cleanKey(activeNodeId)
-        val cleanArg = cleanKey(nodeId)
-        return cleanCurrent == cleanArg && _connectionState.value && webSocket != null
-    }
+    fun connect() {
+        isUserDisconnect = false
 
-    fun connect(
-        meshClient: MeshCentralClient,
-        nodeId: String
-    ) {
-        activeInstance = this
-        activeMeshClient = meshClient
-
-        val cleanNodeId = cleanKey(nodeId)
-        val fullNodeId = "node//$cleanNodeId"
-
-        if (activeNodeId.isNotEmpty() && activeNodeId != cleanNodeId) {
-            _currentPath.value = "/"
-        }
-
-        if (isConnectedToNode(nodeId)) {
-            Log.d("MeshFiles", "Already connected to node: $nodeId. Reusing files session at path: ${_currentPath.value}")
+        if (isConnected()) {
+            Log.d("MeshFiles", "Already connected to node: $cleanNodeId. Reusing files session at path: ${_currentPath.value}")
             listDirectory(_currentPath.value)
             return
         }
@@ -244,30 +223,28 @@ class FileRelayClient {
 
         val client = OkHttpHelper.createClient(ignoreSsl)
         val tunnelId = Random.nextInt(100000, 999999).toString()
-
         val encodedNodeId = try { URLEncoder.encode(fullNodeId, "UTF-8") } catch (e: Exception) { fullNodeId }
-
-        activeNodeId = cleanNodeId
 
         val wsUrl = OkHttpHelper.toWebSocketUrl(
             serverUrl,
             "/meshrelay.ashx?p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
         )
 
-        Log.d("MeshFiles", "Connecting files WS to: $wsUrl")
+        Log.d("MeshFiles", "Connecting files WS for $cleanNodeId to: $wsUrl")
 
         val requestBuilder = Request.Builder().url(wsUrl)
         if (cookie.isNotBlank()) {
             requestBuilder.addHeader("Cookie", cookie)
         }
 
-        disconnect(resetPath = false)
+        webSocket?.close(1000, "Reconnecting")
+        webSocket = null
 
         webSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("MeshFiles", "WebSocket onOpen. Ensuring control socket is ready...")
+                Log.d("MeshFiles", "WebSocket onOpen for $cleanNodeId. Ensuring control socket is ready...")
                 scope.launch(Dispatchers.IO) {
-                    ensureControlSocketConnected(meshClient)
+                    ensureControlSocketConnected()
                     Log.d("MeshFiles", "Control socket ready. Requesting tunnel ID $tunnelId...")
                     meshClient.requestTunnel(nodeId = fullNodeId, protocol = 5, tunnelId = tunnelId)
                 }
@@ -339,7 +316,6 @@ class FileRelayClient {
                     return
                 }
 
-                // Raw binary file bytes
                 Log.d("MeshFilesRecvDataBytes", "WS Data Bytes: ${bytes.size} bytes")
                 val byteArray = bytes.toByteArray()
 
@@ -370,8 +346,6 @@ class FileRelayClient {
                             )
                         }
 
-                        Log.d("MeshFilesDownload", "Chunk written: ${byteArray.size} B (${activeDl.receivedBytes} / ${activeDl.totalSize})")
-
                         if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
                             finishDownload(activeDl.filePath)
                         }
@@ -381,8 +355,17 @@ class FileRelayClient {
                     }
                 } else if (copyingSourcePath != null) {
                     try {
-                        copyingBuffer?.write(byteArray)
+                        copyingFileOutputStream?.write(byteArray)
                         copyingReceivedBytes += byteArray.size
+                        val progress = if (copyingTotalSize > 0) {
+                            (copyingReceivedBytes * copyingTotalSize) / (copyingTotalSize * 2)
+                        } else {
+                            copyingReceivedBytes / 2
+                        }
+                        val destPath = copyingDestPath
+                        _activeTransfers.value = _activeTransfers.value.map {
+                            if (it.filePath == destPath) it.copy(bytesTransferred = progress) else it
+                        }
                         if (copyingTotalSize > 0 && copyingReceivedBytes >= copyingTotalSize) {
                             finishCopyingFile()
                         }
@@ -415,18 +398,18 @@ class FileRelayClient {
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = false
-                updateActiveNodes()
+                onStateChanged?.invoke()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = false
-                updateActiveNodes()
+                onStateChanged?.invoke()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("MeshFiles", "onFailure: ${t.localizedMessage}", t)
+                Log.e("MeshFiles", "onFailure for $cleanNodeId: ${t.localizedMessage}", t)
                 _connectionState.value = false
-                updateActiveNodes()
+                onStateChanged?.invoke()
             }
         })
     }
@@ -435,7 +418,7 @@ class FileRelayClient {
         Log.d("MeshFilesRecv", "Files WS Recv (${text.length} chars): $text")
         if (text == "c" || text == "cr") {
             _connectionState.value = true
-            updateActiveNodes()
+            onStateChanged?.invoke()
             webSocket.send("5")
 
             scope.launch {
@@ -465,7 +448,6 @@ class FileRelayClient {
             if (action == "downloadStart" || subaction == "start") {
                 val reqid = json.get("reqid")?.asString ?: json.get("id")?.asString ?: ""
                 val size = json.get("size")?.asLong ?: 0L
-                Log.d("MeshFilesDownload", "Received downloadStart: size=$size, reqid=$reqid")
                 val activeDl = activeDownloads.values.firstOrNull()
                 if (activeDl != null && size > 0) {
                     activeDl.totalSize = size
@@ -478,7 +460,6 @@ class FileRelayClient {
                         addProperty("id", reqid)
                     }
                 }
-                Log.d("MeshFilesDownload", "Sending download pull request: $pullReq")
                 webSocket?.send(pullReq.toString())
                 return
             }
@@ -532,26 +513,25 @@ class FileRelayClient {
                 }
 
                 if (copyingSourcePath != null) {
-                    copyingBuffer?.write(chunkBytes)
-                    copyingReceivedBytes += chunkBytes.size
-                    if (copyingTotalSize > 0 && copyingReceivedBytes >= copyingTotalSize) {
-                        finishCopyingFile()
+                    try {
+                        copyingFileOutputStream?.write(chunkBytes)
+                        copyingReceivedBytes += chunkBytes.size
+                        val progress = if (copyingTotalSize > 0) {
+                            (copyingReceivedBytes * copyingTotalSize) / (copyingTotalSize * 2)
+                        } else {
+                            copyingReceivedBytes / 2
+                        }
+                        val destPath = copyingDestPath
+                        _activeTransfers.value = _activeTransfers.value.map {
+                            if (it.filePath == destPath) it.copy(bytesTransferred = progress) else it
+                        }
+                        if (copyingTotalSize > 0 && copyingReceivedBytes >= copyingTotalSize) {
+                            finishCopyingFile()
+                        }
+                        return
+                    } catch (e: Exception) {
+                        Log.e("MeshFilesCopy", "Error writing copy chunk: ${e.localizedMessage}", e)
                     }
-                    return
-                }
-                if (readingFilePath != null) {
-                    readingBuffer?.write(chunkBytes)
-                    readingReceivedBytes += chunkBytes.size
-                    val progress = if (readingTotalSize > 0) {
-                        (readingReceivedBytes.toFloat() / readingTotalSize.toFloat()).coerceIn(0.05f, 1.0f)
-                    } else {
-                        0.5f
-                    }
-                    _fileReadingProgress.value = progress
-                    if (readingTotalSize > 0 && readingReceivedBytes >= readingTotalSize) {
-                        finishReadingFile()
-                    }
-                    return
                 }
             } else {
                 val size = json.get("size")?.asLong ?: 0L
@@ -568,7 +548,6 @@ class FileRelayClient {
                         readingTotalSize = size
                     }
                 }
-                Log.d("MeshFilesDownload", "Parsed metadata size=$size")
             }
         } catch (e: Exception) {
             Log.e("MeshFiles", "Error parsing control JSON: ${e.localizedMessage}", e)
@@ -688,7 +667,8 @@ class FileRelayClient {
                         .thenBy { it.name.lowercase() }
                 )
                 _fileList.value = sortedItems
-                Log.d("MeshFiles", "Successfully parsed ${sortedItems.size} items for path '$path'")
+                onStateChanged?.invoke()
+                Log.d("MeshFiles", "Successfully parsed ${sortedItems.size} items for path '$path' on $cleanNodeId")
             } else if (action == "download" || action == "read" || action == "readfile") {
                 val path = json.get("path")?.asString ?: ""
                 val content = json.get("data")?.asString
@@ -696,14 +676,12 @@ class FileRelayClient {
                     ?: json.get("text")?.asString
 
                 if (path.isNotEmpty() && content != null) {
-                    Log.d("MeshFilesRead", "Received text file content for path '$path', len=${content.length}")
                     readingFilePath = null
                     readingBuffer = null
                     _fileReadingProgress.value = null
                     _fileContent.value = Pair(path, content)
                 }
             } else if (action == "rm" || action == "rename" || action == "mkdir") {
-                Log.d("MeshFilesAction", "Received action response for $action: $text")
                 scope.launch {
                     delay(300)
                     listDirectory(_currentPath.value)
@@ -767,13 +745,8 @@ class FileRelayClient {
 
     fun downloadFileToDownloads(
         context: Context,
-        meshClient: MeshCentralClient,
-        nodeId: String,
         item: FileItem
     ) {
-        activeInstance = this
-
-        val cleanNodeId = cleanKey(nodeId)
         val meshId = meshClient.getNodeMeshId(nodeId)
         val serverUrl = meshClient.serverUrl.trimEnd('/')
 
@@ -802,7 +775,6 @@ class FileRelayClient {
         val reqIdStr = Random.nextInt(100000, 999999).toString()
 
         scope.launch(Dispatchers.IO) {
-            // 1. Try Web Dashboard HTTP Download URL format: /devicefile.ashx?c=...&m=...&n=...&f=...
             try {
                 val outputStream = createDownloadOutputStream(context, item.name)
                 val client = OkHttpHelper.createClient(meshClient.ignoreSsl)
@@ -815,26 +787,17 @@ class FileRelayClient {
                 val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
                 val encodedF2 = try { URLEncoder.encode(item.path, "UTF-8") } catch (_: Exception) { item.path }
 
-                // Attempt 1: Web Dashboard URL format (relative path f)
                 var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
-                Log.d("MeshFilesDownload", "HTTP Download Attempt 1 (Web URL format): $downloadUrl")
-
                 var reqBuilder = Request.Builder().url(downloadUrl).get()
                 if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
 
                 var response = client.newCall(reqBuilder.build()).execute()
-                Log.d("MeshFilesDownload", "HTTP Response 1: ${response.code} ${response.message}")
 
-                // Attempt 2: Web Dashboard URL format (absolute path f)
                 if (!response.isSuccessful) {
                     downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
-                    Log.d("MeshFilesDownload", "HTTP Download Attempt 2 (absolute path): $downloadUrl")
-
                     reqBuilder = Request.Builder().url(downloadUrl).get()
                     if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
-
                     response = client.newCall(reqBuilder.build()).execute()
-                    Log.d("MeshFilesDownload", "HTTP Response 2: ${response.code} ${response.message}")
                 }
 
                 if (response.isSuccessful && response.body != null) {
@@ -895,21 +858,16 @@ class FileRelayClient {
 
                     delay(1200)
                     _activeTransfers.value = _activeTransfers.value.filter { it.filePath != item.path }
-                    Log.d("MeshFilesDownload", "HTTP Download completed successfully: ${item.name}, $receivedBytes bytes")
                     return@launch
-                } else {
-                    val bodyText = try { response.peekBody(1024L).string() } catch (e: Exception) { "" }
-                    Log.w("MeshFilesDownload", "HTTP Download failed with code ${response.code}, body: $bodyText")
                 }
             } catch (e: Exception) {
                 Log.e("MeshFilesDownload", "Error in HTTP download: ${e.localizedMessage}", e)
             }
 
-            // 2. Fallback to WS readfile / download
+            // Fallback to WS readfile / download
             try {
-                if (!isConnectedToNode(nodeId)) {
-                    Log.d("MeshFilesDownload", "Not connected to node $nodeId, connecting first...")
-                    connect(meshClient, nodeId)
+                if (!isConnected()) {
+                    connect()
                     var waitMs = 0
                     while (!_connectionState.value && waitMs < 5000) {
                         delay(100)
@@ -937,9 +895,7 @@ class FileRelayClient {
                     addProperty("id", reqIdStr)
                 }
 
-                Log.d("MeshFilesDownload", "Sending readfile request over WS: $readReq")
-                val sent = webSocket?.send(readReq.toString()) ?: false
-                Log.d("MeshFilesDownload", "WS readfile send status: $sent")
+                webSocket?.send(readReq.toString())
             } catch (e: Exception) {
                 Log.e("MeshFilesDownload", "Error in WS fallback: ${e.localizedMessage}", e)
                 withContext(Dispatchers.Main) {
@@ -949,12 +905,44 @@ class FileRelayClient {
         }
     }
 
+    fun cancelCopyMove(targetFilePath: String? = null) {
+        try {
+            val key = targetFilePath ?: activeCopyMoveSessions.keys.firstOrNull()
+            val session = if (key != null) activeCopyMoveSessions.remove(key) else null
+
+            val name = session?.fileName ?: "archivo"
+            session?.job?.cancel()
+
+            if (copyingDestPath == key) {
+                try {
+                    copyingFileOutputStream?.flush()
+                    copyingFileOutputStream?.close()
+                } catch (_: Exception) {}
+                copyingFileOutputStream = null
+                copyingTempFile?.delete()
+                copyingTempFile = null
+                copyingSourcePath = null
+                copyingDestPath = null
+            }
+
+            _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
+
+            val label = if (session?.isMove == true) "Movimiento cancelado" else "Copia cancelada"
+            _statusMessage.value = "$label: $name"
+        } catch (e: Exception) {
+            Log.e("MeshFilesCopy", "Error canceling copy/move: ${e.localizedMessage}", e)
+        }
+    }
+
     fun cancelTransfer(filePath: String) {
-        if (activeDownloads.containsKey(filePath)) {
+        if (activeCopyMoveSessions.containsKey(filePath)) {
+            cancelCopyMove(filePath)
+        } else if (activeDownloads.containsKey(filePath)) {
             cancelDownload(filePath)
         } else if (activeUploads.containsKey(filePath)) {
             cancelUpload(filePath)
         } else {
+            cancelCopyMove(filePath)
             cancelDownload(filePath)
             cancelUpload(filePath)
         }
@@ -1218,19 +1206,47 @@ class FileRelayClient {
         }
     }
 
-    private fun startFileCopyStream(srcPath: String, destPath: String, size: Long) {
+    private fun startFileCopyStream(srcPath: String, destPath: String, size: Long, context: Context? = null) {
+        val targetName = destPath.substringAfterLast('/')
         if (size == 0L) {
-            uploadRawFileToPath(destPath, ByteArray(0))
-            _statusMessage.value = "Copiado exitosamente"
+            uploadRawFileToPath(destPath, ByteArray(0), context)
+            _statusMessage.value = "Copiado exitosamente: $targetName"
             _clipboardItem.value = null
             return
         }
+
+        val progress = TransferProgress(
+            fileName = targetName,
+            filePath = destPath,
+            isUpload = false,
+            bytesTransferred = 0L,
+            totalBytes = size,
+            type = TransferType.COPY
+        )
+        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
 
         copyingSourcePath = srcPath
         copyingDestPath = destPath
         copyingTotalSize = size
         copyingReceivedBytes = 0L
-        copyingBuffer = ByteArrayOutputStream()
+
+        try {
+            copyingTempFile = File.createTempFile("mesh_copy_", ".tmp", context?.cacheDir)
+            copyingFileOutputStream = FileOutputStream(copyingTempFile)
+        } catch (e: Exception) {
+            Log.e("MeshFilesCopy", "Error creating copy temp file: ${e.localizedMessage}", e)
+        }
+
+        val session = ActiveCopyMoveSession(
+            filePath = destPath,
+            fileName = targetName,
+            isMove = false,
+            transferredBytes = 0L,
+            totalSize = size,
+            job = null,
+            context = context
+        )
+        activeCopyMoveSessions[destPath] = session
 
         val reqId = Random.nextInt(100000, 999999)
 
@@ -1250,7 +1266,7 @@ class FileRelayClient {
         }
         webSocket?.send(req1.toString())
 
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             delay(50)
             val req2 = JsonObject().apply {
                 addProperty("action", "download")
@@ -1266,18 +1282,77 @@ class FileRelayClient {
     private fun finishCopyingFile() {
         try {
             val destPath = copyingDestPath ?: return
-            val bytes = copyingBuffer?.toByteArray() ?: ByteArray(0)
+            val targetName = destPath.substringAfterLast('/')
+            val tempFile = copyingTempFile
+
+            try {
+                copyingFileOutputStream?.flush()
+                copyingFileOutputStream?.close()
+            } catch (_: Exception) {}
+            copyingFileOutputStream = null
 
             copyingSourcePath = null
             copyingDestPath = null
-            copyingBuffer = null
             copyingTotalSize = 0L
             copyingReceivedBytes = 0L
-            _clipboardItem.value = null
+            copyingTempFile = null
 
-            Log.d("MeshFilesCopy", "Uploading ${bytes.size} copied bytes to target path: '$destPath'")
-            uploadRawFileToPath(destPath, bytes)
-            _statusMessage.value = "Copiado exitosamente"
+            if (tempFile != null && tempFile.exists() && activeCopyMoveSessions.containsKey(destPath)) {
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val fileLen = tempFile.length()
+                        val totalSize = fileLen.coerceAtLeast(1L)
+                        val uploadReq = JsonObject().apply {
+                            addProperty("action", "upload")
+                            addProperty("path", destPath)
+                            addProperty("size", fileLen)
+                        }
+                        webSocket?.send(uploadReq.toString())
+                        delay(100)
+
+                        FileInputStream(tempFile).use { input ->
+                            val buffer = ByteArray(64 * 1024)
+                            var uploaded = 0L
+                            while (activeCopyMoveSessions.containsKey(destPath)) {
+                                val read = input.read(buffer)
+                                if (read == -1) break
+                                val chunk = ByteString.of(*buffer.copyOfRange(0, read))
+                                webSocket?.send(chunk)
+                                uploaded += read
+
+                                val prog = (totalSize / 2) + if (fileLen > 0) (uploaded * totalSize) / (fileLen * 2) else 0L
+                                _activeTransfers.value = _activeTransfers.value.map {
+                                    if (it.filePath == destPath) it.copy(bytesTransferred = prog.coerceAtMost(totalSize), totalBytes = totalSize) else it
+                                }
+                                delay(10)
+                            }
+                        }
+
+                        if (activeCopyMoveSessions.containsKey(destPath)) {
+                            _activeTransfers.value = _activeTransfers.value.map {
+                                if (it.filePath == destPath) it.copy(bytesTransferred = totalSize, isCompleted = true) else it
+                            }
+                            _clipboardItem.value = null
+                            clipboardNodeId = null
+                            _statusMessage.value = "Copiado exitosamente: $targetName"
+                            activeCopyMoveSessions.remove(destPath)
+                            delay(1200)
+                            _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+                            if (isConnected()) {
+                                listDirectory(_currentPath.value)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("MeshFilesCopy", "Error finishing WS copy: ${e.localizedMessage}", e)
+                    } finally {
+                        tempFile.delete()
+                    }
+                }
+            } else {
+                tempFile?.delete()
+                activeCopyMoveSessions.remove(destPath)
+                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+            }
         } catch (e: Exception) {
             Log.e("MeshFilesCopy", "Error finishing copy: ${e.localizedMessage}", e)
         }
@@ -1308,7 +1383,6 @@ class FileRelayClient {
 
     fun listDirectory(path: String) {
         val targetPath = if (path.isEmpty()) "/" else path
-        Log.d("MeshFilesSend", "Sending ls request for path: '$targetPath'")
         val req = JsonObject().apply {
             addProperty("action", "ls")
             addProperty("path", targetPath)
@@ -1470,7 +1544,7 @@ class FileRelayClient {
         _fileReadingProgress.value = null
     }
 
-    fun readFileContent(meshClient: MeshCentralClient, nodeId: String, item: FileItem) {
+    fun readFileContent(item: FileItem) {
         val savedText = savedFileContents[item.path]
         if (savedText != null && savedText.isNotEmpty()) {
             _fileContent.value = Pair(item.path, savedText)
@@ -1497,8 +1571,7 @@ class FileRelayClient {
         readingBuffer = ByteArrayOutputStream()
         _fileReadingProgress.value = 0.05f
 
-        val cleanNodeId = cleanKey(nodeId)
-        val meshId = meshClient.getNodeMeshId(nodeId)
+        val meshId = meshClient.getNodeMeshId(cleanNodeId)
         val serverUrl = meshClient.serverUrl.trimEnd('/')
 
         val cookieToken = meshClient.userAuthCookie.ifEmpty {
@@ -1509,7 +1582,6 @@ class FileRelayClient {
         val sessionCookie = meshClient.authCookie.trim()
 
         scope.launch(Dispatchers.IO) {
-            // 1. Try Web Dashboard HTTP Download URL format: /devicefile.ashx?c=...&m=...&n=...&f=...
             try {
                 val client = OkHttpHelper.createClient(meshClient.ignoreSsl)
                 val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
@@ -1520,26 +1592,18 @@ class FileRelayClient {
                 val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
                 val encodedF2 = try { URLEncoder.encode(item.path, "UTF-8") } catch (_: Exception) { item.path }
 
-                // Attempt 1: Web Dashboard URL format (relative path f)
                 var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
-                Log.d("MeshFilesRead", "HTTP Read Attempt 1 (devicefile.ashx relative): $downloadUrl")
-
                 var reqBuilder = Request.Builder().url(downloadUrl).get()
                 if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
 
                 var response = client.newCall(reqBuilder.build()).execute()
-                Log.d("MeshFilesRead", "HTTP Read Response 1: ${response.code} ${response.message}")
 
-                // Attempt 2: Web Dashboard URL format (absolute path f)
                 if (!response.isSuccessful) {
                     downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
-                    Log.d("MeshFilesRead", "HTTP Read Attempt 2 (devicefile.ashx absolute): $downloadUrl")
-
                     reqBuilder = Request.Builder().url(downloadUrl).get()
                     if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
 
                     response = client.newCall(reqBuilder.build()).execute()
-                    Log.d("MeshFilesRead", "HTTP Read Response 2: ${response.code} ${response.message}")
                 }
 
                 if (response.isSuccessful && response.body != null) {
@@ -1564,21 +1628,16 @@ class FileRelayClient {
                     readingBuffer = null
                     _fileReadingProgress.value = null
                     _fileContent.value = Pair(item.path, textContent)
-                    Log.d("MeshFilesRead", "HTTP Read completed successfully: ${item.path} (${bytes.size} bytes)")
                     return@launch
-                } else {
-                    val bodyText = try { response.peekBody(1024L).string() } catch (e: Exception) { "" }
-                    Log.w("MeshFilesRead", "HTTP Read failed with code ${response.code}, body: $bodyText")
                 }
             } catch (e: Exception) {
                 Log.e("MeshFilesRead", "Error in HTTP read: ${e.localizedMessage}", e)
             }
 
-            // 2. WS readfile fallback
+            // WS readfile fallback
             try {
-                if (!isConnectedToNode(nodeId)) {
-                    Log.d("MeshFilesRead", "Not connected to node $nodeId, connecting first...")
-                    connect(meshClient, nodeId)
+                if (!isConnected()) {
+                    connect()
                     var waitMs = 0
                     while (!_connectionState.value && waitMs < 5000) {
                         delay(100)
@@ -1593,7 +1652,6 @@ class FileRelayClient {
                     addProperty("reqid", reqIdStr)
                     addProperty("id", reqIdStr)
                 }
-                Log.d("MeshFilesRead", "Sending WS readfile request: $readReq")
                 webSocket?.send(readReq.toString())
             } catch (e: Exception) {
                 Log.e("MeshFilesRead", "Error in WS readfile fallback: ${e.localizedMessage}", e)
@@ -1610,64 +1668,21 @@ class FileRelayClient {
 
     private fun remoteParent(path: String): String {
         val clean = path.trimEnd('/', '\\')
+        require(clean.isNotEmpty()) { "No se permite operar sobre la raíz" }
+        require(!Regex("^[A-Za-z]:$").matches(clean)) { "No se permite operar sobre la raíz de una unidad" }
 
-        require(clean.isNotEmpty()) {
-            "No se permite operar sobre la raíz"
-        }
-
-        require(!Regex("^[A-Za-z]:$").matches(clean)) {
-            "No se permite operar sobre la raíz de una unidad"
-        }
-
-        val separatorIndex = maxOf(
-            clean.lastIndexOf('/'),
-            clean.lastIndexOf('\\')
-        )
-
-        require(separatorIndex >= 0) {
-            "Se esperaba una ruta remota absoluta: $path"
-        }
+        val separatorIndex = maxOf(clean.lastIndexOf('/'), clean.lastIndexOf('\\'))
+        require(separatorIndex >= 0) { "Se esperaba una ruta remota absoluta: $path" }
 
         if (separatorIndex == 0) return "/"
-
         val parent = clean.substring(0, separatorIndex)
-
-        return if (Regex("^[A-Za-z]:$").matches(parent)) {
-            "$parent/"
-        } else {
-            parent
-        }
+        return if (Regex("^[A-Za-z]:$").matches(parent)) "$parent/" else parent
     }
 
     private fun validateRemoteEntryName(name: String) {
-        require(name.isNotBlank()) {
-            "El nombre está vacío"
-        }
-
-        require(name != "." && name != "..") {
-            "Nombre no permitido"
-        }
-
-        require('/' !in name && '\\' !in name && '\u0000' !in name) {
-            "Se esperaba un nombre, no una ruta"
-        }
-    }
-
-    private fun sendFileOperation(request: JsonObject) {
-        val socket = webSocket
-            ?: throw IllegalStateException(
-                "El túnel de archivos no está disponible"
-            )
-
-        check(_connectionState.value) {
-            "El túnel de archivos no está conectado"
-        }
-
-        Log.d("MeshFilesOperation", "SEND: $request")
-
-        check(socket.send(request.toString())) {
-            "No se pudo encolar la operación en el WebSocket"
-        }
+        require(name.isNotBlank()) { "El nombre está vacío" }
+        require(name != "." && name != "..") { "Nombre no permitido" }
+        require('/' !in name && '\\' !in name && '\u0000' !in name) { "Se esperaba un nombre, no una ruta" }
     }
 
     fun copyItem(item: FileItem) {
@@ -1680,7 +1695,7 @@ class FileRelayClient {
             return
         }
 
-        clipboardNodeId = cleanKey(activeNodeId)
+        clipboardNodeId = cleanNodeId
         _clipboardItem.value = item
         _isCutMode.value = false
 
@@ -1697,7 +1712,7 @@ class FileRelayClient {
             return
         }
 
-        clipboardNodeId = cleanKey(activeNodeId)
+        clipboardNodeId = cleanNodeId
         _clipboardItem.value = item
         _isCutMode.value = true
 
@@ -1710,49 +1725,37 @@ class FileRelayClient {
         _isCutMode.value = false
     }
 
-    fun pasteItem(customTargetName: String? = null) {
+    fun pasteItem(customTargetName: String? = null, context: Context? = null) {
         val source = _clipboardItem.value ?: run {
             _statusMessage.value = "El portapapeles está vacío"
             return
         }
         val cut = _isCutMode.value
-
         val sourceNode = clipboardNodeId ?: run {
             _statusMessage.value = "Vuelve a seleccionar el elemento"
             return
         }
 
-        val targetNode = cleanKey(activeNodeId)
+        val targetNode = cleanNodeId
         val destination = _currentPath.value
 
         scope.launch(Dispatchers.IO) {
             try {
-                require(!source.isDir) {
-                    "Las operaciones de copiar y cortar solo están permitidas para archivos"
-                }
+                require(!source.isDir) { "Las operaciones de copiar y cortar solo están permitidas para archivos" }
+                check(sourceNode == targetNode) { "Este portapapeles solo permite operaciones dentro del mismo equipo remoto" }
 
-                check(sourceNode == targetNode) {
-                    "Este portapapeles solo permite operaciones dentro del mismo equipo remoto"
-                }
-
-                if (!isConnectedToNode(targetNode)) {
-                    val client = activeMeshClient
-                    if (client != null) {
-                        connect(client, targetNode)
-                        var waitMs = 0
-                        while (!_connectionState.value && waitMs < 5000) {
-                            delay(100)
-                            waitMs += 100
-                        }
+                if (!isConnected()) {
+                    connect()
+                    var waitMs = 0
+                    while (!_connectionState.value && waitMs < 5000) {
+                        delay(100)
+                        waitMs += 100
                     }
                 }
 
-                check(_connectionState.value && webSocket != null) {
-                    "El túnel de archivos no está conectado"
-                }
+                check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
 
                 validateRemoteEntryName(source.name)
-
                 val targetName = customTargetName?.takeIf { it.isNotBlank() } ?: source.name
                 validateRemoteEntryName(targetName)
 
@@ -1763,8 +1766,27 @@ class FileRelayClient {
                 val destPath = if (cleanDest == "/") "/$targetName" else "$cleanDest/$targetName"
 
                 if (cut) {
-                    // Move operation
-                    // 1. Move protocol message
+                    val progress = TransferProgress(
+                        fileName = targetName,
+                        filePath = destPath,
+                        isUpload = false,
+                        bytesTransferred = 0L,
+                        totalBytes = source.size,
+                        type = TransferType.MOVE
+                    )
+                    _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
+
+                    val session = ActiveCopyMoveSession(
+                        filePath = destPath,
+                        fileName = targetName,
+                        isMove = true,
+                        transferredBytes = 0L,
+                        totalSize = source.size,
+                        job = coroutineContext[Job],
+                        context = context
+                    )
+                    activeCopyMoveSessions[destPath] = session
+
                     val moveReq = JsonObject().apply {
                         addProperty("action", "move")
                         addProperty("reqid", reqIdStr)
@@ -1779,7 +1801,6 @@ class FileRelayClient {
                     }
                     webSocket?.send(moveReq.toString())
 
-                    // 2. Fallback rename message for moving/renaming across/within dirs
                     val renameReq = JsonObject().apply {
                         addProperty("action", "rename")
                         addProperty("reqid", reqIdStr)
@@ -1799,37 +1820,273 @@ class FileRelayClient {
                     _clipboardItem.value = null
                     clipboardNodeId = null
                     _statusMessage.value = "Movido: $targetName"
-                } else {
-                    // File copy
-                    val copyReq = JsonObject().apply {
-                        addProperty("action", "copy")
-                        addProperty("reqid", reqIdStr)
-                        addProperty("id", reqIdStr)
-                        addProperty("scpath", sourceDirectory)
-                        addProperty("dspath", destination)
-                        add("names", gson.toJsonTree(listOf(source.name)))
-                        add("files", gson.toJsonTree(listOf(source.name)))
-                        addProperty("file", source.name)
-                        addProperty("destname", targetName)
-                        addProperty("newname", targetName)
+
+                    _activeTransfers.value = _activeTransfers.value.map {
+                        if (it.filePath == destPath) it.copy(bytesTransferred = source.size, isCompleted = true) else it
                     }
-                    webSocket?.send(copyReq.toString())
+                    activeCopyMoveSessions.remove(destPath)
+                    delay(1200)
+                    _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+                    if (isConnected() && _currentPath.value == destination) {
+                        listDirectory(destination)
+                    }
+                } else {
+                    if (sourceDirectory == destination || targetName != source.name) {
+                        copyFileToDestination(source, destPath, targetName, context)
+                    } else {
+                        val progress = TransferProgress(
+                            fileName = targetName,
+                            filePath = destPath,
+                            isUpload = false,
+                            bytesTransferred = 0L,
+                            totalBytes = source.size,
+                            type = TransferType.COPY
+                        )
+                        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
 
-                    _clipboardItem.value = null
-                    clipboardNodeId = null
-                    _statusMessage.value = "Copiado: $targetName"
-                }
+                        val session = ActiveCopyMoveSession(
+                            filePath = destPath,
+                            fileName = targetName,
+                            isMove = false,
+                            transferredBytes = 0L,
+                            totalSize = source.size,
+                            job = coroutineContext[Job],
+                            context = context
+                        )
+                        activeCopyMoveSessions[destPath] = session
 
-                delay(600)
+                        val copyReq = JsonObject().apply {
+                            addProperty("action", "copy")
+                            addProperty("reqid", reqIdStr)
+                            addProperty("id", reqIdStr)
+                            addProperty("scpath", sourceDirectory)
+                            addProperty("dspath", destination)
+                            add("names", gson.toJsonTree(listOf(source.name)))
+                            add("files", gson.toJsonTree(listOf(source.name)))
+                            addProperty("file", source.name)
+                            addProperty("destname", targetName)
+                            addProperty("newname", targetName)
+                        }
+                        webSocket?.send(copyReq.toString())
 
-                if (isConnectedToNode(targetNode) && _currentPath.value == destination) {
-                    listDirectory(destination)
+                        _clipboardItem.value = null
+                        clipboardNodeId = null
+                        _statusMessage.value = "Copiado: $targetName"
+
+                        _activeTransfers.value = _activeTransfers.value.map {
+                            if (it.filePath == destPath) it.copy(bytesTransferred = source.size, isCompleted = true) else it
+                        }
+                        activeCopyMoveSessions.remove(destPath)
+                        delay(1200)
+                        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+                        if (isConnected() && _currentPath.value == destination) {
+                            listDirectory(destination)
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("MeshFilesPaste", "Error al solicitar copiar/mover ${source.path}", e)
                 _statusMessage.value = "No se pudo pegar: ${e.localizedMessage}"
+                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != source.path }
             }
         }
+    }
+
+    private fun copyFileToDestination(
+        source: FileItem,
+        destPath: String,
+        targetName: String,
+        context: Context? = null
+    ) {
+        if (source.size == 0L) {
+            uploadRawFileToPath(destPath, ByteArray(0), context)
+            _clipboardItem.value = null
+            clipboardNodeId = null
+            _statusMessage.value = "Copiado exitosamente: $targetName"
+            return
+        }
+
+        val progress = TransferProgress(
+            fileName = targetName,
+            filePath = destPath,
+            isUpload = false,
+            bytesTransferred = 0L,
+            totalBytes = source.size,
+            type = TransferType.COPY
+        )
+        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
+
+        val meshId = meshClient.getNodeMeshId(cleanNodeId)
+        val serverUrl = meshClient.serverUrl.trimEnd('/')
+        val cookieToken = meshClient.userAuthCookie.ifEmpty {
+            meshClient.relayAuthCookie.ifEmpty {
+                meshClient.extractRawToken(meshClient.authCookie)
+            }
+        }
+        val sessionCookie = meshClient.authCookie.trim()
+
+        val copyJob = scope.launch(Dispatchers.IO) {
+            var tempFile: File? = null
+            var httpSuccess = false
+
+            try {
+                tempFile = try {
+                    File.createTempFile("mesh_copy_", ".tmp", context?.cacheDir)
+                } catch (_: Exception) {
+                    File.createTempFile("mesh_copy_", ".tmp")
+                }
+
+                val client = OkHttpHelper.createClient(meshClient.ignoreSsl)
+                val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
+                val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
+                val encodedN = try { URLEncoder.encode(cleanNodeId, "UTF-8") } catch (_: Exception) { cleanNodeId }
+
+                val cleanPath = source.path.removePrefix("/")
+                val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
+                val encodedF2 = try { URLEncoder.encode(source.path, "UTF-8") } catch (_: Exception) { source.path }
+
+                var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
+                var reqBuilder = Request.Builder().url(downloadUrl).get()
+                if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+
+                var response = client.newCall(reqBuilder.build()).execute()
+                if (!response.isSuccessful) {
+                    downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
+                    reqBuilder = Request.Builder().url(downloadUrl).get()
+                    if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+                    response = client.newCall(reqBuilder.build()).execute()
+                }
+
+                if (response.isSuccessful && response.body != null) {
+                    val body = response.body!!
+                    val totalSize = if (body.contentLength() > 0) body.contentLength() else source.size
+                    val inputStream = body.byteStream()
+
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var received = 0L
+                        while (activeCopyMoveSessions.containsKey(destPath)) {
+                            val read = inputStream.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            received += read
+
+                            val prog = if (totalSize > 0) (received * totalSize) / (totalSize * 2) else received / 2
+                            _activeTransfers.value = _activeTransfers.value.map {
+                                if (it.filePath == destPath) it.copy(bytesTransferred = prog, totalBytes = totalSize) else it
+                            }
+                        }
+                        output.flush()
+                    }
+                    httpSuccess = tempFile.length() > 0 || source.size == 0L
+                }
+            } catch (e: Exception) {
+                Log.e("MeshFilesCopy", "HTTP copy fetch error: ${e.localizedMessage}", e)
+            }
+
+            if (httpSuccess && tempFile != null && tempFile.exists() && activeCopyMoveSessions.containsKey(destPath)) {
+                try {
+                    val totalSize = source.size.coerceAtLeast(tempFile.length())
+                    val uploadReq = JsonObject().apply {
+                        addProperty("action", "upload")
+                        addProperty("path", destPath)
+                        addProperty("size", tempFile.length())
+                    }
+                    webSocket?.send(uploadReq.toString())
+                    delay(100)
+
+                    FileInputStream(tempFile).use { input ->
+                        val buffer = ByteArray(64 * 1024)
+                        var uploaded = 0L
+                        val fileLen = tempFile.length()
+                        while (activeCopyMoveSessions.containsKey(destPath)) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            val chunk = ByteString.of(*buffer.copyOfRange(0, read))
+                            webSocket?.send(chunk)
+                            uploaded += read
+
+                            val prog = (totalSize / 2) + if (fileLen > 0) (uploaded * totalSize) / (fileLen * 2) else 0L
+                            _activeTransfers.value = _activeTransfers.value.map {
+                                if (it.filePath == destPath) it.copy(bytesTransferred = prog.coerceAtMost(totalSize), totalBytes = totalSize) else it
+                            }
+                            delay(10)
+                        }
+                    }
+
+                    if (activeCopyMoveSessions.containsKey(destPath)) {
+                        _activeTransfers.value = _activeTransfers.value.map {
+                            if (it.filePath == destPath) it.copy(bytesTransferred = totalSize, isCompleted = true) else it
+                        }
+                        _clipboardItem.value = null
+                        clipboardNodeId = null
+                        _statusMessage.value = "Copiado exitosamente: $targetName"
+                        activeCopyMoveSessions.remove(destPath)
+                        delay(1200)
+                        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+                        if (isConnected()) {
+                            listDirectory(_currentPath.value)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MeshFilesCopy", "Error uploading copied temp file: ${e.localizedMessage}", e)
+                    activeCopyMoveSessions.remove(destPath)
+                    _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+                } finally {
+                    tempFile.delete()
+                }
+                return@launch
+            }
+
+            // Fallback WS readfile
+            try {
+                if (!isConnected()) {
+                    connect()
+                    var waitMs = 0
+                    while (!_connectionState.value && waitMs < 5000) {
+                        delay(100)
+                        waitMs += 100
+                    }
+                }
+
+                copyingSourcePath = source.path
+                copyingDestPath = destPath
+                copyingTotalSize = source.size
+                copyingReceivedBytes = 0L
+                copyingTempFile = tempFile ?: try {
+                    File.createTempFile("mesh_copy_", ".tmp", context?.cacheDir)
+                } catch (_: Exception) {
+                    File.createTempFile("mesh_copy_", ".tmp")
+                }
+                copyingFileOutputStream = FileOutputStream(copyingTempFile)
+
+                val reqIdStr = Random.nextInt(100000, 999999).toString()
+                val readReq = JsonObject().apply {
+                    addProperty("action", "readfile")
+                    addProperty("path", source.path)
+                    addProperty("reqid", reqIdStr)
+                    addProperty("id", reqIdStr)
+                }
+                webSocket?.send(readReq.toString())
+            } catch (e: Exception) {
+                Log.e("MeshFilesCopy", "WS copy fetch error: ${e.localizedMessage}", e)
+                _statusMessage.value = "Error al copiar: ${e.localizedMessage}"
+                activeCopyMoveSessions.remove(destPath)
+                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+                tempFile?.delete()
+            }
+        }
+
+        val session = ActiveCopyMoveSession(
+            filePath = destPath,
+            fileName = targetName,
+            isMove = false,
+            transferredBytes = 0L,
+            totalSize = source.size,
+            job = copyJob,
+            context = context
+        )
+        activeCopyMoveSessions[destPath] = session
     }
 
     fun compressZip(item: FileItem, customZipName: String? = null) {
@@ -1873,7 +2130,6 @@ class FileRelayClient {
             addProperty("reqid", reqIdStr)
             addProperty("id", reqIdStr)
         }
-        Log.d("MeshFilesZip", "Sending ZIP command: $zipReq")
         webSocket?.send(zipReq.toString())
 
         _statusMessage.value = "Comprimiendo ${item.name} a $cleanZipName..."
@@ -1942,19 +2198,14 @@ class FileRelayClient {
         _statusMessage.value = "Abriendo ${item.name} en el equipo remoto..."
     }
 
-    fun deleteItem(
-        meshClient: MeshCentralClient,
-        nodeId: String,
-        item: FileItem
-    ) {
+    fun deleteItem(item: FileItem) {
         scope.launch(Dispatchers.IO) {
             try {
                 validateRemoteEntryName(item.name)
-
                 val parent = remoteParent(item.path)
 
-                if (!isConnectedToNode(nodeId)) {
-                    connect(meshClient, nodeId)
+                if (!isConnected()) {
+                    connect()
                     var waitMs = 0
                     while (!_connectionState.value && waitMs < 5000) {
                         delay(100)
@@ -1962,13 +2213,10 @@ class FileRelayClient {
                     }
                 }
 
-                check(_connectionState.value && webSocket != null) {
-                    "El túnel de archivos no está conectado"
-                }
+                check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
 
                 val reqIdStr = Random.nextInt(100000, 999999).toString()
 
-                // Primary rm command with all compatible fields
                 val rmReq = JsonObject().apply {
                     addProperty("action", "rm")
                     addProperty("reqid", reqIdStr)
@@ -1983,10 +2231,8 @@ class FileRelayClient {
                         addProperty("recurse", true)
                     }
                 }
-                Log.d("MeshFilesDelete", "Sending RM: $rmReq")
                 webSocket?.send(rmReq.toString())
 
-                // Secondary fallback command (deletefolder / deletefile)
                 val dfReq = JsonObject().apply {
                     addProperty("action", if (item.isDir) "deletefolder" else "deletefile")
                     addProperty("path", item.path)
@@ -1996,16 +2242,13 @@ class FileRelayClient {
                         addProperty("recursive", true)
                     }
                 }
-                Log.d("MeshFilesDelete", "Sending DF: $dfReq")
                 webSocket?.send(dfReq.toString())
 
                 savedFileContents.remove(item.path)
-
                 _statusMessage.value = "Eliminación solicitada: ${item.name}"
 
                 delay(600)
-
-                if (isConnectedToNode(nodeId)) {
+                if (isConnected()) {
                     listDirectory(_currentPath.value)
                 }
             } catch (e: Exception) {
@@ -2015,26 +2258,7 @@ class FileRelayClient {
         }
     }
 
-    fun deleteItem(itemName: String) {
-        val client = activeMeshClient ?: run {
-            _statusMessage.value = "No hay una sesión de archivos activa"
-            return
-        }
-
-        val item = _fileList.value.firstOrNull {
-            it.name == itemName
-        } ?: FileItem(
-            name = itemName,
-            isDir = false,
-            size = 0L,
-            modifiedTime = 0L,
-            path = if (_currentPath.value == "/") "/$itemName" else "${_currentPath.value.trimEnd('/')}/$itemName"
-        )
-
-        deleteItem(client, activeNodeId, item)
-    }
-
-    fun renameItem(meshClient: MeshCentralClient, nodeId: String, item: FileItem, newName: String) {
+    fun renameItem(item: FileItem, newName: String) {
         val parentDir = if (item.path.contains('/')) {
             item.path.substringBeforeLast('/').ifEmpty { "/" }
         } else if (item.path.contains('\\')) {
@@ -2044,61 +2268,53 @@ class FileRelayClient {
         }
         val cleanParent = if (parentDir == "/") "/" else parentDir.trimEnd('/')
         val newPath = if (cleanParent == "/") "/$newName" else "$cleanParent/$newName"
-        sendRenameRequest(meshClient, nodeId, cleanParent.ifEmpty { "/" }, item.path, newPath, item.name, newName)
-    }
-
-    fun renameItem(oldName: String, newName: String) {
-        val path = _currentPath.value.trimEnd('/')
-        val oldPath = if (path.isEmpty()) "/$oldName" else "$path/$oldName"
-        val newPath = if (path.isEmpty()) "/$newName" else "$path/$newName"
-        sendRenameRequest(activeInstanceMeshClient ?: return, activeNodeId, if (path.isEmpty()) "/" else path, oldPath, newPath, oldName, newName)
-    }
-
-    private var activeInstanceMeshClient: MeshCentralClient? = null
-
-    private fun sendRenameRequest(meshClient: MeshCentralClient, nodeId: String, parentDir: String, oldPath: String, newPath: String, oldName: String, newName: String) {
-        val reqIdStr = Random.nextInt(100000, 999999).toString()
-        Log.d("MeshFilesRename", "Renaming '$oldPath' -> '$newPath' in parent '$parentDir'")
 
         scope.launch(Dispatchers.IO) {
-            if (!isConnectedToNode(nodeId)) {
-                Log.d("MeshFilesRename", "Not connected to $nodeId, connecting first...")
-                connect(meshClient, nodeId)
-                var waitMs = 0
-                while (!_connectionState.value && waitMs < 5000) {
-                    delay(100)
-                    waitMs += 100
+            try {
+                validateRemoteEntryName(item.name)
+                validateRemoteEntryName(newName)
+
+                if (!isConnected()) {
+                    connect()
+                    var waitMs = 0
+                    while (!_connectionState.value && waitMs < 5000) {
+                        delay(100)
+                        waitMs += 100
+                    }
                 }
-            }
 
-            val req1 = JsonObject().apply {
-                addProperty("action", "rename")
-                addProperty("path", parentDir)
-                addProperty("oldfile", oldPath)
-                addProperty("newfile", newPath)
-                addProperty("oldpath", oldPath)
-                addProperty("newpath", newPath)
-                addProperty("oldname", oldName)
-                addProperty("newname", newName)
-                addProperty("reqid", reqIdStr)
-                addProperty("id", reqIdStr)
-            }
-            webSocket?.send(req1.toString())
+                check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
 
-            val req2 = JsonObject().apply {
-                addProperty("action", "rename")
-                addProperty("oldpath", oldPath)
-                addProperty("newpath", newPath)
-                addProperty("oldname", oldName)
-                addProperty("newname", newName)
-                addProperty("reqid", reqIdStr)
-                addProperty("id", reqIdStr)
-            }
-            webSocket?.send(req2.toString())
+                val reqIdStr = Random.nextInt(100000, 999999).toString()
 
-            _statusMessage.value = "Renombrado a $newName"
-            delay(500)
-            listDirectory(_currentPath.value)
+                val renameReq = JsonObject().apply {
+                    addProperty("action", "rename")
+                    addProperty("reqid", reqIdStr)
+                    addProperty("id", reqIdStr)
+                    addProperty("path", cleanParent.ifEmpty { "/" })
+                    addProperty("oldfile", item.path)
+                    addProperty("newfile", newPath)
+                    addProperty("oldpath", item.path)
+                    addProperty("newpath", newPath)
+                    addProperty("oldname", item.name)
+                    addProperty("newname", newName)
+                }
+                webSocket?.send(renameReq.toString())
+
+                val savedContent = savedFileContents.remove(item.path)
+                if (savedContent != null) {
+                    savedFileContents[newPath] = savedContent
+                }
+
+                _statusMessage.value = "Renombrado a: $newName"
+                delay(600)
+                if (isConnected()) {
+                    listDirectory(_currentPath.value)
+                }
+            } catch (e: Exception) {
+                Log.e("MeshFilesRename", "Error al renombrar ${item.path} a $newName", e)
+                _statusMessage.value = "Error al renombrar: ${e.localizedMessage}"
+            }
         }
     }
 
@@ -2107,15 +2323,15 @@ class FileRelayClient {
     }
 
     fun disconnect(resetPath: Boolean = false) {
-        if (downloadOutputStream != null) {
-            try { downloadOutputStream?.close() } catch (e: Exception) {}
-            downloadOutputStream = null
-        }
-        downloadingPath = null
-        downloadingName = null
+        isUserDisconnect = true
         copyingSourcePath = null
         copyingDestPath = null
-        copyingBuffer = null
+        try {
+            copyingFileOutputStream?.close()
+        } catch (_: Exception) {}
+        copyingFileOutputStream = null
+        copyingTempFile?.delete()
+        copyingTempFile = null
         readingFilePath = null
         readingBuffer = null
         _fileReadingProgress.value = null
@@ -2124,7 +2340,6 @@ class FileRelayClient {
         webSocket?.close(1000, "Disconnecting files")
         webSocket = null
         _connectionState.value = false
-        updateActiveNodes()
         _fileList.value = emptyList()
         if (resetPath) {
             _currentPath.value = "/"
@@ -2132,8 +2347,12 @@ class FileRelayClient {
         _clipboardItem.value = null
         clipboardNodeId = null
         _fileContent.value = null
-        if (activeInstance == this) {
-            activeInstance = null
+        onStateChanged?.invoke()
+    }
+
+    fun onNetworkChanged() {
+        if (!isUserDisconnect && !isConnected()) {
+            connect()
         }
     }
 
@@ -2142,5 +2361,267 @@ class FileRelayClient {
         val units = arrayOf("B", "KB", "MB", "GB", "TB")
         val digitGroups = (log10(size.toDouble()) / log10(1024.0)).toInt()
         return String.format(Locale.getDefault(), "%.1f %s", size / 1024.0.pow(digitGroups.toDouble()), units[digitGroups])
+    }
+}
+
+class FileRelayClient {
+
+    companion object {
+        var activeInstance: FileRelayClient? = null
+    }
+
+    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val sessions = ConcurrentHashMap<String, FileSession>()
+
+    private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
+    val activeNodesFlow: StateFlow<Set<String>> = _activeNodes.asStateFlow()
+
+    private val _sessionsStatus = MutableStateFlow<Map<String, SessionStatus>>(emptyMap())
+    val fileSessionsStatusFlow: StateFlow<Map<String, SessionStatus>> = _sessionsStatus.asStateFlow()
+
+    init {
+        activeInstance = this
+    }
+
+    private fun cleanKey(nodeId: String): String {
+        return if (nodeId.startsWith("node//")) {
+            nodeId.substring(6)
+        } else if (nodeId.startsWith("node/")) {
+            nodeId.substring(5)
+        } else {
+            nodeId
+        }.trimStart('/').trim()
+    }
+
+    fun updateSessionsStatus() {
+        val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
+            val sess = entry.value
+            when {
+                sess.isConnected() -> SessionStatus.CONNECTED
+                sess.fileList.value.isNotEmpty() && !sess.isUserDisconnect -> SessionStatus.DISCONNECTED_WITH_BUFFER
+                else -> SessionStatus.NONE
+            }
+        }
+        _sessionsStatus.value = map
+        updateActiveNodes()
+    }
+
+    fun updateActiveNodes() {
+        val active = sessions.entries
+            .filter { it.value.isConnected() }
+            .map { cleanKey(it.key) }
+            .toSet()
+        _activeNodes.value = active
+    }
+
+    @Synchronized
+    fun getSession(meshClient: MeshCentralClient, nodeId: String): FileSession {
+        val key = cleanKey(nodeId)
+        return sessions.getOrPut(key) {
+            FileSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
+                sess.onStateChanged = { updateSessionsStatus() }
+            }
+        }
+    }
+
+    fun isConnectedToNode(nodeId: String): Boolean {
+        val session = sessions[cleanKey(nodeId)]
+        return session?.isConnected() ?: false
+    }
+
+    fun getConnectionState(meshClient: MeshCentralClient, nodeId: String): StateFlow<Boolean> {
+        return getSession(meshClient, nodeId).connectionState
+    }
+
+    fun getCurrentPath(meshClient: MeshCentralClient, nodeId: String): StateFlow<String> {
+        return getSession(meshClient, nodeId).currentPath
+    }
+
+    fun getFileList(meshClient: MeshCentralClient, nodeId: String): StateFlow<List<FileItem>> {
+        return getSession(meshClient, nodeId).fileList
+    }
+
+    fun getStatusMessage(meshClient: MeshCentralClient, nodeId: String): StateFlow<String?> {
+        return getSession(meshClient, nodeId).statusMessage
+    }
+
+    fun getClipboardItem(meshClient: MeshCentralClient, nodeId: String): StateFlow<FileItem?> {
+        return getSession(meshClient, nodeId).clipboardItem
+    }
+
+    fun getIsCutMode(meshClient: MeshCentralClient, nodeId: String): StateFlow<Boolean> {
+        return getSession(meshClient, nodeId).isCutMode
+    }
+
+    fun getFileContent(meshClient: MeshCentralClient, nodeId: String): StateFlow<Pair<String, String>?> {
+        return getSession(meshClient, nodeId).fileContent
+    }
+
+    fun getFileReadingProgress(meshClient: MeshCentralClient, nodeId: String): StateFlow<Float?> {
+        return getSession(meshClient, nodeId).fileReadingProgress
+    }
+
+    fun getActiveTransfers(meshClient: MeshCentralClient, nodeId: String): StateFlow<List<TransferProgress>> {
+        return getSession(meshClient, nodeId).activeTransfers
+    }
+
+    fun getActiveTransfer(meshClient: MeshCentralClient, nodeId: String): StateFlow<TransferProgress?> {
+        return getSession(meshClient, nodeId).activeTransfer
+    }
+
+    fun connect(meshClient: MeshCentralClient, nodeId: String) {
+        val session = getSession(meshClient, nodeId)
+        session.connect()
+        updateSessionsStatus()
+    }
+
+    fun disconnectSession(nodeId: String) {
+        val key = cleanKey(nodeId)
+        val session = sessions.remove(key)
+        session?.disconnect(resetPath = true)
+        updateSessionsStatus()
+    }
+
+    fun disconnectAll() {
+        for (session in sessions.values) {
+            session.disconnect(resetPath = true)
+        }
+        sessions.clear()
+        updateSessionsStatus()
+    }
+
+    fun disconnect() {
+        disconnectAll()
+    }
+
+    fun hasActiveSessions(): Boolean {
+        return sessions.values.any { it.isConnected() }
+    }
+
+    fun getSessionStatus(nodeId: String): SessionStatus {
+        val session = sessions[cleanKey(nodeId)] ?: return SessionStatus.NONE
+        return when {
+            session.isConnected() -> SessionStatus.CONNECTED
+            session.fileList.value.isNotEmpty() && !session.isUserDisconnect -> SessionStatus.DISCONNECTED_WITH_BUFFER
+            else -> SessionStatus.NONE
+        }
+    }
+
+    fun hasDisconnectedWithBuffer(): Boolean {
+        return sessions.values.any { !it.isConnected() && it.fileList.value.isNotEmpty() && !it.isUserDisconnect }
+    }
+
+    fun hasActiveOrBufferedSession(): Boolean {
+        return sessions.values.any { (it.isConnected() || it.fileList.value.isNotEmpty()) && !it.isUserDisconnect }
+    }
+
+    fun getSessionCount(): Int {
+        return sessions.values.count { (it.isConnected() || it.fileList.value.isNotEmpty()) && !it.isUserDisconnect }
+    }
+
+    fun onNetworkChanged() {
+        for (session in sessions.values) {
+            if (!session.isUserDisconnect && !session.isConnected()) {
+                session.onNetworkChanged()
+            }
+        }
+    }
+
+    fun cancelTransfer(filePath: String) {
+        for (session in sessions.values) {
+            session.cancelTransfer(filePath)
+        }
+    }
+
+    fun cancelDownload() {
+        for (session in sessions.values) {
+            session.cancelDownload()
+        }
+    }
+
+    fun listDirectory(nodeId: String, path: String) {
+        sessions[cleanKey(nodeId)]?.listDirectory(path)
+    }
+
+    fun createFolder(nodeId: String, folderName: String) {
+        sessions[cleanKey(nodeId)]?.createFolder(folderName)
+    }
+
+    fun createFile(nodeId: String, fileName: String, content: String = "") {
+        sessions[cleanKey(nodeId)]?.createFile(fileName, content)
+    }
+
+    fun uploadRawFile(nodeId: String, fileName: String, bytes: ByteArray, context: Context? = null) {
+        sessions[cleanKey(nodeId)]?.uploadRawFile(fileName, bytes, context)
+    }
+
+    fun downloadFileToDownloads(context: Context, meshClient: MeshCentralClient, nodeId: String, item: FileItem) {
+        val session = getSession(meshClient, nodeId)
+        session.downloadFileToDownloads(context, item)
+    }
+
+    fun readFileContent(meshClient: MeshCentralClient, nodeId: String, item: FileItem) {
+        val session = getSession(meshClient, nodeId)
+        session.readFileContent(item)
+    }
+
+    fun cancelFileReading(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.cancelFileReading()
+    }
+
+    fun saveFileContent(nodeId: String, filePath: String, newContent: String) {
+        sessions[cleanKey(nodeId)]?.saveFileContent(filePath, newContent)
+    }
+
+    fun clearFileContent(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.clearFileContent()
+    }
+
+    fun copyItem(nodeId: String, item: FileItem) {
+        sessions[cleanKey(nodeId)]?.copyItem(item)
+    }
+
+    fun cutItem(nodeId: String, item: FileItem) {
+        sessions[cleanKey(nodeId)]?.cutItem(item)
+    }
+
+    fun clearClipboard(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.clearClipboard()
+    }
+
+    fun cancelCopyMove(filePath: String) {
+        for (session in sessions.values) {
+            session.cancelCopyMove(filePath)
+        }
+    }
+
+    fun pasteItem(nodeId: String, customTargetName: String? = null, context: Context? = null) {
+        sessions[cleanKey(nodeId)]?.pasteItem(customTargetName, context)
+    }
+
+    fun compressZip(nodeId: String, item: FileItem, customZipName: String? = null) {
+        sessions[cleanKey(nodeId)]?.compressZip(item, customZipName)
+    }
+
+    fun decompressZip(nodeId: String, item: FileItem) {
+        sessions[cleanKey(nodeId)]?.decompressZip(item)
+    }
+
+    fun openOnRemoteDevice(nodeId: String, item: FileItem) {
+        sessions[cleanKey(nodeId)]?.openOnRemoteDevice(item)
+    }
+
+    fun deleteItem(meshClient: MeshCentralClient, nodeId: String, item: FileItem) {
+        val session = getSession(meshClient, nodeId)
+        session.deleteItem(item)
+    }
+
+    fun renameItem(meshClient: MeshCentralClient, nodeId: String, item: FileItem, newName: String) {
+        val session = getSession(meshClient, nodeId)
+        session.renameItem(item, newName)
+    }
+
+    fun clearStatus(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.clearStatus()
     }
 }
