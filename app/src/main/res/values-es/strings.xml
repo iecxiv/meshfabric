@@ -73,6 +73,7 @@
     <string name="compress_zip_title">Comprimir en ZIP</string>
     <string name="compress_zip_warning_title">Aviso antes de continuar</string>
     <string name="compress_zip_warning_msg">Durante el proceso de creación del fichero zip, la interfaz de gestor de archivos no podra ser utilizada para este dispositivo hasta la finalización del proceso de compresion. ¿Esta seguro que desea continuar?</string>
+    <string name="compress_in_progress_overlay_msg">Por favor espere hasta que el proceso de compresión haya finalizado...</string>
     <string name="action_continue">Continuar</string>
     <string name="decompress_zip">Descomprimir</string>
     <string name="compressed_file_name_label">Nombre del archivo comprimido:</string>

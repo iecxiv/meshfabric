@@ -20,6 +20,8 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Surface
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -149,6 +151,9 @@ fun FileManagerScreen(
     val fileContentState by viewModel.fileContent(nodeId).collectAsState()
     val fileReadingProgress by viewModel.fileReadingProgress(nodeId).collectAsState()
     val activeTransfers by viewModel.activeTransfers(nodeId).collectAsState()
+
+    val activeZipTransfer = activeTransfers.firstOrNull { it.type == TransferType.COMPRESS && !it.isCompleted }
+    val isCompressing = activeZipTransfer != null
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -528,16 +533,18 @@ fun FileManagerScreen(
                                                 )
                                             }
 
-                                            IconButton(
-                                                onClick = { viewModel.cancelTransfer(nodeId, transfer.filePath) },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Close,
-                                                    contentDescription = "Cancelar transferencia",
-                                                    tint = Color.Red,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
+                                            if (transfer.type != TransferType.COMPRESS) {
+                                                IconButton(
+                                                    onClick = { viewModel.cancelTransfer(nodeId, transfer.filePath) },
+                                                    modifier = Modifier.size(28.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Close,
+                                                        contentDescription = "Cancelar transferencia",
+                                                        tint = Color.Red,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
@@ -665,7 +672,7 @@ fun FileManagerScreen(
                 ) {
                     IconButton(
                         onClick = { viewModel.navigateUp(nodeId) },
-                        enabled = currentPath.isNotEmpty() && currentPath != "/"
+                        enabled = !isCompressing && currentPath.isNotEmpty() && currentPath != "/"
                     ) {
                         Icon(Icons.Default.ArrowUpward, contentDescription = "Subir carpeta")
                     }
@@ -928,6 +935,58 @@ fun FileManagerScreen(
                                             )
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isCompressing) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                            .pointerInput(Unit) {
+                                detectTapGestures { }
+                            }
+                            .clickable(enabled = true, onClick = {}),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            modifier = Modifier
+                                .padding(24.dp)
+                                .fillMaxWidth(0.9f),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    progress = { activeZipTransfer?.percentage ?: 0f },
+                                    modifier = Modifier.size(52.dp)
+                                )
+                                Spacer(modifier = Modifier.height(18.dp))
+                                Text(
+                                    text = stringResource(R.string.compress_in_progress_overlay_msg),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center
+                                )
+                                if (activeZipTransfer != null && activeZipTransfer.percentage > 0f) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "${(activeZipTransfer.percentage * 100).toInt()}%",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
                                 }
                             }
                         }
