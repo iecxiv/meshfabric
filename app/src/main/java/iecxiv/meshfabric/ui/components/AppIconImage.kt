@@ -11,6 +11,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import iecxiv.meshfabric.R
 import java.io.File
 
 @Composable
@@ -62,21 +64,21 @@ fun AppIconImage(
         customBitmap != null -> {
             Image(
                 bitmap = customBitmap,
-                contentDescription = "Logo de la Aplicación",
+                contentDescription = stringResource(R.string.app_logo_desc),
                 modifier = finalModifier
             )
         }
         appIconBitmap != null -> {
             Image(
                 bitmap = appIconBitmap,
-                contentDescription = "Logo de la Aplicación",
+                contentDescription = stringResource(R.string.app_logo_desc),
                 modifier = finalModifier
             )
         }
         else -> {
             Icon(
                 imageVector = Icons.Default.Computer,
-                contentDescription = "Logo de la Aplicación",
+                contentDescription = stringResource(R.string.app_logo_desc),
                 modifier = finalModifier
             )
         }

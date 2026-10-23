@@ -245,7 +245,7 @@ fun DeviceListScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Refrescar",
+                                    contentDescription = stringResource(R.string.refresh),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -257,7 +257,7 @@ fun DeviceListScreen(
                             ) {
                                 Icon(
                                     imageVector = if (isAnyGroupExpanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
-                                    contentDescription = if (isAnyGroupExpanded) "Plegar todos los grupos" else "Desplegar todos los grupos",
+                                    contentDescription = stringResource(if (isAnyGroupExpanded) R.string.collapse_all_groups else R.string.expand_all_groups),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -272,7 +272,7 @@ fun DeviceListScreen(
                             ) {
                                 Icon(
                                     imageVector = if (showSearch) Icons.Default.Close else Icons.Default.Search,
-                                    contentDescription = "Buscar",
+                                    contentDescription = stringResource(R.string.search),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -292,7 +292,7 @@ fun DeviceListScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.PowerSettingsNew,
-                                    contentDescription = "Cerrar Conexiones Activas",
+                                    contentDescription = stringResource(R.string.close_active_connections),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp)
                                 )

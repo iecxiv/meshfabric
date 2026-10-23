@@ -409,11 +409,11 @@ fun FileManagerScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 val summaryLabel = when (activeTransfers[0].type) {
-                                    TransferType.DOWNLOAD -> "Descargando"
-                                    TransferType.UPLOAD -> "Subiendo"
-                                    TransferType.COPY -> "Copiando"
-                                    TransferType.MOVE -> "Moviendo"
-                                    TransferType.COMPRESS -> "Comprimiendo"
+                                    TransferType.DOWNLOAD -> stringResource(R.string.downloading_status)
+                                    TransferType.UPLOAD -> stringResource(R.string.uploading_status)
+                                    TransferType.COPY -> stringResource(R.string.copy)
+                                    TransferType.MOVE -> stringResource(R.string.move)
+                                    TransferType.COMPRESS -> stringResource(R.string.compress)
                                 }
                                 Text(
                                     text = if (activeCount == 1) {
@@ -438,7 +438,7 @@ fun FileManagerScreen(
                                 ) {
                                     Icon(
                                         imageVector = if (isTransfersPanelExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                                        contentDescription = if (isTransfersPanelExpanded) "Plegar transferencias" else "Expandir transferencias"
+                                        contentDescription = stringResource(if (isTransfersPanelExpanded) R.string.collapse_transfers else R.string.expand_transfers)
                                     )
                                 }
 
@@ -449,7 +449,7 @@ fun FileManagerScreen(
                                         contentColor = MaterialTheme.colorScheme.onPrimary,
                                         modifier = Modifier.size(42.dp)
                                     ) {
-                                        Icon(Icons.Default.Add, contentDescription = "Opciones de creación", modifier = Modifier.size(22.dp))
+                                        Icon(Icons.Default.Add, contentDescription = stringResource(R.string.creation_options), modifier = Modifier.size(22.dp))
                                     }
 
                                     DropdownMenu(
@@ -506,11 +506,11 @@ fun FileManagerScreen(
                                             TransferType.COMPRESS -> Icons.Default.FolderZip
                                         }
                                         val transferLabel = when (transfer.type) {
-                                            TransferType.DOWNLOAD -> "Descargando"
-                                            TransferType.UPLOAD -> "Subiendo"
-                                            TransferType.COPY -> "Copiando"
-                                            TransferType.MOVE -> "Moviendo"
-                                            TransferType.COMPRESS -> "Comprimiendo"
+                                            TransferType.DOWNLOAD -> stringResource(R.string.downloading_status)
+                                            TransferType.UPLOAD -> stringResource(R.string.uploading_status)
+                                            TransferType.COPY -> stringResource(R.string.copy)
+                                            TransferType.MOVE -> stringResource(R.string.move)
+                                            TransferType.COMPRESS -> stringResource(R.string.compress)
                                         }
                                         Row(
                                             modifier = Modifier
@@ -566,7 +566,7 @@ fun FileManagerScreen(
                                                 ) {
                                                     Icon(
                                                         Icons.Default.Close,
-                                                        contentDescription = "Cancelar transferencia",
+                                                        contentDescription = stringResource(R.string.cancel_transfer),
                                                         tint = Color.Red,
                                                         modifier = Modifier.size(18.dp)
                                                     )
@@ -1912,7 +1912,7 @@ fun FileManagerScreen(
                             },
                             enabled = uploadConflictCustomName.isNotBlank()
                         ) {
-                            Text(stringResource(R.string.uploading).substringBefore(':'))
+                            Text(stringResource(R.string.upload))
                         }
                     },
                     dismissButton = {
