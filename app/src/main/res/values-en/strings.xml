@@ -71,6 +71,9 @@
     <string name="cancel_clipboard">Cancel clipboard</string>
     <string name="compress_zip">Compress to ZIP</string>
     <string name="compress_zip_title">Compress to ZIP</string>
+    <string name="compress_zip_warning_title">Notice before continuing</string>
+    <string name="compress_zip_warning_msg">During the zip file creation process, the file manager interface cannot be used for this device until the compression process is completed. Are you sure you want to continue?</string>
+    <string name="action_continue">Continue</string>
     <string name="decompress_zip">Extract ZIP</string>
     <string name="compressed_file_name_label">Compressed file name:</string>
     <string name="compress">Compress</string>

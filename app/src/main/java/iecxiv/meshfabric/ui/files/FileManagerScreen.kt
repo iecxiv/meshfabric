@@ -181,6 +181,9 @@ fun FileManagerScreen(
     var zipBaseNameInput by remember { mutableStateOf("") }
     var showZipOverwriteConfirmDialog by remember { mutableStateOf(false) }
     var pendingZipName by remember { mutableStateOf("") }
+    var showZipWarningDialog by remember { mutableStateOf(false) }
+    var pendingZipTarget by remember { mutableStateOf<FileItem?>(null) }
+    var pendingZipFinalName by remember { mutableStateOf("") }
 
     var showPasteConflictConfirmDialog by remember { mutableStateOf(false) }
     var showPasteRenameDialog by remember { mutableStateOf(false) }
@@ -379,6 +382,7 @@ fun FileManagerScreen(
                                     TransferType.UPLOAD -> "Subiendo"
                                     TransferType.COPY -> "Copiando"
                                     TransferType.MOVE -> "Moviendo"
+                                    TransferType.COMPRESS -> "Comprimiendo"
                                 }
                                 Text(
                                     text = if (activeCount == 1) {
@@ -468,12 +472,14 @@ fun FileManagerScreen(
                                             TransferType.UPLOAD -> Icons.Default.Upload
                                             TransferType.COPY -> Icons.Default.ContentCopy
                                             TransferType.MOVE -> Icons.Default.ContentCut
+                                            TransferType.COMPRESS -> Icons.Default.FolderZip
                                         }
                                         val transferLabel = when (transfer.type) {
                                             TransferType.DOWNLOAD -> "Descargando"
                                             TransferType.UPLOAD -> "Subiendo"
                                             TransferType.COPY -> "Copiando"
                                             TransferType.MOVE -> "Moviendo"
+                                            TransferType.COMPRESS -> "Comprimiendo"
                                         }
                                         Row(
                                             modifier = Modifier
@@ -1453,9 +1459,10 @@ fun FileManagerScreen(
                                     pendingZipName = finalZipName
                                     showZipOverwriteConfirmDialog = true
                                 } else {
-                                    viewModel.compressZip(nodeId, target, finalZipName)
+                                    pendingZipTarget = target
+                                    pendingZipFinalName = finalZipName
+                                    showZipWarningDialog = true
                                     showZipDialog = false
-                                    itemToZip = null
                                 }
                             }
                         }
@@ -1491,11 +1498,12 @@ fun FileManagerScreen(
                     Button(
                         onClick = {
                             if (target != null && pendingZipName.isNotEmpty()) {
-                                viewModel.compressZip(nodeId, target, pendingZipName)
+                                pendingZipTarget = target
+                                pendingZipFinalName = pendingZipName
+                                showZipOverwriteConfirmDialog = false
+                                showZipDialog = false
+                                showZipWarningDialog = true
                             }
-                            showZipOverwriteConfirmDialog = false
-                            showZipDialog = false
-                            itemToZip = null
                         }
                     ) {
                         Text(stringResource(R.string.overwrite))
@@ -1508,6 +1516,52 @@ fun FileManagerScreen(
                         }
                     ) {
                         Text(stringResource(R.string.change_name))
+                    }
+                }
+            )
+        }
+
+        // ZIP Warning Confirmation Dialog
+        if (showZipWarningDialog && pendingZipTarget != null && pendingZipFinalName.isNotEmpty()) {
+            val target = pendingZipTarget
+            val finalZipName = pendingZipFinalName
+
+            AlertDialog(
+                onDismissRequest = {
+                    showZipWarningDialog = false
+                    pendingZipTarget = null
+                    pendingZipFinalName = ""
+                    itemToZip = null
+                },
+                title = { Text(stringResource(R.string.compress_zip_warning_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                text = {
+                    Text(stringResource(R.string.compress_zip_warning_msg))
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (target != null) {
+                                viewModel.compressZip(nodeId, target, finalZipName)
+                            }
+                            showZipWarningDialog = false
+                            pendingZipTarget = null
+                            pendingZipFinalName = ""
+                            itemToZip = null
+                        }
+                    ) {
+                        Text(stringResource(R.string.action_continue), color = Color.Red, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showZipWarningDialog = false
+                            pendingZipTarget = null
+                            pendingZipFinalName = ""
+                            itemToZip = null
+                        }
+                    ) {
+                        Text(stringResource(R.string.cancel))
                     }
                 }
             )

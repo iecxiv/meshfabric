@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +77,15 @@ class ActiveCopyMoveSession(
     val context: Context?
 )
 
+class ActiveZipSession(
+    val zipPath: String,
+    val fileName: String,
+    val sourcePath: String,
+    var totalSize: Long,
+    var bytesCompressed: Long = 0L,
+    var job: Job? = null
+)
+
 class FileSession(
     val nodeId: String,
     val meshClient: MeshCentralClient,
@@ -125,6 +135,7 @@ class FileSession(
     val activeDownloads = ConcurrentHashMap<String, ActiveDownloadSession>()
     val activeUploads = ConcurrentHashMap<String, ActiveUploadSession>()
     val activeCopyMoveSessions = ConcurrentHashMap<String, ActiveCopyMoveSession>()
+    val activeZipSessions = ConcurrentHashMap<String, ActiveZipSession>()
     val savedFileContents = ConcurrentHashMap<String, String>()
     private val _activeTransfers = MutableStateFlow<List<TransferProgress>>(emptyList())
     val activeTransfers: StateFlow<List<TransferProgress>> = _activeTransfers.asStateFlow()
@@ -166,7 +177,7 @@ class FileSession(
             if (action in setOf("downloadStart", "downloadEnd", "downloadError")) {
                 return true
             }
-            action in setOf("ls", "dir", "download", "read", "readfile", "msg", "upload", "mkdir", "rm", "deletefile", "deletefolder", "rmdir", "rmfile", "rename", "zip", "unzip") ||
+            action in setOf("ls", "dir", "download", "read", "readfile", "msg", "upload", "mkdir", "rm", "deletefile", "deletefolder", "rmdir", "rmfile", "rename", "zip", "unzip", "dialogmessage") ||
                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
         } catch (e: Exception) {
             false
@@ -438,6 +449,11 @@ class FileSession(
             val action = json.get("action")?.asString ?: ""
             val subaction = json.get("subaction")?.asString ?: ""
 
+            if (action == "zip" || action == "dialogmessage" || subaction == "zip" || json.has("zip")) {
+                handleZipControlMessage(json)
+                return
+            }
+
             if (action == "downloadEnd" || subaction == "end" || subaction == "close" || subaction == "complete") {
                 if (activeDownloads.isNotEmpty()) finishDownload()
                 if (copyingSourcePath != null) finishCopyingFile()
@@ -668,7 +684,29 @@ class FileSession(
                 )
                 _fileList.value = sortedItems
                 onStateChanged?.invoke()
+                if (activeZipSessions.isNotEmpty()) {
+                    val cleanCurrent = path.trimEnd('/')
+                    for (session in activeZipSessions.values.toList()) {
+                        val zipParent = if (session.zipPath.contains('/')) {
+                            session.zipPath.substringBeforeLast('/').ifEmpty { "/" }
+                        } else {
+                            "/"
+                        }
+                        val cleanZipParent = zipParent.trimEnd('/')
+                        if (cleanZipParent.equals(cleanCurrent, ignoreCase = true) || (cleanZipParent.isEmpty() && cleanCurrent.isEmpty())) {
+                            val fileCreated = sortedItems.firstOrNull { it.name.equals(session.fileName, ignoreCase = true) }
+                            if (fileCreated != null) {
+                                if (fileCreated.size > 0L) {
+                                    session.totalSize = fileCreated.size
+                                }
+                                finishZip(session)
+                            }
+                        }
+                    }
+                }
                 Log.d("MeshFiles", "Successfully parsed ${sortedItems.size} items for path '$path' on $cleanNodeId")
+            } else if (action == "zip" || action == "dialogmessage" || json.get("subaction")?.asString == "zip" || json.has("zip") || (activeZipSessions.isNotEmpty() && (json.has("current") || json.has("percent") || json.has("progress") || json.has("compressed")))) {
+                handleZipControlMessage(json)
             } else if (action == "download" || action == "read" || action == "readfile") {
                 val path = json.get("path")?.asString ?: ""
                 val content = json.get("data")?.asString
@@ -935,13 +973,16 @@ class FileSession(
     }
 
     fun cancelTransfer(filePath: String) {
-        if (activeCopyMoveSessions.containsKey(filePath)) {
+        if (activeZipSessions.containsKey(filePath)) {
+            cancelZip(filePath)
+        } else if (activeCopyMoveSessions.containsKey(filePath)) {
             cancelCopyMove(filePath)
         } else if (activeDownloads.containsKey(filePath)) {
             cancelDownload(filePath)
         } else if (activeUploads.containsKey(filePath)) {
             cancelUpload(filePath)
         } else {
+            cancelZip(filePath)
             cancelCopyMove(filePath)
             cancelDownload(filePath)
             cancelUpload(filePath)
@@ -2106,6 +2147,8 @@ class FileSession(
             "$rawZipName.zip"
         }
 
+        val targetZipPath = if (cleanParent == "/") "/$cleanZipName" else "$cleanParent/$cleanZipName"
+
         val reqIdStr = Random.nextInt(100000, 999999).toString()
         val filesArray = gson.toJsonTree(listOf(item.name))
 
@@ -2130,12 +2173,153 @@ class FileSession(
             addProperty("reqid", reqIdStr)
             addProperty("id", reqIdStr)
         }
-        webSocket?.send(zipReq.toString())
+
+        val totalSize = if (item.size > 0L) item.size else 1024L * 1024L * 5L
+
+        val progress = TransferProgress(
+            fileName = cleanZipName,
+            filePath = targetZipPath,
+            isUpload = false,
+            bytesTransferred = 0L,
+            totalBytes = totalSize,
+            type = TransferType.COMPRESS
+        )
+        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != targetZipPath } + progress
+
+        val zipSession = ActiveZipSession(
+            zipPath = targetZipPath,
+            fileName = cleanZipName,
+            sourcePath = item.path,
+            totalSize = totalSize
+        )
+        activeZipSessions[targetZipPath] = zipSession
 
         _statusMessage.value = "Comprimiendo ${item.name} a $cleanZipName..."
+
+        val job = scope.launch(Dispatchers.IO) {
+            try {
+                ensureConnected()
+                webSocket?.send(zipReq.toString())
+
+                while (isActive && activeZipSessions.containsKey(targetZipPath)) {
+                    delay(500)
+                }
+            } catch (e: Exception) {
+                Log.e("MeshFilesZip", "Error sending zip request: ${e.localizedMessage}", e)
+            }
+        }
+        zipSession.job = job
+    }
+
+    private fun handleZipControlMessage(json: JsonObject) {
+        if (activeZipSessions.isEmpty()) return
+
+        val reqid = json.get("reqid")?.asString ?: json.get("id")?.asString ?: ""
+        val rawTargetFile = json.get("file")?.asString ?: json.get("dest")?.asString ?: json.get("target")?.asString ?: ""
+        val targetFile = rawTargetFile.trimStart('/')
+
+        val session = activeZipSessions.values.firstOrNull {
+            (reqid.isNotEmpty() && (it.zipPath.contains(reqid) || it.fileName.contains(reqid))) ||
+            (targetFile.isNotEmpty() && (
+                it.fileName.contains(targetFile, ignoreCase = true) ||
+                it.sourcePath.contains(targetFile, ignoreCase = true) ||
+                it.zipPath.contains(targetFile, ignoreCase = true) ||
+                targetFile.contains(it.fileName.substringBeforeLast('.'), ignoreCase = true)
+            ))
+        } ?: activeZipSessions.values.firstOrNull() ?: return
+
+        val msg = json.get("msg")?.asString ?: ""
+        val subaction = json.get("subaction")?.asString ?: ""
+        val status = json.get("status")?.asString ?: ""
+        val errorMsg = json.get("error")?.asString ?: json.get("err")?.asString
+
+        if (errorMsg != null || status.equals("error", ignoreCase = true)) {
+            val err = errorMsg ?: "Error en compresión ZIP"
+            session.job?.cancel()
+            _statusMessage.value = err
+            _activeTransfers.value = _activeTransfers.value.filter { it.filePath != session.zipPath }
+            activeZipSessions.remove(session.zipPath)
+            return
+        }
+
+        val current = json.get("current")?.asLong ?: json.get("bytes")?.asLong ?: json.get("transferred")?.asLong ?: json.get("compressed")?.asLong
+        val total = json.get("total")?.asLong ?: json.get("totalBytes")?.asLong ?: json.get("size")?.asLong
+        val percent = json.get("progress")?.asFloat ?: json.get("percent")?.asFloat ?: json.get("percentage")?.asFloat
+
+        val newTotal = total ?: session.totalSize
+        session.totalSize = newTotal
+
+        if (percent != null) {
+            val p = if (percent > 1.0f) (percent / 100.0f).coerceIn(0f, 1f) else percent.coerceIn(0f, 1f)
+            val calcBytes = (newTotal * p).toLong()
+            val monotonicBytes = maxOf(session.bytesCompressed, calcBytes)
+            session.bytesCompressed = monotonicBytes
+            _activeTransfers.value = _activeTransfers.value.map {
+                if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
+            }
+        } else if (current != null) {
+            val monotonicBytes = maxOf(session.bytesCompressed, current)
+            session.bytesCompressed = monotonicBytes
+            _activeTransfers.value = _activeTransfers.value.map {
+                if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
+            }
+        }
+
+        val isComplete = msg.equals("zippingDone", ignoreCase = true) ||
+                msg.equals("unzippingDone", ignoreCase = true) ||
+                subaction == "complete" || subaction == "end" || subaction == "done" ||
+                status.equals("ok", ignoreCase = true) || status.equals("completed", ignoreCase = true) || status.equals("done", ignoreCase = true) ||
+                json.get("done")?.asBoolean == true || json.get("complete")?.asBoolean == true || json.get("result")?.asString == "ok" ||
+                (percent != null && percent >= 100f)
+
+        if (isComplete) {
+            finishZip(session)
+        }
+    }
+
+    private fun finishZip(session: ActiveZipSession) {
+        session.job?.cancel()
+        val zipPath = session.zipPath
+        val totalSize = session.totalSize
+
+        _activeTransfers.value = _activeTransfers.value.map {
+            if (it.filePath == zipPath) {
+                it.copy(bytesTransferred = totalSize, totalBytes = totalSize, isCompleted = true)
+            } else it
+        }
+
+        _statusMessage.value = "Compresión finalizada: ${session.fileName}"
+
+        val parentFolder = if (zipPath.contains('/')) {
+            zipPath.substringBeforeLast('/').ifEmpty { "/" }
+        } else {
+            "/"
+        }
+
+        if (_currentPath.value == parentFolder) {
+            listDirectory(parentFolder)
+        }
+
         scope.launch {
-            delay(1500)
-            listDirectory(_currentPath.value)
+            delay(1200)
+            _activeTransfers.value = _activeTransfers.value.filter { it.filePath != zipPath }
+            activeZipSessions.remove(zipPath)
+        }
+    }
+
+    fun cancelZip(targetFilePath: String? = null) {
+        try {
+            val key = targetFilePath ?: activeZipSessions.keys.firstOrNull()
+            val session = if (key != null) activeZipSessions.remove(key) else null
+            val name = session?.fileName ?: "archivo"
+
+            session?.job?.cancel()
+            if (key != null) {
+                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
+            }
+            _statusMessage.value = "Compresión cancelada: $name"
+        } catch (e: Exception) {
+            Log.e("MeshFilesZip", "Error canceling zip compression: ${e.localizedMessage}", e)
         }
     }
 

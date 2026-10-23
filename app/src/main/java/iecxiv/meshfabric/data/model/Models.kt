@@ -90,7 +90,8 @@ enum class TransferType {
     DOWNLOAD,
     UPLOAD,
     COPY,
-    MOVE
+    MOVE,
+    COMPRESS
 }
 
 data class TransferProgress(
