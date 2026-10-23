@@ -6,18 +6,22 @@ import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import iecxiv.meshfabric.R
 import iecxiv.meshfabric.data.model.FileItem
 import iecxiv.meshfabric.data.model.SessionStatus
 import iecxiv.meshfabric.data.model.TransferProgress
 import iecxiv.meshfabric.data.model.TransferType
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -48,13 +52,103 @@ import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.random.Random
 
+fun checkDownloadFileExists(context: Context, fileName: String): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        try {
+            val resolver = context.contentResolver
+            val projection = arrayOf(MediaStore.MediaColumns._ID)
+            val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+            val selectionArgs = arrayOf(fileName, "%${Environment.DIRECTORY_DOWNLOADS}%")
+            resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.count > 0) return true
+            }
+        } catch (_: Exception) {}
+    }
+    val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    if (File(publicDir, fileName).exists()) return true
+
+    val appDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+    if (appDir != null && File(appDir, fileName).exists()) return true
+
+    return false
+}
+
+fun getSuggestedFileName(context: Context, originalFileName: String): String {
+    val dotIndex = originalFileName.lastIndexOf('.')
+    val baseName: String
+    val extension: String
+    if (dotIndex > 0) {
+        baseName = originalFileName.substring(0, dotIndex)
+        extension = originalFileName.substring(dotIndex)
+    } else {
+        baseName = originalFileName
+        extension = ""
+    }
+
+    val cleanBaseName = baseName.replace(Regex("""\s*\(\d+\)$"""), "")
+
+    var counter = 1
+    var candidate = "$cleanBaseName ($counter)$extension"
+    while (checkDownloadFileExists(context, candidate)) {
+        counter++
+        candidate = "$cleanBaseName ($counter)$extension"
+    }
+    return candidate
+}
+
+fun getSuggestedRemoteFileName(existingNames: List<String>, originalFileName: String): String {
+    val dotIndex = originalFileName.lastIndexOf('.')
+    val baseName: String
+    val extension: String
+    if (dotIndex > 0) {
+        baseName = originalFileName.substring(0, dotIndex)
+        extension = originalFileName.substring(dotIndex)
+    } else {
+        baseName = originalFileName
+        extension = ""
+    }
+
+    val cleanBaseName = baseName.replace(Regex("""\s*\(\d+\)$"""), "")
+
+    var counter = 1
+    var candidate = "$cleanBaseName ($counter)$extension"
+    while (existingNames.any { it.equals(candidate, ignoreCase = true) }) {
+        counter++
+        candidate = "$cleanBaseName ($counter)$extension"
+    }
+    return candidate
+}
+
+fun deleteLocalDownloadFileIfExists(context: Context, fileName: String) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
+            val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+            val selectionArgs = arrayOf(fileName, "%${Environment.DIRECTORY_DOWNLOADS}%")
+            resolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, selection, selectionArgs)
+        }
+        val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val file1 = File(publicDir, fileName)
+        if (file1.exists()) file1.delete()
+
+        val appDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+        if (appDir != null) {
+            val file2 = File(appDir, fileName)
+            if (file2.exists()) file2.delete()
+        }
+    } catch (e: Exception) {
+        Log.e("MeshFilesDownload", "Error deleting local download file $fileName: ${e.localizedMessage}")
+    }
+}
+
 class ActiveDownloadSession(
     val filePath: String,
     val fileName: String,
     val reqId: String,
     var totalSize: Long,
     var receivedBytes: Long,
-    val outputStream: OutputStream,
+    var outputStream: OutputStream?,
+    var downloadJob: Job? = null,
     val context: Context
 )
 
@@ -200,13 +294,13 @@ class FileSession(
         ensureControlSocketConnected()
         if (_connectionState.value && webSocket != null) return true
 
-        if (webSocket == null || isUserDisconnect) {
+        if (webSocket == null || !_connectionState.value || isUserDisconnect) {
             Log.d("MeshFiles", "Auto-reconnecting file relay for node '$cleanNodeId'...")
             connect()
         }
 
         var waitMs = 0
-        while (!_connectionState.value && waitMs < 6000) {
+        while (!_connectionState.value && waitMs < 8000) {
             delay(100)
             waitMs += 100
         }
@@ -274,7 +368,7 @@ class FileSession(
                     val activeDl = activeDownloads.values.firstOrNull()
                     if (activeDl != null) {
                         val chunkBytes = text.toByteArray(Charsets.UTF_8)
-                        activeDl.outputStream.write(chunkBytes)
+                        activeDl.outputStream?.write(chunkBytes)
                         activeDl.receivedBytes += chunkBytes.size
                         _activeTransfers.value = _activeTransfers.value.map {
                             if (it.filePath == activeDl.filePath) {
@@ -333,7 +427,7 @@ class FileSession(
                 val activeDl = activeDownloads.values.firstOrNull()
                 if (activeDl != null) {
                     try {
-                        activeDl.outputStream.write(byteArray)
+                        activeDl.outputStream?.write(byteArray)
                         activeDl.receivedBytes += byteArray.size
 
                         _activeTransfers.value = _activeTransfers.value.map {
@@ -409,17 +503,20 @@ class FileSession(
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = false
+                this@FileSession.webSocket = null
                 onStateChanged?.invoke()
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = false
+                this@FileSession.webSocket = null
                 onStateChanged?.invoke()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.e("MeshFiles", "onFailure for $cleanNodeId: ${t.localizedMessage}", t)
                 _connectionState.value = false
+                this@FileSession.webSocket = null
                 onStateChanged?.invoke()
             }
         })
@@ -493,7 +590,7 @@ class FileSession(
 
                 val activeDl = activeDownloads.values.firstOrNull()
                 if (activeDl != null) {
-                    activeDl.outputStream.write(chunkBytes)
+                    activeDl.outputStream?.write(chunkBytes)
                     activeDl.receivedBytes += chunkBytes.size
                     _activeTransfers.value = _activeTransfers.value.map {
                         if (it.filePath == activeDl.filePath) {
@@ -783,8 +880,16 @@ class FileSession(
 
     fun downloadFileToDownloads(
         context: Context,
-        item: FileItem
+        item: FileItem,
+        customName: String? = null,
+        overwrite: Boolean = false
     ) {
+        val targetName = customName?.trim()?.ifBlank { null } ?: item.name
+
+        if (overwrite) {
+            deleteLocalDownloadFileIfExists(context, targetName)
+        }
+
         val meshId = meshClient.getNodeMeshId(nodeId)
         val serverUrl = meshClient.serverUrl.trimEnd('/')
 
@@ -795,10 +900,10 @@ class FileSession(
         }
         val sessionCookie = meshClient.authCookie.trim()
 
-        Toast.makeText(context, "Iniciando descarga de ${item.name}...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.starting_download, targetName), Toast.LENGTH_SHORT).show()
 
         val progress = TransferProgress(
-            fileName = item.name,
+            fileName = targetName,
             filePath = item.path,
             isUpload = false,
             bytesTransferred = 0L,
@@ -808,137 +913,219 @@ class FileSession(
         _activeTransfers.value = _activeTransfers.value
             .filter { it.filePath != item.path } + progress
 
-        updateDownloadNotification(context, item.name, item.path, 0L, item.size)
+        updateDownloadNotification(context, targetName, item.path, 0L, item.size)
 
         val reqIdStr = Random.nextInt(100000, 999999).toString()
 
-        scope.launch(Dispatchers.IO) {
-            try {
-                val outputStream = createDownloadOutputStream(context, item.name)
-                val client = OkHttpHelper.createClient(meshClient.ignoreSsl)
+        val session = ActiveDownloadSession(
+            filePath = item.path,
+            fileName = targetName,
+            reqId = reqIdStr,
+            totalSize = item.size,
+            receivedBytes = 0L,
+            outputStream = null,
+            downloadJob = null,
+            context = context
+        )
+        activeDownloads[item.path] = session
 
-                val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
-                val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
-                val encodedN = try { URLEncoder.encode(cleanNodeId, "UTF-8") } catch (_: Exception) { cleanNodeId }
+        session.downloadJob = scope.launch(Dispatchers.IO) {
+            var downloadSuccess = false
 
-                val cleanPath = item.path.removePrefix("/")
-                val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
-                val encodedF2 = try { URLEncoder.encode(item.path, "UTF-8") } catch (_: Exception) { item.path }
-
-                var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
-                var reqBuilder = Request.Builder().url(downloadUrl).get()
-                if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
-
-                var response = client.newCall(reqBuilder.build()).execute()
-
-                if (!response.isSuccessful) {
-                    downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
-                    reqBuilder = Request.Builder().url(downloadUrl).get()
-                    if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
-                    response = client.newCall(reqBuilder.build()).execute()
-                }
-
-                if (response.isSuccessful && response.body != null) {
-                    val body = response.body!!
-                    val inputStream = body.byteStream()
-                    val contentLength = body.contentLength()
-                    val totalSize = if (contentLength > 0) contentLength else item.size
-
-                    var receivedBytes = 0L
-                    val buffer = ByteArray(64 * 1024)
-
-                    inputStream.use { input ->
-                        outputStream.use { output ->
-                            while (true) {
-                                val bytesRead = input.read(buffer)
-                                if (bytesRead == -1) break
-
-                                output.write(buffer, 0, bytesRead)
-                                receivedBytes += bytesRead
-
-                                val current = receivedBytes
-                                _activeTransfers.value = _activeTransfers.value.map {
-                                    if (it.filePath == item.path) {
-                                        it.copy(
-                                            bytesTransferred = current,
-                                            totalBytes = if (totalSize > 0) totalSize else current
-                                        )
-                                    } else {
-                                        it
-                                    }
-                                }
-                                updateDownloadNotification(context, item.name, item.path, receivedBytes, totalSize)
-                            }
-                            output.flush()
-                        }
+            while (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+                try {
+                    if (!ensureConnected()) {
+                        delay(2000)
+                        continue
                     }
 
+                    session.receivedBytes = 0L
                     _activeTransfers.value = _activeTransfers.value.map {
-                        if (it.filePath == item.path) {
-                            it.copy(
-                                bytesTransferred = receivedBytes,
-                                totalBytes = if (totalSize > 0) totalSize else receivedBytes,
-                                isCompleted = true
-                            )
+                        if (it.filePath == item.path) it.copy(bytesTransferred = 0L, totalBytes = item.size) else it
+                    }
+
+                    deleteLocalDownloadFileIfExists(context, targetName)
+
+                    // 1. Attempt HTTP Download
+                    try {
+                        val outputStream = createDownloadOutputStream(context, targetName)
+                        session.outputStream = outputStream
+                        val client = OkHttpHelper.createDownloadClient(meshClient.ignoreSsl)
+
+                        val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
+                        val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
+                        val encodedN = try { URLEncoder.encode(cleanNodeId, "UTF-8") } catch (_: Exception) { cleanNodeId }
+
+                        val cleanPath = item.path.removePrefix("/")
+                        val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
+                        val encodedF2 = try { URLEncoder.encode(item.path, "UTF-8") } catch (_: Exception) { item.path }
+
+                        var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
+                        var reqBuilder = Request.Builder().url(downloadUrl).get()
+                        if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+
+                        var response = client.newCall(reqBuilder.build()).execute()
+
+                        if (!response.isSuccessful) {
+                            downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
+                            reqBuilder = Request.Builder().url(downloadUrl).get()
+                            if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+                            response = client.newCall(reqBuilder.build()).execute()
+                        }
+
+                        if (response.isSuccessful && response.body != null) {
+                            val body = response.body!!
+                            val inputStream = body.byteStream()
+                            val contentLength = body.contentLength()
+                            val totalSize = if (contentLength > 0) contentLength else item.size
+
+                            var receivedBytes = 0L
+                            val buffer = ByteArray(64 * 1024)
+
+                            inputStream.use { input ->
+                                outputStream.use { output ->
+                                    while (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+                                        val bytesRead = input.read(buffer)
+                                        if (bytesRead == -1) break
+
+                                        output.write(buffer, 0, bytesRead)
+                                        receivedBytes += bytesRead
+                                        session.receivedBytes = receivedBytes
+
+                                        val current = receivedBytes
+                                        _activeTransfers.value = _activeTransfers.value.map {
+                                            if (it.filePath == item.path) {
+                                                it.copy(
+                                                    bytesTransferred = current,
+                                                    totalBytes = if (totalSize > 0) totalSize else current
+                                                )
+                                            } else {
+                                                it
+                                            }
+                                        }
+                                        updateDownloadNotification(context, targetName, item.path, receivedBytes, totalSize)
+                                    }
+                                    output.flush()
+                                }
+                            }
+
+                            if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+                                if (totalSize <= 0 || receivedBytes >= totalSize) {
+                                    downloadSuccess = true
+                                    _activeTransfers.value = _activeTransfers.value.map {
+                                        if (it.filePath == item.path) {
+                                            it.copy(
+                                                bytesTransferred = receivedBytes,
+                                                totalBytes = if (totalSize > 0) totalSize else receivedBytes,
+                                                isCompleted = true
+                                            )
+                                        } else {
+                                            it
+                                        }
+                                    }
+
+                                    showDownloadCompleteNotification(context, targetName, item.path, receivedBytes)
+                                    withContext(Dispatchers.Main) {
+                                        Toast.makeText(
+                                            context,
+                                            context.getString(R.string.download_complete, targetName, formatSize(receivedBytes)),
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    }
+
+                                    delay(1200)
+                                    activeDownloads.remove(item.path)
+                                    _activeTransfers.value = _activeTransfers.value.filter { it.filePath != item.path }
+                                    return@launch
+                                } else {
+                                    throw java.io.IOException("Incomplete HTTP download ($receivedBytes / $totalSize bytes)")
+                                }
+                            }
                         } else {
-                            it
+                            Log.w("MeshFilesDownload", "HTTP download endpoint returned status ${response.code}")
+                        }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        Log.w("MeshFilesDownload", "HTTP download attempt failed: ${e.localizedMessage}")
+                    } finally {
+                        try {
+                            session.outputStream?.close()
+                        } catch (_: Exception) {}
+                        session.outputStream = null
+                    }
+
+                    // 2. Attempt WebSocket readfile download if HTTP did not complete
+                    if (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+                        Log.d("MeshFilesDownload", "Attempting WS fallback download for ${item.path}...")
+
+                        if (!ensureConnected()) {
+                            throw java.io.IOException("WebSocket not connected for fallback download")
+                        }
+
+                        val outputStream = createDownloadOutputStream(context, targetName)
+                        session.outputStream = outputStream
+                        session.receivedBytes = 0L
+
+                        val readReq = JsonObject().apply {
+                            addProperty("action", "readfile")
+                            addProperty("path", item.path)
+                            addProperty("reqid", reqIdStr)
+                            addProperty("id", reqIdStr)
+                        }
+
+                        val ws = webSocket
+                        if (ws == null || !ws.send(readReq.toString())) {
+                            throw java.io.IOException("Failed to send readfile WebSocket command")
+                        }
+
+                        // Wait while WS download chunks arrive (finishDownload will remove key when completed)
+                        while (activeDownloads.containsKey(item.path) && coroutineContext.isActive && isConnected()) {
+                            delay(200)
+                            if (!activeDownloads.containsKey(item.path)) {
+                                downloadSuccess = true
+                                break
+                            }
+                        }
+
+                        if (!downloadSuccess && (!isConnected() || activeDownloads.containsKey(item.path))) {
+                            throw java.io.IOException("WebSocket disconnected or download interrupted during WS transfer")
                         }
                     }
 
-                    showDownloadCompleteNotification(context, item.name, item.path, receivedBytes)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            context,
-                            "Descarga completada: ${item.name} (${formatSize(receivedBytes)}) en Descargas",
-                            Toast.LENGTH_LONG
-                        ).show()
+                    if (!downloadSuccess && activeDownloads.containsKey(item.path)) {
+                        throw java.io.IOException("Download loop ended incomplete")
                     }
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+                        Log.w("MeshFilesDownload", "Download interrupted for ${item.path} (${e.localizedMessage}). Deleting incomplete local file and restarting...")
 
-                    delay(1200)
-                    _activeTransfers.value = _activeTransfers.value.filter { it.filePath != item.path }
-                    return@launch
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.unstable_network_reconnecting_download),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+
+                        try {
+                            session.outputStream?.close()
+                        } catch (_: Exception) {}
+                        session.outputStream = null
+
+                        deleteLocalDownloadFileIfExists(context, targetName)
+                        delay(2000)
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("MeshFilesDownload", "Error in HTTP download: ${e.localizedMessage}", e)
             }
 
-            // Fallback to WS readfile / download
-            try {
-                if (!isConnected()) {
-                    connect()
-                    var waitMs = 0
-                    while (!_connectionState.value && waitMs < 5000) {
-                        delay(100)
-                        waitMs += 100
-                    }
-                }
-
-                val outputStream = createDownloadOutputStream(context, item.name)
-
-                val session = ActiveDownloadSession(
-                    filePath = item.path,
-                    fileName = item.name,
-                    reqId = reqIdStr,
-                    totalSize = item.size,
-                    receivedBytes = 0L,
-                    outputStream = outputStream,
-                    context = context
-                )
-                activeDownloads[item.path] = session
-
-                val readReq = JsonObject().apply {
-                    addProperty("action", "readfile")
-                    addProperty("path", item.path)
-                    addProperty("reqid", reqIdStr)
-                    addProperty("id", reqIdStr)
-                }
-
-                webSocket?.send(readReq.toString())
-            } catch (e: Exception) {
-                Log.e("MeshFilesDownload", "Error in WS fallback: ${e.localizedMessage}", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Error al descargar: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                }
+            if (!downloadSuccess) {
+                activeDownloads.remove(item.path)
+                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != item.path }
+                try {
+                    session.outputStream?.close()
+                } catch (_: Exception) {}
+                deleteLocalDownloadFileIfExists(context, targetName)
             }
         }
     }
@@ -997,14 +1184,22 @@ class FileSession(
             val name = session?.fileName ?: "archivo"
             val ctx = session?.context
 
-            session?.outputStream?.flush()
-            session?.outputStream?.close()
+            session?.downloadJob?.cancel()
+
+            try {
+                session?.outputStream?.flush()
+                session?.outputStream?.close()
+            } catch (_: Exception) {}
 
             if (session != null) {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val destFile = File(downloadsDir, session.fileName)
-                if (destFile.exists()) {
-                    destFile.delete()
+                if (ctx != null) {
+                    deleteLocalDownloadFileIfExists(ctx, session.fileName)
+                } else {
+                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    val destFile = File(downloadsDir, session.fileName)
+                    if (destFile.exists()) {
+                        destFile.delete()
+                    }
                 }
 
                 val notificationManager = ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
@@ -1015,7 +1210,7 @@ class FileSession(
 
             if (ctx != null) {
                 scope.launch(Dispatchers.Main) {
-                    Toast.makeText(ctx, "Descarga cancelada: $name", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, ctx.getString(R.string.download_canceled, name), Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) {
@@ -1036,13 +1231,15 @@ class FileSession(
             if (session != null) {
                 val notificationManager = ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 notificationManager?.cancel(session.filePath.hashCode())
+
+                deleteRemoteFilePath(session.filePath)
             }
 
             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
 
             if (ctx != null) {
                 scope.launch(Dispatchers.Main) {
-                    Toast.makeText(ctx, "Subida cancelada: $name", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, ctx.getString(R.string.upload_canceled, name), Toast.LENGTH_SHORT).show()
                 }
             }
         } catch (e: Exception) {
@@ -1055,10 +1252,10 @@ class FileSession(
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
             val channel = NotificationChannel(
                 "file_downloads",
-                "Descargas y Subidas de Archivos",
+                context.getString(R.string.notification_downloads_uploads_channel),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Notificaciones de progreso de transferencias de MeshCentral"
+                description = context.getString(R.string.notification_downloads_uploads_desc)
                 setShowBadge(true)
             }
             notificationManager.createNotificationChannel(channel)
@@ -1212,8 +1409,8 @@ class FileSession(
             val key = targetFilePath ?: activeDownloads.keys.firstOrNull() ?: return
             val session = activeDownloads.remove(key) ?: return
 
-            session.outputStream.flush()
-            session.outputStream.close()
+            session.outputStream?.flush()
+            session.outputStream?.close()
 
             val fileName = session.fileName
             val totalSize = session.receivedBytes
@@ -1476,12 +1673,13 @@ class FileSession(
 
     fun uploadRawFileToPath(fullPath: String, bytes: ByteArray, context: Context? = null) {
         val fileName = fullPath.substringAfterLast('/')
+        val fileSize = bytes.size.toLong()
 
         val session = ActiveUploadSession(
             filePath = fullPath,
             fileName = fileName,
             sentBytes = 0L,
-            totalSize = bytes.size.toLong(),
+            totalSize = fileSize,
             uploadJob = null,
             context = context
         )
@@ -1492,71 +1690,302 @@ class FileSession(
             filePath = fullPath,
             isUpload = true,
             bytesTransferred = 0L,
-            totalBytes = bytes.size.toLong()
+            totalBytes = fileSize
         )
         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath } + progress
 
         if (context != null) {
-            updateUploadNotification(context, fileName, fullPath, 0L, bytes.size.toLong())
+            updateUploadNotification(context, fileName, fullPath, 0L, fileSize)
         }
 
         session.uploadJob = scope.launch(Dispatchers.IO) {
-            try {
-                val req = JsonObject().apply {
-                    addProperty("action", "upload")
-                    addProperty("path", fullPath)
-                    addProperty("size", bytes.size)
-                }
-                webSocket?.send(req.toString())
+            var uploadSuccess = false
 
-                delay(100)
+            while (!uploadSuccess && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+                try {
+                    if (!ensureConnected()) {
+                        delay(2000)
+                        continue
+                    }
 
-                val chunkSize = 64 * 1024
-                var offset = 0
-                val total = bytes.size
+                    session.sentBytes = 0L
+                    _activeTransfers.value = _activeTransfers.value.map {
+                        if (it.filePath == fullPath) it.copy(bytesTransferred = 0L, totalBytes = fileSize) else it
+                    }
 
-                if (total == 0) {
-                    webSocket?.send(ByteString.EMPTY)
-                } else {
-                    while (offset < total && activeUploads.containsKey(fullPath)) {
-                        val length = minOf(chunkSize, total - offset)
-                        val chunk = ByteString.of(*bytes.copyOfRange(offset, offset + length))
-                        webSocket?.send(chunk)
-                        offset += length
+                    val req = JsonObject().apply {
+                        addProperty("action", "upload")
+                        addProperty("path", fullPath)
+                        addProperty("size", bytes.size)
+                    }
+                    val ws = webSocket
+                    if (ws == null || !ws.send(req.toString())) {
+                        throw java.io.IOException("WebSocket disconnected before upload start")
+                    }
 
-                        session.sentBytes = offset.toLong()
-                        val currOffset = offset.toLong()
+                    delay(150)
+
+                    val chunkSize = 64 * 1024
+                    var offset = 0
+                    val total = bytes.size
+
+                    if (total == 0) {
+                        if (ws.send(ByteString.EMPTY)) {
+                            uploadSuccess = true
+                        } else {
+                            throw java.io.IOException("Failed to send empty byte string")
+                        }
+                    } else {
+                        while (offset < total && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+                            val length = minOf(chunkSize, total - offset)
+                            val chunk = ByteString.of(*bytes.copyOfRange(offset, offset + length))
+                            val currentWs = webSocket
+
+                            if (currentWs == null || !isConnected() || !currentWs.send(chunk)) {
+                                throw java.io.IOException("WebSocket disconnected or chunk send failed")
+                            }
+
+                            offset += length
+
+                            session.sentBytes = offset.toLong()
+                            val currOffset = offset.toLong()
+                            _activeTransfers.value = _activeTransfers.value.map {
+                                if (it.filePath == fullPath) it.copy(bytesTransferred = currOffset) else it
+                            }
+
+                            if (context != null) {
+                                updateUploadNotification(context, fileName, fullPath, currOffset, total.toLong())
+                            }
+                            delay(10)
+                        }
+                        if (offset >= total && activeUploads.containsKey(fullPath)) {
+                            uploadSuccess = true
+                        }
+                    }
+
+                    if (uploadSuccess && activeUploads.containsKey(fullPath)) {
                         _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == fullPath) it.copy(bytesTransferred = currOffset) else it
+                            if (it.filePath == fullPath) it.copy(bytesTransferred = fileSize, isCompleted = true) else it
                         }
 
                         if (context != null) {
-                            updateUploadNotification(context, fileName, fullPath, currOffset, total.toLong())
+                            showUploadCompleteNotification(context, fileName, fullPath, fileSize)
                         }
-                        delay(10)
+
+                        delay(1500)
+                        activeUploads.remove(fullPath)
+                        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
+                        listDirectory(_currentPath.value)
+                    } else if (activeUploads.containsKey(fullPath)) {
+                        throw java.io.IOException("Raw upload loop ended incomplete ($offset / $total)")
+                    }
+                } catch (e: Exception) {
+                    if (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+                        Log.w("MeshFilesUpload", "Raw upload interrupted for $fullPath (${e.localizedMessage}). Deleting incomplete remote file and restarting...")
+
+                        if (context != null) {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, context.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+
+                        deleteRemoteFilePath(fullPath)
+                        delay(2000)
                     }
                 }
+            }
 
-                if (activeUploads.containsKey(fullPath)) {
-                    _activeTransfers.value = _activeTransfers.value.map {
-                        if (it.filePath == fullPath) it.copy(bytesTransferred = total.toLong(), isCompleted = true) else it
-                    }
-
-                    if (context != null) {
-                        showUploadCompleteNotification(context, fileName, fullPath, total.toLong())
-                    }
-
-                    delay(1500)
-                    activeUploads.remove(fullPath)
-                    _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
-                    listDirectory(_currentPath.value)
-                }
-            } catch (e: Exception) {
-                Log.e("MeshFilesUpload", "Error uploading file: ${e.localizedMessage}", e)
+            if (!uploadSuccess) {
                 activeUploads.remove(fullPath)
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
+                deleteRemoteFilePath(fullPath)
             }
         }
+    }
+
+    fun uploadUri(uri: Uri, context: Context, customFileName: String? = null) {
+        val fileName = customFileName?.trim()?.ifBlank { null } ?: getFileNameFromUri(context, uri)
+        val path = _currentPath.value.trimEnd('/')
+        val fullPath = if (path.isEmpty()) "/$fileName" else "$path/$fileName"
+        uploadUriToPath(fullPath, uri, context)
+    }
+
+    fun uploadUriToPath(fullPath: String, uri: Uri, context: Context) {
+        val fileName = fullPath.substringAfterLast('/')
+        val fileSize = getFileSizeFromUri(context, uri)
+
+        val session = ActiveUploadSession(
+            filePath = fullPath,
+            fileName = fileName,
+            sentBytes = 0L,
+            totalSize = fileSize,
+            uploadJob = null,
+            context = context
+        )
+        activeUploads[fullPath] = session
+
+        val progress = TransferProgress(
+            fileName = fileName,
+            filePath = fullPath,
+            isUpload = true,
+            bytesTransferred = 0L,
+            totalBytes = fileSize
+        )
+        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath } + progress
+
+        updateUploadNotification(context, fileName, fullPath, 0L, fileSize)
+
+        session.uploadJob = scope.launch(Dispatchers.IO) {
+            var uploadSuccess = false
+
+            while (!uploadSuccess && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+                try {
+                    if (!ensureConnected()) {
+                        delay(2000)
+                        continue
+                    }
+
+                    session.sentBytes = 0L
+                    _activeTransfers.value = _activeTransfers.value.map {
+                        if (it.filePath == fullPath) it.copy(bytesTransferred = 0L, totalBytes = fileSize) else it
+                    }
+
+                    val req = JsonObject().apply {
+                        addProperty("action", "upload")
+                        addProperty("path", fullPath)
+                        addProperty("size", fileSize)
+                    }
+                    val ws = webSocket
+                    if (ws == null || !ws.send(req.toString())) {
+                        throw java.io.IOException("WebSocket disconnected before upload start")
+                    }
+
+                    delay(150)
+
+                    val chunkSize = 64 * 1024
+                    var totalSent = 0L
+
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    if (inputStream == null) {
+                        Log.e("MeshFilesUpload", "Could not open input stream for $uri")
+                        break
+                    }
+
+                    inputStream.use { stream ->
+                        val buffer = ByteArray(chunkSize)
+                        while (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+                            val bytesRead = stream.read(buffer)
+                            if (bytesRead == -1) break
+
+                            val chunk = ByteString.of(*buffer.copyOfRange(0, bytesRead))
+                            val currentWs = webSocket
+
+                            if (currentWs == null || !isConnected() || !currentWs.send(chunk)) {
+                                throw java.io.IOException("WebSocket disconnected or chunk send failed")
+                            }
+
+                            totalSent += bytesRead
+
+                            session.sentBytes = totalSent
+                            val currOffset = totalSent
+                            _activeTransfers.value = _activeTransfers.value.map {
+                                if (it.filePath == fullPath) it.copy(bytesTransferred = currOffset, totalBytes = maxOf(fileSize, currOffset)) else it
+                            }
+
+                            updateUploadNotification(context, fileName, fullPath, currOffset, maxOf(fileSize, currOffset))
+                            delay(10)
+                        }
+                    }
+
+                    if (totalSent >= fileSize && activeUploads.containsKey(fullPath)) {
+                        uploadSuccess = true
+                        _activeTransfers.value = _activeTransfers.value.map {
+                            if (it.filePath == fullPath) it.copy(bytesTransferred = totalSent, totalBytes = totalSent, isCompleted = true) else it
+                        }
+
+                        showUploadCompleteNotification(context, fileName, fullPath, totalSent)
+
+                        delay(1500)
+                        activeUploads.remove(fullPath)
+                        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
+                        listDirectory(_currentPath.value)
+                    } else if (activeUploads.containsKey(fullPath)) {
+                        throw java.io.IOException("Upload loop ended incomplete ($totalSent / $fileSize)")
+                    }
+                } catch (e: Exception) {
+                    if (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+                        Log.w("MeshFilesUpload", "Upload interrupted for $fullPath (${e.localizedMessage}). Deleting incomplete remote file and restarting...")
+
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, context.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
+                        }
+
+                        deleteRemoteFilePath(fullPath)
+                        delay(2000)
+                    }
+                }
+            }
+
+            if (!uploadSuccess) {
+                activeUploads.remove(fullPath)
+                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
+                deleteRemoteFilePath(fullPath)
+            }
+        }
+    }
+
+    private fun getFileNameFromUri(context: Context, uri: Uri): String {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            try {
+                val cursor = context.contentResolver.query(uri, null, null, null, null)
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (index >= 0) {
+                            result = it.getString(index)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MeshFilesUpload", "Error querying filename from uri: ${e.localizedMessage}")
+            }
+        }
+        if (result == null) {
+            result = uri.path
+            val cut = result?.lastIndexOf('/') ?: -1
+            if (cut != -1) {
+                result = result?.substring(cut + 1)
+            }
+        }
+        return result ?: "archivo_subido"
+    }
+
+    private fun getFileSizeFromUri(context: Context, uri: Uri): Long {
+        var size = 0L
+        if (uri.scheme == "content") {
+            try {
+                val cursor = context.contentResolver.query(uri, null, null, null, null)
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val index = it.getColumnIndex(OpenableColumns.SIZE)
+                        if (index >= 0 && !it.isNull(index)) {
+                            size = it.getLong(index)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MeshFilesUpload", "Error querying size from uri: ${e.localizedMessage}")
+            }
+        }
+        if (size <= 0L) {
+            try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    size = pfd.statSize
+                }
+            } catch (_: Exception) {}
+        }
+        return if (size < 0L) 0L else size
     }
 
     fun saveFileContent(filePath: String, newContent: String) {
@@ -2442,6 +2871,46 @@ class FileSession(
         }
     }
 
+    fun deleteRemoteFilePath(fullPath: String) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val fileName = fullPath.substringAfterLast('/')
+                val parent = if (fullPath.contains('/')) {
+                    val p = fullPath.substringBeforeLast('/')
+                    if (p.isEmpty()) "/" else p
+                } else "/"
+
+                val reqIdStr = Random.nextInt(100000, 999999).toString()
+
+                val rmReq = JsonObject().apply {
+                    addProperty("action", "rm")
+                    addProperty("reqid", reqIdStr)
+                    addProperty("id", reqIdStr)
+                    addProperty("path", parent)
+                    addProperty("file", fileName)
+                    add("files", gson.toJsonTree(listOf(fileName)))
+                    add("delfiles", gson.toJsonTree(listOf(fileName)))
+                }
+                webSocket?.send(rmReq.toString())
+
+                val dfReq = JsonObject().apply {
+                    addProperty("action", "deletefile")
+                    addProperty("path", fullPath)
+                    addProperty("reqid", reqIdStr)
+                    addProperty("id", reqIdStr)
+                }
+                webSocket?.send(dfReq.toString())
+
+                delay(500)
+                if (isConnected()) {
+                    listDirectory(_currentPath.value)
+                }
+            } catch (e: Exception) {
+                Log.e("MeshFilesUpload", "Error deleting remote file $fullPath: ${e.localizedMessage}", e)
+            }
+        }
+    }
+
     fun renameItem(item: FileItem, newName: String) {
         val parentDir = if (item.path.contains('/')) {
             item.path.substringBeforeLast('/').ifEmpty { "/" }
@@ -2739,9 +3208,20 @@ class FileRelayClient {
         sessions[cleanKey(nodeId)]?.uploadRawFile(fileName, bytes, context)
     }
 
-    fun downloadFileToDownloads(context: Context, meshClient: MeshCentralClient, nodeId: String, item: FileItem) {
+    fun uploadUri(nodeId: String, uri: Uri, context: Context, customFileName: String? = null) {
+        sessions[cleanKey(nodeId)]?.uploadUri(uri, context, customFileName)
+    }
+
+    fun downloadFileToDownloads(
+        context: Context,
+        meshClient: MeshCentralClient,
+        nodeId: String,
+        item: FileItem,
+        customName: String? = null,
+        overwrite: Boolean = false
+    ) {
         val session = getSession(meshClient, nodeId)
-        session.downloadFileToDownloads(context, item)
+        session.downloadFileToDownloads(context, item, customName, overwrite)
     }
 
     fun readFileContent(meshClient: MeshCentralClient, nodeId: String, item: FileItem) {

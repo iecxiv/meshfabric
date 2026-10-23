@@ -2,6 +2,9 @@ package iecxiv.meshfabric.ui.files
 
 import iecxiv.meshfabric.R
 import iecxiv.meshfabric.data.model.TransferType
+import iecxiv.meshfabric.data.remote.checkDownloadFileExists
+import iecxiv.meshfabric.data.remote.getSuggestedFileName
+import iecxiv.meshfabric.data.remote.getSuggestedRemoteFileName
 import androidx.compose.ui.res.stringResource
 import android.Manifest
 import android.content.pm.PackageManager
@@ -194,6 +197,20 @@ fun FileManagerScreen(
     var showPasteRenameDialog by remember { mutableStateOf(false) }
     var pasteTargetNameInput by remember { mutableStateOf("") }
 
+    var downloadConflictItem by remember { mutableStateOf<FileItem?>(null) }
+    var downloadConflictRenameMode by remember { mutableStateOf(false) }
+    var downloadConflictCustomName by remember { mutableStateOf("") }
+
+    val handleInitiateDownload = { targetItem: FileItem ->
+        if (checkDownloadFileExists(context, targetItem.name)) {
+            downloadConflictItem = targetItem
+            downloadConflictRenameMode = false
+            downloadConflictCustomName = getSuggestedFileName(context, targetItem.name)
+        } else {
+            viewModel.downloadFileToDownloads(context, nodeId, targetItem)
+        }
+    }
+
     var isTransfersPanelExpanded by remember { mutableStateOf(true) }
 
     var fabMenuExpanded by remember { mutableStateOf(false) }
@@ -220,20 +237,29 @@ fun FileManagerScreen(
         }
     }
 
+    var uploadConflictUri by remember { mutableStateOf<Uri?>(null) }
+    var uploadConflictFileName by remember { mutableStateOf("") }
+    var uploadConflictRenameMode by remember { mutableStateOf(false) }
+    var uploadConflictCustomName by remember { mutableStateOf("") }
+
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val bytes = inputStream?.readBytes()
-                val fileName = getFileNameFromUri(context, uri)
-                if (bytes != null && fileName.isNotBlank()) {
-                    viewModel.uploadRawFile(nodeId, context, fileName, bytes)
-                    Toast.makeText(context, "Subiendo $fileName...", Toast.LENGTH_SHORT).show()
+            val fileName = getFileNameFromUri(context, uri)
+            val fileExists = fileList.any { it.name.equals(fileName, ignoreCase = true) }
+            if (fileExists) {
+                uploadConflictUri = uri
+                uploadConflictFileName = fileName
+                uploadConflictRenameMode = false
+                uploadConflictCustomName = getSuggestedRemoteFileName(fileList.map { it.name }, fileName)
+            } else {
+                try {
+                    viewModel.uploadUri(nodeId, context, uri)
+                    Toast.makeText(context, context.getString(R.string.starting_upload), Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, context.getString(R.string.upload_error, e.localizedMessage ?: ""), Toast.LENGTH_LONG).show()
                 }
-            } catch (e: Exception) {
-                Toast.makeText(context, "Error al leer archivo: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -696,7 +722,7 @@ fun FileManagerScreen(
                                     val defaultTargetName = source.name
                                     val fileExists = fileList.any { it.name.equals(defaultTargetName, ignoreCase = true) }
                                     if (fileExists) {
-                                        pasteTargetNameInput = defaultTargetName
+                                        pasteTargetNameInput = getSuggestedRemoteFileName(fileList.map { it.name }, defaultTargetName)
                                         showPasteConflictConfirmDialog = true
                                     } else {
                                         viewModel.pasteItem(nodeId, context = context)
@@ -800,7 +826,7 @@ fun FileManagerScreen(
                                         if (item.isDir) {
                                             viewModel.openDirectory(nodeId, item.path)
                                         } else {
-                                            viewModel.downloadFileToDownloads(context, nodeId, item)
+                                            handleInitiateDownload(item)
                                         }
                                     },
                                 colors = CardDefaults.cardColors(
@@ -861,7 +887,7 @@ fun FileManagerScreen(
                                                     leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
                                                     onClick = {
                                                         menuExpanded = false
-                                                        viewModel.downloadFileToDownloads(context, nodeId, item)
+                                                        handleInitiateDownload(item)
                                                     }
                                                 )
                                                 if (isTextFileCandidate(item)) {
@@ -920,7 +946,8 @@ fun FileManagerScreen(
                                                 onClick = {
                                                     menuExpanded = false
                                                     selectedItemForAction = item
-                                                    renameInput = item.name
+                                                    val otherNames = fileList.filter { it.path != item.path }.map { it.name }
+                                                    renameInput = getSuggestedRemoteFileName(otherNames, item.name)
                                                     showRenameDialog = true
                                                 }
                                             )
@@ -1408,12 +1435,25 @@ fun FileManagerScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showRenameOverwriteConfirmDialog = false
+                    Row {
+                        TextButton(
+                            onClick = {
+                                val otherNames = fileList.filter { it.path != target?.path }.map { it.name }
+                                renameInput = getSuggestedRemoteFileName(otherNames, newName)
+                                showRenameOverwriteConfirmDialog = false
+                                showRenameDialog = true
+                            }
+                        ) {
+                            Text(stringResource(R.string.rename))
                         }
-                    ) {
-                        Text(stringResource(R.string.change_name))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                showRenameOverwriteConfirmDialog = false
+                            }
+                        ) {
+                            Text(stringResource(R.string.cancel))
+                        }
                     }
                 }
             )
@@ -1628,18 +1668,19 @@ fun FileManagerScreen(
 
         // Paste Conflict Overwrite Confirmation Dialog
         if (showPasteConflictConfirmDialog && clipboardItem != null) {
+            val origName = clipboardItem!!.name
             AlertDialog(
                 onDismissRequest = {
                     showPasteConflictConfirmDialog = false
                 },
                 title = { Text(stringResource(R.string.file_exists_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                 text = {
-                    Text(stringResource(R.string.file_exists_overwrite_confirm, pasteTargetNameInput))
+                    Text(stringResource(R.string.file_exists_overwrite_confirm, origName))
                 },
                 confirmButton = {
                     Button(
                         onClick = {
-                            viewModel.pasteItem(nodeId, pasteTargetNameInput.trim(), context = context)
+                            viewModel.pasteItem(nodeId, customTargetName = origName, context = context)
                             showPasteConflictConfirmDialog = false
                         }
                     ) {
@@ -1647,13 +1688,24 @@ fun FileManagerScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showPasteConflictConfirmDialog = false
-                            showPasteRenameDialog = true
+                    Row {
+                        TextButton(
+                            onClick = {
+                                pasteTargetNameInput = getSuggestedRemoteFileName(fileList.map { it.name }, origName)
+                                showPasteConflictConfirmDialog = false
+                                showPasteRenameDialog = true
+                            }
+                        ) {
+                            Text(stringResource(R.string.rename))
                         }
-                    ) {
-                        Text(stringResource(R.string.change_name))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(
+                            onClick = {
+                                showPasteConflictConfirmDialog = false
+                            }
+                        ) {
+                            Text(stringResource(R.string.cancel))
+                        }
                     }
                 }
             )
@@ -1700,6 +1752,178 @@ fun FileManagerScreen(
                     }
                 }
             )
+        }
+
+        // Download Conflict Dialogs
+        if (downloadConflictItem != null) {
+            val conflictItem = downloadConflictItem!!
+            if (!downloadConflictRenameMode) {
+                AlertDialog(
+                    onDismissRequest = { downloadConflictItem = null },
+                    title = { Text(stringResource(R.string.file_exists_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                    text = { Text(stringResource(R.string.file_exists_download_msg, conflictItem.name)) },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val targetItem = downloadConflictItem
+                                downloadConflictItem = null
+                                if (targetItem != null) {
+                                    viewModel.downloadFileToDownloads(context, nodeId, targetItem, customName = targetItem.name, overwrite = true)
+                                }
+                            }
+                        ) {
+                            Text(stringResource(R.string.overwrite))
+                        }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(
+                                onClick = {
+                                    downloadConflictRenameMode = true
+                                    downloadConflictCustomName = getSuggestedFileName(context, conflictItem.name)
+                                }
+                            ) {
+                                Text(stringResource(R.string.rename))
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(
+                                onClick = { downloadConflictItem = null }
+                            ) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    }
+                )
+            } else {
+                AlertDialog(
+                    onDismissRequest = { downloadConflictItem = null },
+                    title = { Text(stringResource(R.string.rename_download_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                    text = {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.download_name_label),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            OutlinedTextField(
+                                value = downloadConflictCustomName,
+                                onValueChange = { downloadConflictCustomName = it },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val targetItem = downloadConflictItem
+                                val customName = downloadConflictCustomName.trim()
+                                downloadConflictItem = null
+                                if (targetItem != null && customName.isNotBlank()) {
+                                    viewModel.downloadFileToDownloads(context, nodeId, targetItem, customName = customName, overwrite = true)
+                                }
+                            },
+                            enabled = downloadConflictCustomName.isNotBlank()
+                        ) {
+                            Text(stringResource(R.string.download))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = { downloadConflictItem = null }
+                        ) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                    }
+                )
+            }
+        }
+
+        // Upload Conflict Dialogs
+        if (uploadConflictUri != null) {
+            val fileName = uploadConflictFileName
+            if (!uploadConflictRenameMode) {
+                AlertDialog(
+                    onDismissRequest = { uploadConflictUri = null },
+                    title = { Text(stringResource(R.string.file_exists_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                    text = { Text(stringResource(R.string.file_exists_overwrite_confirm, fileName)) },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val targetUri = uploadConflictUri
+                                uploadConflictUri = null
+                                if (targetUri != null) {
+                                    viewModel.uploadUri(nodeId, context, targetUri, customFileName = fileName)
+                                    Toast.makeText(context, context.getString(R.string.starting_upload), Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Text(stringResource(R.string.overwrite))
+                        }
+                    },
+                    dismissButton = {
+                        Row {
+                            TextButton(
+                                onClick = {
+                                    uploadConflictRenameMode = true
+                                    uploadConflictCustomName = getSuggestedRemoteFileName(fileList.map { it.name }, fileName)
+                                }
+                            ) {
+                                Text(stringResource(R.string.rename))
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            TextButton(
+                                onClick = { uploadConflictUri = null }
+                            ) {
+                                Text(stringResource(R.string.cancel))
+                            }
+                        }
+                    }
+                )
+            } else {
+                AlertDialog(
+                    onDismissRequest = { uploadConflictUri = null },
+                    title = { Text(stringResource(R.string.rename_item_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+                    text = {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.new_name),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            OutlinedTextField(
+                                value = uploadConflictCustomName,
+                                onValueChange = { uploadConflictCustomName = it },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val targetUri = uploadConflictUri
+                                val customName = uploadConflictCustomName.trim()
+                                uploadConflictUri = null
+                                if (targetUri != null && customName.isNotBlank()) {
+                                    viewModel.uploadUri(nodeId, context, targetUri, customFileName = customName)
+                                    Toast.makeText(context, context.getString(R.string.starting_upload), Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            enabled = uploadConflictCustomName.isNotBlank()
+                        ) {
+                            Text(stringResource(R.string.uploading).substringBefore(':'))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = { uploadConflictUri = null }
+                        ) {
+                            Text(stringResource(R.string.cancel))
+                        }
+                    }
+                )
+            }
         }
     }
 }

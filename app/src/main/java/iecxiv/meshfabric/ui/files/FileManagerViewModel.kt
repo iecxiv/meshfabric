@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.ui.files
 
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import iecxiv.meshfabric.data.model.FileItem
 import iecxiv.meshfabric.data.model.TransferProgress
@@ -31,8 +32,14 @@ class FileManagerViewModel(
         )
     }
 
-    fun downloadFileToDownloads(context: Context, nodeId: String, item: FileItem) {
-        fileClient.downloadFileToDownloads(context, meshClient, nodeId, item)
+    fun downloadFileToDownloads(
+        context: Context,
+        nodeId: String,
+        item: FileItem,
+        customName: String? = null,
+        overwrite: Boolean = false
+    ) {
+        fileClient.downloadFileToDownloads(context, meshClient, nodeId, item, customName, overwrite)
     }
 
     fun cancelTransfer(nodeId: String, filePath: String) {
@@ -70,6 +77,10 @@ class FileManagerViewModel(
 
     fun uploadRawFile(nodeId: String, context: Context, fileName: String, bytes: ByteArray) {
         fileClient.uploadRawFile(nodeId, fileName, bytes, context)
+    }
+
+    fun uploadUri(nodeId: String, context: Context, uri: Uri, customFileName: String? = null) {
+        fileClient.uploadUri(nodeId, uri, context, customFileName)
     }
 
     fun readFileContent(nodeId: String, item: FileItem) {

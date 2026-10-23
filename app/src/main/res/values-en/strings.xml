@@ -116,6 +116,22 @@
     <string name="uploading">Uploading: %1$s</string>
     <string name="downloading">Downloading: %1$s</string>
     <string name="active_transfers_count">%1$d active transfers (%2$d%%)</string>
+    <string name="starting_download">Starting download of %1$s...</string>
+    <string name="download_complete">Download completed: %1$s (%2$s) in Downloads</string>
+    <string name="unstable_network_retrying_download">Unstable network. Retrying download...</string>
+    <string name="unstable_network_reconnecting_download">Unstable network. Reconnecting download...</string>
+    <string name="download_error">Error downloading: %1$s</string>
+    <string name="download_canceled">Download canceled: %1$s</string>
+    <string name="starting_upload">Starting upload...</string>
+    <string name="upload_canceled">Upload canceled: %1$s</string>
+    <string name="unstable_network_reconnecting_upload">Unstable network. Reconnecting upload...</string>
+    <string name="upload_error">Error uploading file: %1$s</string>
+    <string name="notification_downloads_uploads_channel">File Downloads and Uploads</string>
+    <string name="notification_downloads_uploads_desc">MeshCentral transfer progress notifications</string>
+    <string name="file_exists_download_msg">The file \"%1$s\" already exists in Downloads. What would you like to do?</string>
+    <string name="rename_download_title">Rename file to download</string>
+    <string name="download_name_label">File name in Downloads:</string>
+    <string name="download">Download</string>
     <string name="save">Save</string>
     <string name="ok">OK</string>
 

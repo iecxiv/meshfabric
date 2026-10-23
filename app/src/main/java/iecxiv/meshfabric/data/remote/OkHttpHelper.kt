@@ -36,6 +36,30 @@ object OkHttpHelper {
         return builder.build()
     }
 
+    fun createDownloadClient(ignoreSsl: Boolean = false): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS) // 15s timeout per chunk for HTTP downloads
+            .writeTimeout(15, TimeUnit.SECONDS)
+
+        if (ignoreSsl) {
+            val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            })
+
+            val sslContext = SSLContext.getInstance("SSL")
+            sslContext.init(null, trustAllCerts, SecureRandom())
+            val sslSocketFactory = sslContext.socketFactory
+
+            builder.sslSocketFactory(sslSocketFactory, trustAllCerts[0] as X509TrustManager)
+            builder.hostnameVerifier(HostnameVerifier { _, _ -> true })
+        }
+
+        return builder.build()
+    }
+
     fun sanitizeServerUrl(rawUrl: String): String {
         var url = rawUrl.trim()
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
