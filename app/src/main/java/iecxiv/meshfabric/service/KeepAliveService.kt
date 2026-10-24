@@ -170,7 +170,7 @@ class KeepAliveService : Service() {
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_remote)
             .setContentTitle(titleText)
             .setContentText(contentText)
             .setPriority(NotificationCompat.PRIORITY_LOW)

@@ -404,7 +404,7 @@ fun FileManagerScreen(
                                 Icon(
                                     imageVector = Icons.Default.SwapVert,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -521,7 +521,7 @@ fun FileManagerScreen(
                                             Icon(
                                                 imageVector = transferIcon,
                                                 contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(22.dp)
                                             )
 
