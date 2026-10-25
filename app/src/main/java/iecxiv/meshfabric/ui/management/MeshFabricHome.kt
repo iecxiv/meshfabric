@@ -3,7 +3,6 @@ package iecxiv.meshfabric.ui.management
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -11,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,8 +33,7 @@ import java.util.UUID
 val LocalDeviceActionMenu=staticCompositionLocalOf<@Composable (MeshNode)->Unit> { {} }
 private fun json(vararg pairs:Pair<String,Any?>)=JSONObject().apply { pairs.forEach { (k,v)->put(k,v) } }
 private fun JSONObject.value(k:String)=if(isNull(k)) "" else optString(k,"")
-private data class Record(val title:String,val body:String)
-private data class State(val ready:Boolean=false,val status:String="Sin conexión de acciones",val records:List<Record> = emptyList(),val notes:DeviceNotes?=null)
+private data class State(val ready:Boolean=false,val status:String="Sin conexión de acciones",val notes:DeviceNotes?=null)
 private class Management(private val source:MeshCentralClient,private val desktop:DesktopRelayClient):ViewModel() {
     val state=MutableStateFlow(State())
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -47,6 +44,9 @@ private class Management(private val source:MeshCentralClient,private val deskto
     private var notesEpoch=0L
     private var notesWriteId=""
     private val notesReads=mutableSetOf<String>()
+    val activity=ActivityJournal(
+        resolveName={ id->source.groupedDevices.value.asSequence().flatMap { it.second.asSequence() }.firstOrNull { it.id==id }?.name.orEmpty() },
+        currentActor={ source.userInfo.value?.name.orEmpty() })
     val feedback=RemoteActionFeedback(scope,
         sendPacket={ packet->state.value.ready && socket?.send(packet.toString())==true },
         nativeClipboard={ id,text->
@@ -72,6 +72,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
                 synchronized(this@Management) {
                     if(epoch!=generation || text.length>2000000) return
                     val j=runCatching { JSONObject(text) }.getOrNull() ?: return
+                    activity.reply(j)
                     if(feedback.receive(j)) return
                     when(j.value("action")) {
                         "ping"->ws.send(json("action" to "pong").toString())
@@ -80,7 +81,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
                         }
                         "authcookie","serverinfo","pong"->Unit
                         "close","stopped"->fail(epoch)
-                        "event"->j.optJSONObject("event")?.let { record("Evento",it.value("msg").ifBlank { "Cambio comunicado por el servidor" }) }
+                        "event"->j.optJSONObject("event")?.let { activity.event(it) }
                         "getNotes"->receiveNotes(j)
                         "setNotes"->{
                             if(notesWriteId.isNotBlank() && (j.value("responseid")==notesWriteId || j.value("id")==state.value.notes?.nodeId)) {
@@ -88,15 +89,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
                                 if(error.isNotBlank()) failNotes("El servidor ha rechazado el guardado: $error")
                             }
                         }
-                        else->{
-                            val output=if(j.value("action")=="msg") {
-                                if(j.value("type")=="runcommands") j.value("result").ifBlank { j.value("value") }
-                                else j.value("value").ifBlank { j.value("data") }
-                            } else ""
-                            record(if(output.isNotBlank()) "Salida remota" else "Respuesta del servidor",
-                                output.ifBlank { j.value("url") }.ifBlank { j.value("link") }.ifBlank { j.value("result") }
-                                    .ifBlank { "Respuesta recibida. Comprueba el estado de la operación." }.take(32000))
-                        }
+                        else->activity.unmatched(j)
                     }
                 }
             }
@@ -108,18 +101,21 @@ private class Management(private val source:MeshCentralClient,private val deskto
     }
     @Synchronized private fun fail(epoch:Long) { if(epoch==generation) pause() }
     @Synchronized fun pause() {
-        feedback.interrupted()
+        feedback.interrupted(); activity.interrupted()
         generation++; connecting=false; socket?.cancel(); socket=null
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
         state.update { it.copy(ready=false,status="Acciones desconectadas; las sesiones remotas no se han cerrado",
             notes=it.notes?.failed("Sin conexión. El borrador local se conserva; el guardado no está confirmado.")) }
     }
-    private fun record(title:String,body:String) { state.update { it.copy(records=(listOf(Record(title,body))+it.records).take(80)) } }
     @Synchronized fun send(title:String,payload:JSONObject,write:Boolean):Boolean {
         if(!state.value.ready) return false
-        val request=JSONObject(payload.toString()).put("responseid",UUID.randomUUID().toString())
+        val id=UUID.randomUUID().toString()
+        val request=JSONObject(payload.toString()).put("responseid",id)
         val sent=if(feedback.handles(request)) feedback.submit(title,request) else socket?.send(request.toString())==true
-        if(write) record(title,if(sent) "Solicitud enviada. Esto no confirma su ejecución. No se reintentará automáticamente." else "No se ha enviado la solicitud.")
+        if(write) {
+            activity.sent(title,request,sent)
+            if(sent && request.value("action")!="runcommands") scope.launch { delay(20000); activity.unconfirmed(id) }
+        }
         return sent
     }
     @Synchronized fun openNotes(node:MeshNode,editable:Boolean) {
@@ -195,11 +191,11 @@ private class Management(private val source:MeshCentralClient,private val deskto
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
         state.update { it.copy(notes=null) }
     }
-    @Synchronized fun clear() { pause(); feedback.clear(); state.value=State() }
+    @Synchronized fun clear() { pause(); feedback.clear(); activity.clear(); state.value=State() }
     override fun onCleared() { clear(); scope.cancel() }
 }
 private data class Operation(val title:String,val fields:List<Pair<String,String>>,val requiresAgent:Boolean=false,
-    val icon:ImageVector=Icons.Default.Computer,val dangerous:Boolean=false,val build:(Map<String,String>)->JSONObject)
+    val icon:ImageVector=Icons.Default.Computer,val dangerous:Boolean=false,val directSend:Boolean=false,val build:(Map<String,String>)->JSONObject)
 
 @Composable fun MeshFabricHome(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
@@ -217,22 +213,19 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     var operation by remember { mutableStateOf<Operation?>(null) }
     var operationNode by remember { mutableStateOf("") }
     LaunchedEffect(connected) { if(connected) management.connect() else management.pause() }
-    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },bottomBar={
-        CompactBottomNavigation(page) { page=it }
-    }) { padding->
+    LaunchedEffect(nodes) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
+    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },bottomBar={ CompactBottomNavigation(page) { page=it } }) { padding->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
                 DeviceActionMenu(node,state.ready,onRead={ management.openNotes(node,false) },onEdit={ management.openNotes(node,true) },
                     onSelect={ op->operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
             }) {
                 DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
-            } else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            } else Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                 Text("Actividad",style=MaterialTheme.typography.headlineSmall)
                 Text(state.status,style=MaterialTheme.typography.labelMedium)
                 TextButton(onClick={ management.connect() },enabled=connected && !state.ready) { Text("Reconectar acciones") }
-                Info("Estados de ejecución","Enviada no significa ejecutada. Si se corta la conexión, comprueba el equipo antes de repetir una operación.")
-                ActionFeedbackHistory(management.feedback)
-                state.records.forEach { Info(it.title,it.body) }
+                ActivityTimeline(management.activity,management.feedback,Modifier.weight(1f))
             }
         }
     }
@@ -247,19 +240,18 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         var review by remember { mutableStateOf(singleConfirmation) }
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
-        val confirmLabel=if(singleConfirmation) op.title.substringBefore(" · ") else if(review) "Confirmar envío" else "Revisar"
+        val confirmLabel=if(op.directSend) "Enviar" else if(singleConfirmation) op.title.substringBefore(" · ") else if(review) "Confirmar envío" else "Revisar"
         FabricDialog(op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
             runCatching {
                 if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { "Elige un intérprete válido para este equipo" }
                 op.build(values)
             }.onSuccess { payload->
-                if(!review) review=true else {
+                if(!review && !op.directSend) review=true else {
                     if(management.send(op.title,payload,true)) {
                         operation=null
                         if(!management.feedback.handles(payload)) uiScope.launch {
                             snackbar.currentSnackbarData?.dismiss()
-                            val result=snackbar.showSnackbar(
-                                message="${op.title}: solicitud enviada; ejecución sin confirmar.",
+                            val result=snackbar.showSnackbar(message="${op.title}: solicitud enviada; ejecución sin confirmar.",
                                 actionLabel="Ver actividad",withDismissAction=true,duration=SnackbarDuration.Long)
                             if(result==SnackbarResult.ActionPerformed) page=1
                         }
@@ -301,15 +293,10 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             require(v.getValue("cmds").length<=64000) { "Máximo 64000 caracteres" }
             json("action" to "runcommands","nodeids" to targets,"type" to interpreter.type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
         },
-        Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
+        Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications,directSend=true) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
         Operation("Abrir URL remota",listOf("url" to "URL HTTP/HTTPS"),true,Icons.Default.OpenInNew) {
             val url=it.getValue("url").trim(); require(url.startsWith("https://") || url.startsWith("http://")) { "URL no válida" }
             json("action" to "msg","type" to "openUrl","nodeid" to node.id,"url" to url)
-        },
-        Operation("Enviar portapapeles",listOf("data" to "Texto para el portapapeles remoto"),true,Icons.Default.ContentPaste) {
-            val text=it.getValue("data")
-            require(text.length<=64000 && '\u0000' !in text) { "Texto no válido o superior a 64000 caracteres" }
-            json("action" to "msg","type" to "setclip","nodeid" to node.id,"data" to text)
         },
         Operation("Despertar (WoL)",emptyList(),icon=Icons.Default.PowerSettingsNew) { json("action" to "wakedevices","nodeids" to targets) },
         Operation("Reiniciar",emptyList(),true,Icons.Default.Refresh,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 3) },
@@ -340,10 +327,4 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val color=if(dangerous) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     DropdownMenuItem(text={ Text(label,fontSize=14.sp,fontWeight=FontWeight.Medium) },leadingIcon={ Icon(icon,null,Modifier.size(20.dp)) },
         enabled=enabled,colors=MenuDefaults.itemColors(textColor=color,leadingIconColor=color),onClick=click)
-}
-@Composable private fun Info(title:String,body:String) {
-    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-        Text(title,style=MaterialTheme.typography.titleMedium)
-        SelectionContainer { Text(body,fontFamily=if(title=="Salida remota") FontFamily.Monospace else FontFamily.Default) }
-    } }
 }
