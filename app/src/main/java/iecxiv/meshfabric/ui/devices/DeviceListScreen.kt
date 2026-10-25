@@ -60,14 +60,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    if(logout) AlertDialog(onDismissRequest={ logout=false },title={ Text(stringResource(R.string.confirm_logout_title)) },
+    if(logout) AlertDialog(onDismissRequest={ logout=false },title={ Text(stringResource(R.string.confirm_logout_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
         text={ Text(stringResource(R.string.confirm_logout_msg_custom,appName)) },
         confirmButton={ TextButton(onClick={ logout=false; viewModel.closeAllActiveSessions(); onLogout() }) {
-            Text(stringResource(R.string.logout),color=MaterialTheme.colorScheme.error)
+            Text(stringResource(R.string.logout),color=MaterialTheme.colorScheme.error,fontWeight=FontWeight.Bold)
         } },dismissButton={ TextButton(onClick={ logout=false }) { Text(stringResource(R.string.cancel)) } })
-    if(closeSessions) AlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title)) },
+    if(closeSessions) AlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
         text={ Text(stringResource(R.string.confirm_disconnect_all_msg)) },
-        confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all)) } },
+        confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all),fontWeight=FontWeight.Bold) } },
         dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })
     Scaffold(topBar={ Column {
         TopAppBar(title={ Row(verticalAlignment=Alignment.CenterVertically) {
@@ -164,7 +164,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment=Alignment.CenterVertically) {
-                        Text(node.name.ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f),
+                        Text(node.name.ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f,fill=false),
                             style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
                         Spacer(Modifier.width(8.dp))
                         Surface(shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
