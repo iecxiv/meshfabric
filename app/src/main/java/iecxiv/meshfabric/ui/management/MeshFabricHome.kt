@@ -102,10 +102,11 @@ private class Management(private val source:MeshCentralClient):ViewModel() {
             notes=it.notes?.failed("Sin conexión. El borrador local se conserva; el guardado no está confirmado.")) }
     }
     private fun record(title:String,body:String) { state.update { it.copy(records=(listOf(Record(title,body))+it.records).take(80)) } }
-    @Synchronized fun send(title:String,payload:JSONObject,write:Boolean) {
-        if(!state.value.ready) return
+    @Synchronized fun send(title:String,payload:JSONObject,write:Boolean):Boolean {
+        if(!state.value.ready) return false
         val sent=socket?.send(payload.put("responseid",UUID.randomUUID().toString()).toString())==true
         if(write) record(title,if(sent) "Solicitud enviada. Esto no confirma su ejecución. No se reintentará automáticamente." else "No se ha enviado la solicitud.")
+        return sent
     }
     @Synchronized fun openNotes(node:MeshNode,editable:Boolean) {
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
@@ -196,12 +197,19 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val groups by viewModel.meshClient.groupedDevices.collectAsState()
     val connected by viewModel.isConnected.collectAsState()
     val nodes=groups.flatMap { it.second }.distinctBy { it.id }
+    val snackbar=remember { SnackbarHostState() }
+    val uiScope=rememberCoroutineScope()
     var page by remember { mutableIntStateOf(0) }
     var operation by remember { mutableStateOf<Operation?>(null) }
     var operationNode by remember { mutableStateOf("") }
     LaunchedEffect(connected) { if(connected) management.connect() else management.pause() }
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f)) {
+    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },bottomBar={
+        NavigationBar {
+            listOf("Equipos","Actividad").forEachIndexed { i,label->NavigationBarItem(selected=page==i,onClick={ page=i },
+                icon={ Text(if(i==0) "▣" else "≋") },label={ Text(label) }) }
+        }
+    }) { padding->
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
                 DeviceActionMenu(node,state.ready,onRead={ management.openNotes(node,false) },onEdit={ management.openNotes(node,true) },
                     onSelect={ op->operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
@@ -215,10 +223,6 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 state.records.forEach { Info(it.title,it.body) }
             }
         }
-        NavigationBar {
-            listOf("Equipos","Actividad").forEachIndexed { i,label->NavigationBarItem(selected=page==i,onClick={ page=i },
-                icon={ Text(if(i==0) "▣" else "≋") },label={ Text(label) }) }
-        }
     }
     state.notes?.let { n->DeviceNotesDialog(n,management::closeNotes,management::editNotes,management::changeNotes,management::saveNotes,
         onReload={ nodes.find { it.id==n.nodeId }?.let { management.openNotes(it,n.editable) } },connected=state.ready) }
@@ -228,8 +232,19 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
         FabricDialog(op.title,{ operation=null },if(review) "Confirmar envío" else "Revisar",enabled=state.ready && available,onConfirm={
-            runCatching { op.build(values) }.onSuccess {
-                if(!review) review=true else { management.send(op.title,it,true); operation=null; page=1 }
+            runCatching { op.build(values) }.onSuccess { payload->
+                if(!review) review=true else {
+                    if(management.send(op.title,payload,true)) {
+                        operation=null
+                        uiScope.launch {
+                            snackbar.currentSnackbarData?.dismiss()
+                            val result=snackbar.showSnackbar(
+                                message="${op.title}: solicitud enviada; ejecución sin confirmar.",
+                                actionLabel="Ver actividad",withDismissAction=true,duration=SnackbarDuration.Long)
+                            if(result==SnackbarResult.ActionPerformed) page=1
+                        }
+                    } else error="No se ha podido enviar la solicitud. Revisa la conexión; no se reintentará automáticamente."
+                }
             }.onFailure { error=it.message ?: "Revisa los valores" }
         }) {
             if(!state.ready || !available) Text("La conexión o el equipo no están disponibles para esta operación.")
