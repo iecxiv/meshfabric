@@ -204,10 +204,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     var operationNode by remember { mutableStateOf("") }
     LaunchedEffect(connected) { if(connected) management.connect() else management.pause() }
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },bottomBar={
-        NavigationBar {
-            listOf("Equipos","Actividad").forEachIndexed { i,label->NavigationBarItem(selected=page==i,onClick={ page=i },
-                icon={ Text(if(i==0) "▣" else "≋") },label={ Text(label) }) }
-        }
+        CompactBottomNavigation(page) { page=it }
     }) { padding->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
@@ -227,12 +224,19 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     state.notes?.let { n->DeviceNotesDialog(n,management::closeNotes,management::editNotes,management::changeNotes,management::saveNotes,
         onReload={ nodes.find { it.id==n.nodeId }?.let { management.openNotes(it,n.editable) } },connected=state.ready) }
     operation?.let { op->key(op.title,operationNode) {
-        var values by remember { mutableStateOf(op.fields.associate { it.first to if(it.first=="shell") "shell" else "" }) }
-        var review by remember { mutableStateOf(false) }
+        val targetOs=nodes.find { it.id==operationNode }?.osdesc
+        val interpreters=commandInterpreters(targetOs)
+        val singleConfirmation=!needsReviewStep(op.fields.size)
+        var values by remember { mutableStateOf(op.fields.associate { it.first to if(it.first=="shell") defaultInterpreterKey(targetOs) else "" }) }
+        var review by remember { mutableStateOf(singleConfirmation) }
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
-        FabricDialog(op.title,{ operation=null },if(review) "Confirmar envío" else "Revisar",enabled=state.ready && available,onConfirm={
-            runCatching { op.build(values) }.onSuccess { payload->
+        val confirmLabel=if(singleConfirmation) op.title.substringBefore(" · ") else if(review) "Confirmar envío" else "Revisar"
+        FabricDialog(op.title,{ operation=null },confirmLabel,enabled=state.ready && available,onConfirm={
+            runCatching {
+                if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { "Elige un intérprete válido para este equipo" }
+                op.build(values)
+            }.onSuccess { payload->
                 if(!review) review=true else {
                     if(management.send(op.title,payload,true)) {
                         operation=null
@@ -249,12 +253,19 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         }) {
             if(!state.ready || !available) Text("La conexión o el equipo no están disponibles para esta operación.")
             if(review) {
-                Text("Confirma la operación sobre el equipo indicado. El servidor validará tus permisos.")
-                op.fields.forEach { (key,label)->Text("$label\n${values[key].orEmpty()}") }
+                Text(if(singleConfirmation) "¿Confirmas esta acción sobre el equipo indicado? Puede interrumpir sus sesiones remotas." else "Confirma la operación sobre el equipo indicado. El servidor validará tus permisos.")
+                op.fields.forEach { (key,label)->
+                    val display=if(key=="shell") interpreters.find { it.key==values[key] }?.label.orEmpty() else values[key].orEmpty()
+                    Text("$label\n$display")
+                }
             } else op.fields.forEach { (key,label)->
-                if(key=="shell") Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                    listOf("shell" to "Shell","cmd" to "CMD","powershell" to "PowerShell").forEach { (v,t)->
-                        FilterChip(selected=values[key]==v,onClick={ values=values+(key to v) },label={ Text(t) })
+                if(key=="shell") {
+                    if(interpreters.size==1) Text("Intérprete: ${interpreters.single().label}",style=MaterialTheme.typography.bodyMedium)
+                    else {
+                        if(devicePlatform(targetOs)==DevicePlatform.UNKNOWN) Text("Sistema no identificado: elige el intérprete del equipo remoto.",style=MaterialTheme.typography.bodySmall)
+                        Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                            interpreters.forEach { choice->FilterChip(selected=values[key]==choice.key,onClick={ values=values+(key to choice.key) },label={ Text(choice.label) }) }
+                        }
                     }
                 } else OutlinedTextField(values[key].orEmpty(),{ values=values+(key to it) },label={ Text(label) },modifier=Modifier.fillMaxWidth())
             }
@@ -266,11 +277,12 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     var expanded by remember(node.id) { mutableStateOf(false) }
     val agentOnline=node.conn and 1 != 0
     val targets=JSONArray(listOf(node.id))
+    val interpreters=commandInterpreters(node.osdesc)
     val actions=listOf(
-        Operation("Ejecutar comando",listOf("cmds" to "Comando shell / script","shell" to "Intérprete"),true,Icons.Default.Terminal) { v->
-            val type=when(v.getValue("shell")) { "shell"->3; "cmd"->0; "powershell"->2; else->error("Intérprete no válido") }
+        Operation("Ejecutar comando",listOf("cmds" to "Comando / script","shell" to "Intérprete"),true,Icons.Default.Terminal) { v->
+            val interpreter=interpreters.find { it.key==v["shell"] } ?: error("Intérprete no válido para este equipo")
             require(v.getValue("cmds").isNotBlank()) { "Escribe un comando" }
-            json("action" to "runcommands","nodeids" to targets,"type" to type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
+            json("action" to "runcommands","nodeids" to targets,"type" to interpreter.type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
         },
         Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
         Operation("Abrir URL remota",listOf("url" to "URL HTTP/HTTPS"),true,Icons.Default.OpenInNew) {
@@ -283,6 +295,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         Operation("Apagar",emptyList(),true,Icons.Default.PowerSettingsNew,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 2) },
         Operation("Suspender",emptyList(),true,Icons.Default.Pause) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 4) }
     )
+    val visibleActions=actions.filter { actionVisible(it.requiresAgent,agentOnline) }
+    val (regularActions,powerActions)=visibleActions.partition { it.fields.isNotEmpty() }
     Box {
         IconButton(onClick={ expanded=true }) { Icon(Icons.Default.MoreVert,contentDescription="Acciones de ${node.name}",tint=MaterialTheme.colorScheme.onSurfaceVariant) }
         DropdownMenu(expanded=expanded,onDismissRequest={ expanded=false },modifier=Modifier.heightIn(max=420.dp),
@@ -290,10 +304,13 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             MenuEntry("Leer notas",Icons.Default.Description,ready) { expanded=false; onRead() }
             MenuEntry("Guardar notas",Icons.Default.Edit,ready) { expanded=false; onEdit() }
-            HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-            actions.forEach { op->
-                if(op.title=="Despertar (WoL)") HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-                MenuEntry(op.title,op.icon,ready && (!op.requiresAgent || agentOnline),op.dangerous) { expanded=false; onSelect(op) }
+            if(regularActions.isNotEmpty()) {
+                HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                regularActions.forEach { op->MenuEntry(op.title,op.icon,ready,op.dangerous) { expanded=false; onSelect(op) } }
+            }
+            if(powerActions.isNotEmpty()) {
+                HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                powerActions.forEach { op->MenuEntry(op.title,op.icon,ready,op.dangerous) { expanded=false; onSelect(op) } }
             }
         }
     }
