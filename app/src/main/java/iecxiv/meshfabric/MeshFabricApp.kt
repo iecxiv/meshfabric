@@ -36,7 +36,8 @@ class MeshFabricApp : Application() {
                 }
 
                 override fun onLost(network: Network) {
-                    Log.d("MeshFabricApp", "Network lost")
+                    Log.d("MeshFabricApp", "Network lost, triggering network change...")
+                    onNetworkChanged()
                 }
             })
         } catch (e: Exception) {
