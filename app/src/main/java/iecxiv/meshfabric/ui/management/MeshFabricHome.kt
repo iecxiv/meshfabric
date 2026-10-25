@@ -19,6 +19,7 @@ import iecxiv.meshfabric.data.model.MeshNode
 import iecxiv.meshfabric.data.remote.DesktopRelayClient
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import iecxiv.meshfabric.data.remote.OkHttpHelper
+import iecxiv.meshfabric.ui.components.MeshFabricActivityScreen
 import iecxiv.meshfabric.ui.devices.DeviceListScreen
 import iecxiv.meshfabric.ui.devices.DeviceListViewModel
 import kotlinx.coroutines.*
@@ -221,12 +222,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                     onSelect={ op->operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
             }) {
                 DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
-            } else Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                Text("Actividad",style=MaterialTheme.typography.headlineSmall)
-                Text(state.status,style=MaterialTheme.typography.labelMedium)
-                TextButton(onClick={ management.connect() },enabled=connected && !state.ready) { Text("Reconectar acciones") }
-                ActivityTimeline(management.activity,management.feedback,Modifier.weight(1f))
-            }
+            } else MeshFabricActivityScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
+                actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
         }
     }
     ActionFeedbackDialogs(management.feedback)

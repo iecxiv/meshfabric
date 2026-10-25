@@ -1,7 +1,6 @@
 package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,9 +14,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,7 +28,7 @@ import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
 import iecxiv.meshfabric.data.model.*
 import iecxiv.meshfabric.data.remote.ConnectionStatus
-import iecxiv.meshfabric.ui.components.AppIconImage
+import iecxiv.meshfabric.ui.components.MeshFabricAppBar
 import iecxiv.meshfabric.ui.management.LocalDeviceActionMenu
 import iecxiv.meshfabric.ui.theme.OfflineGray
 import iecxiv.meshfabric.ui.theme.OnlineGreen
@@ -37,20 +39,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
     val groups by viewModel.groupedDevices.collectAsState()
     val connection by viewModel.connectionStatus.collectAsState()
-    val user by viewModel.userInfo.collectAsState()
     val search by viewModel.searchQuery.collectAsState()
     val collapsed by viewModel.collapsedGroups.collectAsState()
     val desktop by viewModel.desktopSessionsStatus.collectAsState()
     val terminal by viewModel.terminalSessionsStatus.collectAsState()
     val files by viewModel.fileSessionsStatus.collectAsState()
     val appName by (viewModel.sessionManager?.appNameFlow ?: remember { MutableStateFlow("MeshFabric") }).collectAsState()
-    val customIcon by (viewModel.sessionManager?.customIconPathFlow ?: remember { MutableStateFlow<String?>(null) }).collectAsState()
     val hideSettings by (viewModel.sessionManager?.hideSettingsIconFlow ?: remember { MutableStateFlow(false) }).collectAsState()
+    val searchFocus=remember { FocusRequester() }
+    val keyboard=LocalSoftwareKeyboardController.current
+    val focusManager=LocalFocusManager.current
     var showSearch by remember { mutableStateOf(false) }
     var logout by remember { mutableStateOf(false) }
     var closeSessions by remember { mutableStateOf(false) }
     val expanded=groups.isEmpty() || groups.any { it.first.id !in collapsed }
-    val dot=when(connection) { ConnectionStatus.CONNECTED->OnlineGreen; ConnectionStatus.CONNECTING->Color(0xFFFFC107); else->Color.Red }
     val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(owner,viewModel) {
         viewModel.refreshActiveSessions()
@@ -70,31 +72,31 @@ import kotlinx.coroutines.flow.MutableStateFlow
         confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all),fontWeight=FontWeight.Bold) } },
         dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })
     Scaffold(topBar={ Column {
-        TopAppBar(title={ Row(verticalAlignment=Alignment.CenterVertically) {
-            AppIconImage(customIconPath=customIcon,modifier=Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)),onClick=onOpenSettings)
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Row(verticalAlignment=Alignment.CenterVertically) {
-                    Text(appName,fontWeight=FontWeight.Bold,fontSize=18.sp)
-                    Spacer(Modifier.width(8.dp)); Box(Modifier.size(10.dp).clip(CircleShape).background(dot))
-                }
-                Text(user?.name?.let { stringResource(R.string.user_label,it) } ?: viewModel.meshClient.serverUrl,
-                    style=MaterialTheme.typography.labelMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
-            }
-        } },actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
+        MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
             ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
             ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                 stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
             ToolIcon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search)) {
-                if(showSearch) viewModel.searchQuery.value=""
+                if(showSearch) {
+                    viewModel.searchQuery.value=""
+                    focusManager.clearFocus(force=true)
+                    keyboard?.hide()
+                }
                 showSearch=!showSearch
             }
             ToolIcon(Icons.AutoMirrored.Filled.Logout,stringResource(R.string.logout)) { logout=true }
             ToolIcon(Icons.Default.PowerSettingsNew,stringResource(R.string.close_active_connections)) { closeSessions=true }
-        } },colors=TopAppBarDefaults.topAppBarColors(containerColor=MaterialTheme.colorScheme.surface))
+        } })
         AnimatedVisibility(showSearch) {
-            OutlinedTextField(search,{ viewModel.searchQuery.value=it },modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),
+            LaunchedEffect(showSearch) {
+                if(showSearch) {
+                    withFrameNanos { }
+                    searchFocus.requestFocus()
+                    keyboard?.show()
+                }
+            }
+            OutlinedTextField(search,{ viewModel.searchQuery.value=it },modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRequester(searchFocus),
                 placeholder={ Text(stringResource(R.string.search_devices_placeholder)) },singleLine=true,
                 trailingIcon={ if(search.isNotEmpty()) IconButton(onClick={ viewModel.searchQuery.value="" }) {
                     Icon(Icons.Default.Close,stringResource(R.string.clear_search))
