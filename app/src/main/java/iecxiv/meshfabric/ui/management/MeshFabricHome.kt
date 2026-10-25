@@ -4,10 +4,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -92,7 +96,8 @@ private class Management(private val source:MeshCentralClient):ViewModel() {
     }
     override fun onCleared() { clear(); scope.cancel() }
 }
-private data class Operation(val title:String,val fields:List<Pair<String,String>>,val build:(Map<String,String>)->JSONObject)
+
+private data class Operation(val title:String,val fields:List<Pair<String,String>>,val requiresAgent:Boolean=false,val build:(Map<String,String>)->JSONObject)
 
 @Composable fun MeshFabricHome(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
@@ -105,53 +110,75 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val connected by viewModel.isConnected.collectAsState()
     val nodes=groups.flatMap { it.second }.distinctBy { it.id }
     var page by remember { mutableIntStateOf(0) }
-    var nodeId by remember { mutableStateOf("") }
-    var choose by remember { mutableStateOf(false) }
     var operation by remember { mutableStateOf<Operation?>(null) }
+    var operationNode by remember { mutableStateOf("") }
     LaunchedEffect(page,connected) { if(!connected) management.clear() else if(page>0) management.connect() }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f)) {
             if(page==0) DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
             else Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                Text(if(page==1) "Gestión del equipo" else "Actividad de gestión",style=MaterialTheme.typography.headlineSmall)
+                Text(if(page==1) "Gestión de equipos" else "Actividad de gestión",style=MaterialTheme.typography.headlineSmall)
                 Text(state.status,style=MaterialTheme.typography.labelMedium)
                 TextButton(onClick={ management.connect() },enabled=!state.ready) { Text("Conectar gestión") }
                 if(page==1) {
-                    Box {
-                        OutlinedButton(onClick={ choose=true },modifier=Modifier.fillMaxWidth()) { Text(nodes.find { it.id==nodeId }?.name ?: "Seleccionar equipo") }
-                        DropdownMenu(expanded=choose,onDismissRequest={ choose=false },modifier=Modifier.heightIn(max=300.dp)) {
-                            nodes.forEach { n->DropdownMenuItem(text={ Text(n.name) },onClick={ nodeId=n.id; choose=false }) }
-                        }
-                    }
-                    nodes.find { it.id==nodeId }?.let { node ->
-                        Info("Resumen","${node.name}\n${node.osdesc.orEmpty()}\n${node.displayIp.orEmpty()}")
-                        Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                            if(node.supportsDesktop) TextButton(onClick={ onOpenDesktop(node.id,node.name) }) { Text("Escritorio") }
-                            if(node.supportsTerminal) TextButton(onClick={ onOpenTerminal(node.id,node.name) }) { Text("Terminal") }
-                            if(node.supportsFiles) TextButton(onClick={ onOpenFiles(node.id,node.name) }) { Text("Archivos") }
-                        }
+                    if(nodes.isEmpty()) Info("Sin equipos","Actualiza la lista desde Equipos para ver los dispositivos disponibles.")
+                    nodes.forEach { node -> key(node.id) {
+                        var menu by remember { mutableStateOf(false) }
+                        val agentOnline=node.conn and 1 != 0
                         val targets=JSONArray(listOf(node.id))
                         val actions=listOf(
-                            Operation("Ejecutar comando",listOf("cmds" to "Comando shell / script","shell" to "Intérprete: shell, cmd o powershell")) { v ->
+                            Operation("Ejecutar comando",listOf("cmds" to "Comando shell / script","shell" to "Intérprete"),true) { v ->
                                 val type=when(v.getValue("shell").trim().lowercase()) { "shell"->3; "cmd"->0; "powershell"->2; else->error("Elige shell, cmd o powershell") }
                                 require(v.getValue("cmds").isNotBlank()) { "Escribe un comando" }
                                 json("action" to "runcommands","nodeids" to targets,"type" to type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
                             },
                             Operation("Guardar notas",listOf("notes" to "Notas (vacío elimina las notas)")) { json("action" to "setNotes","id" to node.id,"notes" to it.getValue("notes")) },
-                            Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje")) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
-                            Operation("Abrir URL remota",listOf("url" to "URL HTTP/HTTPS")) {
+                            Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje"),true) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
+                            Operation("Abrir URL remota",listOf("url" to "URL HTTP/HTTPS"),true) {
                                 val url=it.getValue("url").trim(); require(url.startsWith("https://") || url.startsWith("http://")) { "URL no válida" }
                                 json("action" to "msg","type" to "openUrl","nodeid" to node.id,"url" to url)
                             },
-                            Operation("Enviar portapapeles",listOf("data" to "Texto para el portapapeles remoto")) { json("action" to "msg","type" to "setclip","nodeid" to node.id,"data" to it.getValue("data")) },
+                            Operation("Enviar portapapeles",listOf("data" to "Texto para el portapapeles remoto"),true) { json("action" to "msg","type" to "setclip","nodeid" to node.id,"data" to it.getValue("data")) },
                             Operation("Despertar (WoL)",emptyList()) { json("action" to "wakedevices","nodeids" to targets) },
-                            Operation("Reiniciar",emptyList()) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 3) },
-                            Operation("Apagar",emptyList()) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 2) },
-                            Operation("Suspender",emptyList()) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 4) }
+                            Operation("Reiniciar",emptyList(),true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 3) },
+                            Operation("Apagar",emptyList(),true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 2) },
+                            Operation("Suspender",emptyList(),true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 4) }
                         )
-                        OutlinedButton(onClick={ management.send("Consultar notas",json("action" to "getNotes","id" to node.id),false); page=2 },enabled=state.ready,modifier=Modifier.fillMaxWidth()) { Text("Leer notas") }
-                        actions.forEach { op->OutlinedButton(onClick={ operation=op.copy(title="${op.title} · ${node.name}") },enabled=state.ready,modifier=Modifier.fillMaxWidth()) { Text(op.title) } }
-                    }
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(node.name,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                        Text(if(agentOnline) "Agente conectado" else "Agente desconectado",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                        node.osdesc?.takeIf { it.isNotBlank() }?.let { Text(it,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis) }
+                                        node.displayIp?.let { Text(it,style=MaterialTheme.typography.bodySmall) }
+                                    }
+                                    Box {
+                                        IconButton(onClick={ menu=true }) { Icon(Icons.Default.MoreVert,contentDescription="Acciones de ${node.name}") }
+                                        DropdownMenu(expanded=menu,onDismissRequest={ menu=false },modifier=Modifier.heightIn(max=420.dp)) {
+                                            DropdownMenuItem(text={ Text("Leer notas") },enabled=state.ready,onClick={
+                                                menu=false
+                                                management.send("Consultar notas · ${node.name}",json("action" to "getNotes","id" to node.id),false)
+                                                page=2
+                                            })
+                                            actions.forEach { op ->
+                                                if(op.title=="Despertar (WoL)") HorizontalDivider()
+                                                DropdownMenuItem(text={ Text(op.title,color=if(op.title=="Apagar" || op.title=="Reiniciar") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
+                                                    enabled=state.ready && (!op.requiresAgent || agentOnline),onClick={
+                                                        menu=false; operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}")
+                                                    })
+                                            }
+                                        }
+                                    }
+                                }
+                                Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                                    if(node.supportsDesktop) TextButton(onClick={ onOpenDesktop(node.id,node.name) }) { Text("Escritorio") }
+                                    if(node.supportsTerminal) TextButton(onClick={ onOpenTerminal(node.id,node.name) }) { Text("Terminal") }
+                                    if(node.supportsFiles) TextButton(onClick={ onOpenFiles(node.id,node.name) }) { Text("Archivos") }
+                                }
+                            }
+                        }
+                    } }
                 } else {
                     Info("Estados de ejecución","Enviada no significa ejecutada. Si se corta la conexión, comprueba el equipo antes de repetir una operación.")
                     state.records.forEach { Info(it.title,it.body) }
@@ -162,20 +189,27 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             listOf("Equipos","Gestión","Actividad").forEachIndexed { i,label->NavigationBarItem(selected=page==i,onClick={ page=i },icon={ Text(listOf("▣","⚙","≋")[i]) },label={ Text(label) }) }
         }
     }
-    operation?.let { op->key(op.title) {
+    operation?.let { op->key(op.title,operationNode) {
         var values by remember { mutableStateOf(op.fields.associate { it.first to if(it.first=="shell") "shell" else "" }) }
         var review by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf("") }
+        val nodeAvailable=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
         AlertDialog(onDismissRequest={ operation=null },title={ Text(op.title) },text={
             Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                if(!state.ready) Text("La conexión de gestión no está disponible.")
+                if(!state.ready || !nodeAvailable) Text("La conexión o el equipo no están disponibles para esta operación.")
                 if(review) {
                     Text("Confirma la operación sobre el equipo indicado. El servidor validará tus permisos.")
                     op.fields.forEach { (key,label)->Text("$label\n${values[key].orEmpty()}") }
-                } else op.fields.forEach { (key,label)->OutlinedTextField(values[key].orEmpty(),{ values=values+(key to it) },label={ Text(label) },modifier=Modifier.fillMaxWidth()) }
+                } else op.fields.forEach { (key,label)->
+                    if(key=="shell") Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                        listOf("shell" to "Shell","cmd" to "CMD","powershell" to "PowerShell").forEach { (value,text)->
+                            FilterChip(selected=values[key]==value,onClick={ values=values+(key to value) },label={ Text(text) })
+                        }
+                    } else OutlinedTextField(values[key].orEmpty(),{ values=values+(key to it) },label={ Text(label) },modifier=Modifier.fillMaxWidth())
+                }
                 if(error.isNotBlank()) Text(error,color=MaterialTheme.colorScheme.error)
             }
-        },confirmButton={ TextButton(enabled=state.ready,onClick={
+        },confirmButton={ TextButton(enabled=state.ready && nodeAvailable,onClick={
             runCatching { op.build(values) }.onSuccess { payload->
                 if(!review) review=true else { management.send(op.title,payload,true); operation=null; page=2 }
             }.onFailure { error=it.message ?: "Revisa los valores" }
