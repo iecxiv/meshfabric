@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import iecxiv.meshfabric.data.model.MeshNode
+import iecxiv.meshfabric.data.remote.DesktopRelayClient
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import iecxiv.meshfabric.data.remote.OkHttpHelper
 import iecxiv.meshfabric.ui.devices.DeviceListScreen
@@ -26,6 +27,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import okhttp3.*
+import okio.ByteString.Companion.toByteString
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -35,16 +37,25 @@ private fun json(vararg pairs:Pair<String,Any?>)=JSONObject().apply { pairs.forE
 private fun JSONObject.value(k:String)=if(isNull(k)) "" else optString(k,"")
 private data class Record(val title:String,val body:String)
 private data class State(val ready:Boolean=false,val status:String="Sin conexión de acciones",val records:List<Record> = emptyList(),val notes:DeviceNotes?=null)
-private class Management(private val source:MeshCentralClient):ViewModel() {
+private class Management(private val source:MeshCentralClient,private val desktop:DesktopRelayClient):ViewModel() {
     val state=MutableStateFlow(State())
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
-    private var socket:WebSocket?=null
+    @Volatile private var socket:WebSocket?=null
     @Volatile private var generation=0L
     private var connecting=false
     private var notesJob:Job?=null
     private var notesEpoch=0L
     private var notesWriteId=""
     private val notesReads=mutableSetOf<String>()
+    val feedback=RemoteActionFeedback(scope,
+        sendPacket={ packet->state.value.ready && socket?.send(packet.toString())==true },
+        nativeClipboard={ id,text->
+            if(!desktop.isConnectedToNode(id)) null else {
+                val session=desktop.getSession(source,id)
+                val packet=clipboardPacket(text)
+                if(packet==null || !session.isConnected()) null else session.webSocket?.send(packet.toByteString())==true
+            }
+        })
     @Synchronized fun connect() {
         if(connecting || state.value.ready || source.authCookie.isBlank()) return
         val epoch=++generation
@@ -59,8 +70,9 @@ private class Management(private val source:MeshCentralClient):ViewModel() {
             }
             override fun onMessage(ws:WebSocket,text:String) {
                 synchronized(this@Management) {
-                    if(epoch!=generation || text.length>256000) return
+                    if(epoch!=generation || text.length>2000000) return
                     val j=runCatching { JSONObject(text) }.getOrNull() ?: return
+                    if(feedback.receive(j)) return
                     when(j.value("action")) {
                         "ping"->ws.send(json("action" to "pong").toString())
                         "userinfo"->if(!j.optJSONObject("userinfo")?.value("_id").isNullOrBlank()) {
@@ -96,6 +108,7 @@ private class Management(private val source:MeshCentralClient):ViewModel() {
     }
     @Synchronized private fun fail(epoch:Long) { if(epoch==generation) pause() }
     @Synchronized fun pause() {
+        feedback.interrupted()
         generation++; connecting=false; socket?.cancel(); socket=null
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
         state.update { it.copy(ready=false,status="Acciones desconectadas; las sesiones remotas no se han cerrado",
@@ -104,7 +117,8 @@ private class Management(private val source:MeshCentralClient):ViewModel() {
     private fun record(title:String,body:String) { state.update { it.copy(records=(listOf(Record(title,body))+it.records).take(80)) } }
     @Synchronized fun send(title:String,payload:JSONObject,write:Boolean):Boolean {
         if(!state.value.ready) return false
-        val sent=socket?.send(payload.put("responseid",UUID.randomUUID().toString()).toString())==true
+        val request=JSONObject(payload.toString()).put("responseid",UUID.randomUUID().toString())
+        val sent=if(feedback.handles(request)) feedback.submit(title,request) else socket?.send(request.toString())==true
         if(write) record(title,if(sent) "Solicitud enviada. Esto no confirma su ejecución. No se reintentará automáticamente." else "No se ha enviado la solicitud.")
         return sent
     }
@@ -181,7 +195,7 @@ private class Management(private val source:MeshCentralClient):ViewModel() {
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
         state.update { it.copy(notes=null) }
     }
-    @Synchronized fun clear() { pause(); state.value=State() }
+    @Synchronized fun clear() { pause(); feedback.clear(); state.value=State() }
     override fun onCleared() { clear(); scope.cancel() }
 }
 private data class Operation(val title:String,val fields:List<Pair<String,String>>,val requiresAgent:Boolean=false,
@@ -190,7 +204,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
 @Composable fun MeshFabricHome(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
     val factory=remember(viewModel.meshClient) { object:ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST") override fun <T:ViewModel> create(modelClass:Class<T>):T=Management(viewModel.meshClient) as T
+        @Suppress("UNCHECKED_CAST") override fun <T:ViewModel> create(modelClass:Class<T>):T=Management(viewModel.meshClient,viewModel.desktopClient) as T
     } }
     val management=androidx.lifecycle.viewmodel.compose.viewModel<Management>(factory=factory)
     val state by management.state.collectAsState()
@@ -217,10 +231,12 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 Text(state.status,style=MaterialTheme.typography.labelMedium)
                 TextButton(onClick={ management.connect() },enabled=connected && !state.ready) { Text("Reconectar acciones") }
                 Info("Estados de ejecución","Enviada no significa ejecutada. Si se corta la conexión, comprueba el equipo antes de repetir una operación.")
+                ActionFeedbackHistory(management.feedback)
                 state.records.forEach { Info(it.title,it.body) }
             }
         }
     }
+    ActionFeedbackDialogs(management.feedback)
     state.notes?.let { n->DeviceNotesDialog(n,management::closeNotes,management::editNotes,management::changeNotes,management::saveNotes,
         onReload={ nodes.find { it.id==n.nodeId }?.let { management.openNotes(it,n.editable) } },connected=state.ready) }
     operation?.let { op->key(op.title,operationNode) {
@@ -232,7 +248,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
         val confirmLabel=if(singleConfirmation) op.title.substringBefore(" · ") else if(review) "Confirmar envío" else "Revisar"
-        FabricDialog(op.title,{ operation=null },confirmLabel,enabled=state.ready && available,onConfirm={
+        FabricDialog(op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
             runCatching {
                 if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { "Elige un intérprete válido para este equipo" }
                 op.build(values)
@@ -240,7 +256,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 if(!review) review=true else {
                     if(management.send(op.title,payload,true)) {
                         operation=null
-                        uiScope.launch {
+                        if(!management.feedback.handles(payload)) uiScope.launch {
                             snackbar.currentSnackbarData?.dismiss()
                             val result=snackbar.showSnackbar(
                                 message="${op.title}: solicitud enviada; ejecución sin confirmar.",
@@ -282,6 +298,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         Operation("Ejecutar comando",listOf("cmds" to "Comando / script","shell" to "Intérprete"),true,Icons.Default.Terminal) { v->
             val interpreter=interpreters.find { it.key==v["shell"] } ?: error("Intérprete no válido para este equipo")
             require(v.getValue("cmds").isNotBlank()) { "Escribe un comando" }
+            require(v.getValue("cmds").length<=64000) { "Máximo 64000 caracteres" }
             json("action" to "runcommands","nodeids" to targets,"type" to interpreter.type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
         },
         Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
@@ -289,11 +306,15 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             val url=it.getValue("url").trim(); require(url.startsWith("https://") || url.startsWith("http://")) { "URL no válida" }
             json("action" to "msg","type" to "openUrl","nodeid" to node.id,"url" to url)
         },
-        Operation("Enviar portapapeles",listOf("data" to "Texto para el portapapeles remoto"),true,Icons.Default.ContentPaste) { json("action" to "msg","type" to "setclip","nodeid" to node.id,"data" to it.getValue("data")) },
+        Operation("Enviar portapapeles",listOf("data" to "Texto para el portapapeles remoto"),true,Icons.Default.ContentPaste) {
+            val text=it.getValue("data")
+            require(text.length<=64000 && '\u0000' !in text) { "Texto no válido o superior a 64000 caracteres" }
+            json("action" to "msg","type" to "setclip","nodeid" to node.id,"data" to text)
+        },
         Operation("Despertar (WoL)",emptyList(),icon=Icons.Default.PowerSettingsNew) { json("action" to "wakedevices","nodeids" to targets) },
         Operation("Reiniciar",emptyList(),true,Icons.Default.Refresh,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 3) },
         Operation("Apagar",emptyList(),true,Icons.Default.PowerSettingsNew,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 2) },
-        Operation("Suspender",emptyList(),true,Icons.Default.Pause) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 4) }
+        Operation("Suspender",emptyList(),true,Icons.Default.Pause,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 4) }
     )
     val visibleActions=actions.filter { actionVisible(it.requiresAgent,agentOnline) }
     val (regularActions,powerActions)=visibleActions.partition { it.fields.isNotEmpty() }

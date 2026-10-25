@@ -14,11 +14,15 @@ import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
 
 @Composable internal fun FabricDialog(title:String,onDismiss:()->Unit,confirm:String,enabled:Boolean=true,
-    onConfirm:()->Unit,cancel:String=stringResource(R.string.cancel),content:@Composable ()->Unit) {
+    onConfirm:()->Unit,cancel:String?=stringResource(R.string.cancel),dangerous:Boolean=false,content:@Composable ()->Unit) {
     AlertDialog(onDismissRequest=onDismiss,title={ Text(title,fontWeight=FontWeight.Bold,fontSize=18.sp) },
         text={ Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) { content() } },
-        confirmButton={ TextButton(onClick=onConfirm,enabled=enabled) { Text(confirm,fontWeight=FontWeight.Bold) } },
-        dismissButton={ TextButton(onClick=onDismiss) { Text(cancel) } })
+        confirmButton={
+            if(dangerous) Button(onClick=onConfirm,enabled=enabled,colors=ButtonDefaults.buttonColors(
+                containerColor=MaterialTheme.colorScheme.error,contentColor=MaterialTheme.colorScheme.onError)) { Text(confirm,fontWeight=FontWeight.Bold) }
+            else TextButton(onClick=onConfirm,enabled=enabled) { Text(confirm,fontWeight=FontWeight.Bold) }
+        },
+        dismissButton={ if(cancel!=null) TextButton(onClick=onDismiss) { Text(cancel) } })
 }
 @Composable internal fun DeviceNotesDialog(notes:DeviceNotes,onClose:()->Unit,onEdit:()->Unit,onChange:(String)->Unit,onSave:()->Unit,onReload:()->Unit,connected:Boolean=true) {
     var discard by remember(notes.nodeId) { mutableStateOf(false) }
