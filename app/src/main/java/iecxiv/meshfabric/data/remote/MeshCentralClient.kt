@@ -43,6 +43,7 @@ class MeshCentralClient {
     private var okHttpClient: OkHttpClient? = null
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
+    private var nodePollJob: Job? = null
 
     var serverUrl: String = ""
         private set
@@ -269,6 +270,7 @@ class MeshCentralClient {
                     }
                 }
                 startPingLoop()
+                startNodePollLoop()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -282,6 +284,7 @@ class MeshCentralClient {
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 _connectionState.value = false
                 stopPingLoop()
+                stopNodePollLoop()
                 if (!isUserLogout) {
                     _connectionStatus.value = ConnectionStatus.CONNECTING
                     scheduleReconnect()
@@ -294,6 +297,7 @@ class MeshCentralClient {
                 Log.e("MeshCentralClient", "Control socket failure: ${t?.localizedMessage}")
                 _connectionState.value = false
                 stopPingLoop()
+                stopNodePollLoop()
                 if (!isUserLogout) {
                     _connectionStatus.value = ConnectionStatus.CONNECTING
                     scheduleReconnect()
@@ -485,34 +489,61 @@ class MeshCentralClient {
                             onNodeConnectedListener?.invoke(node.id)
                         }
                     } else {
-                        val conn = json.get("conn")?.asInt ?: 0
-                        val nodeId = json.get("nodeid")?.asString ?: ""
-                        if (conn == 1 && nodeId.isNotEmpty()) {
+                        val nodeId = json.get("nodeid")?.asString ?: json.get("node")?.asString ?: ""
+                        if (nodeId.isNotEmpty()) {
+                            val existing = nodesMap[nodeId] ?: nodesMap["node//$nodeId"]
+                            if (existing != null) {
+                                nodesMap[existing.id] = existing.copy(conn = 1)
+                            }
+                            updateGroupedDevices()
                             onNodeConnectedListener?.invoke(nodeId)
                         }
+                    }
+                    scope.launch {
+                        delay(100)
+                        webSocket?.send("""{"action":"nodes"}""")
                     }
                 }
                 "event" -> {
                     val eventObj = json.getAsJsonObject("event")
                     if (eventObj != null) {
                         val eventAction = eventObj.get("action")?.asString ?: ""
-                        val conn = eventObj.get("conn")?.asInt ?: 0
-                        val nodeId = eventObj.get("nodeid")?.asString ?: ""
-                        if ((eventAction == "nodeconnect" || eventAction == "changenode") && conn == 1 && nodeId.isNotEmpty()) {
-                            Log.d("MeshCentralClient", "Node re-connected via event: $nodeId")
-                            onNodeConnectedListener?.invoke(nodeId)
+                        val conn = eventObj.get("conn")?.asInt ?: 1
+                        val nodeId = eventObj.get("nodeid")?.asString ?: eventObj.get("node")?.asString ?: ""
+                        if (nodeId.isNotEmpty() || eventAction.contains("node", ignoreCase = true)) {
+                            Log.d("MeshCentralClient", "Node event received: $eventAction for $nodeId")
+                            if (nodeId.isNotEmpty()) {
+                                val existing = nodesMap[nodeId] ?: nodesMap["node//$nodeId"]
+                                if (existing != null) {
+                                    nodesMap[existing.id] = existing.copy(conn = if (eventAction == "nodedisconnect") 0 else (if (conn > 0) conn else 1))
+                                }
+                            }
+                            updateGroupedDevices()
+                            if (nodeId.isNotEmpty() && eventAction != "nodedisconnect") {
+                                onNodeConnectedListener?.invoke(nodeId)
+                            }
+                            scope.launch {
+                                delay(100)
+                                webSocket?.send("""{"action":"nodes"}""")
+                            }
                         }
                     }
                 }
                 "nodedisconnect" -> {
                     val nodeId = json.get("nodeid")?.asString
                         ?: json.getAsJsonObject("node")?.get("_id")?.asString
+                        ?: json.get("node")?.asString
                     if (nodeId != null) {
-                        val existing = nodesMap[nodeId]
+                        val cleanId = nodeId.removePrefix("node//").removePrefix("node/").trim()
+                        val existing = nodesMap[cleanId] ?: nodesMap["node//$cleanId"] ?: nodesMap[nodeId]
                         if (existing != null) {
-                            nodesMap[nodeId] = existing.copy(conn = 0)
+                            nodesMap[existing.id] = existing.copy(conn = 0)
                             updateGroupedDevices()
                         }
+                    }
+                    scope.launch {
+                        delay(100)
+                        webSocket?.send("""{"action":"nodes"}""")
                     }
                 }
                 "changenode" -> {
@@ -526,6 +557,10 @@ class MeshCentralClient {
                                 onNodeConnectedListener?.invoke(node.id)
                             }
                         }
+                    }
+                    scope.launch {
+                        delay(100)
+                        webSocket?.send("""{"action":"nodes"}""")
                     }
                 }
                 "ping" -> {
@@ -613,6 +648,24 @@ class MeshCentralClient {
         pingJob = null
     }
 
+    private fun startNodePollLoop() {
+        stopNodePollLoop()
+        nodePollJob = scope.launch {
+            while (true) {
+                delay(10000)
+                if (_connectionState.value && webSocket != null) {
+                    webSocket?.send("""{"action":"nodes"}""")
+                    webSocket?.send("""{"action":"meshes"}""")
+                }
+            }
+        }
+    }
+
+    private fun stopNodePollLoop() {
+        nodePollJob?.cancel()
+        nodePollJob = null
+    }
+
     fun sendClipboardRequest(nodeId: String) {
         if (webSocket == null) return
         val fullNodeId = if (!nodeId.startsWith("node//")) "node//" + nodeId.removePrefix("node/") else nodeId
@@ -696,6 +749,7 @@ class MeshCentralClient {
         reconnectJob?.cancel()
         reconnectJob = null
         stopPingLoop()
+        stopNodePollLoop()
         webSocket?.close(1000, "User logout")
         webSocket = null
         _connectionStatus.value = ConnectionStatus.DISCONNECTED
