@@ -241,11 +241,12 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
         val confirmLabel=if(op.directSend) "Enviar" else if(singleConfirmation) op.title.substringBefore(" · ") else if(review) "Confirmar envío" else "Revisar"
-        FabricDialog(op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
+        OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
             runCatching {
                 if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { "Elige un intérprete válido para este equipo" }
                 op.build(values)
             }.onSuccess { payload->
+                error=""
                 if(!review && !op.directSend) review=true else {
                     if(management.send(op.title,payload,true)) {
                         operation=null
@@ -272,10 +273,15 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                     else {
                         if(devicePlatform(targetOs)==DevicePlatform.UNKNOWN) Text("Sistema no identificado: elige el intérprete del equipo remoto.",style=MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                            interpreters.forEach { choice->FilterChip(selected=values[key]==choice.key,onClick={ values=values+(key to choice.key) },label={ Text(choice.label) }) }
+                            interpreters.forEach { choice->FilterChip(selected=values[key]==choice.key,onClick={ values=values+(key to choice.key); error="" },label={ Text(choice.label) }) }
                         }
                     }
-                } else OutlinedTextField(values[key].orEmpty(),{ values=values+(key to it) },label={ Text(label) },modifier=Modifier.fillMaxWidth())
+                } else OutlinedTextField(value=values[key].orEmpty(),
+                    onValueChange={ values=values+(key to it); error="" },
+                    label={ Text(label) },textStyle=MaterialTheme.typography.bodyLarge,
+                    singleLine=key=="url" || key=="title",minLines=1,
+                    maxLines=if(key=="url" || key=="title") 1 else 3,
+                    modifier=Modifier.fillMaxWidth().heightIn(min=52.dp,max=90.dp))
             }
             if(error.isNotBlank()) Text(error,color=MaterialTheme.colorScheme.error)
         }
