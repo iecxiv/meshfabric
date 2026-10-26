@@ -18,7 +18,7 @@ import iecxiv.meshfabric.R
 
 @Composable internal fun OperationFormDialog(form:Boolean,title:String,onDismiss:()->Unit,confirm:String,
     enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,content:@Composable ()->Unit) {
-    if(!form) {
+    if(!form && dangerous) {
         FabricDialog(title=title,onDismiss=onDismiss,confirm=confirm,enabled=enabled,
             dangerous=dangerous,onConfirm=onConfirm,content=content)
         return
