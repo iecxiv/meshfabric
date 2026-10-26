@@ -1,0 +1,77 @@
+name: Inspect file relay lifecycle (one shot)
+
+on:
+  push:
+    branches: [reconnection-tests]
+    paths: [.github/workflows/inspect-file-relay.yml]
+permissions:
+  contents: write
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/reconnection-tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Capture numbered source fragments for review
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import re
+          source=Path('app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt')
+          data=source.read_bytes()
+          sha=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          if sha!='3999cbe42d876544ee856e04878990c33a95e191':
+              raise SystemExit('File relay source changed; refusing a stale review: '+sha)
+          target=Path('.github/reconnection-audit/file-relay')
+          if target.exists():
+              raise SystemExit('Review snapshot already exists; refusing to overwrite it')
+          target.mkdir(parents=True)
+          source_lines=data.decode('utf-8').splitlines()
+          chunks=[]
+          current=[]
+          length=0
+          first=1
+          for number,line in enumerate(source_lines,1):
+              rendered=(f'{number:05d}: '+line.rstrip()).rstrip()
+              if len(rendered)>14000:
+                  raise SystemExit('Unexpectedly long source line')
+              if current and length+len(rendered)+1>14000:
+                  chunks.append((first,number-1,current))
+                  current=[]
+                  length=0
+                  first=number
+              current.append(rendered)
+              length+=len(rendered)+1
+          if current:
+              chunks.append((first,len(source_lines),current))
+          index=['# Temporary file-relay review snapshot','','Source: `'+str(source)+'`','Original blob: `'+sha+'`',
+              'Review only: line numbers were added and trailing whitespace removed. Do not use these files as source replacements.',
+              'No application code was changed. Remove this snapshot with the final file-relay fix.','','## Fragments']
+          for number,(start,end,lines) in enumerate(chunks,1):
+              name=f'part-{number:02d}.txt'
+              header=f'Source: {source}\nOriginal blob: {sha}\nLines: {start}-{end}\n\n'
+              (target/name).write_text(header+'\n'.join(lines)+'\n')
+              index.append(f'- [{name}]({name}): lines {start}-{end}')
+          index+=['','## Functions']
+          pattern=re.compile(r'^\s*(?:(?:private|internal|public|protected|override|suspend|inline|tailrec)\s+)*fun\s+([A-Za-z_]\w*)')
+          for number,line in enumerate(source_lines,1):
+              match=pattern.match(line)
+              if match:
+                  index.append(f'- Line {number}: `{match.group(1)}`')
+          (target/'README.md').write_text('\n'.join(index)+'\n')
+          print('Captured',len(source_lines),'source lines in',len(chunks),'review fragments')
+          PY
+          git rm .github/workflows/inspect-file-relay.yml
+          git add .github/reconnection-audit/file-relay
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: capture file relay lifecycle for safe review'
+          git push origin HEAD:refs/heads/reconnection-tests
