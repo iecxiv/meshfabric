@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.ui.files
 
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.NumberedTextEditor
 import iecxiv.meshfabric.data.model.TransferType
 import iecxiv.meshfabric.data.remote.checkDownloadFileExists
 import iecxiv.meshfabric.data.remote.getSuggestedFileName
@@ -1191,8 +1192,6 @@ fun FileManagerScreen(
         // Text File Editor Modal Dialog
         if (editingFilePath != null) {
             var isWordWrapEnabled by remember { mutableStateOf(false) }
-            val verticalScrollState = rememberScrollState()
-            val horizontalScrollState = rememberScrollState()
 
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = {
@@ -1238,79 +1237,12 @@ fun FileManagerScreen(
                         }
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Code Editor with Line Numbers and Scroll
-                        val lines = editingFileText.split('\n')
-                        val lineCount = lines.size.coerceAtLeast(1)
-                        val lineNumbersText = (1..lineCount).joinToString("\n")
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.outline,
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                    shape = RoundedCornerShape(8.dp)
-                                )
-                                .clip(RoundedCornerShape(8.dp))
-                        ) {
-                            // Line Numbers Column
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
-                                    .padding(horizontal = 8.dp, vertical = 8.dp)
-                                    .verticalScroll(verticalScrollState)
-                            ) {
-                                Text(
-                                    text = lineNumbersText,
-                                    style = TextStyle(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 13.sp,
-                                        lineHeight = 20.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        textAlign = TextAlign.End
-                                    )
-                                )
-                            }
-
-                            VerticalDivider(
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                                modifier = Modifier.fillMaxHeight()
-                            )
-
-                            // Text Editor Area
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(8.dp)
-                                    .verticalScroll(verticalScrollState)
-                                    .then(
-                                        if (!isWordWrapEnabled) {
-                                            Modifier.horizontalScroll(horizontalScrollState)
-                                        } else {
-                                            Modifier
-                                        }
-                                    )
-                            ) {
-                                BasicTextField(
-                                    value = editingFileText,
-                                    onValueChange = { editingFileText = it },
-                                    modifier = if (!isWordWrapEnabled) Modifier.defaultMinSize(minWidth = 2000.dp) else Modifier.fillMaxWidth(),
-                                    textStyle = TextStyle(
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 13.sp,
-                                        lineHeight = 20.sp,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    ),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary)
-                                )
-                            }
-                        }
+                        NumberedTextEditor(
+                            value = editingFileText,
+                            onValueChange = { editingFileText = it },
+                            wordWrap = isWordWrapEnabled,
+                            modifier = Modifier.fillMaxWidth().weight(1f)
+                        )
 
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(
