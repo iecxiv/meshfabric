@@ -9,6 +9,8 @@ import iecxiv.meshfabric.data.model.UserInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,10 +40,17 @@ sealed class AuthResult {
 class MeshCentralClient {
 
     private val gson = Gson()
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var okHttpClient: OkHttpClient? = null
-    private var webSocket: WebSocket? = null
+    @Volatile private var webSocket: WebSocket? = null
+    private val controlGeneration=SocketGeneration()
+    private var controlConnecting=false
+    private var controlIdentity:Triple<String,String,Boolean>?=null
+    private var controlTimeout:Job?=null
+    private val controlWork=mutableSetOf<Job>()
+    private var controlConfigValid=true
+
     private var pingJob: Job? = null
     private var nodePollJob: Job? = null
 
@@ -172,140 +181,125 @@ class MeshCentralClient {
         }
     }
 
-    private var reconnectJob: Job? = null
-    var isUserLogout: Boolean = false
-
-    fun reconnectNow() {
-        if (isUserLogout) return
-        if (serverUrl.isBlank() || authCookie.isBlank()) return
-        if (_connectionState.value && webSocket != null) return
-        Log.d("MeshCentralClient", "Immediate reconnect triggered for control socket...")
-        reconnectJob?.cancel()
-        reconnectJob = scope.launch(Dispatchers.IO) {
-            var attempt = 0
-            while (!isUserLogout && !_connectionState.value && attempt < 4) {
-                attempt++
-                try {
-                    connectControlSocket(serverUrl, authCookie, ignoreSsl)
-                    var waitMs = 0
-                    while (!_connectionState.value && waitMs < 2000) {
-                        delay(100)
-                        waitMs += 100
-                    }
-                    if (_connectionState.value) break
-                } catch (e: Exception) {
-                    Log.w("MeshCentralClient", "Reconnect attempt $attempt failed: ${e.localizedMessage}")
-                }
-                delay(if (attempt == 1) 400L else 1000L)
-            }
-        }
-    }
-
-    private fun scheduleReconnect() {
-        if (isUserLogout) return
-        if (serverUrl.isBlank() || authCookie.isBlank()) return
-        _connectionStatus.value = ConnectionStatus.CONNECTING
-        _connectionState.value = false
-        reconnectJob?.cancel()
-        reconnectJob = scope.launch {
-            delay(500)
-            if (!isUserLogout && !_connectionState.value) {
-                Log.d("MeshCentralClient", "Auto-reconnecting control socket...")
-                connectControlSocket(serverUrl, authCookie, ignoreSsl)
-            }
-        }
-    }
-
-    fun connectControlSocket(
-        rawServerUrl: String,
-        cookie: String,
-        ignoreSslCert: Boolean = false
-    ) {
-        isUserLogout = false
-        reconnectJob?.cancel()
-        reconnectJob = null
-
-        _connectionStatus.value = ConnectionStatus.CONNECTING
-        _connectionState.value = false
-
-        serverUrl = OkHttpHelper.sanitizeServerUrl(rawServerUrl)
-        authCookie = cookie
-        ignoreSsl = ignoreSslCert
-
-        val client = OkHttpHelper.createClient(ignoreSslCert)
-        okHttpClient = client
-
-        val wsUrl = OkHttpHelper.toWebSocketUrl(serverUrl, "/control.ashx?moreargs=1")
-
-        val requestBuilder = Request.Builder().url(wsUrl)
-        if (cookie.isNotBlank()) {
-            requestBuilder.addHeader("Cookie", cookie)
-        }
-
-        webSocket?.close(1000, "Reconnecting")
-        webSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                _connectionStatus.value = ConnectionStatus.CONNECTED
-                _connectionState.value = true
-                reconnectJob?.cancel()
-                reconnectJob = null
-
-                if (cookie.isNotBlank()) {
-                    val rawToken = extractRawToken(cookie)
-                    val authMsg = JsonObject().apply {
-                        addProperty("action", "urlargs")
-                        add("args", JsonObject().apply {
-                            addProperty("auth", if (rawToken.isNotEmpty()) rawToken else cookie)
-                        })
-                    }
-                    webSocket.send(authMsg.toString())
-                }
-
-                scope.launch {
-                    delay(150)
-                    requestServerData()
-                    delay(400)
-                    if (meshesMap.isEmpty() || nodesMap.isEmpty()) {
-                        requestServerData()
-                    }
-                }
-                startPingLoop()
-                startNodePollLoop()
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                handleControlMessage(text)
-            }
-
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = false
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = false
-                stopPingLoop()
-                stopNodePollLoop()
-                if (!isUserLogout) {
-                    _connectionStatus.value = ConnectionStatus.CONNECTING
-                    scheduleReconnect()
-                } else {
-                    _connectionStatus.value = ConnectionStatus.DISCONNECTED
-                }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("MeshCentralClient", "Control socket failure: ${t?.localizedMessage}")
-                _connectionState.value = false
-                stopPingLoop()
-                stopNodePollLoop()
-                if (!isUserLogout) {
-                    _connectionStatus.value = ConnectionStatus.CONNECTING
-                    scheduleReconnect()
-                } else {
-                    _connectionStatus.value = ConnectionStatus.DISCONNECTED
-                }
-            }
+    private val controlRetries=ControlRetry(scope,controlGeneration,
+        shouldConnect={ !isUserLogout && controlConfigValid && serverUrl.isNotBlank() && authCookie.isNotBlank() && !_connectionState.value && !controlConnecting },
+        connect={ connectControlSocket(serverUrl,authCookie,ignoreSsl) },
+        onError={
+            controlConnecting=false
+            _connectionState.value=false
+            _connectionStatus.value=ConnectionStatus.CONNECTING
+            Log.e("MeshCentralClient","Cannot start control connection (${it.javaClass.simpleName})")
         })
+    @Volatile var isUserLogout: Boolean = false
+
+    fun reconnectNow() { controlRetries.request(true) }
+
+    private fun scheduleReconnect() { controlRetries.request() }
+
+    fun connectControlSocket(rawServerUrl:String,cookie:String,ignoreSslCert:Boolean=false) {
+        controlGeneration.locked {
+            val url=OkHttpHelper.sanitizeServerUrl(rawServerUrl)
+            val identity=Triple(url,cookie,ignoreSslCert)
+            if(webSocket!=null && controlIdentity==identity && (controlConnecting || _connectionState.value)) return
+            val epoch=controlGeneration.advance()
+            cancelControlWork()
+            controlTimeout?.cancel()
+            controlTimeout=null
+            stopPingLoop()
+            stopNodePollLoop()
+            val previous=webSocket
+            webSocket=null
+            previous?.cancel()
+            if(controlIdentity!=identity) {
+                relayAuthCookie=""
+                userAuthCookie=""
+                _userInfo.value=null
+                meshesMap.clear()
+                nodesMap.clear()
+                _groupedDevices.value=emptyList()
+            }
+            controlIdentity=identity
+            isUserLogout=false
+            serverUrl=url
+            authCookie=cookie
+            ignoreSsl=ignoreSslCert
+            _connectionState.value=false
+            _connectionStatus.value=ConnectionStatus.CONNECTING
+            controlConnecting=true
+            controlConfigValid=true
+            try {
+                val client=OkHttpHelper.createClient(ignoreSslCert)
+                okHttpClient=client
+                val request=Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1"))
+                    .apply { if(cookie.isNotBlank()) header("Cookie",cookie) }.build()
+                webSocket=client.newWebSocket(request,object:WebSocketListener() {
+                    override fun onOpen(socket:WebSocket,response:Response) {
+                        var accepted=false
+                        controlGeneration.runIfCurrent(epoch) {
+                            if(webSocket===socket && !isUserLogout) {
+                                accepted=true
+                                controlConnecting=false
+                                controlTimeout?.cancel()
+                                controlTimeout=null
+                                _connectionStatus.value=ConnectionStatus.CONNECTED
+                                _connectionState.value=true
+                                controlRetries.cancel()
+                                if(cookie.isNotBlank()) {
+                                    val token=extractRawToken(cookie)
+                                    val auth=JsonObject().apply {
+                                        addProperty("action","urlargs")
+                                        add("args",JsonObject().apply { addProperty("auth",token.ifEmpty { cookie }) })
+                                    }
+                                    socket.send(auth.toString())
+                                }
+                                launchControlWork { _ ->
+                                    delay(150)
+                                    requestServerData()
+                                    delay(400)
+                                    if(meshesMap.isEmpty() || nodesMap.isEmpty()) requestServerData()
+                                }
+                                startPingLoop()
+                                startNodePollLoop()
+                            }
+                        }
+                        if(!accepted) socket.cancel()
+                    }
+                    override fun onMessage(socket:WebSocket,text:String) {
+                        controlGeneration.runIfCurrent(epoch) {
+                            if(webSocket===socket && !isUserLogout) handleControlMessage(text)
+                        }
+                    }
+                    override fun onClosing(socket:WebSocket,code:Int,reason:String) {
+                        retireControlSocket(epoch,socket)
+                        socket.close(code,reason)
+                    }
+                    override fun onClosed(socket:WebSocket,code:Int,reason:String) {
+                        retireControlSocket(epoch,socket)
+                    }
+                    override fun onFailure(socket:WebSocket,t:Throwable,response:Response?) {
+                        if(retireControlSocket(epoch,socket)) Log.e("MeshCentralClient","Control socket failed (${t.javaClass.simpleName})")
+                    }
+                })
+                val socket=webSocket!!
+                controlTimeout=scope.launch {
+                    delay(20_000L)
+                    controlGeneration.runIfCurrent(epoch) {
+                        if(webSocket===socket && controlConnecting && !isUserLogout) {
+                            retireControlSocket(epoch,socket)
+                            socket.cancel()
+                        }
+                    }
+                }
+            } catch(_:IllegalArgumentException) {
+                controlConfigValid=false
+                controlGeneration.advance()
+                controlConnecting=false
+                webSocket=null
+                _connectionState.value=false
+                _connectionStatus.value=ConnectionStatus.DISCONNECTED
+                Log.e("MeshCentralClient","Invalid control connection configuration")
+            }
+        }
     }
 
     fun requestServerData() {
@@ -315,31 +309,28 @@ class MeshCentralClient {
         webSocket?.send("""{"action":"authcookie"}""")
     }
 
-    fun requestTunnel(nodeId: String, protocol: Int, tunnelId: String) {
+    fun requestTunnel(nodeId:String,protocol:Int,tunnelId:String) {
+        val captured=webSocket ?: return
         scope.launch {
-            if (relayAuthCookie.isEmpty()) {
-                webSocket?.send("""{"action":"authcookie"}""")
+            if(relayAuthCookie.isEmpty()) {
+                captured.send(JsonObject().apply { addProperty("action","authcookie") }.toString())
                 delay(150)
             }
-            val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/").trim()
-            val fullNodeId = "node//$cleanNodeId"
-            val encodedNodeId = try { URLEncoder.encode(fullNodeId, "UTF-8") } catch (e: Exception) { fullNodeId }
-
-            val rcookieToken = relayAuthCookie.ifEmpty { extractRawToken(authCookie) }
-            val encodedRCookie = try { URLEncoder.encode(rcookieToken, "UTF-8") } catch (e: Exception) { rcookieToken }
-
-            val valueStr = "*/meshrelay.ashx?p=$protocol&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRCookie&auth=$encodedRCookie"
-
-            val tunnelMsg = JsonObject().apply {
-                addProperty("action", "msg")
-                addProperty("type", "tunnel")
-                addProperty("nodeid", fullNodeId)
-                addProperty("value", valueStr)
-                addProperty("usage", protocol)
-                addProperty("rights", 0xFFFFFFFF.toInt())
+            controlGeneration.locked {
+                if(webSocket!==captured || isUserLogout || !_connectionState.value) return@locked
+                val fullNodeId="node//"+nodeId.removePrefix("node//").removePrefix("node/").trim()
+                val encodedId=URLEncoder.encode(fullNodeId,"UTF-8")
+                val token=URLEncoder.encode(relayAuthCookie.ifEmpty { extractRawToken(authCookie) },"UTF-8")
+                val packet=JsonObject().apply {
+                    addProperty("action","msg")
+                    addProperty("type","tunnel")
+                    addProperty("nodeid",fullNodeId)
+                    addProperty("value","*/meshrelay.ashx?p=$protocol&nodeid=$encodedId&id=$tunnelId&rauth=$token&auth=$token")
+                    addProperty("usage",protocol)
+                    addProperty("rights",0xFFFFFFFF.toInt())
+                }
+                captured.send(packet.toString())
             }
-            webSocket?.send(tunnelMsg.toString())
-            Log.d("MeshCentralClient", "Sent tunnel request to control socket: $tunnelMsg")
         }
     }
 
@@ -372,7 +363,6 @@ class MeshCentralClient {
             val json = gson.fromJson(text, JsonObject::class.java) ?: return
             val action = json.get("action")?.asString ?: return
 
-            Log.d("MeshControlRecv", "Control socket received: $text")
 
             when (action) {
                 "serverinfo", "userinfo", "authcookie" -> {
@@ -381,11 +371,9 @@ class MeshCentralClient {
                         val rcookieVal = json.get("rcookie")?.asString ?: ""
                         if (rcookieVal.isNotEmpty()) {
                             relayAuthCookie = rcookieVal
-                            Log.d("MeshCentralClient", "Received relay auth cookie (rcookie): $relayAuthCookie")
                         }
                         if (cookieVal.isNotEmpty()) {
                             userAuthCookie = cookieVal
-                            Log.d("MeshCentralClient", "Received user auth cookie (cookie): $userAuthCookie")
                         }
                     }
                     if (action == "userinfo") {
@@ -393,10 +381,11 @@ class MeshCentralClient {
                         if (info != null) {
                             val user = gson.fromJson(info, UserInfo::class.java)
                             _userInfo.value = user
+                            controlRetries.reset()
                         }
                     }
                     if (meshesMap.isEmpty() || nodesMap.isEmpty()) {
-                        scope.launch {
+                        launchControlWork { webSocket ->
                             delay(100)
                             requestServerData()
                         }
@@ -472,7 +461,7 @@ class MeshCentralClient {
                         }
                         updateGroupedDevices()
                         if (meshesMap.isEmpty()) {
-                            scope.launch {
+                            launchControlWork { webSocket ->
                                 delay(300)
                                 webSocket?.send("""{"action":"meshes"}""")
                             }
@@ -499,7 +488,7 @@ class MeshCentralClient {
                             onNodeConnectedListener?.invoke(nodeId)
                         }
                     }
-                    scope.launch {
+                    launchControlWork { webSocket ->
                         delay(100)
                         webSocket?.send("""{"action":"nodes"}""")
                     }
@@ -522,7 +511,7 @@ class MeshCentralClient {
                             if (nodeId.isNotEmpty() && eventAction != "nodedisconnect") {
                                 onNodeConnectedListener?.invoke(nodeId)
                             }
-                            scope.launch {
+                            launchControlWork { webSocket ->
                                 delay(100)
                                 webSocket?.send("""{"action":"nodes"}""")
                             }
@@ -541,7 +530,7 @@ class MeshCentralClient {
                             updateGroupedDevices()
                         }
                     }
-                    scope.launch {
+                    launchControlWork { webSocket ->
                         delay(100)
                         webSocket?.send("""{"action":"nodes"}""")
                     }
@@ -558,7 +547,7 @@ class MeshCentralClient {
                             }
                         }
                     }
-                    scope.launch {
+                    launchControlWork { webSocket ->
                         delay(100)
                         webSocket?.send("""{"action":"nodes"}""")
                     }
@@ -575,7 +564,6 @@ class MeshCentralClient {
                         ?: json.get("clip")?.asString
                         ?: json.get("value")?.asString
                         ?: ""
-                    Log.d("MeshCentralClient", "Control message clipboard action=$action, msgType=$msgType, clipData='$clipData'")
                     if (clipData.isNotEmpty()) {
                         onClipboardReceivedListener?.invoke(nodeId, clipData)
                     }
@@ -634,7 +622,7 @@ class MeshCentralClient {
 
     private fun startPingLoop() {
         stopPingLoop()
-        pingJob = scope.launch {
+        pingJob = launchControlWork { webSocket ->
             while (true) {
                 delay(25000)
                 val ping = JsonObject().apply { addProperty("action", "ping") }
@@ -650,7 +638,7 @@ class MeshCentralClient {
 
     private fun startNodePollLoop() {
         stopNodePollLoop()
-        nodePollJob = scope.launch {
+        nodePollJob = launchControlWork { webSocket ->
             while (true) {
                 delay(10000)
                 if (_connectionState.value && webSocket != null) {
@@ -739,15 +727,44 @@ class MeshCentralClient {
     }
 
     fun onNetworkChanged() {
-        if (!isUserLogout && !_connectionState.value) {
-            reconnectNow()
+        controlGeneration.locked {
+            if(isUserLogout) return
+            controlGeneration.advance()
+            controlConnecting=false
+            controlTimeout?.cancel()
+            controlTimeout=null
+            cancelControlWork()
+            stopPingLoop()
+            stopNodePollLoop()
+            val old=webSocket
+            webSocket=null
+            _connectionState.value=false
+            controlRetries.cancel()
+            old?.cancel()
+            _connectionStatus.value=if(serverUrl.isBlank() || authCookie.isBlank()) ConnectionStatus.DISCONNECTED else ConnectionStatus.CONNECTING
+            controlRetries.request(true)
         }
     }
 
     fun disconnect() {
+        controlGeneration.locked {
+            isUserLogout=true
+            controlConnecting=false
+            controlGeneration.advance()
+            controlTimeout?.cancel()
+            controlTimeout=null
+            controlRetries.cancel()
+            cancelControlWork()
+            stopPingLoop()
+            stopNodePollLoop()
+            val old=webSocket
+            webSocket=null
+            old?.cancel()
+            _connectionState.value=false
+            _connectionStatus.value=ConnectionStatus.DISCONNECTED
+
         isUserLogout = true
-        reconnectJob?.cancel()
-        reconnectJob = null
+        controlRetries.cancel()
         stopPingLoop()
         stopNodePollLoop()
         webSocket?.close(1000, "User logout")
@@ -757,5 +774,44 @@ class MeshCentralClient {
         meshesMap.clear()
         nodesMap.clear()
         _groupedDevices.value = emptyList()
+
+        }
     }
+    private fun cancelControlWork() {
+        val jobs=controlWork.toList()
+        controlWork.clear()
+        jobs.forEach { it.cancel() }
+    }
+
+    private fun launchControlWork(block:suspend CoroutineScope.(WebSocket?)->Unit):Job = controlGeneration.locked {
+        val epoch=controlGeneration.current()
+        val captured=webSocket
+        val job=scope.launch(start=CoroutineStart.LAZY) {
+            val valid=controlGeneration.locked {
+                captured!=null && controlGeneration.current()==epoch && webSocket===captured && !isUserLogout
+            }
+            if(valid) block(this,captured)
+        }
+        controlWork.add(job)
+        job.invokeOnCompletion { controlGeneration.locked { controlWork.remove(job) } }
+        job.start()
+        job
+    }
+
+    private fun retireControlSocket(epoch:Long,socket:WebSocket):Boolean = controlGeneration.locked {
+        if(controlGeneration.current()!=epoch || webSocket!==socket) return@locked false
+        controlGeneration.advance()
+        controlConnecting=false
+        webSocket=null
+        controlTimeout?.cancel()
+        controlTimeout=null
+        cancelControlWork()
+        stopPingLoop()
+        stopNodePollLoop()
+        _connectionState.value=false
+        _connectionStatus.value=if(isUserLogout) ConnectionStatus.DISCONNECTED else ConnectionStatus.CONNECTING
+        if(!isUserLogout) controlRetries.request()
+        true
+    }
+
 }
