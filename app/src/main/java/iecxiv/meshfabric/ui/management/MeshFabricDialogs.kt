@@ -12,6 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.NumberedTextEditor
 
 @Composable internal fun FabricDialog(title:String,onDismiss:()->Unit,confirm:String,enabled:Boolean=true,
     onConfirm:()->Unit,cancel:String?=stringResource(R.string.cancel),dangerous:Boolean=false,content:@Composable ()->Unit) {
@@ -26,6 +27,7 @@ import iecxiv.meshfabric.R
 }
 @Composable internal fun DeviceNotesDialog(notes:DeviceNotes,onClose:()->Unit,onEdit:()->Unit,onChange:(String)->Unit,onSave:()->Unit,onReload:()->Unit,connected:Boolean=true) {
     var discard by remember(notes.nodeId) { mutableStateOf(false) }
+    var wordWrap by remember(notes.nodeId) { mutableStateOf(true) }
     val busy=notes.phase==NotesPhase.LOADING || notes.phase==NotesPhase.SAVING
     val close:()->Unit={ if(notes.phase!=NotesPhase.SAVING) { if(notes.dirty) discard=true else onClose() } }
     FabricDialog(title=(if(notes.editable) "Editar notas" else "Notas")+" · "+notes.name,onDismiss=close,
@@ -38,8 +40,13 @@ import iecxiv.meshfabric.R
             else -> Unit
         }
         if(notes.loaded) {
-            if(notes.editable) OutlinedTextField(notes.draft,onChange,Modifier.fillMaxWidth(),label={ Text("Notas") },
-                enabled=!busy,minLines=6,maxLines=12,supportingText={ Text("Guardar el campo vacío elimina las notas existentes.") })
+            if(notes.editable) {
+                FilterChip(selected=wordWrap,onClick={ wordWrap=!wordWrap },
+                    label={ Text(stringResource(R.string.word_wrap)) })
+                NumberedTextEditor(value=notes.draft,onValueChange=onChange,wordWrap=wordWrap,
+                    enabled=!busy,modifier=Modifier.fillMaxWidth().height(240.dp))
+                Text("Guardar el campo vacío elimina las notas existentes.",style=MaterialTheme.typography.bodySmall)
+            }
             else SelectionContainer { Text(notes.original.ifEmpty { "Este equipo no tiene notas." },style=MaterialTheme.typography.bodyMedium) }
         }
         if(notes.error.isNotBlank()) {
