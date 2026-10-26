@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,40 +37,29 @@ class TerminalSession(
 ) {
     val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/").trim()
     val fullNodeId = "node//$cleanNodeId"
+    private val generation = SocketGeneration()
+    private var handshakeComplete = false
+    private var handshakeTimeoutJob: Job? = null
 
-    var activeSocket: WebSocket? = null
-    var isUserDisconnect = false
+    @Volatile var activeSocket: WebSocket? = null
+    @Volatile var isUserDisconnect = false
     var hasPrintedDisconnectMessage = false
     var reconnectJob: Job? = null
     var activeTunnelId = Random.nextInt(100000, 999999).toString()
-
     var lastCols = 80
     var lastRows = 25
 
     private val sessionHistory = StringBuilder()
-
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
-
     private val _connectionStatus = MutableStateFlow(TerminalConnectionStatus.CONNECTING)
     val connectionStatus: StateFlow<TerminalConnectionStatus> = _connectionStatus.asStateFlow()
-
     private val _incomingDataFlow = MutableSharedFlow<String>(extraBufferCapacity = 512)
     val incomingDataFlow: SharedFlow<String> = _incomingDataFlow.asSharedFlow()
 
-    fun isConnected(): Boolean {
-        return _connectionState.value && activeSocket != null
-    }
-
-    @Synchronized
-    fun getFullHistory(): String {
-        return sessionHistory.toString()
-    }
-
-    @Synchronized
-    fun clearHistory() {
-        sessionHistory.clear()
-    }
+    fun isConnected(): Boolean = _connectionState.value && activeSocket != null
+    fun getFullHistory(): String = synchronized(sessionHistory) { sessionHistory.toString() }
+    fun clearHistory() { synchronized(sessionHistory) { sessionHistory.clear() } }
 
     private fun getBufferFile(context: Context): File {
         val dir = File(context.filesDir, "terminal_buffers")
@@ -81,13 +71,9 @@ class TerminalSession(
         try {
             val file = getBufferFile(context)
             synchronized(sessionHistory) {
-                if (sessionHistory.isNotEmpty()) {
-                    file.writeText(sessionHistory.toString())
-                }
+                if (sessionHistory.isNotEmpty()) file.writeText(sessionHistory.toString())
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     fun loadBufferFromDisk(context: Context): Boolean {
@@ -103,21 +89,14 @@ class TerminalSession(
                 _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
                 true
             } else false
-        } catch (e: Exception) {
-            e.printStackTrace()
-            false
-        }
+        } catch (e: Exception) { e.printStackTrace(); false }
     }
 
     fun deleteBufferFromDisk(context: Context) {
         try {
             val file = getBufferFile(context)
-            if (file.exists()) {
-                file.delete()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+            if (file.exists()) file.delete()
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun getDisconnectMessage(): String {
@@ -131,198 +110,208 @@ class TerminalSession(
     private fun emitDisconnectBanner() {
         if (isUserDisconnect || hasPrintedDisconnectMessage) return
         hasPrintedDisconnectMessage = true
-        val msg = getDisconnectMessage()
-        val disconnectBanner = "\r\n\u001b[38;5;130m$msg\u001b[0m\r\n"
-        synchronized(sessionHistory) {
-            sessionHistory.append(disconnectBanner)
-        }
+        val disconnectBanner = "\r\n\u001b[38;5;130m${getDisconnectMessage()}\u001b[0m\r\n"
+        synchronized(sessionHistory) { sessionHistory.append(disconnectBanner) }
         _incomingDataFlow.tryEmit(disconnectBanner)
         saveBufferToDisk(iecxiv.meshfabric.MeshFabricApp.instance)
         onStateChanged?.invoke()
     }
 
-    fun connect(sendTunnelMsg: Boolean = true) {
-        if (_connectionState.value && activeSocket != null) {
-            Log.d("TerminalSession", "Session for $cleanNodeId ALREADY connected. Skipping connect.")
-            scope.launch {
-                delay(100)
-                sendResize(lastCols, lastRows)
-            }
-            return
-        }
-
-        if (!_connectionState.value && sessionHistory.isNotEmpty() && !isUserDisconnect) {
-            Log.d("TerminalSession", "Session for $cleanNodeId is disconnected with buffer. Preserving buffer for consultation.")
-            _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
-            return
-        }
-
-        isUserDisconnect = false
-        reconnectJob?.cancel()
-        reconnectJob = null
-        _connectionStatus.value = TerminalConnectionStatus.CONNECTING
-
-        val serverUrl = meshClient.serverUrl
-        val cookie = meshClient.authCookie
-        val ignoreSsl = meshClient.ignoreSsl
-
-        val client = OkHttpHelper.createClient(ignoreSsl)
-        val tunnelId = activeTunnelId.ifEmpty { Random.nextInt(100000, 999999).toString().also { activeTunnelId = it } }
-
-        val relayToken = meshClient.relayAuthCookie.ifEmpty {
-            meshClient.userAuthCookie.ifEmpty {
-                meshClient.extractRawToken(cookie)
-            }
-        }
-        val encodedRelayToken = try { URLEncoder.encode(relayToken, "UTF-8") } catch (e: Exception) { relayToken }
-        val encodedNodeId = try { URLEncoder.encode(fullNodeId, "UTF-8") } catch (e: Exception) { fullNodeId }
-
-        val protocol = 1
-        val wsUrl = OkHttpHelper.toWebSocketUrl(
-            serverUrl,
-            "/meshrelay.ashx?p=$protocol&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
-        )
-
-        Log.d("TerminalSession", "Connecting WS ($cleanNodeId, id=$tunnelId) to $wsUrl")
-
-        val requestBuilder = Request.Builder().url(wsUrl)
-        if (cookie.isNotBlank()) {
-            requestBuilder.addHeader("Cookie", cookie)
-        }
-
-        closeSocketOnly()
-
-        activeSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("TerminalSession", "WS onOpen ($cleanNodeId). sendTunnelMsg=$sendTunnelMsg")
-                if (sendTunnelMsg) {
-                    meshClient.requestTunnel(nodeId = fullNodeId, protocol = protocol, tunnelId = tunnelId)
+    private fun resizeForSocket(epoch: Long, socket: WebSocket, cols: Int, rows: Int, force: Boolean = false) {
+        scope.launch {
+            delay(100)
+            generation.runIfCurrent(epoch) {
+                if (activeSocket === socket && !isUserDisconnect && _connectionState.value) {
+                    sendResize(cols, rows, force)
                 }
             }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                handleIncomingData(webSocket, text)
-            }
-
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                handleIncomingData(webSocket, bytes.utf8())
-            }
-
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                if (activeSocket == webSocket || _connectionState.value) {
-                    updateState(false)
-                }
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                val wasActive = (activeSocket == webSocket || _connectionState.value)
-                if (wasActive) {
-                    activeSocket = null
-                    updateState(false)
-                    if (!isUserDisconnect) {
-                        emitDisconnectBanner()
-                    }
-                }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("TerminalSession", "WS onFailure ($cleanNodeId): ${t.localizedMessage}", t)
-                val wasActive = (activeSocket == webSocket || _connectionState.value)
-                if (wasActive) {
-                    activeSocket = null
-                    updateState(false)
-                    if (!isUserDisconnect) {
-                        emitDisconnectBanner()
-                    }
-                }
-            }
-        })
+        }
     }
 
-    private fun handleIncomingData(webSocket: WebSocket, data: String) {
+    fun connect(sendTunnelMsg: Boolean = true) {
+        generation.locked {
+            val existing = activeSocket
+            if (existing != null) {
+                if (_connectionState.value) resizeForSocket(generation.current(), existing, lastCols, lastRows)
+                return
+            }
+            if (!_connectionState.value && getFullHistory().isNotEmpty() && !isUserDisconnect) {
+                _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
+                return
+            }
+            val serverUrl = meshClient.serverUrl
+            val cookie = meshClient.authCookie
+            if (serverUrl.isBlank() || cookie.isBlank()) {
+                updateState(false)
+                return
+            }
+            val epoch = generation.advance()
+            isUserDisconnect = false
+            handshakeComplete = false
+            handshakeTimeoutJob?.cancel()
+            handshakeTimeoutJob = null
+            reconnectJob?.cancel()
+            reconnectJob = null
+            _connectionStatus.value = TerminalConnectionStatus.CONNECTING
+            try {
+                val client = OkHttpHelper.createClient(meshClient.ignoreSsl)
+                val tunnelId = Random.nextInt(100000, 999999).toString()
+                activeTunnelId = tunnelId
+                val relayToken = meshClient.relayAuthCookie.ifEmpty {
+                    meshClient.userAuthCookie.ifEmpty { meshClient.extractRawToken(cookie) }
+                }
+                val encodedRelayToken = URLEncoder.encode(relayToken, "UTF-8")
+                val encodedNodeId = URLEncoder.encode(fullNodeId, "UTF-8")
+                val wsUrl = OkHttpHelper.toWebSocketUrl(serverUrl,
+                    "/meshrelay.ashx?p=1&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken")
+                val request = Request.Builder().url(wsUrl).header("Cookie", cookie).build()
+                activeSocket = client.newWebSocket(request, object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
+                        var accepted = false
+                        generation.runIfCurrent(epoch) {
+                            if (activeSocket === webSocket && !isUserDisconnect) {
+                                accepted = true
+                                if (sendTunnelMsg) meshClient.requestTunnel(fullNodeId, 1, tunnelId)
+                            }
+                        }
+                        if (!accepted) webSocket.cancel()
+                    }
+                    override fun onMessage(webSocket: WebSocket, text: String) {
+                        generation.runIfCurrent(epoch) {
+                            if (activeSocket === webSocket && !isUserDisconnect) handleIncomingData(epoch, webSocket, text)
+                        }
+                    }
+                    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        generation.runIfCurrent(epoch) {
+                            if (activeSocket === webSocket && !isUserDisconnect) handleIncomingData(epoch, webSocket, bytes.utf8())
+                        }
+                    }
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                        retireSocket(epoch, webSocket)
+                        webSocket.close(code, reason)
+                    }
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                        retireSocket(epoch, webSocket)
+                    }
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        if (retireSocket(epoch, webSocket)) {
+                            Log.e("TerminalSession", "Terminal socket failed (${t.javaClass.simpleName})")
+                        }
+                    }
+                })
+                val socket = activeSocket!!
+                handshakeTimeoutJob = scope.launch {
+                    delay(20_000L)
+                    generation.runIfCurrent(epoch) {
+                        if (activeSocket === socket && !handshakeComplete && !isUserDisconnect) {
+                            retireSocket(epoch, socket)
+                            socket.cancel()
+                        }
+                    }
+                }
+            } catch (_: IllegalArgumentException) {
+                closeSocketOnly()
+                Log.e("TerminalSession", "Invalid terminal connection configuration")
+            }
+        }
+    }
+
+    private fun retireSocket(epoch: Long, socket: WebSocket): Boolean = generation.locked {
+        if (generation.current() != epoch || activeSocket !== socket) return@locked false
+        val established = handshakeComplete
+        activeSocket = null
+        handshakeComplete = false
+        handshakeTimeoutJob?.cancel()
+        handshakeTimeoutJob = null
+        generation.advance()
+        updateState(false)
+        if (established && !isUserDisconnect) emitDisconnectBanner()
+        true
+    }
+
+    private fun handleIncomingData(epoch: Long, webSocket: WebSocket, data: String) {
         if (data == "c" || data == "cr" || data == "1") {
-            Log.d("TerminalSession", "Handshake received ($cleanNodeId): $data")
             val wasConnected = _connectionState.value
+            handshakeComplete = true
+            handshakeTimeoutJob?.cancel()
+            handshakeTimeoutJob = null
             updateState(true)
             hasPrintedDisconnectMessage = false
             reconnectJob?.cancel()
             reconnectJob = null
-
             if (!wasConnected) {
                 webSocket.send("1")
-
                 val c = lastCols
                 val r = lastRows
                 lastCols = 0
                 lastRows = 0
-
-                scope.launch {
-                    delay(100)
-                    sendResize(if (c >= 5) c else 80, if (r >= 2) r else 25, force = true)
-                }
+                resizeForSocket(epoch, webSocket, if (c >= 5) c else 80, if (r >= 2) r else 25, true)
             }
             return
         }
-
         if (_connectionState.value) {
             synchronized(sessionHistory) {
                 sessionHistory.append(data)
-                if (sessionHistory.length > 200000) {
-                    sessionHistory.delete(0, 50000)
-                }
+                if (sessionHistory.length > 200000) sessionHistory.delete(0, 50000)
             }
             _incomingDataFlow.tryEmit(data)
         }
     }
 
     fun onNetworkChanged() {
-        if (!isUserDisconnect && _connectionState.value) {
-            Log.d("TerminalSession", "Network change detected for $cleanNodeId, closing tunnel...")
-            emitDisconnectBanner()
+        generation.locked {
+            if (isUserDisconnect || (activeSocket == null && !_connectionState.value)) return
+            val established = handshakeComplete
+            val socket = activeSocket
             closeSocketOnly()
-            updateState(false)
+            socket?.cancel()
+            if (established) emitDisconnectBanner()
         }
     }
 
     fun sendInput(text: String) {
-        if (!_connectionState.value) return
-        val bytes = text.toByteArray(Charsets.UTF_8)
-        activeSocket?.send(ByteString.of(*bytes))
+        generation.locked {
+            if (!_connectionState.value) return
+            activeSocket?.send(ByteString.of(*text.toByteArray(Charsets.UTF_8)))
+        }
     }
 
     fun sendControlKey(keyChar: Char) {
-        if (!_connectionState.value) return
-        val code = (keyChar.uppercaseChar().code - 64)
-        if (code in 1..26) {
-            val bytes = byteArrayOf(code.toByte())
-            activeSocket?.send(ByteString.of(*bytes))
+        generation.locked {
+            if (!_connectionState.value) return
+            val code = keyChar.uppercaseChar().code - 64
+            if (code in 1..26) activeSocket?.send(ByteString.of(*byteArrayOf(code.toByte())))
         }
     }
 
     fun sendResize(cols: Int, rows: Int, force: Boolean = false) {
-        if (cols < 5 || rows < 2) return
-        if (!force && cols == lastCols && rows == lastRows) return
-
-        lastCols = cols
-        lastRows = rows
-
-        if (_connectionState.value && activeSocket != null) {
-            val json1 = "{\"action\":\"termsize\",\"cols\":$cols,\"rows\":$rows}"
-            val json2 = "{\"type\":\"termsize\",\"cols\":$cols,\"rows\":$rows}"
-            val json3 = "{\"action\":\"resize\",\"cols\":$cols,\"rows\":$rows}"
-            activeSocket?.send(json1)
-            activeSocket?.send(json2)
-            activeSocket?.send(json3)
+        generation.locked {
+            if (cols < 5 || rows < 2) return
+            if (!force && cols == lastCols && rows == lastRows) return
+            lastCols = cols
+            lastRows = rows
+            if (_connectionState.value && activeSocket != null) {
+                activeSocket?.send("{\"action\":\"termsize\",\"cols\":$cols,\"rows\":$rows}")
+                activeSocket?.send("{\"type\":\"termsize\",\"cols\":$cols,\"rows\":$rows}")
+                activeSocket?.send("{\"action\":\"resize\",\"cols\":$cols,\"rows\":$rows}")
+            }
         }
     }
 
     fun closeSocketOnly() {
-        activeSocket?.close(1000, "Terminal session closed")
-        activeSocket = null
+        generation.locked {
+            generation.advance()
+            handshakeTimeoutJob?.cancel()
+            handshakeTimeoutJob = null
+            handshakeComplete = false
+            val socket = activeSocket
+            activeSocket = null
+            updateState(false)
+            socket?.close(1000, "Terminal session closed")
+        }
     }
 
     var onStateChanged: (() -> Unit)? = null
-
     fun updateState(connected: Boolean) {
         _connectionState.value = connected
         _connectionStatus.value = if (connected) TerminalConnectionStatus.CONNECTED else TerminalConnectionStatus.DISCONNECTED
@@ -330,21 +319,21 @@ class TerminalSession(
     }
 
     fun disconnect() {
-        isUserDisconnect = true
-        hasPrintedDisconnectMessage = false
-        reconnectJob?.cancel()
-        reconnectJob = null
-        activeSocket?.close(1000, "Disconnecting terminal session")
-        activeSocket = null
-        updateState(false)
-        clearHistory()
-        deleteBufferFromDisk(iecxiv.meshfabric.MeshFabricApp.instance)
+        generation.locked {
+            isUserDisconnect = true
+            hasPrintedDisconnectMessage = false
+            reconnectJob?.cancel()
+            reconnectJob = null
+            closeSocketOnly()
+            clearHistory()
+            deleteBufferFromDisk(iecxiv.meshfabric.MeshFabricApp.instance)
+        }
     }
 }
 
 class TerminalRelayClient {
 
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val sessions = ConcurrentHashMap<String, TerminalSession>()
 
     private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
