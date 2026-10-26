@@ -189,10 +189,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
     }
 }
 @Composable fun SessionActionButton(title:String,icon:ImageVector,status:SessionStatus,onOpen:()->Unit,modifier:Modifier=Modifier) {
-    val color=when(status) { SessionStatus.CONNECTED->OnlineGreen; SessionStatus.DISCONNECTED_WITH_BUFFER->Color(0xFF2196F3); else->MaterialTheme.colorScheme.primary }
-    OutlinedButton(onClick=onOpen,modifier=modifier,contentPadding=PaddingValues(horizontal=4.dp,vertical=8.dp),colors=ButtonDefaults.outlinedButtonColors(contentColor=color)) {
-        Icon(icon,null,Modifier.size(16.dp)); Spacer(Modifier.width(4.dp))
-        Text(title,fontSize=11.sp,maxLines=1,overflow=TextOverflow.Ellipsis)
-        if(status!=SessionStatus.NONE) { Spacer(Modifier.width(3.dp)); Text(if(status==SessionStatus.CONNECTED) "●" else "◌",fontSize=10.sp) }
+    val isConnected=status==SessionStatus.CONNECTED
+    val isDisconnectedWithBuffer=status==SessionStatus.DISCONNECTED_WITH_BUFFER
+    val isActiveOrBuffered=isConnected || isDisconnectedWithBuffer
+    val borderColor=when { isDisconnectedWithBuffer->MaterialTheme.colorScheme.error; isConnected->MaterialTheme.colorScheme.primary; else->MaterialTheme.colorScheme.outline }
+    val containerColor=when { isDisconnectedWithBuffer->MaterialTheme.colorScheme.errorContainer.copy(alpha=0.5f); isConnected->MaterialTheme.colorScheme.primaryContainer.copy(alpha=0.5f); else->Color.Unspecified }
+    val contentColor=when { isDisconnectedWithBuffer->MaterialTheme.colorScheme.error; isConnected->MaterialTheme.colorScheme.primary; else->MaterialTheme.colorScheme.onSurface }
+    OutlinedButton(onClick=onOpen,modifier=modifier,
+        border=androidx.compose.foundation.BorderStroke(width=if(isActiveOrBuffered) 2.dp else 1.dp,color=borderColor),
+        colors=ButtonDefaults.outlinedButtonColors(containerColor=containerColor),contentPadding=PaddingValues(horizontal=4.dp,vertical=4.dp)) {
+        Icon(imageVector=icon,contentDescription=null,modifier=Modifier.size(16.dp),tint=contentColor)
+        Spacer(Modifier.width(4.dp))
+        Text(text=title,fontSize=11.sp,fontWeight=if(isActiveOrBuffered) FontWeight.Bold else FontWeight.Normal,color=contentColor)
     }
 }

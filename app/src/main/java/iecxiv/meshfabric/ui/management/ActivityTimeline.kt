@@ -1,12 +1,18 @@
 package iecxiv.meshfabric.ui.management
 
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -110,58 +116,94 @@ private fun ActivityEntry.withCommand(command:CommandFeedback?):ActivityEntry {
     return copy(status=s,summary=command.message)
 }
 private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Solicitud enviada"; ActivityStatus.ACCEPTED->"Aceptada"; ActivityStatus.OUTPUT->"Salida recibida"; ActivityStatus.CONFIRMED->"Confirmada"; ActivityStatus.ERROR->"Rechazada / error"; ActivityStatus.UNKNOWN->"Sin confirmación"; ActivityStatus.INFO->"Evento" }
-@Composable internal fun ActivityTimeline(journal:ActivityJournal,feedback:RemoteActionFeedback,modifier:Modifier=Modifier) {
+@OptIn(ExperimentalLayoutApi::class)
+@Composable internal fun ActivityTimeline(journal:ActivityJournal,feedback:RemoteActionFeedback,modifier:Modifier=Modifier,query:String="") {
     val records by journal.entries.collectAsState()
     val remote by feedback.state.collectAsState()
     var filter by remember { mutableIntStateOf(0) }
     var device by remember { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
+    val scheme=MaterialTheme.colorScheme
     val devices=records.filter { it.nodeId.isNotBlank() }.distinctBy { it.nodeId }.map { it.nodeId to it.target }.sortedBy { it.second.lowercase() }
     val choices=listOf("" to "Todos los dispositivos","__server" to "Servidor","__unknown" to "Origen no identificado")+devices
+    val search=query.trim()
     val entries=records.map { entry->entry.withCommand(remote.commands.find { it.id==entry.requestId }) }.filter { entry->
         val kind=when(filter) { 1->entry.kind==ActivityKind.ACTION; 2->entry.kind==ActivityKind.SERVER; 3->entry.status==ActivityStatus.ERROR; else->true }
-        kind && when(device) { ""->true; "__server"->entry.nodeId.isBlank() && entry.kind==ActivityKind.SERVER; "__unknown"->entry.nodeId.isBlank() && entry.kind!=ActivityKind.SERVER; else->entry.nodeId==device }
+        val target=when(device) { ""->true; "__server"->entry.nodeId.isBlank() && entry.kind==ActivityKind.SERVER; "__unknown"->entry.nodeId.isBlank() && entry.kind!=ActivityKind.SERVER; else->entry.nodeId==device }
+        kind && target && (search.isBlank() || listOf(entry.target,entry.title,entry.summary,entry.description,entry.actor,entry.action,entry.nodeId).any { it.contains(search,true) })
     }.sortedByDescending { it.time }
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            listOf("Todos","Mis acciones","Servidor","Errores").forEachIndexed { i,label->FilterChip(selected=filter==i,onClick={ filter=i },label={ Text(label) }) }
-        }
-        Box {
-            OutlinedButton(onClick={ menu=true },modifier=Modifier.fillMaxWidth()) { Text(choices.find { it.first==device }?.second ?: "Todos los dispositivos",maxLines=1,overflow=TextOverflow.Ellipsis) }
-            DropdownMenu(expanded=menu,onDismissRequest={ menu=false },modifier=Modifier.heightIn(max=280.dp)) {
-                choices.forEach { (id,label)->DropdownMenuItem(text={ Text(label) },onClick={ device=id; menu=false }) }
+        FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp,Alignment.CenterHorizontally),verticalArrangement=Arrangement.spacedBy(0.dp)) {
+            listOf("Todos","Mis acciones","Servidor","Errores").forEachIndexed { i,label->
+                FilterChip(selected=filter==i,onClick={ filter=i },shape=MaterialTheme.shapes.medium,
+                    border=BorderStroke(1.dp,if(filter==i) scheme.primary else scheme.outlineVariant),
+                    colors=FilterChipDefaults.filterChipColors(containerColor=scheme.surfaceVariant,labelColor=scheme.onSurface,
+                        selectedContainerColor=scheme.primaryContainer,selectedLabelColor=scheme.onPrimaryContainer),
+                    label={ Text(label,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium) })
             }
         }
-        LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp),contentPadding=PaddingValues(vertical=8.dp)) {
-            if(entries.isEmpty()) item { Text("No hay actividad que coincida con los filtros.",style=MaterialTheme.typography.bodyMedium) }
+        Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
+            Box {
+                OutlinedButton(onClick={ menu=true },modifier=Modifier.widthIn(max=360.dp),shape=MaterialTheme.shapes.medium,
+                    colors=ButtonDefaults.outlinedButtonColors(containerColor=scheme.surfaceVariant,contentColor=scheme.onSurface),
+                    border=BorderStroke(1.dp,scheme.outlineVariant)) {
+                    Text(choices.find { it.first==device }?.second ?: "Todos los dispositivos",modifier=Modifier.weight(1f,fill=false),
+                        style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(4.dp)); Icon(Icons.Default.ArrowDropDown,null,Modifier.size(20.dp))
+                }
+                DropdownMenu(expanded=menu,onDismissRequest={ menu=false },modifier=Modifier.widthIn(min=220.dp,max=360.dp).heightIn(max=280.dp),
+                    shape=MaterialTheme.shapes.medium,containerColor=scheme.surfaceVariant,tonalElevation=2.dp,border=BorderStroke(1.dp,scheme.outlineVariant)) {
+                    choices.forEach { (id,label)->DropdownMenuItem(text={ Text(label,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium) },
+                        leadingIcon={ Icon(when(id) { ""->Icons.Default.Devices; "__server"->Icons.Default.Storage; "__unknown"->Icons.Default.HelpOutline; else->Icons.Default.Computer },null,Modifier.size(20.dp)) },
+                        onClick={ device=id; menu=false }) }
+                }
+            }
+        }
+        LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp),contentPadding=PaddingValues(vertical=6.dp)) {
+            if(entries.isEmpty()) item { Text("No hay actividad que coincida con los filtros.",style=MaterialTheme.typography.bodyMedium,color=scheme.onSurfaceVariant) }
             entries.groupBy { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.time)) }.forEach { (date,group)->
-                item(key="date-$date") { Text(date,style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.primary) }
+                item(key="date-$date") {
+                    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=scheme.primaryContainer) {
+                        Text(date,Modifier.padding(horizontal=12.dp,vertical=6.dp),style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.SemiBold,color=scheme.onPrimaryContainer)
+                    }
+                }
                 items(group,key={ it.id }) { entry->
                     var details by remember(entry.id) { mutableStateOf(false) }
-                    val color=when(entry.status) { ActivityStatus.ERROR->MaterialTheme.colorScheme.error; ActivityStatus.UNKNOWN->MaterialTheme.colorScheme.tertiary; ActivityStatus.CONFIRMED,ActivityStatus.OUTPUT->MaterialTheme.colorScheme.primary; else->MaterialTheme.colorScheme.onSurfaceVariant }
-                    Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                        Row {
-                            Text(entry.target,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold,maxLines=1,overflow=TextOverflow.Ellipsis)
-                            Spacer(Modifier.width(8.dp))
-                            Text((if(entry.receivedTime) "Recibido " else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall)
+                    val color=when(entry.status) { ActivityStatus.ERROR->scheme.error; ActivityStatus.UNKNOWN->scheme.tertiary; ActivityStatus.CONFIRMED,ActivityStatus.OUTPUT->scheme.primary; else->scheme.onSurfaceVariant }
+                    Card(Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=scheme.surfaceVariant),elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
+                        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment=Alignment.CenterVertically) {
+                                Text(entry.target,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                Spacer(Modifier.width(8.dp))
+                                Text((if(entry.receivedTime) "Recibido " else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall,color=scheme.onSurfaceVariant)
+                            }
+                            Row(verticalAlignment=Alignment.CenterVertically) {
+                                Text(entry.title,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                Spacer(Modifier.width(6.dp))
+                                Surface(shape=MaterialTheme.shapes.small,color=color.copy(alpha=0.12f)) {
+                                    Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp),color=color,style=MaterialTheme.typography.labelSmall)
+                                }
+                            }
+                            Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=scheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
+                            if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                                Text(if(entry.actor.isNotBlank()) "Por ${entry.actor}" else "",Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=scheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                if(remote.commands.any { it.id==entry.requestId }) TextButton(onClick={ feedback.openCommand(entry.requestId) },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text("Ver salida",style=MaterialTheme.typography.labelLarge) }
+                                TextButton(onClick={ details=!details },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(if(details) "Ocultar" else "Detalles",style=MaterialTheme.typography.labelLarge) }
+                            }
+                            if(details) {
+                                HorizontalDivider(color=scheme.outlineVariant)
+                                Text(entry.title,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium)
+                                Text(entry.summary,style=MaterialTheme.typography.bodySmall)
+                                if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall)
+                                if(entry.nodeId.isNotBlank()) Text("ID del equipo: ${entry.nodeId}",style=MaterialTheme.typography.bodySmall)
+                                if(entry.requestId.isNotBlank()) Text("Petición: ${entry.requestId}",style=MaterialTheme.typography.bodySmall)
+                                if(entry.action.isNotBlank()) Text("Tipo técnico: ${entry.action}",style=MaterialTheme.typography.bodySmall)
+                                if(entry.updated!=entry.time) Text("Última actualización: ${DateFormat.getDateTimeInstance().format(Date(entry.updated))}",style=MaterialTheme.typography.bodySmall)
+                                if(entry.action=="runcommands" && remote.commands.none { it.id==entry.requestId }) Text("La salida ya no se conserva en esta sesión.",style=MaterialTheme.typography.bodySmall)
+                            }
                         }
-                        Text(entry.title,style=MaterialTheme.typography.bodyLarge)
-                        Surface(shape=MaterialTheme.shapes.small,color=color.copy(alpha=0.12f)) { Text(entry.status.label(),Modifier.padding(horizontal=8.dp,vertical=3.dp),color=color,style=MaterialTheme.typography.labelMedium) }
-                        Text(entry.summary,style=MaterialTheme.typography.bodyMedium)
-                        if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall)
-                        if(entry.actor.isNotBlank()) Text("Por ${entry.actor}",style=MaterialTheme.typography.labelSmall)
-                        Row {
-                            if(remote.commands.any { it.id==entry.requestId }) TextButton(onClick={ feedback.openCommand(entry.requestId) }) { Text("Ver salida") }
-                            TextButton(onClick={ details=!details }) { Text(if(details) "Ocultar detalles" else "Detalles") }
-                        }
-                        if(details) {
-                            if(entry.nodeId.isNotBlank()) Text("ID del equipo: ${entry.nodeId}",style=MaterialTheme.typography.bodySmall)
-                            if(entry.requestId.isNotBlank()) Text("Petición: ${entry.requestId}",style=MaterialTheme.typography.bodySmall)
-                            if(entry.action.isNotBlank()) Text("Tipo técnico: ${entry.action}",style=MaterialTheme.typography.bodySmall)
-                            if(entry.updated!=entry.time) Text("Última actualización: ${DateFormat.getDateTimeInstance().format(Date(entry.updated))}",style=MaterialTheme.typography.bodySmall)
-                            if(entry.action=="runcommands" && remote.commands.none { it.id==entry.requestId }) Text("La salida ya no se conserva en esta sesión.",style=MaterialTheme.typography.bodySmall)
-                        }
-                    } }
+                    }
                 }
             }
         }
