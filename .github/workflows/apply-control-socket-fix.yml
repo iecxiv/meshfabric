@@ -1,0 +1,592 @@
+name: Apply control socket lifecycle fix (one shot)
+on:
+  push:
+    branches: [reconnection-tests]
+    paths: [.github/workflows/apply-control-socket-fix.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/reconnection-tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply source-verified control socket changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          RETRY = r'''package iecxiv.meshfabric.data.remote
+
+          import kotlinx.coroutines.CancellationException
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.CoroutineStart
+          import kotlinx.coroutines.Job
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.isActive
+          import kotlinx.coroutines.launch
+
+          internal fun controlRetryDelay(attempt:Int):Long = minOf(15_000L,500L shl attempt.coerceIn(0,5))
+
+          internal class ControlRetry(
+              private val scope:CoroutineScope,
+              private val ownership:SocketGeneration,
+              private val shouldConnect:()->Boolean,
+              private val connect:()->Unit,
+              private val onError:(Exception)->Unit={},
+              private val retryDelay:(Int)->Long=::controlRetryDelay
+          ) {
+              private var pending:Job?=null
+              private var starting=false
+              private var attempts=0
+
+              fun hasPending():Boolean=ownership.locked { pending?.isActive==true }
+
+              fun request(immediate:Boolean=false) {
+                  ownership.locked {
+                      if(!scope.isActive || !shouldConnect()) return
+                      if(pending?.isActive==true) {
+                          if(!immediate || starting) return
+                          cancel()
+                      }
+                      val wait=if(immediate) 0L else retryDelay(attempts)
+                      attempts=(attempts+1).coerceAtMost(5)
+                      lateinit var job:Job
+                      job=scope.launch(start=CoroutineStart.LAZY) {
+                          delay(wait)
+                          ownership.locked {
+                              if(pending!==job || !shouldConnect()) return@locked
+                              starting=true
+                              try { connect() }
+                              catch(e:CancellationException) { throw e }
+                              catch(e:Exception) { onError(e) }
+                          }
+                      }
+                      pending=job
+                      job.invokeOnCompletion {
+                          ownership.locked {
+                              if(pending===job) {
+                                  pending=null
+                                  starting=false
+                                  if(scope.isActive && shouldConnect()) request()
+                              }
+                          }
+                      }
+                      job.start()
+                  }
+              }
+
+              fun cancel() {
+                  ownership.locked {
+                      val job=pending
+                      pending=null
+                      starting=false
+                      job?.cancel()
+                  }
+              }
+
+              fun reset() { ownership.locked { attempts=0; cancel() } }
+          }
+          '''
+          TESTS = r'''package iecxiv.meshfabric.data.remote
+
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.SupervisorJob
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.isActive
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class ControlRetryTest {
+              private fun scope()=CoroutineScope(SupervisorJob()+Dispatchers.Unconfined)
+
+              @Test(timeout=2000) fun recursiveImmediateRequestDoesNotCancelStartingAttempt() {
+                  val scope=scope()
+                  try {
+                      var wanted=true
+                      var calls=0
+                      lateinit var retry:ControlRetry
+                      retry=ControlRetry(scope,SocketGeneration(),{ wanted },{
+                          calls++
+                          retry.request(true)
+                          assertTrue(retry.hasPending())
+                          wanted=false
+                      })
+                      retry.request(true)
+                      assertEquals(1,calls)
+                      assertTrue(scope.isActive)
+                      assertFalse(retry.hasPending())
+                  } finally { scope.cancel() }
+              }
+
+              @Test(timeout=2000) fun repeatedRequestsShareOneQueuedAttempt() {
+                  val scope=scope()
+                  try {
+                      var calls=0
+                      val retry=ControlRetry(scope,SocketGeneration(),{ true },{ calls++ },retryDelay={ 60_000L })
+                      repeat(30) { retry.request() }
+                      assertTrue(retry.hasPending())
+                      assertEquals(0,calls)
+                      retry.cancel()
+                      assertFalse(retry.hasPending())
+                  } finally { scope.cancel() }
+              }
+
+              @Test(timeout=2000) fun logoutCancelsQueuedAttemptAndRejectsFurtherRequests() {
+                  val scope=scope()
+                  try {
+                      var wanted=true
+                      var calls=0
+                      val retry=ControlRetry(scope,SocketGeneration(),{ wanted },{ calls++ },retryDelay={ 60_000L })
+                      retry.request()
+                      wanted=false
+                      retry.cancel()
+                      retry.request(true)
+                      assertFalse(retry.hasPending())
+                      assertEquals(0,calls)
+                  } finally { scope.cancel() }
+              }
+
+              @Test(timeout=2000) fun immediateRequestUpgradesQueuedDelayWithoutDuplicateAttempt() {
+                  val scope=scope()
+                  try {
+                      var wanted=true
+                      var calls=0
+                      val retry=ControlRetry(scope,SocketGeneration(),{ wanted },{ calls++; wanted=false },retryDelay={ 60_000L })
+                      retry.request()
+                      retry.request(true)
+                      assertEquals(1,calls)
+                      assertFalse(retry.hasPending())
+                  } finally { scope.cancel() }
+              }
+
+              @Test(timeout=2000) fun failedStartDoesNotCancelScopeAndQueuesBoundedRetry() {
+                  val scope=scope()
+                  try {
+                      var errors=0
+                      val retry=ControlRetry(scope,SocketGeneration(),{ true },{ throw IllegalStateException("test") },
+                          onError={ errors++ },retryDelay={ 60_000L })
+                      retry.request(true)
+                      assertEquals(1,errors)
+                      assertTrue(scope.isActive)
+                      assertTrue(retry.hasPending())
+                      retry.cancel()
+                  } finally { scope.cancel() }
+              }
+
+              @Test(timeout=2000) fun cancelledScopeCannotScheduleRetries() {
+                  val scope=scope()
+                  var calls=0
+                  val retry=ControlRetry(scope,SocketGeneration(),{ true },{ calls++ },retryDelay={ 60_000L })
+                  retry.request()
+                  scope.cancel()
+                  retry.request(true)
+                  assertFalse(retry.hasPending())
+                  assertEquals(0,calls)
+              }
+
+              @Test fun backoffIsCappedAndHandlesInvalidAttemptCounts() {
+                  assertEquals(500L,controlRetryDelay(-1))
+                  assertEquals(500L,controlRetryDelay(0))
+                  assertEquals(1000L,controlRetryDelay(1))
+                  assertEquals(2000L,controlRetryDelay(2))
+                  assertEquals(15_000L,controlRetryDelay(100))
+              }
+
+              @Test(timeout=2000) fun invalidConfigurationStopsRetriesUntilExplicitCorrection() {
+                  val scope=scope()
+                  try {
+                      var valid=true
+                      var fail=true
+                      var calls=0
+                      val retry=ControlRetry(scope,SocketGeneration(),{ valid },{
+                          calls++
+                          if(fail) throw IllegalArgumentException("test configuration")
+                          valid=false
+                      },onError={ valid=false },retryDelay={ 60_000L })
+                      retry.request(true)
+                      assertEquals(1,calls)
+                      assertFalse(retry.hasPending())
+                      fail=false
+                      valid=true
+                      retry.request(true)
+                      assertEquals(2,calls)
+                      assertFalse(retry.hasPending())
+                  } finally { scope.cancel() }
+              }
+          }
+          '''
+          CONNECT = r'''    fun connectControlSocket(rawServerUrl:String,cookie:String,ignoreSslCert:Boolean=false) {
+                  controlGeneration.locked {
+                      val url=OkHttpHelper.sanitizeServerUrl(rawServerUrl)
+                      val identity=Triple(url,cookie,ignoreSslCert)
+                      if(webSocket!=null && controlIdentity==identity && (controlConnecting || _connectionState.value)) return
+                      val epoch=controlGeneration.advance()
+                      cancelControlWork()
+                      controlTimeout?.cancel()
+                      controlTimeout=null
+                      stopPingLoop()
+                      stopNodePollLoop()
+                      val previous=webSocket
+                      webSocket=null
+                      previous?.cancel()
+                      if(controlIdentity!=identity) {
+                          relayAuthCookie=""
+                          userAuthCookie=""
+                          _userInfo.value=null
+                          meshesMap.clear()
+                          nodesMap.clear()
+                          _groupedDevices.value=emptyList()
+                      }
+                      controlIdentity=identity
+                      isUserLogout=false
+                      serverUrl=url
+                      authCookie=cookie
+                      ignoreSsl=ignoreSslCert
+                      _connectionState.value=false
+                      _connectionStatus.value=ConnectionStatus.CONNECTING
+                      controlConnecting=true
+                      controlConfigValid=true
+                      try {
+                          val client=OkHttpHelper.createClient(ignoreSslCert)
+                          okHttpClient=client
+                          val request=Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1"))
+                              .apply { if(cookie.isNotBlank()) header("Cookie",cookie) }.build()
+                          webSocket=client.newWebSocket(request,object:WebSocketListener() {
+                              override fun onOpen(socket:WebSocket,response:Response) {
+                                  var accepted=false
+                                  controlGeneration.runIfCurrent(epoch) {
+                                      if(webSocket===socket && !isUserLogout) {
+                                          accepted=true
+                                          controlConnecting=false
+                                          controlTimeout?.cancel()
+                                          controlTimeout=null
+                                          _connectionStatus.value=ConnectionStatus.CONNECTED
+                                          _connectionState.value=true
+                                          controlRetries.cancel()
+                                          if(cookie.isNotBlank()) {
+                                              val token=extractRawToken(cookie)
+                                              val auth=JsonObject().apply {
+                                                  addProperty("action","urlargs")
+                                                  add("args",JsonObject().apply { addProperty("auth",token.ifEmpty { cookie }) })
+                                              }
+                                              socket.send(auth.toString())
+                                          }
+                                          launchControlWork { _ ->
+                                              delay(150)
+                                              requestServerData()
+                                              delay(400)
+                                              if(meshesMap.isEmpty() || nodesMap.isEmpty()) requestServerData()
+                                          }
+                                          startPingLoop()
+                                          startNodePollLoop()
+                                      }
+                                  }
+                                  if(!accepted) socket.cancel()
+                              }
+                              override fun onMessage(socket:WebSocket,text:String) {
+                                  controlGeneration.runIfCurrent(epoch) {
+                                      if(webSocket===socket && !isUserLogout) handleControlMessage(text)
+                                  }
+                              }
+                              override fun onClosing(socket:WebSocket,code:Int,reason:String) {
+                                  retireControlSocket(epoch,socket)
+                                  socket.close(code,reason)
+                              }
+                              override fun onClosed(socket:WebSocket,code:Int,reason:String) {
+                                  retireControlSocket(epoch,socket)
+                              }
+                              override fun onFailure(socket:WebSocket,t:Throwable,response:Response?) {
+                                  if(retireControlSocket(epoch,socket)) Log.e("MeshCentralClient","Control socket failed (${t.javaClass.simpleName})")
+                              }
+                          })
+                          val socket=webSocket!!
+                          controlTimeout=scope.launch {
+                              delay(20_000L)
+                              controlGeneration.runIfCurrent(epoch) {
+                                  if(webSocket===socket && controlConnecting && !isUserLogout) {
+                                      retireControlSocket(epoch,socket)
+                                      socket.cancel()
+                                  }
+                              }
+                          }
+                      } catch(_:IllegalArgumentException) {
+                          controlConfigValid=false
+                          controlGeneration.advance()
+                          controlConnecting=false
+                          webSocket=null
+                          _connectionState.value=false
+                          _connectionStatus.value=ConnectionStatus.DISCONNECTED
+                          Log.e("MeshCentralClient","Invalid control connection configuration")
+                      }
+                  }
+              }
+          '''
+          HELPERS = r'''    private fun cancelControlWork() {
+                  val jobs=controlWork.toList()
+                  controlWork.clear()
+                  jobs.forEach { it.cancel() }
+              }
+
+              private fun launchControlWork(block:suspend CoroutineScope.(WebSocket?)->Unit):Job = controlGeneration.locked {
+                  val epoch=controlGeneration.current()
+                  val captured=webSocket
+                  val job=scope.launch(start=CoroutineStart.LAZY) {
+                      val valid=controlGeneration.locked {
+                          captured!=null && controlGeneration.current()==epoch && webSocket===captured && !isUserLogout
+                      }
+                      if(valid) block(this,captured)
+                  }
+                  controlWork.add(job)
+                  job.invokeOnCompletion { controlGeneration.locked { controlWork.remove(job) } }
+                  job.start()
+                  job
+              }
+
+              private fun retireControlSocket(epoch:Long,socket:WebSocket):Boolean = controlGeneration.locked {
+                  if(controlGeneration.current()!=epoch || webSocket!==socket) return@locked false
+                  controlGeneration.advance()
+                  controlConnecting=false
+                  webSocket=null
+                  controlTimeout?.cancel()
+                  controlTimeout=null
+                  cancelControlWork()
+                  stopPingLoop()
+                  stopNodePollLoop()
+                  _connectionState.value=false
+                  _connectionStatus.value=if(isUserLogout) ConnectionStatus.DISCONNECTED else ConnectionStatus.CONNECTING
+                  if(!isUserLogout) controlRetries.request()
+                  true
+              }
+          '''
+          NETWORK = r'''    fun onNetworkChanged() {
+                  controlGeneration.locked {
+                      if(isUserLogout) return
+                      controlGeneration.advance()
+                      controlConnecting=false
+                      controlTimeout?.cancel()
+                      controlTimeout=null
+                      cancelControlWork()
+                      stopPingLoop()
+                      stopNodePollLoop()
+                      val old=webSocket
+                      webSocket=null
+                      _connectionState.value=false
+                      controlRetries.cancel()
+                      old?.cancel()
+                      _connectionStatus.value=if(serverUrl.isBlank() || authCookie.isBlank()) ConnectionStatus.DISCONNECTED else ConnectionStatus.CONNECTING
+                      controlRetries.request(true)
+                  }
+              }
+          '''
+          TUNNEL = r'''    fun requestTunnel(nodeId:String,protocol:Int,tunnelId:String) {
+                  val captured=webSocket ?: return
+                  scope.launch {
+                      if(relayAuthCookie.isEmpty()) {
+                          captured.send(JsonObject().apply { addProperty("action","authcookie") }.toString())
+                          delay(150)
+                      }
+                      controlGeneration.locked {
+                          if(webSocket!==captured || isUserLogout || !_connectionState.value) return@locked
+                          val fullNodeId="node//"+nodeId.removePrefix("node//").removePrefix("node/").trim()
+                          val encodedId=URLEncoder.encode(fullNodeId,"UTF-8")
+                          val token=URLEncoder.encode(relayAuthCookie.ifEmpty { extractRawToken(authCookie) },"UTF-8")
+                          val packet=JsonObject().apply {
+                              addProperty("action","msg")
+                              addProperty("type","tunnel")
+                              addProperty("nodeid",fullNodeId)
+                              addProperty("value","*/meshrelay.ashx?p=$protocol&nodeid=$encodedId&id=$tunnelId&rauth=$token&auth=$token")
+                              addProperty("usage",protocol)
+                              addProperty("rights",0xFFFFFFFF.toInt())
+                          }
+                          captured.send(packet.toString())
+                      }
+                  }
+              }
+          '''
+          FIELDS = r'''    private val controlGeneration=SocketGeneration()
+              private var controlConnecting=false
+              private var controlIdentity:Triple<String,String,Boolean>?=null
+              private var controlTimeout:Job?=null
+              private val controlWork=mutableSetOf<Job>()
+              private var controlConfigValid=true
+          '''
+          COORDINATOR = r'''    private val controlRetries=ControlRetry(scope,controlGeneration,
+                  shouldConnect={ !isUserLogout && controlConfigValid && serverUrl.isNotBlank() && authCookie.isNotBlank() && !_connectionState.value && !controlConnecting },
+                  connect={ connectControlSocket(serverUrl,authCookie,ignoreSsl) },
+                  onError={
+                      controlConnecting=false
+                      _connectionState.value=false
+                      _connectionStatus.value=ConnectionStatus.CONNECTING
+                      Log.e("MeshCentralClient","Cannot start control connection (${it.javaClass.simpleName})")
+                  })
+          '''
+          DISCONNECT_PREFIX = r'''            isUserLogout=true
+                      controlConnecting=false
+                      controlGeneration.advance()
+                      controlTimeout?.cancel()
+                      controlTimeout=null
+                      controlRetries.cancel()
+                      cancelControlWork()
+                      stopPingLoop()
+                      stopNodePollLoop()
+                      val old=webSocket
+                      webSocket=null
+                      old?.cancel()
+                      _connectionState.value=false
+                      _connectionStatus.value=ConnectionStatus.DISCONNECTED
+          '''
+          from pathlib import Path
+          import hashlib
+          import re
+          base=Path('app/src/main/java/iecxiv/meshfabric/data/remote')
+          path=base/'MeshCentralClient.kt'
+          data=path.read_bytes()
+          sha=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          assert sha=='25e6072b19bd97c049f0970543e3424425d9f5cf', 'Control source changed; refusing to overwrite: '+sha
+          assert not (base/'ControlRetry.kt').exists(), 'ControlRetry.kt already exists'
+          test=Path('app/src/test/java/iecxiv/meshfabric/data/remote/ControlRetryTest.kt')
+          assert not test.exists(), 'ControlRetryTest.kt already exists'
+          s=data.decode()
+
+          def skip_string(text,i):
+              if text.startswith('"""',i):
+                  end=text.find('"""',i+3)
+                  assert end>=0
+                  return end+3
+              quote=text[i]
+              i+=1
+              while i<len(text):
+                  if text[i]=='\\': i+=2
+                  elif quote=='"' and text.startswith('${',i): i=matching(text,i+1)+1
+                  elif text[i]==quote: return i+1
+                  else: i+=1
+              raise ValueError('Unterminated string')
+
+          def matching(text,start):
+              depth=1
+              i=start+1
+              while i<len(text):
+                  if text.startswith('//',i):
+                      end=text.find('\n',i); i=len(text) if end<0 else end
+                  elif text.startswith('/*',i):
+                      level=1; i+=2
+                      while level:
+                          if text.startswith('/*',i): level+=1; i+=2
+                          elif text.startswith('*/',i): level-=1; i+=2
+                          else: i+=1
+                          assert i<=len(text), 'Unterminated comment'
+                  elif text[i] in ('"',"'"): i=skip_string(text,i)
+                  elif text[i]=='{': depth+=1; i+=1
+                  elif text[i]=='}':
+                      depth-=1
+                      if depth==0: return i
+                      i+=1
+                  else: i+=1
+              raise ValueError('Unterminated block')
+
+          def span(name):
+              matches=list(re.finditer(r'(?m)^    (?:private )?fun '+re.escape(name)+r'\s*\(',s))
+              assert len(matches)==1, 'Unexpected function count: '+name
+              start=matches[0].start()
+              brace=s.index('{',matches[0].end())
+              return start,brace,matching(s,brace)+1
+
+          def take(name):
+              a,b,c=span(name)
+              return s[a:c]
+
+          def replace(name,replacement):
+              global s
+              a,b,c=span(name)
+              s=s[:a]+replacement.rstrip()+s[c:]
+
+          login=take('login')
+          replace('login','    fun login() { /* saved original */ }')
+          replace('reconnectNow','    fun reconnectNow() { controlRetries.request(true) }')
+          replace('scheduleReconnect','    private fun scheduleReconnect() { controlRetries.request() }')
+          replace('connectControlSocket','    fun connectControlSocket() { /* replaced below */ }')
+          replace('onNetworkChanged','    fun onNetworkChanged() { /* replaced below */ }')
+          replace('requestTunnel','    fun requestTunnel() { /* replaced below */ }')
+          assert s.count('    private var reconnectJob: Job? = null')==1
+          s=s.replace('    private var reconnectJob: Job? = null',COORDINATOR.rstrip(),1)
+          s=s.replace('reconnectJob?.cancel()','controlRetries.cancel()')
+          s=re.sub(r'(?m)^\s*reconnectJob = null\s*\n','',s)
+          assert 'reconnectJob' not in s, 'Unexpected legacy reconnectJob usage'
+          s=re.sub(r'scope\.launch(?:\(Dispatchers\.IO\))?\s*\{','launchControlWork { webSocket ->',s)
+          s=s.replace('return@launch','return@launchControlWork')
+          replace('login',login)
+          replace('connectControlSocket',CONNECT)
+          replace('onNetworkChanged',NETWORK)
+          replace('requestTunnel',TUNNEL)
+          a,b,c=span('disconnect')
+          original=s[b+1:c-1]
+          assert 'scope.cancel' not in original and 'isUserLogout = false' not in original
+          s=s[:b+1]+'\n        controlGeneration.locked {\n'+DISCONNECT_PREFIX+original+'\n        }\n    '+s[c-1:]
+          needle='    private var webSocket: WebSocket? = null'
+          assert s.count(needle)==1
+          s=s.replace(needle,'    @Volatile private var webSocket: WebSocket? = null\n'+FIELDS,1)
+          s=s.replace('    var isUserLogout: Boolean = false','    @Volatile var isUserLogout: Boolean = false',1)
+          s=s.replace('CoroutineScope(Dispatchers.IO + Job())','CoroutineScope(Dispatchers.IO + SupervisorJob())',1)
+          s=s.replace('import kotlinx.coroutines.Job\n','import kotlinx.coroutines.Job\nimport kotlinx.coroutines.SupervisorJob\nimport kotlinx.coroutines.CoroutineStart\n',1)
+          assert s.count('_userInfo.value = user')==1
+          s=s.replace('_userInfo.value = user','_userInfo.value = user\n                            controlRetries.reset()',1)
+          sensitive=('Control socket received:', 'Received relay auth cookie', 'Received user auth cookie', 'Control message clipboard', 'Sent tunnel request to control socket:')
+          lines=[]
+          for line in s.splitlines(True):
+              if any(value in line for value in sensitive):
+                  assert re.match(r'^\s*Log\.d\(.*\)\s*$',line), 'Unexpected sensitive log layout'
+              else: lines.append(line)
+          s=''.join(lines)
+          end=s.rfind('}')
+          assert end>=0
+          s=s[:end]+HELPERS+'\n'+s[end:]
+          assert 'reconnectJob' not in s
+          assert 'webSocket?.close(1000, "Reconnecting")' not in take('connectControlSocket')
+          assert 'controlRetries.cancel()' not in take('connectControlSocket').split('override fun onOpen',1)[0]
+          assert 'controlGeneration.advance()' in take('disconnect')
+          path.write_text(s)
+          (base/'ControlRetry.kt').write_text(RETRY)
+          test.parent.mkdir(parents=True,exist_ok=True)
+          test.write_text(TESTS)
+          print('Updated MeshCentralClient.kt and added ControlRetry.kt and ControlRetryTest.kt')
+          PY
+          git diff --check
+      - name: Verify debug build and unit tests
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Commit verified changes and remove this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/apply-control-socket-fix.yml
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/ControlRetry.kt app/src/test/java/iecxiv/meshfabric/data/remote/ControlRetryTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: fence control callbacks and serialize reconnect attempts'
+          git push origin HEAD:refs/heads/reconnection-tests
+      - name: Upload patched debug APK and test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-fix-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
