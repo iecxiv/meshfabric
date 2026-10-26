@@ -14,6 +14,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.focus.FocusRequester
@@ -130,7 +131,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     IconButton(onClick=click,modifier=Modifier.size(38.dp)) { Icon(icon,label,Modifier.size(20.dp)) }
 }
 @Composable fun GroupHeaderCard(group:MeshGroup,onlineCount:Int,offlineCount:Int,isExpanded:Boolean,onToggleExpand:()->Unit) {
-    Card(Modifier.fillMaxWidth().padding(vertical=6.dp).clickable(onClick=onToggleExpand),
+    Card(Modifier.fillMaxWidth().padding(vertical=6.dp).clip(CardDefaults.shape).clickable(onClick=onToggleExpand),
         colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)) {
         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
