@@ -16,7 +16,7 @@ A native **unofficial** Android client for **MeshCentral** remote management, pr
 
 ## TODO:
 - Implement the ability to select multiple files for actions such as copying, cutting, compressing, deleting, and downloading.
-- When there is a network change the tunnel in terminal is broken, storing the buffer and indicating that the session has been broken, storing the old buffer to consult until it is closed or deleted manually. It is convenient to add a reconnection logic keeping the old buffer, pending to shape and implement it, either automatically and/or manually
+- When there is a network change the tunnel in terminal is broken, storing the buffer and indicating that the session has been broken, storing the old buffer to consult until it is closed or deleted manually. It is convenient to add a reconnection logic keeping the old buffer, pending to shape and implement it, either automatically and/or manually.
 
 ---
 
@@ -26,8 +26,8 @@ A native **unofficial** Android client for **MeshCentral** remote management, pr
 - **UI Framework**: Jetpack Compose with Material Design 3
 - **Networking**: OkHttp 4 (WebSockets & HTTPS), Encrypted SharedPreferences
 - **Architecture**: MVVM with Kotlin Coroutines & StateFlow
-- **Minimum SDK**: Android 7.0 (API Level 24)
-- **Target SDK**: Android 14+ (API Level 34)
+- **Minimum SDK**: Android 8.0 (API Level 25)
+- **Target SDK**: Android 15 (API Level 35)
 
 ---
 
