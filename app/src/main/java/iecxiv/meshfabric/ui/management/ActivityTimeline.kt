@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,18 +143,21 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
                     label={ Text(label,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium) })
             }
         }
-        Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
-            Box {
-                OutlinedButton(onClick={ menu=true },modifier=Modifier.widthIn(max=360.dp),shape=MaterialTheme.shapes.medium,
+        BoxWithConstraints(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
+            val selectorWidth=minOf(maxWidth,280.dp)
+            Box(Modifier.width(selectorWidth)) {
+                OutlinedButton(onClick={ menu=true },modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,
                     colors=ButtonDefaults.outlinedButtonColors(containerColor=scheme.surfaceVariant,contentColor=scheme.onSurface),
                     border=BorderStroke(1.dp,scheme.outlineVariant)) {
-                    Text(choices.find { it.first==device }?.second ?: "Todos los dispositivos",modifier=Modifier.weight(1f,fill=false),
-                        style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
-                    Spacer(Modifier.width(4.dp)); Icon(Icons.Default.ArrowDropDown,null,Modifier.size(20.dp))
+                    Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
+                        Text(choices.find { it.first==device }?.second ?: "Todos los dispositivos",modifier=Modifier.fillMaxWidth().padding(horizontal=24.dp),
+                            textAlign=TextAlign.Center,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        Icon(Icons.Default.ArrowDropDown,null,Modifier.size(20.dp).align(Alignment.CenterEnd))
+                    }
                 }
-                DropdownMenu(expanded=menu,onDismissRequest={ menu=false },modifier=Modifier.widthIn(min=220.dp,max=360.dp).heightIn(max=280.dp),
+                DropdownMenu(expanded=menu,onDismissRequest={ menu=false },modifier=Modifier.width(selectorWidth).heightIn(max=280.dp),
                     shape=MaterialTheme.shapes.medium,containerColor=scheme.surfaceVariant,tonalElevation=2.dp,border=BorderStroke(1.dp,scheme.outlineVariant)) {
-                    choices.forEach { (id,label)->DropdownMenuItem(text={ Text(label,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium) },
+                    choices.forEach { (id,label)->DropdownMenuItem(text={ Text(label,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis) },
                         leadingIcon={ Icon(when(id) { ""->Icons.Default.Devices; "__server"->Icons.Default.Storage; "__unknown"->Icons.Default.HelpOutline; else->Icons.Default.Computer },null,Modifier.size(20.dp)) },
                         onClick={ device=id; menu=false }) }
                 }
