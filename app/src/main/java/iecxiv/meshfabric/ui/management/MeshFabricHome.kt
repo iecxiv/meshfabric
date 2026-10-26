@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.management
 
+import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -10,6 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -280,6 +283,13 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
 }
 @Composable private fun DeviceActionMenu(node:MeshNode,ready:Boolean,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {
     var expanded by remember(node.id) { mutableStateOf(false) }
+    val configuration=LocalConfiguration.current
+    val density=LocalDensity.current
+    val safeInsets=WindowInsets.safeDrawing
+    val verticalInsets=with(density) { (safeInsets.getTop(this)+safeInsets.getBottom(this)).toDp() }
+    val availableMenuHeight=(configuration.screenHeightDp.dp-verticalInsets-48.dp).coerceAtLeast(0.dp)
+    val menuMaxHeight=if(configuration.orientation==Configuration.ORIENTATION_LANDSCAPE)
+        minOf(280.dp,availableMenuHeight) else availableMenuHeight
     val agentOnline=node.conn and 1 != 0
     val targets=JSONArray(listOf(node.id))
     val interpreters=commandInterpreters(node.osdesc)
@@ -304,7 +314,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val (regularActions,powerActions)=visibleActions.partition { it.fields.isNotEmpty() }
     Box {
         IconButton(onClick={ expanded=true }) { Icon(Icons.Default.MoreVert,contentDescription="Acciones de ${node.name}",tint=MaterialTheme.colorScheme.onSurfaceVariant) }
-        DropdownMenu(expanded=expanded,onDismissRequest={ expanded=false },modifier=Modifier.heightIn(max=420.dp),
+        DropdownMenu(expanded=expanded,onDismissRequest={ expanded=false },modifier=Modifier.heightIn(max=menuMaxHeight),
             shape=MaterialTheme.shapes.medium,containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
             tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             MenuEntry("Leer notas",Icons.Default.Description,ready) { expanded=false; onRead() }
