@@ -1,0 +1,52 @@
+name: Match remote action forms to original dialogs (one shot)
+on:
+  push:
+    branches: [feat/native-management]
+    paths: [.github/workflows/fix-remote-action-forms.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/feat/native-management'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Update form styles and clear stale validation errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          home = Path('app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricHome.kt')
+          helper = home.with_name('OperationFormDialog.kt')
+          data = home.read_bytes()
+          sha = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          if sha != '5635d13e4edfcbef22e5bd3efae6fcf9a60c727f':
+              raise SystemExit('Home changed; refusing to overwrite: ' + sha)
+          if helper.exists():
+              raise SystemExit('OperationFormDialog.kt already exists; refusing to overwrite')
+          s = data.decode()
+          def replace_once(old, new):
+              global s
+              if s.count(old) != 1:
+                  raise SystemExit('Expected one source match: ' + old)
+              s = s.replace(old, new, 1)
+          replace_once('FabricDialog(op.title,{ operation=null },confirmLabel,', 'OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,')
+          replace_once('            }.onSuccess { payload->\n', '            }.onSuccess { payload->\n                error=""\n')
+          replace_once('onClick={ values=values+(key to choice.key) }', 'onClick={ values=values+(key to choice.key); error="" }')
+          replace_once('                } else OutlinedTextField(values[key].orEmpty(),{ values=values+(key to it) },label={ Text(label) },modifier=Modifier.fillMaxWidth())', '                } else OutlinedTextField(value=values[key].orEmpty(),\n                    onValueChange={ values=values+(key to it); error="" },\n                    label={ Text(label) },textStyle=MaterialTheme.typography.bodyLarge,\n                    singleLine=key=="url" || key=="title",minLines=1,\n                    maxLines=if(key=="url" || key=="title") 1 else 3,\n                    modifier=Modifier.fillMaxWidth().heightIn(min=52.dp,max=90.dp))')
+          home.write_text(s)
+          helper.write_text('package iecxiv.meshfabric.ui.management\n\nimport androidx.compose.foundation.layout.*\nimport androidx.compose.foundation.rememberScrollState\nimport androidx.compose.foundation.shape.RoundedCornerShape\nimport androidx.compose.foundation.verticalScroll\nimport androidx.compose.material3.*\nimport androidx.compose.runtime.Composable\nimport androidx.compose.runtime.CompositionLocalProvider\nimport androidx.compose.ui.Alignment\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.res.stringResource\nimport androidx.compose.ui.text.font.FontWeight\nimport androidx.compose.ui.unit.dp\nimport androidx.compose.ui.unit.sp\nimport androidx.compose.ui.window.Dialog\nimport iecxiv.meshfabric.R\n\n@Composable internal fun OperationFormDialog(form:Boolean,title:String,onDismiss:()->Unit,confirm:String,\n    enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,content:@Composable ()->Unit) {\n    if(!form) {\n        FabricDialog(title=title,onDismiss=onDismiss,confirm=confirm,enabled=enabled,\n            dangerous=dangerous,onConfirm=onConfirm,content=content)\n        return\n    }\n    Dialog(onDismissRequest=onDismiss) {\n        Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surface,tonalElevation=6.dp,\n            modifier=Modifier.fillMaxWidth().padding(horizontal=4.dp,vertical=8.dp)) {\n            Column(Modifier.fillMaxWidth().padding(16.dp)) {\n                Text(title,fontWeight=FontWeight.Bold,fontSize=18.sp)\n                Spacer(Modifier.height(10.dp))\n                Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),\n                    verticalArrangement=Arrangement.spacedBy(8.dp)) {\n                    CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyLarge) { content() }\n                }\n                Spacer(Modifier.height(12.dp))\n                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {\n                    TextButton(onClick=onDismiss,modifier=Modifier.height(36.dp)) { Text(stringResource(R.string.cancel)) }\n                    Spacer(Modifier.width(8.dp))\n                    Button(onClick=onConfirm,enabled=enabled,modifier=Modifier.height(38.dp),\n                        colors=if(dangerous) ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error,\n                            contentColor=MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors()) {\n                        Text(confirm,fontSize=12.sp)\n                    }\n                }\n            }\n        }\n    }\n}\n')
+          PY
+          git diff --check
+          git rm .github/workflows/fix-remote-action-forms.yml
+          git add app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricHome.kt app/src/main/java/iecxiv/meshfabric/ui/management/OperationFormDialog.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: match remote action form styles and clear stale validation errors'
+          git push origin HEAD:refs/heads/feat/native-management
