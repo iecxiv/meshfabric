@@ -36,69 +36,63 @@ import iecxiv.meshfabric.ui.components.NumberedTextEditor
     var wordWrap by remember(notes.nodeId) { mutableStateOf(true) }
     val busy=notes.phase==NotesPhase.LOADING || notes.phase==NotesPhase.SAVING
     val close:()->Unit={ if(notes.phase!=NotesPhase.SAVING) { if(notes.dirty) discard=true else onClose() } }
-    if(notes.editable) {
-        Dialog(onDismissRequest=close,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-            Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surface,tonalElevation=6.dp,
-                modifier=Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.85f).padding(vertical=8.dp)) {
-                Column(Modifier.fillMaxSize().padding(16.dp)) {
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
-                        Text("Editar notas · ${notes.name}",fontWeight=FontWeight.Bold,fontSize=17.sp,modifier=Modifier.weight(1f))
-                        FilterChip(selected=wordWrap,onClick={ wordWrap=!wordWrap },
-                            label={ Text(stringResource(R.string.word_wrap),fontSize=11.sp) },
-                            leadingIcon={ Icon(Icons.AutoMirrored.Filled.WrapText,contentDescription=stringResource(R.string.word_wrap),modifier=Modifier.size(16.dp)) })
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    if(busy) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Text(if(notes.phase==NotesPhase.LOADING) "Cargando notas del equipo…" else "Verificando el guardado con el servidor…",
-                            style=MaterialTheme.typography.bodySmall)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    if(notes.loaded) {
+    Dialog(onDismissRequest=close,properties=DialogProperties(usePlatformDefaultWidth=false)) {
+        Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surface,tonalElevation=6.dp,
+            modifier=Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.85f).padding(vertical=8.dp)) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
+                    Text((if(notes.editable) "Editar notas" else "Notas")+" · "+notes.name,
+                        fontWeight=FontWeight.Bold,fontSize=17.sp,modifier=Modifier.weight(1f))
+                    if(notes.editable) FilterChip(selected=wordWrap,onClick={ wordWrap=!wordWrap },
+                        label={ Text(stringResource(R.string.word_wrap),fontSize=11.sp) },
+                        leadingIcon={ Icon(Icons.AutoMirrored.Filled.WrapText,contentDescription=stringResource(R.string.word_wrap),modifier=Modifier.size(16.dp)) })
+                }
+                Spacer(Modifier.height(10.dp))
+                if(busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    Text(if(notes.phase==NotesPhase.LOADING) "Cargando notas del equipo…" else "Verificando el guardado con el servidor…",
+                        style=MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                }
+                if(notes.loaded) {
+                    if(notes.editable) {
                         NumberedTextEditor(value=notes.draft,onValueChange=onChange,wordWrap=wordWrap,
                             enabled=!busy,modifier=Modifier.fillMaxWidth().weight(1f))
                     } else {
-                        Spacer(Modifier.weight(1f))
+                        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())) {
+                            SelectionContainer {
+                                Text(notes.original.ifEmpty { "Este equipo no tiene notas." },
+                                    modifier=Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodyMedium)
+                            }
+                        }
                     }
-                    Column(Modifier.fillMaxWidth().heightIn(max=112.dp).verticalScroll(rememberScrollState()),
-                        verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                        if(!connected) Text("Sin conexión: el borrador permanece local y no se puede guardar.",color=MaterialTheme.colorScheme.error,
-                            style=MaterialTheme.typography.bodySmall)
-                        if(notes.loaded) Text("Guardar el campo vacío elimina las notas existentes.",style=MaterialTheme.typography.bodySmall)
-                        if(notes.error.isNotBlank()) {
-                            Text(notes.error,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
-                            if(!notes.loaded) TextButton(onClick=onReload,enabled=!busy) { Text("Reintentar carga") }
-                        }
-                        if(notes.message.isNotBlank()) Text(notes.message,color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.bodySmall)
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Column(Modifier.fillMaxWidth().heightIn(max=112.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                    if(!connected) Text("Sin conexión: el borrador permanece local y no se puede guardar.",color=MaterialTheme.colorScheme.error,
+                        style=MaterialTheme.typography.bodySmall)
+                    if(notes.editable && notes.loaded) Text("Guardar el campo vacío elimina las notas existentes.",style=MaterialTheme.typography.bodySmall)
+                    if(notes.error.isNotBlank()) {
+                        Text(notes.error,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                        if(!notes.loaded) TextButton(onClick=onReload,enabled=!busy) { Text("Reintentar carga") }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {
-                        TextButton(onClick=close,enabled=notes.phase!=NotesPhase.SAVING,modifier=Modifier.height(36.dp)) {
-                            Text(stringResource(R.string.cancel))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Button(onClick=onSave,enabled=notes.canSave && connected,modifier=Modifier.height(38.dp)) {
-                            Text(stringResource(R.string.save_changes),fontSize=12.sp)
-                        }
+                    if(notes.message.isNotBlank()) Text(notes.message,color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {
+                    TextButton(onClick=close,enabled=notes.phase!=NotesPhase.SAVING,modifier=Modifier.height(36.dp)) {
+                        Text(if(notes.editable) stringResource(R.string.cancel) else "Cerrar")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick=if(notes.editable) onSave else onEdit,
+                        enabled=if(notes.editable) notes.canSave && connected else notes.loaded && !busy,
+                        modifier=Modifier.height(38.dp)) {
+                        Text(if(notes.editable) stringResource(R.string.save_changes) else "Editar",fontSize=12.sp)
                     }
                 }
             }
-        }
-    } else {
-        FabricDialog(title="Notas · "+notes.name,onDismiss=close,confirm="Editar",enabled=notes.loaded && !busy,
-            onConfirm=onEdit,cancel="Cerrar") {
-            if(!connected) Text("Sin conexión: el borrador permanece local y no se puede guardar.",color=MaterialTheme.colorScheme.error)
-            when(notes.phase) {
-                NotesPhase.LOADING -> { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Cargando notas del equipo…") }
-                NotesPhase.SAVING -> { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Verificando el guardado con el servidor…") }
-                else -> Unit
-            }
-            if(notes.loaded) SelectionContainer { Text(notes.original.ifEmpty { "Este equipo no tiene notas." },style=MaterialTheme.typography.bodyMedium) }
-            if(notes.error.isNotBlank()) {
-                Text(notes.error,color=MaterialTheme.colorScheme.error)
-                if(!notes.loaded) TextButton(onClick=onReload) { Text("Reintentar carga") }
-            }
-            if(notes.message.isNotBlank()) Text(notes.message,color=MaterialTheme.colorScheme.primary)
         }
     }
     if(discard) FabricDialog("Descartar cambios",{ discard=false },"Descartar",onConfirm={ discard=false; onClose() }) {
