@@ -1,0 +1,308 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 1932-2235
+
+01932:                 deleteRemoteFilePath(fullPath)
+01933:             }
+01934:         }
+01935:     }
+01936:
+01937:     private fun getFileNameFromUri(context: Context, uri: Uri): String {
+01938:         var result: String? = null
+01939:         if (uri.scheme == "content") {
+01940:             try {
+01941:                 val cursor = context.contentResolver.query(uri, null, null, null, null)
+01942:                 cursor?.use {
+01943:                     if (it.moveToFirst()) {
+01944:                         val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+01945:                         if (index >= 0) {
+01946:                             result = it.getString(index)
+01947:                         }
+01948:                     }
+01949:                 }
+01950:             } catch (e: Exception) {
+01951:                 Log.e("MeshFilesUpload", "Error querying filename from uri: ${e.localizedMessage}")
+01952:             }
+01953:         }
+01954:         if (result == null) {
+01955:             result = uri.path
+01956:             val cut = result?.lastIndexOf('/') ?: -1
+01957:             if (cut != -1) {
+01958:                 result = result?.substring(cut + 1)
+01959:             }
+01960:         }
+01961:         return result ?: "archivo_subido"
+01962:     }
+01963:
+01964:     private fun getFileSizeFromUri(context: Context, uri: Uri): Long {
+01965:         var size = 0L
+01966:         if (uri.scheme == "content") {
+01967:             try {
+01968:                 val cursor = context.contentResolver.query(uri, null, null, null, null)
+01969:                 cursor?.use {
+01970:                     if (it.moveToFirst()) {
+01971:                         val index = it.getColumnIndex(OpenableColumns.SIZE)
+01972:                         if (index >= 0 && !it.isNull(index)) {
+01973:                             size = it.getLong(index)
+01974:                         }
+01975:                     }
+01976:                 }
+01977:             } catch (e: Exception) {
+01978:                 Log.e("MeshFilesUpload", "Error querying size from uri: ${e.localizedMessage}")
+01979:             }
+01980:         }
+01981:         if (size <= 0L) {
+01982:             try {
+01983:                 context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+01984:                     size = pfd.statSize
+01985:                 }
+01986:             } catch (_: Exception) {}
+01987:         }
+01988:         return if (size < 0L) 0L else size
+01989:     }
+01990:
+01991:     fun saveFileContent(filePath: String, newContent: String) {
+01992:         val bytes = newContent.toByteArray(Charsets.UTF_8)
+01993:         val newSize = bytes.size.toLong()
+01994:
+01995:         savedFileContents[filePath] = newContent
+01996:         _fileContent.value = Pair(filePath, newContent)
+01997:         _fileList.value = _fileList.value.map { item ->
+01998:             if (item.path == filePath) {
+01999:                 item.copy(size = newSize)
+02000:             } else {
+02001:                 item
+02002:             }
+02003:         }
+02004:
+02005:         uploadRawFileToPath(filePath, bytes)
+02006:         _statusMessage.value = "Archivo guardado exitosamente"
+02007:     }
+02008:
+02009:     fun cancelFileReading() {
+02010:         readingFilePath = null
+02011:         readingBuffer = null
+02012:         readingTotalSize = 0L
+02013:         readingReceivedBytes = 0L
+02014:         _fileReadingProgress.value = null
+02015:     }
+02016:
+02017:     fun readFileContent(item: FileItem) {
+02018:         val savedText = savedFileContents[item.path]
+02019:         if (savedText != null && savedText.isNotEmpty()) {
+02020:             _fileContent.value = Pair(item.path, savedText)
+02021:             _fileReadingProgress.value = null
+02022:             return
+02023:         }
+02024:
+02025:         val cachedContent = _fileContent.value
+02026:         if (cachedContent != null && cachedContent.first == item.path && cachedContent.second.isNotEmpty()) {
+02027:             _fileContent.value = Pair(item.path, cachedContent.second)
+02028:             _fileReadingProgress.value = null
+02029:             return
+02030:         }
+02031:
+02032:         if (item.size == 0L && (savedText == null || savedText.isEmpty())) {
+02033:             _fileContent.value = Pair(item.path, "")
+02034:             _fileReadingProgress.value = null
+02035:             return
+02036:         }
+02037:
+02038:         readingFilePath = item.path
+02039:         readingTotalSize = item.size
+02040:         readingReceivedBytes = 0L
+02041:         readingBuffer = ByteArrayOutputStream()
+02042:         _fileReadingProgress.value = 0.05f
+02043:
+02044:         val meshId = meshClient.getNodeMeshId(cleanNodeId)
+02045:         val serverUrl = meshClient.serverUrl.trimEnd('/')
+02046:
+02047:         val cookieToken = meshClient.userAuthCookie.ifEmpty {
+02048:             meshClient.relayAuthCookie.ifEmpty {
+02049:                 meshClient.extractRawToken(meshClient.authCookie)
+02050:             }
+02051:         }
+02052:         val sessionCookie = meshClient.authCookie.trim()
+02053:
+02054:         scope.launch(Dispatchers.IO) {
+02055:             try {
+02056:                 val client = OkHttpHelper.createClient(meshClient.ignoreSsl)
+02057:                 val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
+02058:                 val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
+02059:                 val encodedN = try { URLEncoder.encode(cleanNodeId, "UTF-8") } catch (_: Exception) { cleanNodeId }
+02060:
+02061:                 val cleanPath = item.path.removePrefix("/")
+02062:                 val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
+02063:                 val encodedF2 = try { URLEncoder.encode(item.path, "UTF-8") } catch (_: Exception) { item.path }
+02064:
+02065:                 var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
+02066:                 var reqBuilder = Request.Builder().url(downloadUrl).get()
+02067:                 if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+02068:
+02069:                 var response = client.newCall(reqBuilder.build()).execute()
+02070:
+02071:                 if (!response.isSuccessful) {
+02072:                     downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
+02073:                     reqBuilder = Request.Builder().url(downloadUrl).get()
+02074:                     if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+02075:
+02076:                     response = client.newCall(reqBuilder.build()).execute()
+02077:                 }
+02078:
+02079:                 if (response.isSuccessful && response.body != null) {
+02080:                     val bytes = response.body!!.bytes()
+02081:                     val textContent = String(bytes, Charsets.UTF_8)
+02082:
+02083:                     if (bytes.isEmpty() && item.size > 0L && savedText != null) {
+02084:                         _fileReadingProgress.value = 1.0f
+02085:                         delay(150)
+02086:                         readingFilePath = null
+02087:                         readingBuffer = null
+02088:                         _fileReadingProgress.value = null
+02089:                         _fileContent.value = Pair(item.path, savedText)
+02090:                         return@launch
+02091:                     }
+02092:
+02093:                     savedFileContents[item.path] = textContent
+02094:                     _fileReadingProgress.value = 1.0f
+02095:                     delay(150)
+02096:
+02097:                     readingFilePath = null
+02098:                     readingBuffer = null
+02099:                     _fileReadingProgress.value = null
+02100:                     _fileContent.value = Pair(item.path, textContent)
+02101:                     return@launch
+02102:                 }
+02103:             } catch (e: Exception) {
+02104:                 Log.e("MeshFilesRead", "Error in HTTP read: ${e.localizedMessage}", e)
+02105:             }
+02106:
+02107:             // WS readfile fallback
+02108:             try {
+02109:                 if (!isConnected()) {
+02110:                     connect()
+02111:                     var waitMs = 0
+02112:                     while (!_connectionState.value && waitMs < 5000) {
+02113:                         delay(100)
+02114:                         waitMs += 100
+02115:                     }
+02116:                 }
+02117:
+02118:                 val reqIdStr = Random.nextInt(100000, 999999).toString()
+02119:                 val readReq = JsonObject().apply {
+02120:                     addProperty("action", "readfile")
+02121:                     addProperty("path", item.path)
+02122:                     addProperty("reqid", reqIdStr)
+02123:                     addProperty("id", reqIdStr)
+02124:                 }
+02125:                 webSocket?.send(readReq.toString())
+02126:             } catch (e: Exception) {
+02127:                 Log.e("MeshFilesRead", "Error in WS readfile fallback: ${e.localizedMessage}", e)
+02128:                 _fileReadingProgress.value = null
+02129:                 _statusMessage.value = "Error al leer archivo (${item.name})"
+02130:             }
+02131:         }
+02132:     }
+02133:
+02134:     fun clearFileContent() {
+02135:         _fileContent.value = null
+02136:         _fileReadingProgress.value = null
+02137:     }
+02138:
+02139:     private fun remoteParent(path: String): String {
+02140:         val clean = path.trimEnd('/', '\\')
+02141:         require(clean.isNotEmpty()) { "No se permite operar sobre la raíz" }
+02142:         require(!Regex("^[A-Za-z]:$").matches(clean)) { "No se permite operar sobre la raíz de una unidad" }
+02143:
+02144:         val separatorIndex = maxOf(clean.lastIndexOf('/'), clean.lastIndexOf('\\'))
+02145:         require(separatorIndex >= 0) { "Se esperaba una ruta remota absoluta: $path" }
+02146:
+02147:         if (separatorIndex == 0) return "/"
+02148:         val parent = clean.substring(0, separatorIndex)
+02149:         return if (Regex("^[A-Za-z]:$").matches(parent)) "$parent/" else parent
+02150:     }
+02151:
+02152:     private fun validateRemoteEntryName(name: String) {
+02153:         require(name.isNotBlank()) { "El nombre está vacío" }
+02154:         require(name != "." && name != "..") { "Nombre no permitido" }
+02155:         require('/' !in name && '\\' !in name && '\u0000' !in name) { "Se esperaba un nombre, no una ruta" }
+02156:     }
+02157:
+02158:     fun copyItem(item: FileItem) {
+02159:         if (item.isDir) {
+02160:             _statusMessage.value = "La función de copiar solo está disponible para archivos"
+02161:             return
+02162:         }
+02163:         if (!_connectionState.value) {
+02164:             _statusMessage.value = "No hay una sesión de archivos activa"
+02165:             return
+02166:         }
+02167:
+02168:         clipboardNodeId = cleanNodeId
+02169:         _clipboardItem.value = item
+02170:         _isCutMode.value = false
+02171:
+02172:         _statusMessage.value = "Seleccionado para copiar: ${item.name}"
+02173:     }
+02174:
+02175:     fun cutItem(item: FileItem) {
+02176:         if (item.isDir) {
+02177:             _statusMessage.value = "La función de cortar solo está disponible para archivos"
+02178:             return
+02179:         }
+02180:         if (!_connectionState.value) {
+02181:             _statusMessage.value = "No hay una sesión de archivos activa"
+02182:             return
+02183:         }
+02184:
+02185:         clipboardNodeId = cleanNodeId
+02186:         _clipboardItem.value = item
+02187:         _isCutMode.value = true
+02188:
+02189:         _statusMessage.value = "Seleccionado para mover: ${item.name}"
+02190:     }
+02191:
+02192:     fun clearClipboard() {
+02193:         clipboardNodeId = null
+02194:         _clipboardItem.value = null
+02195:         _isCutMode.value = false
+02196:     }
+02197:
+02198:     fun pasteItem(customTargetName: String? = null, context: Context? = null) {
+02199:         val source = _clipboardItem.value ?: run {
+02200:             _statusMessage.value = "El portapapeles está vacío"
+02201:             return
+02202:         }
+02203:         val cut = _isCutMode.value
+02204:         val sourceNode = clipboardNodeId ?: run {
+02205:             _statusMessage.value = "Vuelve a seleccionar el elemento"
+02206:             return
+02207:         }
+02208:
+02209:         val targetNode = cleanNodeId
+02210:         val destination = _currentPath.value
+02211:
+02212:         scope.launch(Dispatchers.IO) {
+02213:             try {
+02214:                 require(!source.isDir) { "Las operaciones de copiar y cortar solo están permitidas para archivos" }
+02215:                 check(sourceNode == targetNode) { "Este portapapeles solo permite operaciones dentro del mismo equipo remoto" }
+02216:
+02217:                 if (!isConnected()) {
+02218:                     connect()
+02219:                     var waitMs = 0
+02220:                     while (!_connectionState.value && waitMs < 5000) {
+02221:                         delay(100)
+02222:                         waitMs += 100
+02223:                     }
+02224:                 }
+02225:
+02226:                 check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
+02227:
+02228:                 validateRemoteEntryName(source.name)
+02229:                 val targetName = customTargetName?.takeIf { it.isNotBlank() } ?: source.name
+02230:                 validateRemoteEntryName(targetName)
+02231:
+02232:                 val sourceDirectory = remoteParent(source.path)
+02233:                 val reqIdStr = Random.nextInt(100000, 999999).toString()
+02234:
+02235:                 val cleanDest = if (destination == "/") "/" else destination.trimEnd('/')

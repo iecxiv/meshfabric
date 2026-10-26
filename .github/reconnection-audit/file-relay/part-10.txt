@@ -1,0 +1,283 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 2480-2758
+
+02480:                             _activeTransfers.value = _activeTransfers.value.map {
+02481:                                 if (it.filePath == destPath) it.copy(bytesTransferred = prog.coerceAtMost(totalSize), totalBytes = totalSize) else it
+02482:                             }
+02483:                             delay(10)
+02484:                         }
+02485:                     }
+02486:
+02487:                     if (activeCopyMoveSessions.containsKey(destPath)) {
+02488:                         _activeTransfers.value = _activeTransfers.value.map {
+02489:                             if (it.filePath == destPath) it.copy(bytesTransferred = totalSize, isCompleted = true) else it
+02490:                         }
+02491:                         _clipboardItem.value = null
+02492:                         clipboardNodeId = null
+02493:                         _statusMessage.value = "Copiado exitosamente: $targetName"
+02494:                         activeCopyMoveSessions.remove(destPath)
+02495:                         delay(1200)
+02496:                         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+02497:                         if (isConnected()) {
+02498:                             listDirectory(_currentPath.value)
+02499:                         }
+02500:                     }
+02501:                 } catch (e: Exception) {
+02502:                     Log.e("MeshFilesCopy", "Error uploading copied temp file: ${e.localizedMessage}", e)
+02503:                     activeCopyMoveSessions.remove(destPath)
+02504:                     _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+02505:                 } finally {
+02506:                     tempFile.delete()
+02507:                 }
+02508:                 return@launch
+02509:             }
+02510:
+02511:             // Fallback WS readfile
+02512:             try {
+02513:                 if (!isConnected()) {
+02514:                     connect()
+02515:                     var waitMs = 0
+02516:                     while (!_connectionState.value && waitMs < 5000) {
+02517:                         delay(100)
+02518:                         waitMs += 100
+02519:                     }
+02520:                 }
+02521:
+02522:                 copyingSourcePath = source.path
+02523:                 copyingDestPath = destPath
+02524:                 copyingTotalSize = source.size
+02525:                 copyingReceivedBytes = 0L
+02526:                 copyingTempFile = tempFile ?: try {
+02527:                     File.createTempFile("mesh_copy_", ".tmp", context?.cacheDir)
+02528:                 } catch (_: Exception) {
+02529:                     File.createTempFile("mesh_copy_", ".tmp")
+02530:                 }
+02531:                 copyingFileOutputStream = FileOutputStream(copyingTempFile)
+02532:
+02533:                 val reqIdStr = Random.nextInt(100000, 999999).toString()
+02534:                 val readReq = JsonObject().apply {
+02535:                     addProperty("action", "readfile")
+02536:                     addProperty("path", source.path)
+02537:                     addProperty("reqid", reqIdStr)
+02538:                     addProperty("id", reqIdStr)
+02539:                 }
+02540:                 webSocket?.send(readReq.toString())
+02541:             } catch (e: Exception) {
+02542:                 Log.e("MeshFilesCopy", "WS copy fetch error: ${e.localizedMessage}", e)
+02543:                 _statusMessage.value = "Error al copiar: ${e.localizedMessage}"
+02544:                 activeCopyMoveSessions.remove(destPath)
+02545:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+02546:                 tempFile?.delete()
+02547:             }
+02548:         }
+02549:
+02550:         val session = ActiveCopyMoveSession(
+02551:             filePath = destPath,
+02552:             fileName = targetName,
+02553:             isMove = false,
+02554:             transferredBytes = 0L,
+02555:             totalSize = source.size,
+02556:             job = copyJob,
+02557:             context = context
+02558:         )
+02559:         activeCopyMoveSessions[destPath] = session
+02560:     }
+02561:
+02562:     fun compressZip(item: FileItem, customZipName: String? = null) {
+02563:         val parentDir = if (item.path.contains('/')) {
+02564:             item.path.substringBeforeLast('/').ifEmpty { "/" }
+02565:         } else if (item.path.contains('\\')) {
+02566:             item.path.substringBeforeLast('\\').ifEmpty { "\\" }
+02567:         } else {
+02568:             _currentPath.value
+02569:         }
+02570:         val cleanParent = if (parentDir == "/") "/" else parentDir.trimEnd('/')
+02571:
+02572:         val rawZipName = customZipName?.ifBlank { null } ?: item.name
+02573:         val cleanZipName = if (rawZipName.endsWith(".zip", ignoreCase = true)) {
+02574:             rawZipName
+02575:         } else {
+02576:             "$rawZipName.zip"
+02577:         }
+02578:
+02579:         val targetZipPath = if (cleanParent == "/") "/$cleanZipName" else "$cleanParent/$cleanZipName"
+02580:
+02581:         val reqIdStr = Random.nextInt(100000, 999999).toString()
+02582:         val filesArray = gson.toJsonTree(listOf(item.name))
+02583:
+02584:         val zipReq = JsonObject().apply {
+02585:             addProperty("action", "zip")
+02586:             addProperty("path", cleanParent)
+02587:             add("files", filesArray)
+02588:             addProperty("file", cleanZipName)
+02589:             addProperty("dest", cleanZipName)
+02590:             addProperty("target", cleanZipName)
+02591:             addProperty("output", cleanZipName)
+02592:             addProperty("rec", 1)
+02593:             addProperty("recurse", 1)
+02594:             addProperty("recursive", 1)
+02595:             addProperty("includeempty", 1)
+02596:             addProperty("emptydirs", 1)
+02597:             addProperty("folders", 1)
+02598:             addProperty("all", 1)
+02599:             addProperty("dirs", 1)
+02600:             addProperty("emptyDirs", true)
+02601:             addProperty("includeDirs", true)
+02602:             addProperty("reqid", reqIdStr)
+02603:             addProperty("id", reqIdStr)
+02604:         }
+02605:
+02606:         val totalSize = if (item.size > 0L) item.size else 1024L * 1024L * 5L
+02607:
+02608:         val progress = TransferProgress(
+02609:             fileName = cleanZipName,
+02610:             filePath = targetZipPath,
+02611:             isUpload = false,
+02612:             bytesTransferred = 0L,
+02613:             totalBytes = totalSize,
+02614:             type = TransferType.COMPRESS
+02615:         )
+02616:         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != targetZipPath } + progress
+02617:
+02618:         val zipSession = ActiveZipSession(
+02619:             zipPath = targetZipPath,
+02620:             fileName = cleanZipName,
+02621:             sourcePath = item.path,
+02622:             totalSize = totalSize
+02623:         )
+02624:         activeZipSessions[targetZipPath] = zipSession
+02625:
+02626:         _statusMessage.value = "Comprimiendo ${item.name} a $cleanZipName..."
+02627:
+02628:         val job = scope.launch(Dispatchers.IO) {
+02629:             try {
+02630:                 ensureConnected()
+02631:                 webSocket?.send(zipReq.toString())
+02632:
+02633:                 while (isActive && activeZipSessions.containsKey(targetZipPath)) {
+02634:                     delay(500)
+02635:                 }
+02636:             } catch (e: Exception) {
+02637:                 Log.e("MeshFilesZip", "Error sending zip request: ${e.localizedMessage}", e)
+02638:             }
+02639:         }
+02640:         zipSession.job = job
+02641:     }
+02642:
+02643:     private fun handleZipControlMessage(json: JsonObject) {
+02644:         if (activeZipSessions.isEmpty()) return
+02645:
+02646:         val reqid = json.get("reqid")?.asString ?: json.get("id")?.asString ?: ""
+02647:         val rawTargetFile = json.get("file")?.asString ?: json.get("dest")?.asString ?: json.get("target")?.asString ?: ""
+02648:         val targetFile = rawTargetFile.trimStart('/')
+02649:
+02650:         val session = activeZipSessions.values.firstOrNull {
+02651:             (reqid.isNotEmpty() && (it.zipPath.contains(reqid) || it.fileName.contains(reqid))) ||
+02652:             (targetFile.isNotEmpty() && (
+02653:                 it.fileName.contains(targetFile, ignoreCase = true) ||
+02654:                 it.sourcePath.contains(targetFile, ignoreCase = true) ||
+02655:                 it.zipPath.contains(targetFile, ignoreCase = true) ||
+02656:                 targetFile.contains(it.fileName.substringBeforeLast('.'), ignoreCase = true)
+02657:             ))
+02658:         } ?: activeZipSessions.values.firstOrNull() ?: return
+02659:
+02660:         val msg = json.get("msg")?.asString ?: ""
+02661:         val subaction = json.get("subaction")?.asString ?: ""
+02662:         val status = json.get("status")?.asString ?: ""
+02663:         val errorMsg = json.get("error")?.asString ?: json.get("err")?.asString
+02664:
+02665:         if (errorMsg != null || status.equals("error", ignoreCase = true)) {
+02666:             val err = errorMsg ?: "Error en compresión ZIP"
+02667:             session.job?.cancel()
+02668:             _statusMessage.value = err
+02669:             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != session.zipPath }
+02670:             activeZipSessions.remove(session.zipPath)
+02671:             return
+02672:         }
+02673:
+02674:         val current = json.get("current")?.asLong ?: json.get("bytes")?.asLong ?: json.get("transferred")?.asLong ?: json.get("compressed")?.asLong
+02675:         val total = json.get("total")?.asLong ?: json.get("totalBytes")?.asLong ?: json.get("size")?.asLong
+02676:         val percent = json.get("progress")?.asFloat ?: json.get("percent")?.asFloat ?: json.get("percentage")?.asFloat
+02677:
+02678:         val newTotal = total ?: session.totalSize
+02679:         session.totalSize = newTotal
+02680:
+02681:         if (percent != null) {
+02682:             val p = if (percent > 1.0f) (percent / 100.0f).coerceIn(0f, 1f) else percent.coerceIn(0f, 1f)
+02683:             val calcBytes = (newTotal * p).toLong()
+02684:             val monotonicBytes = maxOf(session.bytesCompressed, calcBytes)
+02685:             session.bytesCompressed = monotonicBytes
+02686:             _activeTransfers.value = _activeTransfers.value.map {
+02687:                 if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
+02688:             }
+02689:         } else if (current != null) {
+02690:             val monotonicBytes = maxOf(session.bytesCompressed, current)
+02691:             session.bytesCompressed = monotonicBytes
+02692:             _activeTransfers.value = _activeTransfers.value.map {
+02693:                 if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
+02694:             }
+02695:         }
+02696:
+02697:         val isComplete = msg.equals("zippingDone", ignoreCase = true) ||
+02698:                 msg.equals("unzippingDone", ignoreCase = true) ||
+02699:                 subaction == "complete" || subaction == "end" || subaction == "done" ||
+02700:                 status.equals("ok", ignoreCase = true) || status.equals("completed", ignoreCase = true) || status.equals("done", ignoreCase = true) ||
+02701:                 json.get("done")?.asBoolean == true || json.get("complete")?.asBoolean == true || json.get("result")?.asString == "ok" ||
+02702:                 (percent != null && percent >= 100f)
+02703:
+02704:         if (isComplete) {
+02705:             finishZip(session)
+02706:         }
+02707:     }
+02708:
+02709:     private fun finishZip(session: ActiveZipSession) {
+02710:         session.job?.cancel()
+02711:         val zipPath = session.zipPath
+02712:         val totalSize = session.totalSize
+02713:
+02714:         _activeTransfers.value = _activeTransfers.value.map {
+02715:             if (it.filePath == zipPath) {
+02716:                 it.copy(bytesTransferred = totalSize, totalBytes = totalSize, isCompleted = true)
+02717:             } else it
+02718:         }
+02719:
+02720:         _statusMessage.value = "Compresión finalizada: ${session.fileName}"
+02721:
+02722:         val parentFolder = if (zipPath.contains('/')) {
+02723:             zipPath.substringBeforeLast('/').ifEmpty { "/" }
+02724:         } else {
+02725:             "/"
+02726:         }
+02727:
+02728:         if (_currentPath.value == parentFolder) {
+02729:             listDirectory(parentFolder)
+02730:         }
+02731:
+02732:         scope.launch {
+02733:             delay(1200)
+02734:             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != zipPath }
+02735:             activeZipSessions.remove(zipPath)
+02736:         }
+02737:     }
+02738:
+02739:     fun cancelZip(targetFilePath: String? = null) {
+02740:         try {
+02741:             val key = targetFilePath ?: activeZipSessions.keys.firstOrNull()
+02742:             val session = if (key != null) activeZipSessions.remove(key) else null
+02743:             val name = session?.fileName ?: "archivo"
+02744:
+02745:             session?.job?.cancel()
+02746:             if (key != null) {
+02747:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
+02748:             }
+02749:             _statusMessage.value = "Compresión cancelada: $name"
+02750:         } catch (e: Exception) {
+02751:             Log.e("MeshFilesZip", "Error canceling zip compression: ${e.localizedMessage}", e)
+02752:         }
+02753:     }
+02754:
+02755:     fun decompressZip(item: FileItem) {
+02756:         val parentDir = if (item.path.contains('/')) {
+02757:             item.path.substringBeforeLast('/').ifEmpty { "/" }
+02758:         } else if (item.path.contains('\\')) {

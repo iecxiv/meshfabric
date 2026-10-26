@@ -1,0 +1,251 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 834-1080
+
+00834:
+00835:     private fun createDownloadOutputStream(context: Context, fileName: String): OutputStream {
+00836:         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+00837:             try {
+00838:                 val resolver = context.contentResolver
+00839:                 val contentValues = ContentValues().apply {
+00840:                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+00841:                     put(MediaStore.MediaColumns.MIME_TYPE, getMimeType(fileName))
+00842:                     put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+00843:                 }
+00844:                 val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+00845:                 if (uri != null) {
+00846:                     val os = resolver.openOutputStream(uri)
+00847:                     if (os != null) return os
+00848:                 }
+00849:             } catch (e: Exception) {
+00850:                 Log.e("MeshFilesDownload", "ContentResolver download insert failed, falling back: ${e.localizedMessage}")
+00851:             }
+00852:         }
+00853:
+00854:         val downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+00855:             ?: Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+00856:         if (!downloadsDir.exists()) {
+00857:             downloadsDir.mkdirs()
+00858:         }
+00859:         val destFile = File(downloadsDir, fileName)
+00860:         return FileOutputStream(destFile)
+00861:     }
+00862:
+00863:     private fun getMimeType(fileName: String): String {
+00864:         val extension = fileName.substringAfterLast('.', "").lowercase()
+00865:         return when (extension) {
+00866:             "pdf" -> "application/pdf"
+00867:             "png" -> "image/png"
+00868:             "jpg", "jpeg" -> "image/jpeg"
+00869:             "gif" -> "image/gif"
+00870:             "txt", "log", "conf", "cfg" -> "text/plain"
+00871:             "html", "htm" -> "text/html"
+00872:             "json" -> "application/json"
+00873:             "zip" -> "application/zip"
+00874:             "apk" -> "application/vnd.android.package-archive"
+00875:             "mp3" -> "audio/mpeg"
+00876:             "mp4" -> "video/mp4"
+00877:             else -> "application/octet-stream"
+00878:         }
+00879:     }
+00880:
+00881:     fun downloadFileToDownloads(
+00882:         context: Context,
+00883:         item: FileItem,
+00884:         customName: String? = null,
+00885:         overwrite: Boolean = false
+00886:     ) {
+00887:         val targetName = customName?.trim()?.ifBlank { null } ?: item.name
+00888:
+00889:         if (overwrite) {
+00890:             deleteLocalDownloadFileIfExists(context, targetName)
+00891:         }
+00892:
+00893:         val meshId = meshClient.getNodeMeshId(nodeId)
+00894:         val serverUrl = meshClient.serverUrl.trimEnd('/')
+00895:
+00896:         val cookieToken = meshClient.userAuthCookie.ifEmpty {
+00897:             meshClient.relayAuthCookie.ifEmpty {
+00898:                 meshClient.extractRawToken(meshClient.authCookie)
+00899:             }
+00900:         }
+00901:         val sessionCookie = meshClient.authCookie.trim()
+00902:
+00903:         Toast.makeText(context, context.getString(R.string.starting_download, targetName), Toast.LENGTH_SHORT).show()
+00904:
+00905:         val progress = TransferProgress(
+00906:             fileName = targetName,
+00907:             filePath = item.path,
+00908:             isUpload = false,
+00909:             bytesTransferred = 0L,
+00910:             totalBytes = item.size
+00911:         )
+00912:
+00913:         _activeTransfers.value = _activeTransfers.value
+00914:             .filter { it.filePath != item.path } + progress
+00915:
+00916:         updateDownloadNotification(context, targetName, item.path, 0L, item.size)
+00917:
+00918:         val reqIdStr = Random.nextInt(100000, 999999).toString()
+00919:
+00920:         val session = ActiveDownloadSession(
+00921:             filePath = item.path,
+00922:             fileName = targetName,
+00923:             reqId = reqIdStr,
+00924:             totalSize = item.size,
+00925:             receivedBytes = 0L,
+00926:             outputStream = null,
+00927:             downloadJob = null,
+00928:             context = context
+00929:         )
+00930:         activeDownloads[item.path] = session
+00931:
+00932:         session.downloadJob = scope.launch(Dispatchers.IO) {
+00933:             var downloadSuccess = false
+00934:
+00935:             while (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+00936:                 try {
+00937:                     if (!ensureConnected()) {
+00938:                         delay(2000)
+00939:                         continue
+00940:                     }
+00941:
+00942:                     session.receivedBytes = 0L
+00943:                     _activeTransfers.value = _activeTransfers.value.map {
+00944:                         if (it.filePath == item.path) it.copy(bytesTransferred = 0L, totalBytes = item.size) else it
+00945:                     }
+00946:
+00947:                     deleteLocalDownloadFileIfExists(context, targetName)
+00948:
+00949:                     // 1. Attempt HTTP Download
+00950:                     try {
+00951:                         val outputStream = createDownloadOutputStream(context, targetName)
+00952:                         session.outputStream = outputStream
+00953:                         val client = OkHttpHelper.createDownloadClient(meshClient.ignoreSsl)
+00954:
+00955:                         val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
+00956:                         val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
+00957:                         val encodedN = try { URLEncoder.encode(cleanNodeId, "UTF-8") } catch (_: Exception) { cleanNodeId }
+00958:
+00959:                         val cleanPath = item.path.removePrefix("/")
+00960:                         val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
+00961:                         val encodedF2 = try { URLEncoder.encode(item.path, "UTF-8") } catch (_: Exception) { item.path }
+00962:
+00963:                         var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
+00964:                         var reqBuilder = Request.Builder().url(downloadUrl).get()
+00965:                         if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+00966:
+00967:                         var response = client.newCall(reqBuilder.build()).execute()
+00968:
+00969:                         if (!response.isSuccessful) {
+00970:                             downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
+00971:                             reqBuilder = Request.Builder().url(downloadUrl).get()
+00972:                             if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+00973:                             response = client.newCall(reqBuilder.build()).execute()
+00974:                         }
+00975:
+00976:                         if (response.isSuccessful && response.body != null) {
+00977:                             val body = response.body!!
+00978:                             val inputStream = body.byteStream()
+00979:                             val contentLength = body.contentLength()
+00980:                             val totalSize = if (contentLength > 0) contentLength else item.size
+00981:
+00982:                             var receivedBytes = 0L
+00983:                             val buffer = ByteArray(64 * 1024)
+00984:
+00985:                             inputStream.use { input ->
+00986:                                 outputStream.use { output ->
+00987:                                     while (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+00988:                                         val bytesRead = input.read(buffer)
+00989:                                         if (bytesRead == -1) break
+00990:
+00991:                                         output.write(buffer, 0, bytesRead)
+00992:                                         receivedBytes += bytesRead
+00993:                                         session.receivedBytes = receivedBytes
+00994:
+00995:                                         val current = receivedBytes
+00996:                                         _activeTransfers.value = _activeTransfers.value.map {
+00997:                                             if (it.filePath == item.path) {
+00998:                                                 it.copy(
+00999:                                                     bytesTransferred = current,
+01000:                                                     totalBytes = if (totalSize > 0) totalSize else current
+01001:                                                 )
+01002:                                             } else {
+01003:                                                 it
+01004:                                             }
+01005:                                         }
+01006:                                         updateDownloadNotification(context, targetName, item.path, receivedBytes, totalSize)
+01007:                                     }
+01008:                                     output.flush()
+01009:                                 }
+01010:                             }
+01011:
+01012:                             if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+01013:                                 if (totalSize <= 0 || receivedBytes >= totalSize) {
+01014:                                     downloadSuccess = true
+01015:                                     _activeTransfers.value = _activeTransfers.value.map {
+01016:                                         if (it.filePath == item.path) {
+01017:                                             it.copy(
+01018:                                                 bytesTransferred = receivedBytes,
+01019:                                                 totalBytes = if (totalSize > 0) totalSize else receivedBytes,
+01020:                                                 isCompleted = true
+01021:                                             )
+01022:                                         } else {
+01023:                                             it
+01024:                                         }
+01025:                                     }
+01026:
+01027:                                     showDownloadCompleteNotification(context, targetName, item.path, receivedBytes)
+01028:                                     withContext(Dispatchers.Main) {
+01029:                                         Toast.makeText(
+01030:                                             context,
+01031:                                             context.getString(R.string.download_complete, targetName, formatSize(receivedBytes)),
+01032:                                             Toast.LENGTH_LONG
+01033:                                         ).show()
+01034:                                     }
+01035:
+01036:                                     delay(1200)
+01037:                                     activeDownloads.remove(item.path)
+01038:                                     _activeTransfers.value = _activeTransfers.value.filter { it.filePath != item.path }
+01039:                                     return@launch
+01040:                                 } else {
+01041:                                     throw java.io.IOException("Incomplete HTTP download ($receivedBytes / $totalSize bytes)")
+01042:                                 }
+01043:                             }
+01044:                         } else {
+01045:                             Log.w("MeshFilesDownload", "HTTP download endpoint returned status ${response.code}")
+01046:                         }
+01047:                     } catch (e: Exception) {
+01048:                         if (e is CancellationException) throw e
+01049:                         Log.w("MeshFilesDownload", "HTTP download attempt failed: ${e.localizedMessage}")
+01050:                     } finally {
+01051:                         try {
+01052:                             session.outputStream?.close()
+01053:                         } catch (_: Exception) {}
+01054:                         session.outputStream = null
+01055:                     }
+01056:
+01057:                     // 2. Attempt WebSocket readfile download if HTTP did not complete
+01058:                     if (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+01059:                         Log.d("MeshFilesDownload", "Attempting WS fallback download for ${item.path}...")
+01060:
+01061:                         if (!ensureConnected()) {
+01062:                             throw java.io.IOException("WebSocket not connected for fallback download")
+01063:                         }
+01064:
+01065:                         val outputStream = createDownloadOutputStream(context, targetName)
+01066:                         session.outputStream = outputStream
+01067:                         session.receivedBytes = 0L
+01068:
+01069:                         val readReq = JsonObject().apply {
+01070:                             addProperty("action", "readfile")
+01071:                             addProperty("path", item.path)
+01072:                             addProperty("reqid", reqIdStr)
+01073:                             addProperty("id", reqIdStr)
+01074:                         }
+01075:
+01076:                         val ws = webSocket
+01077:                         if (ws == null || !ws.send(readReq.toString())) {
+01078:                             throw java.io.IOException("Failed to send readfile WebSocket command")
+01079:                         }
+01080:

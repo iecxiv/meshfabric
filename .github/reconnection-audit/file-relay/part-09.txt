@@ -1,0 +1,248 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 2236-2479
+
+02236:                 val destPath = if (cleanDest == "/") "/$targetName" else "$cleanDest/$targetName"
+02237:
+02238:                 if (cut) {
+02239:                     val progress = TransferProgress(
+02240:                         fileName = targetName,
+02241:                         filePath = destPath,
+02242:                         isUpload = false,
+02243:                         bytesTransferred = 0L,
+02244:                         totalBytes = source.size,
+02245:                         type = TransferType.MOVE
+02246:                     )
+02247:                     _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
+02248:
+02249:                     val session = ActiveCopyMoveSession(
+02250:                         filePath = destPath,
+02251:                         fileName = targetName,
+02252:                         isMove = true,
+02253:                         transferredBytes = 0L,
+02254:                         totalSize = source.size,
+02255:                         job = coroutineContext[Job],
+02256:                         context = context
+02257:                     )
+02258:                     activeCopyMoveSessions[destPath] = session
+02259:
+02260:                     val moveReq = JsonObject().apply {
+02261:                         addProperty("action", "move")
+02262:                         addProperty("reqid", reqIdStr)
+02263:                         addProperty("id", reqIdStr)
+02264:                         addProperty("scpath", sourceDirectory)
+02265:                         addProperty("dspath", destination)
+02266:                         add("names", gson.toJsonTree(listOf(source.name)))
+02267:                         add("files", gson.toJsonTree(listOf(source.name)))
+02268:                         addProperty("file", source.name)
+02269:                         addProperty("destname", targetName)
+02270:                         addProperty("newname", targetName)
+02271:                     }
+02272:                     webSocket?.send(moveReq.toString())
+02273:
+02274:                     val renameReq = JsonObject().apply {
+02275:                         addProperty("action", "rename")
+02276:                         addProperty("reqid", reqIdStr)
+02277:                         addProperty("id", reqIdStr)
+02278:                         addProperty("path", sourceDirectory)
+02279:                         addProperty("oldfile", source.path)
+02280:                         addProperty("newfile", destPath)
+02281:                         addProperty("oldpath", source.path)
+02282:                         addProperty("newpath", destPath)
+02283:                         addProperty("oldname", source.name)
+02284:                         addProperty("newname", targetName)
+02285:                         addProperty("scpath", sourceDirectory)
+02286:                         addProperty("dspath", destination)
+02287:                     }
+02288:                     webSocket?.send(renameReq.toString())
+02289:
+02290:                     _clipboardItem.value = null
+02291:                     clipboardNodeId = null
+02292:                     _statusMessage.value = "Movido: $targetName"
+02293:
+02294:                     _activeTransfers.value = _activeTransfers.value.map {
+02295:                         if (it.filePath == destPath) it.copy(bytesTransferred = source.size, isCompleted = true) else it
+02296:                     }
+02297:                     activeCopyMoveSessions.remove(destPath)
+02298:                     delay(1200)
+02299:                     _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+02300:                     if (isConnected() && _currentPath.value == destination) {
+02301:                         listDirectory(destination)
+02302:                     }
+02303:                 } else {
+02304:                     if (sourceDirectory == destination || targetName != source.name) {
+02305:                         copyFileToDestination(source, destPath, targetName, context)
+02306:                     } else {
+02307:                         val progress = TransferProgress(
+02308:                             fileName = targetName,
+02309:                             filePath = destPath,
+02310:                             isUpload = false,
+02311:                             bytesTransferred = 0L,
+02312:                             totalBytes = source.size,
+02313:                             type = TransferType.COPY
+02314:                         )
+02315:                         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
+02316:
+02317:                         val session = ActiveCopyMoveSession(
+02318:                             filePath = destPath,
+02319:                             fileName = targetName,
+02320:                             isMove = false,
+02321:                             transferredBytes = 0L,
+02322:                             totalSize = source.size,
+02323:                             job = coroutineContext[Job],
+02324:                             context = context
+02325:                         )
+02326:                         activeCopyMoveSessions[destPath] = session
+02327:
+02328:                         val copyReq = JsonObject().apply {
+02329:                             addProperty("action", "copy")
+02330:                             addProperty("reqid", reqIdStr)
+02331:                             addProperty("id", reqIdStr)
+02332:                             addProperty("scpath", sourceDirectory)
+02333:                             addProperty("dspath", destination)
+02334:                             add("names", gson.toJsonTree(listOf(source.name)))
+02335:                             add("files", gson.toJsonTree(listOf(source.name)))
+02336:                             addProperty("file", source.name)
+02337:                             addProperty("destname", targetName)
+02338:                             addProperty("newname", targetName)
+02339:                         }
+02340:                         webSocket?.send(copyReq.toString())
+02341:
+02342:                         _clipboardItem.value = null
+02343:                         clipboardNodeId = null
+02344:                         _statusMessage.value = "Copiado: $targetName"
+02345:
+02346:                         _activeTransfers.value = _activeTransfers.value.map {
+02347:                             if (it.filePath == destPath) it.copy(bytesTransferred = source.size, isCompleted = true) else it
+02348:                         }
+02349:                         activeCopyMoveSessions.remove(destPath)
+02350:                         delay(1200)
+02351:                         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+02352:                         if (isConnected() && _currentPath.value == destination) {
+02353:                             listDirectory(destination)
+02354:                         }
+02355:                     }
+02356:                 }
+02357:             } catch (e: Exception) {
+02358:                 Log.e("MeshFilesPaste", "Error al solicitar copiar/mover ${source.path}", e)
+02359:                 _statusMessage.value = "No se pudo pegar: ${e.localizedMessage}"
+02360:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != source.path }
+02361:             }
+02362:         }
+02363:     }
+02364:
+02365:     private fun copyFileToDestination(
+02366:         source: FileItem,
+02367:         destPath: String,
+02368:         targetName: String,
+02369:         context: Context? = null
+02370:     ) {
+02371:         if (source.size == 0L) {
+02372:             uploadRawFileToPath(destPath, ByteArray(0), context)
+02373:             _clipboardItem.value = null
+02374:             clipboardNodeId = null
+02375:             _statusMessage.value = "Copiado exitosamente: $targetName"
+02376:             return
+02377:         }
+02378:
+02379:         val progress = TransferProgress(
+02380:             fileName = targetName,
+02381:             filePath = destPath,
+02382:             isUpload = false,
+02383:             bytesTransferred = 0L,
+02384:             totalBytes = source.size,
+02385:             type = TransferType.COPY
+02386:         )
+02387:         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
+02388:
+02389:         val meshId = meshClient.getNodeMeshId(cleanNodeId)
+02390:         val serverUrl = meshClient.serverUrl.trimEnd('/')
+02391:         val cookieToken = meshClient.userAuthCookie.ifEmpty {
+02392:             meshClient.relayAuthCookie.ifEmpty {
+02393:                 meshClient.extractRawToken(meshClient.authCookie)
+02394:             }
+02395:         }
+02396:         val sessionCookie = meshClient.authCookie.trim()
+02397:
+02398:         val copyJob = scope.launch(Dispatchers.IO) {
+02399:             var tempFile: File? = null
+02400:             var httpSuccess = false
+02401:
+02402:             try {
+02403:                 tempFile = try {
+02404:                     File.createTempFile("mesh_copy_", ".tmp", context?.cacheDir)
+02405:                 } catch (_: Exception) {
+02406:                     File.createTempFile("mesh_copy_", ".tmp")
+02407:                 }
+02408:
+02409:                 val client = OkHttpHelper.createClient(meshClient.ignoreSsl)
+02410:                 val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
+02411:                 val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
+02412:                 val encodedN = try { URLEncoder.encode(cleanNodeId, "UTF-8") } catch (_: Exception) { cleanNodeId }
+02413:
+02414:                 val cleanPath = source.path.removePrefix("/")
+02415:                 val encodedF1 = try { URLEncoder.encode(cleanPath, "UTF-8") } catch (_: Exception) { cleanPath }
+02416:                 val encodedF2 = try { URLEncoder.encode(source.path, "UTF-8") } catch (_: Exception) { source.path }
+02417:
+02418:                 var downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF1"
+02419:                 var reqBuilder = Request.Builder().url(downloadUrl).get()
+02420:                 if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+02421:
+02422:                 var response = client.newCall(reqBuilder.build()).execute()
+02423:                 if (!response.isSuccessful) {
+02424:                     downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
+02425:                     reqBuilder = Request.Builder().url(downloadUrl).get()
+02426:                     if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
+02427:                     response = client.newCall(reqBuilder.build()).execute()
+02428:                 }
+02429:
+02430:                 if (response.isSuccessful && response.body != null) {
+02431:                     val body = response.body!!
+02432:                     val totalSize = if (body.contentLength() > 0) body.contentLength() else source.size
+02433:                     val inputStream = body.byteStream()
+02434:
+02435:                     FileOutputStream(tempFile).use { output ->
+02436:                         val buffer = ByteArray(64 * 1024)
+02437:                         var received = 0L
+02438:                         while (activeCopyMoveSessions.containsKey(destPath)) {
+02439:                             val read = inputStream.read(buffer)
+02440:                             if (read == -1) break
+02441:                             output.write(buffer, 0, read)
+02442:                             received += read
+02443:
+02444:                             val prog = if (totalSize > 0) (received * totalSize) / (totalSize * 2) else received / 2
+02445:                             _activeTransfers.value = _activeTransfers.value.map {
+02446:                                 if (it.filePath == destPath) it.copy(bytesTransferred = prog, totalBytes = totalSize) else it
+02447:                             }
+02448:                         }
+02449:                         output.flush()
+02450:                     }
+02451:                     httpSuccess = tempFile.length() > 0 || source.size == 0L
+02452:                 }
+02453:             } catch (e: Exception) {
+02454:                 Log.e("MeshFilesCopy", "HTTP copy fetch error: ${e.localizedMessage}", e)
+02455:             }
+02456:
+02457:             if (httpSuccess && tempFile != null && tempFile.exists() && activeCopyMoveSessions.containsKey(destPath)) {
+02458:                 try {
+02459:                     val totalSize = source.size.coerceAtLeast(tempFile.length())
+02460:                     val uploadReq = JsonObject().apply {
+02461:                         addProperty("action", "upload")
+02462:                         addProperty("path", destPath)
+02463:                         addProperty("size", tempFile.length())
+02464:                     }
+02465:                     webSocket?.send(uploadReq.toString())
+02466:                     delay(100)
+02467:
+02468:                     FileInputStream(tempFile).use { input ->
+02469:                         val buffer = ByteArray(64 * 1024)
+02470:                         var uploaded = 0L
+02471:                         val fileLen = tempFile.length()
+02472:                         while (activeCopyMoveSessions.containsKey(destPath)) {
+02473:                             val read = input.read(buffer)
+02474:                             if (read == -1) break
+02475:                             val chunk = ByteString.of(*buffer.copyOfRange(0, read))
+02476:                             webSocket?.send(chunk)
+02477:                             uploaded += read
+02478:
+02479:                             val prog = (totalSize / 2) + if (fileLen > 0) (uploaded * totalSize) / (fileLen * 2) else 0L

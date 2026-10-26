@@ -1,0 +1,289 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 1081-1365
+
+01081:                         // Wait while WS download chunks arrive (finishDownload will remove key when completed)
+01082:                         while (activeDownloads.containsKey(item.path) && coroutineContext.isActive && isConnected()) {
+01083:                             delay(200)
+01084:                             if (!activeDownloads.containsKey(item.path)) {
+01085:                                 downloadSuccess = true
+01086:                                 break
+01087:                             }
+01088:                         }
+01089:
+01090:                         if (!downloadSuccess && (!isConnected() || activeDownloads.containsKey(item.path))) {
+01091:                             throw java.io.IOException("WebSocket disconnected or download interrupted during WS transfer")
+01092:                         }
+01093:                     }
+01094:
+01095:                     if (!downloadSuccess && activeDownloads.containsKey(item.path)) {
+01096:                         throw java.io.IOException("Download loop ended incomplete")
+01097:                     }
+01098:                 } catch (e: Exception) {
+01099:                     if (e is CancellationException) throw e
+01100:                     if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
+01101:                         Log.w("MeshFilesDownload", "Download interrupted for ${item.path} (${e.localizedMessage}). Deleting incomplete local file and restarting...")
+01102:
+01103:                         withContext(Dispatchers.Main) {
+01104:                             Toast.makeText(
+01105:                                 context,
+01106:                                 context.getString(R.string.unstable_network_reconnecting_download),
+01107:                                 Toast.LENGTH_SHORT
+01108:                             ).show()
+01109:                         }
+01110:
+01111:                         try {
+01112:                             session.outputStream?.close()
+01113:                         } catch (_: Exception) {}
+01114:                         session.outputStream = null
+01115:
+01116:                         deleteLocalDownloadFileIfExists(context, targetName)
+01117:                         delay(2000)
+01118:                     }
+01119:                 }
+01120:             }
+01121:
+01122:             if (!downloadSuccess) {
+01123:                 activeDownloads.remove(item.path)
+01124:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != item.path }
+01125:                 try {
+01126:                     session.outputStream?.close()
+01127:                 } catch (_: Exception) {}
+01128:                 deleteLocalDownloadFileIfExists(context, targetName)
+01129:             }
+01130:         }
+01131:     }
+01132:
+01133:     fun cancelCopyMove(targetFilePath: String? = null) {
+01134:         try {
+01135:             val key = targetFilePath ?: activeCopyMoveSessions.keys.firstOrNull()
+01136:             val session = if (key != null) activeCopyMoveSessions.remove(key) else null
+01137:
+01138:             val name = session?.fileName ?: "archivo"
+01139:             session?.job?.cancel()
+01140:
+01141:             if (copyingDestPath == key) {
+01142:                 try {
+01143:                     copyingFileOutputStream?.flush()
+01144:                     copyingFileOutputStream?.close()
+01145:                 } catch (_: Exception) {}
+01146:                 copyingFileOutputStream = null
+01147:                 copyingTempFile?.delete()
+01148:                 copyingTempFile = null
+01149:                 copyingSourcePath = null
+01150:                 copyingDestPath = null
+01151:             }
+01152:
+01153:             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
+01154:
+01155:             val label = if (session?.isMove == true) "Movimiento cancelado" else "Copia cancelada"
+01156:             _statusMessage.value = "$label: $name"
+01157:         } catch (e: Exception) {
+01158:             Log.e("MeshFilesCopy", "Error canceling copy/move: ${e.localizedMessage}", e)
+01159:         }
+01160:     }
+01161:
+01162:     fun cancelTransfer(filePath: String) {
+01163:         if (activeZipSessions.containsKey(filePath)) {
+01164:             cancelZip(filePath)
+01165:         } else if (activeCopyMoveSessions.containsKey(filePath)) {
+01166:             cancelCopyMove(filePath)
+01167:         } else if (activeDownloads.containsKey(filePath)) {
+01168:             cancelDownload(filePath)
+01169:         } else if (activeUploads.containsKey(filePath)) {
+01170:             cancelUpload(filePath)
+01171:         } else {
+01172:             cancelZip(filePath)
+01173:             cancelCopyMove(filePath)
+01174:             cancelDownload(filePath)
+01175:             cancelUpload(filePath)
+01176:         }
+01177:     }
+01178:
+01179:     fun cancelDownload(targetFilePath: String? = null) {
+01180:         try {
+01181:             val key = targetFilePath ?: activeDownloads.keys.firstOrNull()
+01182:             val session = if (key != null) activeDownloads.remove(key) else null
+01183:
+01184:             val name = session?.fileName ?: "archivo"
+01185:             val ctx = session?.context
+01186:
+01187:             session?.downloadJob?.cancel()
+01188:
+01189:             try {
+01190:                 session?.outputStream?.flush()
+01191:                 session?.outputStream?.close()
+01192:             } catch (_: Exception) {}
+01193:
+01194:             if (session != null) {
+01195:                 if (ctx != null) {
+01196:                     deleteLocalDownloadFileIfExists(ctx, session.fileName)
+01197:                 } else {
+01198:                     val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+01199:                     val destFile = File(downloadsDir, session.fileName)
+01200:                     if (destFile.exists()) {
+01201:                         destFile.delete()
+01202:                     }
+01203:                 }
+01204:
+01205:                 val notificationManager = ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+01206:                 notificationManager?.cancel(session.filePath.hashCode())
+01207:             }
+01208:
+01209:             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
+01210:
+01211:             if (ctx != null) {
+01212:                 scope.launch(Dispatchers.Main) {
+01213:                     Toast.makeText(ctx, ctx.getString(R.string.download_canceled, name), Toast.LENGTH_SHORT).show()
+01214:                 }
+01215:             }
+01216:         } catch (e: Exception) {
+01217:             Log.e("MeshFilesDownload", "Error canceling download: ${e.localizedMessage}", e)
+01218:         }
+01219:     }
+01220:
+01221:     fun cancelUpload(targetFilePath: String? = null) {
+01222:         try {
+01223:             val key = targetFilePath ?: activeUploads.keys.firstOrNull()
+01224:             val session = if (key != null) activeUploads.remove(key) else null
+01225:
+01226:             val name = session?.fileName ?: "archivo"
+01227:             val ctx = session?.context
+01228:
+01229:             session?.uploadJob?.cancel()
+01230:
+01231:             if (session != null) {
+01232:                 val notificationManager = ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+01233:                 notificationManager?.cancel(session.filePath.hashCode())
+01234:
+01235:                 deleteRemoteFilePath(session.filePath)
+01236:             }
+01237:
+01238:             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
+01239:
+01240:             if (ctx != null) {
+01241:                 scope.launch(Dispatchers.Main) {
+01242:                     Toast.makeText(ctx, ctx.getString(R.string.upload_canceled, name), Toast.LENGTH_SHORT).show()
+01243:                 }
+01244:             }
+01245:         } catch (e: Exception) {
+01246:             Log.e("MeshFilesUpload", "Error canceling upload: ${e.localizedMessage}", e)
+01247:         }
+01248:     }
+01249:
+01250:     private fun ensureNotificationChannel(context: Context) {
+01251:         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+01252:             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+01253:             val channel = NotificationChannel(
+01254:                 "file_downloads",
+01255:                 context.getString(R.string.notification_downloads_uploads_channel),
+01256:                 NotificationManager.IMPORTANCE_LOW
+01257:             ).apply {
+01258:                 description = context.getString(R.string.notification_downloads_uploads_desc)
+01259:                 setShowBadge(true)
+01260:             }
+01261:             notificationManager.createNotificationChannel(channel)
+01262:         }
+01263:     }
+01264:
+01265:     private fun updateDownloadNotification(
+01266:         context: Context,
+01267:         fileName: String,
+01268:         filePath: String,
+01269:         received: Long,
+01270:         total: Long
+01271:     ) {
+01272:         val now = System.currentTimeMillis()
+01273:         if (now - lastProgressNotificationTime < 250 && received < total && received > 0) return
+01274:         lastProgressNotificationTime = now
+01275:
+01276:         try {
+01277:             ensureNotificationChannel(context)
+01278:             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+01279:
+01280:             val notificationId = filePath.hashCode()
+01281:             val progressPercent = if (total > 0) ((received * 100) / total).toInt().coerceIn(0, 100) else 0
+01282:
+01283:             val cancelIntent = Intent(context, DownloadCancelReceiver::class.java).apply {
+01284:                 action = "ACTION_CANCEL_TRANSFER"
+01285:                 putExtra("FILE_PATH", filePath)
+01286:             }
+01287:             val pendingIntent = PendingIntent.getBroadcast(
+01288:                 context,
+01289:                 filePath.hashCode(),
+01290:                 cancelIntent,
+01291:                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+01292:             )
+01293:
+01294:             val builder = NotificationCompat.Builder(context, "file_downloads")
+01295:                 .setSmallIcon(android.R.drawable.stat_sys_download)
+01296:                 .setContentTitle("Descargando $fileName")
+01297:                 .setContentText("${formatSize(received)} / ${formatSize(total)} ($progressPercent%)")
+01298:                 .setProgress(100, progressPercent, total <= 0)
+01299:                 .setOngoing(true)
+01300:                 .setOnlyAlertOnce(true)
+01301:                 .setPriority(NotificationCompat.PRIORITY_LOW)
+01302:                 .addAction(
+01303:                     android.R.drawable.ic_menu_close_clear_cancel,
+01304:                     "Cancelar",
+01305:                     pendingIntent
+01306:                 )
+01307:
+01308:             notificationManager.notify(notificationId, builder.build())
+01309:         } catch (e: Exception) {
+01310:             Log.e("MeshFilesDownload", "Error showing progress notification: ${e.localizedMessage}", e)
+01311:         }
+01312:     }
+01313:
+01314:     private fun updateUploadNotification(
+01315:         context: Context,
+01316:         fileName: String,
+01317:         filePath: String,
+01318:         sent: Long,
+01319:         total: Long
+01320:     ) {
+01321:         val now = System.currentTimeMillis()
+01322:         if (now - lastProgressNotificationTime < 250 && sent < total && sent > 0) return
+01323:         lastProgressNotificationTime = now
+01324:
+01325:         try {
+01326:             ensureNotificationChannel(context)
+01327:             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+01328:
+01329:             val notificationId = filePath.hashCode()
+01330:             val progressPercent = if (total > 0) ((sent * 100) / total).toInt().coerceIn(0, 100) else 0
+01331:
+01332:             val cancelIntent = Intent(context, DownloadCancelReceiver::class.java).apply {
+01333:                 action = "ACTION_CANCEL_TRANSFER"
+01334:                 putExtra("FILE_PATH", filePath)
+01335:             }
+01336:             val pendingIntent = PendingIntent.getBroadcast(
+01337:                 context,
+01338:                 filePath.hashCode(),
+01339:                 cancelIntent,
+01340:                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+01341:             )
+01342:
+01343:             val builder = NotificationCompat.Builder(context, "file_downloads")
+01344:                 .setSmallIcon(android.R.drawable.stat_sys_upload)
+01345:                 .setContentTitle("Subiendo $fileName")
+01346:                 .setContentText("${formatSize(sent)} / ${formatSize(total)} ($progressPercent%)")
+01347:                 .setProgress(100, progressPercent, total <= 0)
+01348:                 .setOngoing(true)
+01349:                 .setOnlyAlertOnce(true)
+01350:                 .setPriority(NotificationCompat.PRIORITY_LOW)
+01351:                 .addAction(
+01352:                     android.R.drawable.ic_menu_close_clear_cancel,
+01353:                     "Cancelar",
+01354:                     pendingIntent
+01355:                 )
+01356:
+01357:             notificationManager.notify(notificationId, builder.build())
+01358:         } catch (e: Exception) {
+01359:             Log.e("MeshFilesUpload", "Error showing upload notification: ${e.localizedMessage}", e)
+01360:         }
+01361:     }
+01362:
+01363:     private fun showDownloadCompleteNotification(context: Context, fileName: String, filePath: String, total: Long) {
+01364:         try {
+01365:             ensureNotificationChannel(context)

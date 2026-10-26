@@ -1,0 +1,276 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 1660-1931
+
+01660:             if (content.isNotEmpty()) {
+01661:                 webSocket?.send(content)
+01662:             }
+01663:             delay(200)
+01664:             listDirectory(_currentPath.value)
+01665:         }
+01666:     }
+01667:
+01668:     fun uploadRawFile(fileName: String, bytes: ByteArray, context: Context? = null) {
+01669:         val path = _currentPath.value.trimEnd('/')
+01670:         val fullPath = if (path.isEmpty()) "/$fileName" else "$path/$fileName"
+01671:         uploadRawFileToPath(fullPath, bytes, context)
+01672:     }
+01673:
+01674:     fun uploadRawFileToPath(fullPath: String, bytes: ByteArray, context: Context? = null) {
+01675:         val fileName = fullPath.substringAfterLast('/')
+01676:         val fileSize = bytes.size.toLong()
+01677:
+01678:         val session = ActiveUploadSession(
+01679:             filePath = fullPath,
+01680:             fileName = fileName,
+01681:             sentBytes = 0L,
+01682:             totalSize = fileSize,
+01683:             uploadJob = null,
+01684:             context = context
+01685:         )
+01686:         activeUploads[fullPath] = session
+01687:
+01688:         val progress = TransferProgress(
+01689:             fileName = fileName,
+01690:             filePath = fullPath,
+01691:             isUpload = true,
+01692:             bytesTransferred = 0L,
+01693:             totalBytes = fileSize
+01694:         )
+01695:         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath } + progress
+01696:
+01697:         if (context != null) {
+01698:             updateUploadNotification(context, fileName, fullPath, 0L, fileSize)
+01699:         }
+01700:
+01701:         session.uploadJob = scope.launch(Dispatchers.IO) {
+01702:             var uploadSuccess = false
+01703:
+01704:             while (!uploadSuccess && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+01705:                 try {
+01706:                     if (!ensureConnected()) {
+01707:                         delay(2000)
+01708:                         continue
+01709:                     }
+01710:
+01711:                     session.sentBytes = 0L
+01712:                     _activeTransfers.value = _activeTransfers.value.map {
+01713:                         if (it.filePath == fullPath) it.copy(bytesTransferred = 0L, totalBytes = fileSize) else it
+01714:                     }
+01715:
+01716:                     val req = JsonObject().apply {
+01717:                         addProperty("action", "upload")
+01718:                         addProperty("path", fullPath)
+01719:                         addProperty("size", bytes.size)
+01720:                     }
+01721:                     val ws = webSocket
+01722:                     if (ws == null || !ws.send(req.toString())) {
+01723:                         throw java.io.IOException("WebSocket disconnected before upload start")
+01724:                     }
+01725:
+01726:                     delay(150)
+01727:
+01728:                     val chunkSize = 64 * 1024
+01729:                     var offset = 0
+01730:                     val total = bytes.size
+01731:
+01732:                     if (total == 0) {
+01733:                         if (ws.send(ByteString.EMPTY)) {
+01734:                             uploadSuccess = true
+01735:                         } else {
+01736:                             throw java.io.IOException("Failed to send empty byte string")
+01737:                         }
+01738:                     } else {
+01739:                         while (offset < total && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+01740:                             val length = minOf(chunkSize, total - offset)
+01741:                             val chunk = ByteString.of(*bytes.copyOfRange(offset, offset + length))
+01742:                             val currentWs = webSocket
+01743:
+01744:                             if (currentWs == null || !isConnected() || !currentWs.send(chunk)) {
+01745:                                 throw java.io.IOException("WebSocket disconnected or chunk send failed")
+01746:                             }
+01747:
+01748:                             offset += length
+01749:
+01750:                             session.sentBytes = offset.toLong()
+01751:                             val currOffset = offset.toLong()
+01752:                             _activeTransfers.value = _activeTransfers.value.map {
+01753:                                 if (it.filePath == fullPath) it.copy(bytesTransferred = currOffset) else it
+01754:                             }
+01755:
+01756:                             if (context != null) {
+01757:                                 updateUploadNotification(context, fileName, fullPath, currOffset, total.toLong())
+01758:                             }
+01759:                             delay(10)
+01760:                         }
+01761:                         if (offset >= total && activeUploads.containsKey(fullPath)) {
+01762:                             uploadSuccess = true
+01763:                         }
+01764:                     }
+01765:
+01766:                     if (uploadSuccess && activeUploads.containsKey(fullPath)) {
+01767:                         _activeTransfers.value = _activeTransfers.value.map {
+01768:                             if (it.filePath == fullPath) it.copy(bytesTransferred = fileSize, isCompleted = true) else it
+01769:                         }
+01770:
+01771:                         if (context != null) {
+01772:                             showUploadCompleteNotification(context, fileName, fullPath, fileSize)
+01773:                         }
+01774:
+01775:                         delay(1500)
+01776:                         activeUploads.remove(fullPath)
+01777:                         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
+01778:                         listDirectory(_currentPath.value)
+01779:                     } else if (activeUploads.containsKey(fullPath)) {
+01780:                         throw java.io.IOException("Raw upload loop ended incomplete ($offset / $total)")
+01781:                     }
+01782:                 } catch (e: Exception) {
+01783:                     if (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+01784:                         Log.w("MeshFilesUpload", "Raw upload interrupted for $fullPath (${e.localizedMessage}). Deleting incomplete remote file and restarting...")
+01785:
+01786:                         if (context != null) {
+01787:                             withContext(Dispatchers.Main) {
+01788:                                 Toast.makeText(context, context.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
+01789:                             }
+01790:                         }
+01791:
+01792:                         deleteRemoteFilePath(fullPath)
+01793:                         delay(2000)
+01794:                     }
+01795:                 }
+01796:             }
+01797:
+01798:             if (!uploadSuccess) {
+01799:                 activeUploads.remove(fullPath)
+01800:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
+01801:                 deleteRemoteFilePath(fullPath)
+01802:             }
+01803:         }
+01804:     }
+01805:
+01806:     fun uploadUri(uri: Uri, context: Context, customFileName: String? = null) {
+01807:         val fileName = customFileName?.trim()?.ifBlank { null } ?: getFileNameFromUri(context, uri)
+01808:         val path = _currentPath.value.trimEnd('/')
+01809:         val fullPath = if (path.isEmpty()) "/$fileName" else "$path/$fileName"
+01810:         uploadUriToPath(fullPath, uri, context)
+01811:     }
+01812:
+01813:     fun uploadUriToPath(fullPath: String, uri: Uri, context: Context) {
+01814:         val fileName = fullPath.substringAfterLast('/')
+01815:         val fileSize = getFileSizeFromUri(context, uri)
+01816:
+01817:         val session = ActiveUploadSession(
+01818:             filePath = fullPath,
+01819:             fileName = fileName,
+01820:             sentBytes = 0L,
+01821:             totalSize = fileSize,
+01822:             uploadJob = null,
+01823:             context = context
+01824:         )
+01825:         activeUploads[fullPath] = session
+01826:
+01827:         val progress = TransferProgress(
+01828:             fileName = fileName,
+01829:             filePath = fullPath,
+01830:             isUpload = true,
+01831:             bytesTransferred = 0L,
+01832:             totalBytes = fileSize
+01833:         )
+01834:         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath } + progress
+01835:
+01836:         updateUploadNotification(context, fileName, fullPath, 0L, fileSize)
+01837:
+01838:         session.uploadJob = scope.launch(Dispatchers.IO) {
+01839:             var uploadSuccess = false
+01840:
+01841:             while (!uploadSuccess && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+01842:                 try {
+01843:                     if (!ensureConnected()) {
+01844:                         delay(2000)
+01845:                         continue
+01846:                     }
+01847:
+01848:                     session.sentBytes = 0L
+01849:                     _activeTransfers.value = _activeTransfers.value.map {
+01850:                         if (it.filePath == fullPath) it.copy(bytesTransferred = 0L, totalBytes = fileSize) else it
+01851:                     }
+01852:
+01853:                     val req = JsonObject().apply {
+01854:                         addProperty("action", "upload")
+01855:                         addProperty("path", fullPath)
+01856:                         addProperty("size", fileSize)
+01857:                     }
+01858:                     val ws = webSocket
+01859:                     if (ws == null || !ws.send(req.toString())) {
+01860:                         throw java.io.IOException("WebSocket disconnected before upload start")
+01861:                     }
+01862:
+01863:                     delay(150)
+01864:
+01865:                     val chunkSize = 64 * 1024
+01866:                     var totalSent = 0L
+01867:
+01868:                     val inputStream = context.contentResolver.openInputStream(uri)
+01869:                     if (inputStream == null) {
+01870:                         Log.e("MeshFilesUpload", "Could not open input stream for $uri")
+01871:                         break
+01872:                     }
+01873:
+01874:                     inputStream.use { stream ->
+01875:                         val buffer = ByteArray(chunkSize)
+01876:                         while (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+01877:                             val bytesRead = stream.read(buffer)
+01878:                             if (bytesRead == -1) break
+01879:
+01880:                             val chunk = ByteString.of(*buffer.copyOfRange(0, bytesRead))
+01881:                             val currentWs = webSocket
+01882:
+01883:                             if (currentWs == null || !isConnected() || !currentWs.send(chunk)) {
+01884:                                 throw java.io.IOException("WebSocket disconnected or chunk send failed")
+01885:                             }
+01886:
+01887:                             totalSent += bytesRead
+01888:
+01889:                             session.sentBytes = totalSent
+01890:                             val currOffset = totalSent
+01891:                             _activeTransfers.value = _activeTransfers.value.map {
+01892:                                 if (it.filePath == fullPath) it.copy(bytesTransferred = currOffset, totalBytes = maxOf(fileSize, currOffset)) else it
+01893:                             }
+01894:
+01895:                             updateUploadNotification(context, fileName, fullPath, currOffset, maxOf(fileSize, currOffset))
+01896:                             delay(10)
+01897:                         }
+01898:                     }
+01899:
+01900:                     if (totalSent >= fileSize && activeUploads.containsKey(fullPath)) {
+01901:                         uploadSuccess = true
+01902:                         _activeTransfers.value = _activeTransfers.value.map {
+01903:                             if (it.filePath == fullPath) it.copy(bytesTransferred = totalSent, totalBytes = totalSent, isCompleted = true) else it
+01904:                         }
+01905:
+01906:                         showUploadCompleteNotification(context, fileName, fullPath, totalSent)
+01907:
+01908:                         delay(1500)
+01909:                         activeUploads.remove(fullPath)
+01910:                         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
+01911:                         listDirectory(_currentPath.value)
+01912:                     } else if (activeUploads.containsKey(fullPath)) {
+01913:                         throw java.io.IOException("Upload loop ended incomplete ($totalSent / $fileSize)")
+01914:                     }
+01915:                 } catch (e: Exception) {
+01916:                     if (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
+01917:                         Log.w("MeshFilesUpload", "Upload interrupted for $fullPath (${e.localizedMessage}). Deleting incomplete remote file and restarting...")
+01918:
+01919:                         withContext(Dispatchers.Main) {
+01920:                             Toast.makeText(context, context.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
+01921:                         }
+01922:
+01923:                         deleteRemoteFilePath(fullPath)
+01924:                         delay(2000)
+01925:                     }
+01926:                 }
+01927:             }
+01928:
+01929:             if (!uploadSuccess) {
+01930:                 activeUploads.remove(fullPath)
+01931:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }

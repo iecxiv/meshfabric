@@ -1,0 +1,211 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 3085-3291
+
+03085:     fun getConnectionState(meshClient: MeshCentralClient, nodeId: String): StateFlow<Boolean> {
+03086:         return getSession(meshClient, nodeId).connectionState
+03087:     }
+03088:
+03089:     fun getCurrentPath(meshClient: MeshCentralClient, nodeId: String): StateFlow<String> {
+03090:         return getSession(meshClient, nodeId).currentPath
+03091:     }
+03092:
+03093:     fun getFileList(meshClient: MeshCentralClient, nodeId: String): StateFlow<List<FileItem>> {
+03094:         return getSession(meshClient, nodeId).fileList
+03095:     }
+03096:
+03097:     fun getStatusMessage(meshClient: MeshCentralClient, nodeId: String): StateFlow<String?> {
+03098:         return getSession(meshClient, nodeId).statusMessage
+03099:     }
+03100:
+03101:     fun getClipboardItem(meshClient: MeshCentralClient, nodeId: String): StateFlow<FileItem?> {
+03102:         return getSession(meshClient, nodeId).clipboardItem
+03103:     }
+03104:
+03105:     fun getIsCutMode(meshClient: MeshCentralClient, nodeId: String): StateFlow<Boolean> {
+03106:         return getSession(meshClient, nodeId).isCutMode
+03107:     }
+03108:
+03109:     fun getFileContent(meshClient: MeshCentralClient, nodeId: String): StateFlow<Pair<String, String>?> {
+03110:         return getSession(meshClient, nodeId).fileContent
+03111:     }
+03112:
+03113:     fun getFileReadingProgress(meshClient: MeshCentralClient, nodeId: String): StateFlow<Float?> {
+03114:         return getSession(meshClient, nodeId).fileReadingProgress
+03115:     }
+03116:
+03117:     fun getActiveTransfers(meshClient: MeshCentralClient, nodeId: String): StateFlow<List<TransferProgress>> {
+03118:         return getSession(meshClient, nodeId).activeTransfers
+03119:     }
+03120:
+03121:     fun getActiveTransfer(meshClient: MeshCentralClient, nodeId: String): StateFlow<TransferProgress?> {
+03122:         return getSession(meshClient, nodeId).activeTransfer
+03123:     }
+03124:
+03125:     fun connect(meshClient: MeshCentralClient, nodeId: String) {
+03126:         val session = getSession(meshClient, nodeId)
+03127:         session.connect()
+03128:         updateSessionsStatus()
+03129:     }
+03130:
+03131:     fun disconnectSession(nodeId: String) {
+03132:         val key = cleanKey(nodeId)
+03133:         val session = sessions.remove(key)
+03134:         session?.disconnect(resetPath = true)
+03135:         updateSessionsStatus()
+03136:     }
+03137:
+03138:     fun disconnectAll() {
+03139:         for (session in sessions.values) {
+03140:             session.disconnect(resetPath = true)
+03141:         }
+03142:         sessions.clear()
+03143:         updateSessionsStatus()
+03144:     }
+03145:
+03146:     fun disconnect() {
+03147:         disconnectAll()
+03148:     }
+03149:
+03150:     fun hasActiveSessions(): Boolean {
+03151:         return sessions.values.any { it.isConnected() }
+03152:     }
+03153:
+03154:     fun getSessionStatus(nodeId: String): SessionStatus {
+03155:         val session = sessions[cleanKey(nodeId)] ?: return SessionStatus.NONE
+03156:         return when {
+03157:             session.isConnected() -> SessionStatus.CONNECTED
+03158:             session.fileList.value.isNotEmpty() && !session.isUserDisconnect -> SessionStatus.DISCONNECTED_WITH_BUFFER
+03159:             else -> SessionStatus.NONE
+03160:         }
+03161:     }
+03162:
+03163:     fun hasDisconnectedWithBuffer(): Boolean {
+03164:         return sessions.values.any { !it.isConnected() && it.fileList.value.isNotEmpty() && !it.isUserDisconnect }
+03165:     }
+03166:
+03167:     fun hasActiveOrBufferedSession(): Boolean {
+03168:         return sessions.values.any { (it.isConnected() || it.fileList.value.isNotEmpty()) && !it.isUserDisconnect }
+03169:     }
+03170:
+03171:     fun getSessionCount(): Int {
+03172:         return sessions.values.count { (it.isConnected() || it.fileList.value.isNotEmpty()) && !it.isUserDisconnect }
+03173:     }
+03174:
+03175:     fun onNetworkChanged() {
+03176:         for (session in sessions.values) {
+03177:             if (!session.isUserDisconnect && !session.isConnected()) {
+03178:                 session.onNetworkChanged()
+03179:             }
+03180:         }
+03181:     }
+03182:
+03183:     fun cancelTransfer(filePath: String) {
+03184:         for (session in sessions.values) {
+03185:             session.cancelTransfer(filePath)
+03186:         }
+03187:     }
+03188:
+03189:     fun cancelDownload() {
+03190:         for (session in sessions.values) {
+03191:             session.cancelDownload()
+03192:         }
+03193:     }
+03194:
+03195:     fun listDirectory(nodeId: String, path: String) {
+03196:         sessions[cleanKey(nodeId)]?.listDirectory(path)
+03197:     }
+03198:
+03199:     fun createFolder(nodeId: String, folderName: String) {
+03200:         sessions[cleanKey(nodeId)]?.createFolder(folderName)
+03201:     }
+03202:
+03203:     fun createFile(nodeId: String, fileName: String, content: String = "") {
+03204:         sessions[cleanKey(nodeId)]?.createFile(fileName, content)
+03205:     }
+03206:
+03207:     fun uploadRawFile(nodeId: String, fileName: String, bytes: ByteArray, context: Context? = null) {
+03208:         sessions[cleanKey(nodeId)]?.uploadRawFile(fileName, bytes, context)
+03209:     }
+03210:
+03211:     fun uploadUri(nodeId: String, uri: Uri, context: Context, customFileName: String? = null) {
+03212:         sessions[cleanKey(nodeId)]?.uploadUri(uri, context, customFileName)
+03213:     }
+03214:
+03215:     fun downloadFileToDownloads(
+03216:         context: Context,
+03217:         meshClient: MeshCentralClient,
+03218:         nodeId: String,
+03219:         item: FileItem,
+03220:         customName: String? = null,
+03221:         overwrite: Boolean = false
+03222:     ) {
+03223:         val session = getSession(meshClient, nodeId)
+03224:         session.downloadFileToDownloads(context, item, customName, overwrite)
+03225:     }
+03226:
+03227:     fun readFileContent(meshClient: MeshCentralClient, nodeId: String, item: FileItem) {
+03228:         val session = getSession(meshClient, nodeId)
+03229:         session.readFileContent(item)
+03230:     }
+03231:
+03232:     fun cancelFileReading(nodeId: String) {
+03233:         sessions[cleanKey(nodeId)]?.cancelFileReading()
+03234:     }
+03235:
+03236:     fun saveFileContent(nodeId: String, filePath: String, newContent: String) {
+03237:         sessions[cleanKey(nodeId)]?.saveFileContent(filePath, newContent)
+03238:     }
+03239:
+03240:     fun clearFileContent(nodeId: String) {
+03241:         sessions[cleanKey(nodeId)]?.clearFileContent()
+03242:     }
+03243:
+03244:     fun copyItem(nodeId: String, item: FileItem) {
+03245:         sessions[cleanKey(nodeId)]?.copyItem(item)
+03246:     }
+03247:
+03248:     fun cutItem(nodeId: String, item: FileItem) {
+03249:         sessions[cleanKey(nodeId)]?.cutItem(item)
+03250:     }
+03251:
+03252:     fun clearClipboard(nodeId: String) {
+03253:         sessions[cleanKey(nodeId)]?.clearClipboard()
+03254:     }
+03255:
+03256:     fun cancelCopyMove(filePath: String) {
+03257:         for (session in sessions.values) {
+03258:             session.cancelCopyMove(filePath)
+03259:         }
+03260:     }
+03261:
+03262:     fun pasteItem(nodeId: String, customTargetName: String? = null, context: Context? = null) {
+03263:         sessions[cleanKey(nodeId)]?.pasteItem(customTargetName, context)
+03264:     }
+03265:
+03266:     fun compressZip(nodeId: String, item: FileItem, customZipName: String? = null) {
+03267:         sessions[cleanKey(nodeId)]?.compressZip(item, customZipName)
+03268:     }
+03269:
+03270:     fun decompressZip(nodeId: String, item: FileItem) {
+03271:         sessions[cleanKey(nodeId)]?.decompressZip(item)
+03272:     }
+03273:
+03274:     fun openOnRemoteDevice(nodeId: String, item: FileItem) {
+03275:         sessions[cleanKey(nodeId)]?.openOnRemoteDevice(item)
+03276:     }
+03277:
+03278:     fun deleteItem(meshClient: MeshCentralClient, nodeId: String, item: FileItem) {
+03279:         val session = getSession(meshClient, nodeId)
+03280:         session.deleteItem(item)
+03281:     }
+03282:
+03283:     fun renameItem(meshClient: MeshCentralClient, nodeId: String, item: FileItem, newName: String) {
+03284:         val session = getSession(meshClient, nodeId)
+03285:         session.renameItem(item, newName)
+03286:     }
+03287:
+03288:     fun clearStatus(nodeId: String) {
+03289:         sessions[cleanKey(nodeId)]?.clearStatus()
+03290:     }
+03291: }
