@@ -37,7 +37,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/apply-desktop-recovery.py
-          test ! -e app/src/main/res/values-en/desktop_notifications.xml
           mkdir -p app/src/main/res/values-en
           cp app/src/main/res/values/desktop_notifications.xml app/src/main/res/values-en/desktop_notifications.xml
       - name: Check, build, test and lint before publishing
