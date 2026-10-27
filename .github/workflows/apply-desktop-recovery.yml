@@ -33,8 +33,13 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Apply guarded desktop patch
-        run: python3 .github/scripts/apply-desktop-recovery.py
+      - name: Apply guarded desktop patch and include English translation
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/apply-desktop-recovery.py
+          test ! -e app/src/main/res/values-en/desktop_notifications.xml
+          mkdir -p app/src/main/res/values-en
+          cp app/src/main/res/values/desktop_notifications.xml app/src/main/res/values-en/desktop_notifications.xml
       - name: Check, build, test and lint before publishing
         run: |
           set -euo pipefail
@@ -43,7 +48,7 @@ jobs:
       - name: Publish verified fix and remove temporary tooling
         run: |
           set -euo pipefail
-          git add app/src/main/java/iecxiv/meshfabric/data/remote/DesktopRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/DesktopRecoveryPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt app/src/main/java/iecxiv/meshfabric/MainActivity.kt app/src/main/java/iecxiv/meshfabric/service/KeepAliveService.kt app/src/main/res/values/desktop_notifications.xml app/src/main/res/values-es/desktop_notifications.xml app/src/test/java/iecxiv/meshfabric/data/remote/DesktopRecoveryPolicyTest.kt
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/DesktopRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/DesktopRecoveryPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt app/src/main/java/iecxiv/meshfabric/MainActivity.kt app/src/main/java/iecxiv/meshfabric/service/KeepAliveService.kt app/src/main/res/values/desktop_notifications.xml app/src/main/res/values-es/desktop_notifications.xml app/src/main/res/values-en/desktop_notifications.xml app/src/test/java/iecxiv/meshfabric/data/remote/DesktopRecoveryPolicyTest.kt
           git rm .github/scripts/apply-desktop-recovery.py .github/workflows/apply-desktop-recovery.yml
           git diff --cached --check
           git config user.name 'github-actions[bot]'
