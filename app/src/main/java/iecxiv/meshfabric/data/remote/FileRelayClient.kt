@@ -150,7 +150,9 @@ class ActiveDownloadSession(
     var outputStream: OutputStream?,
     var downloadJob: Job? = null,
     val context: Context
-)
+) {
+    internal val networkAttempt = DownloadNetworkAttempt()
+}
 
 class ActiveUploadSession(
     val filePath: String,
@@ -986,16 +988,6 @@ class FileSession(
             deleteLocalDownloadFileIfExists(context, targetName)
         }
 
-        val meshId = meshClient.getNodeMeshId(nodeId)
-        val serverUrl = meshClient.serverUrl.trimEnd('/')
-
-        val cookieToken = meshClient.userAuthCookie.ifEmpty {
-            meshClient.relayAuthCookie.ifEmpty {
-                meshClient.extractRawToken(meshClient.authCookie)
-            }
-        }
-        val sessionCookie = meshClient.authCookie.trim()
-
         Toast.makeText(context, context.getString(R.string.starting_download, targetName), Toast.LENGTH_SHORT).show()
 
         val progress = TransferProgress(
@@ -1035,6 +1027,18 @@ class FileSession(
                         continue
                     }
 
+                    val attemptEpoch = session.networkAttempt.current()
+                    val meshId = meshClient.getNodeMeshId(nodeId)
+                    val serverUrl = meshClient.serverUrl.trimEnd('/')
+
+                    val cookieToken = meshClient.userAuthCookie.ifEmpty {
+                        meshClient.relayAuthCookie.ifEmpty {
+                            meshClient.extractRawToken(meshClient.authCookie)
+                        }
+                    }
+                    val sessionCookie = meshClient.authCookie.trim()
+
+
                     session.receivedBytes = 0L
                     _activeTransfers.value = _activeTransfers.value.map {
                         if (it.filePath == item.path) it.copy(bytesTransferred = 0L, totalBytes = item.size) else it
@@ -1042,11 +1046,22 @@ class FileSession(
 
                     deleteLocalDownloadFileIfExists(context, targetName)
 
-                    // 1. Attempt HTTP Download
+                    // 1. Attempt HTTP Download, owned by this network generation.
+                    var httpResponse: Response? = null
+                    var activeHttpCall: okhttp3.Call? = null
                     try {
                         val outputStream = createDownloadOutputStream(context, targetName)
                         session.outputStream = outputStream
                         val client = OkHttpHelper.createDownloadClient(meshClient.ignoreSsl)
+                        fun executeOnCurrentNetwork(request: Request): Response {
+                            val call = client.newCall(request)
+                            activeHttpCall = call
+                            if (!session.networkAttempt.bind(attemptEpoch, call) { call.cancel() }) {
+                                throw java.io.IOException("Download network changed before request")
+                            }
+                            return call.execute().also { httpResponse = it }
+                        }
+
 
                         val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
                         val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
@@ -1060,13 +1075,17 @@ class FileSession(
                         var reqBuilder = Request.Builder().url(downloadUrl).get()
                         if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
 
-                        var response = client.newCall(reqBuilder.build()).execute()
+                        var response = executeOnCurrentNetwork(reqBuilder.build())
 
                         if (!response.isSuccessful) {
+                            response.close()
+                            if (!session.networkAttempt.isCurrent(attemptEpoch)) {
+                                throw java.io.IOException("Download network changed during HTTP response")
+                            }
                             downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
                             reqBuilder = Request.Builder().url(downloadUrl).get()
                             if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
-                            response = client.newCall(reqBuilder.build()).execute()
+                            response = executeOnCurrentNetwork(reqBuilder.build())
                         }
 
                         if (response.isSuccessful && response.body != null) {
@@ -1084,9 +1103,12 @@ class FileSession(
                                         val bytesRead = input.read(buffer)
                                         if (bytesRead == -1) break
 
-                                        output.write(buffer, 0, bytesRead)
-                                        receivedBytes += bytesRead
-                                        session.receivedBytes = receivedBytes
+                                        val accepted = session.networkAttempt.runIfCurrent(attemptEpoch) {
+                                            output.write(buffer, 0, bytesRead)
+                                            receivedBytes += bytesRead
+                                            session.receivedBytes = receivedBytes
+                                        }
+                                        if (!accepted) throw java.io.IOException("Download network changed during read")
 
                                         val current = receivedBytes
                                         _activeTransfers.value = _activeTransfers.value.map {
@@ -1142,12 +1164,21 @@ class FileSession(
                         }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
+                        if (!session.networkAttempt.isCurrent(attemptEpoch)) {
+                            throw java.io.IOException("Download network changed; restarting on the current network", e)
+                        }
                         Log.w("MeshFilesDownload", "HTTP download attempt failed: ${e.localizedMessage}")
                     } finally {
+                        httpResponse?.close()
+                        activeHttpCall?.let { session.networkAttempt.release(attemptEpoch, it) }
                         try {
                             session.outputStream?.close()
                         } catch (_: Exception) {}
                         session.outputStream = null
+                    }
+
+                    if (!session.networkAttempt.isCurrent(attemptEpoch)) {
+                        throw java.io.IOException("Download network changed before WebSocket fallback")
                     }
 
                     // 2. Attempt WebSocket readfile download if HTTP did not complete
@@ -1175,7 +1206,7 @@ class FileSession(
                         }
 
                         // Wait while WS download chunks arrive (finishDownload will remove key when completed)
-                        while (activeDownloads.containsKey(item.path) && coroutineContext.isActive && isConnected()) {
+                        while (activeDownloads.containsKey(item.path) && coroutineContext.isActive && isConnected() && session.networkAttempt.isCurrent(attemptEpoch)) {
                             delay(200)
                             if (!activeDownloads.containsKey(item.path)) {
                                 downloadSuccess = true
@@ -1281,6 +1312,7 @@ class FileSession(
             val ctx = session?.context
 
             session?.downloadJob?.cancel()
+            session?.networkAttempt?.invalidate()
 
             try {
                 session?.outputStream?.flush()
@@ -3070,6 +3102,7 @@ class FileSession(
     @Synchronized
     fun disconnect(resetPath: Boolean = false) {
         isUserDisconnect = true
+        activeDownloads.keys.toList().forEach { cancelDownload(it) }
         recoveryJob?.cancel()
         recoveryJob = null
         retireSocket()
@@ -3103,6 +3136,7 @@ class FileSession(
     @Synchronized
     fun onNetworkChanged() {
         if (isUserDisconnect) return
+        activeDownloads.values.toList().forEach { it.networkAttempt.invalidate() }
         retireSocket()
         failures = 0
         retryAt = 0L
