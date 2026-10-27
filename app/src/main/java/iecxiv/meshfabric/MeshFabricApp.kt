@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -19,22 +20,49 @@ class MeshFabricApp : Application() {
         registerNetworkCallback()
     }
 
-    private fun scheduleNetworkChange() {
+    private fun scheduleNetworkChange(reason:String) {
         // Android delivers callbacks serially; coalesce a handover's adjacent events.
+        Log.d("MeshNetwork","SCHEDULE reason=$reason")
         networkHandler.removeCallbacks(dispatchNetworkChange)
         networkHandler.postDelayed(dispatchNetworkChange,250L)
+    }
+
+    private fun transportSignature(capabilities:NetworkCapabilities):Set<Int> {
+        val supported=intArrayOf(
+            NetworkCapabilities.TRANSPORT_CELLULAR,
+            NetworkCapabilities.TRANSPORT_WIFI,
+            NetworkCapabilities.TRANSPORT_BLUETOOTH,
+            NetworkCapabilities.TRANSPORT_ETHERNET,
+            NetworkCapabilities.TRANSPORT_VPN
+        )
+        return supported.filter { capabilities.hasTransport(it) }.toSet()
     }
 
     private fun registerNetworkCallback() {
         try {
             val cm=getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val tracker=DefaultNetworkTracker<Network>(cm.activeNetwork)
+            // Seed outside callbacks; subsequent state comes only from callback arguments.
+            val initialNetwork=cm.activeNetwork
+            val initialTransports=initialNetwork?.let { cm.getNetworkCapabilities(it) }
+                ?.let { transportSignature(it) }
+            val tracker=DefaultNetworkTracker<Network>(initialNetwork,initialTransports)
             cm.registerDefaultNetworkCallback(object:ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network:Network) {
-                    if(tracker.available(network)) scheduleNetworkChange()
+                    val changed=tracker.available(network)
+                    Log.d("MeshNetwork","AVAILABLE network=${network.hashCode()} changed=$changed")
+                    if(changed) scheduleNetworkChange("available")
                 }
                 override fun onLost(network:Network) {
-                    if(tracker.lost(network)) scheduleNetworkChange()
+                    val changed=tracker.lost(network)
+                    Log.d("MeshNetwork","LOST network=${network.hashCode()} changed=$changed")
+                    if(changed) scheduleNetworkChange("lost")
+                }
+                override fun onCapabilitiesChanged(network:Network,networkCapabilities:NetworkCapabilities) {
+                    val transports=transportSignature(networkCapabilities)
+                    val changed=tracker.capabilitiesChanged(network,transports)
+                    // Do not log capabilities themselves: they may contain identifying data.
+                    Log.d("MeshNetwork","CAPABILITIES network=${network.hashCode()} transports=${transports.sorted()} changed=$changed")
+                    if(changed) scheduleNetworkChange("transports")
                 }
             })
         } catch(e:Exception) {
@@ -47,7 +75,9 @@ class MeshFabricApp : Application() {
             private set
         var onNetworkChangedListener:(()->Unit)?=null
         fun onNetworkChanged() {
-            onNetworkChangedListener?.invoke()
+            val listener=onNetworkChangedListener
+            Log.d("MeshNetwork","DISPATCH listenerAttached=${listener!=null}")
+            listener?.invoke()
         }
     }
 }
