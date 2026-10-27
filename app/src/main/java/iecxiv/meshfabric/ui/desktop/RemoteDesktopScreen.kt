@@ -329,24 +329,23 @@ fun RemoteDesktopScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(nodeId, selectedMode, showClipboardDialog, showKeyboardDialog, showSettingsDialog, scale, offsetX, offsetY, drawWidth, drawHeight, containerWidth, containerHeight) {
+                            .pointerInput(nodeId, selectedMode) {
                                 if (showClipboardDialog || showKeyboardDialog || showSettingsDialog) return@pointerInput
                                 val touchSlop = viewConfiguration.touchSlop
                                 awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = true)
+                                    val down = awaitFirstDown(requireUnconsumed = false)
                                     val startPos = down.position
                                     val startTime = System.currentTimeMillis()
                                     var isMoved = false
                                     var isLongPressed = false
-
                                     var dragAmountY = 0f
 
                                     do {
                                         val event = awaitPointerEvent()
-                                        val pointerCount = event.changes.size
+                                        val pointerCount = event.changes.count { it.pressed }
 
                                         if (pointerCount == 1) {
-                                            val change = event.changes[0]
+                                            val change = event.changes.firstOrNull { it.pressed } ?: event.changes[0]
                                             val diff = change.position - startPos
                                             if (diff.getDistance() > touchSlop) {
                                                 isMoved = true
@@ -385,8 +384,8 @@ fun RemoteDesktopScreen(
                                                     }
                                                     change.consume()
                                                 } else if (scale > 1f) {
-                                                    val maxOffsetX = ((drawWidth * scale - containerWidth) / 2f).coerceAtLeast(0f)
-                                                    val maxOffsetY = ((drawHeight * scale - containerHeight) / 2f).coerceAtLeast(0f)
+                                                    val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                    val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
                                                     offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
                                                     offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
                                                     change.consume()
@@ -396,12 +395,12 @@ fun RemoteDesktopScreen(
                                             isMoved = true
                                             val zoom = event.calculateZoom()
                                             val pan = event.calculatePan()
-                                            scale = (scale * zoom).coerceIn(1f, 5f)
-                                            val maxOffsetX = ((drawWidth * scale - containerWidth) / 2f).coerceAtLeast(0f)
-                                            val maxOffsetY = ((drawHeight * scale - containerHeight) / 2f).coerceAtLeast(0f)
+                                            scale = (scale * zoom).coerceIn(1f, 6f)
+                                            val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                            val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
                                             offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
                                             offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
-                                            event.changes.forEach { it.consume() }
+                                            event.changes.forEach { if (it.pressed) it.consume() }
                                         }
                                     } while (event.changes.any { it.pressed })
 
