@@ -7,10 +7,14 @@ internal class DownloadNetworkAttempt {
     private var resource: Any? = null
     private var cancelAction: (() -> Unit)? = null
 
-    @Synchronized fun takeReconnectNotice(): Boolean {
-        if (notifiedGeneration == generation) return false
-        notifiedGeneration = generation
+    @Synchronized fun takeReconnectNotice(epoch: Long = current()): Boolean {
+        if (epoch != generation || notifiedGeneration == epoch) return false
+        notifiedGeneration = epoch
         return true
+    }
+
+    @Synchronized fun releaseReconnectNotice(epoch: Long) {
+        if (generation == epoch && notifiedGeneration == epoch) notifiedGeneration = null
     }
 
     @Synchronized fun current(): Long = generation

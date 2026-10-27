@@ -153,6 +153,7 @@ class ActiveDownloadSession(
     val context: Context
 ) {
     internal val networkAttempt = DownloadNetworkAttempt()
+    @Volatile internal var completed = false
 }
 
 class ActiveUploadSession(
@@ -835,21 +836,48 @@ class FileSession(
     }
 
     @Synchronized
-    private fun showDownloadReconnectToast(context: Context) {
-        var notify = false
-        for (download in activeDownloads.values.toList()) {
-            val pending = _activeTransfers.value.any {
-                it.filePath == download.filePath && !it.isCompleted
-            }
-            if (pending && download.networkAttempt.takeReconnectNotice()) notify = true
+    private fun showDownloadReconnectToast(context: Context, source: String = "retry") {
+        val pending = activeDownloads.values.toList().filter {
+            !it.completed && it.downloadJob?.isActive != false
+        }.map { it to it.networkAttempt.current() }
+        Log.d("MeshDownloadToast", "REQUEST source=$source candidates=${pending.size}")
+        if (pending.isEmpty() || isUserDisconnect) {
+            Log.d("MeshDownloadToast", "DISCARDED source=$source reason=no-pending-work-or-closed")
+            return
         }
-        if (!notify || isUserDisconnect) return
         val appContext = context.applicationContext
-        scope.launch(Dispatchers.Main) {
-            if (!isUserDisconnect && activeDownloads.isNotEmpty()) {
-                Toast.makeText(appContext,
-                    appContext.getString(R.string.unstable_network_reconnecting_download),
-                    Toast.LENGTH_SHORT).show()
+        scope.launch(Dispatchers.Main.immediate) {
+            if (isUserDisconnect) {
+                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=session-closed")
+                return@launch
+            }
+            val eligible = pending.filter { (download, epoch) ->
+                activeDownloads[download.filePath] === download && !download.completed &&
+                    download.downloadJob?.isActive != false && download.networkAttempt.isCurrent(epoch)
+            }
+            if (eligible.isEmpty()) {
+                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=work-cancelled-complete-or-retired")
+                return@launch
+            }
+            val toast = Toast.makeText(appContext,
+                appContext.getString(R.string.unstable_network_reconnecting_download), Toast.LENGTH_SHORT)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                toast.addCallback(object : Toast.Callback() {
+                    override fun onToastShown() { Log.d("MeshDownloadToast", "SHOWN source=$source") }
+                    override fun onToastHidden() { Log.d("MeshDownloadToast", "HIDDEN source=$source") }
+                })
+            }
+            val claimed = eligible.filter { (download, epoch) -> download.networkAttempt.takeReconnectNotice(epoch) }
+            if (claimed.isEmpty()) {
+                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=duplicate-generation")
+                return@launch
+            }
+            try {
+                toast.show()
+                Log.d("MeshDownloadToast", "SHOW_REQUESTED source=$source count=${claimed.size}")
+            } catch (e: Exception) {
+                claimed.forEach { (download, epoch) -> download.networkAttempt.releaseReconnectNotice(epoch) }
+                Log.w("MeshDownloadToast", "SHOW_FAILED source=$source type=${e.javaClass.simpleName}")
             }
         }
     }
@@ -1054,6 +1082,7 @@ class FileSession(
 
                             if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
                                 if (totalSize <= 0 || receivedBytes >= totalSize) {
+                                    session.completed = true
                                     downloadSuccess = true
                                     _activeTransfers.value = _activeTransfers.value.map {
                                         if (it.filePath == item.path) {
@@ -3053,7 +3082,7 @@ class FileSession(
     fun onNetworkChanged() {
         if (isUserDisconnect) return
         activeDownloads.values.toList().forEach { it.networkAttempt.invalidate() }
-        activeDownloads.values.firstOrNull()?.context?.let { showDownloadReconnectToast(it) }
+        activeDownloads.values.firstOrNull()?.context?.let { showDownloadReconnectToast(it, "network-change") }
         retireSocket()
         failures = 0
         retryAt = 0L
