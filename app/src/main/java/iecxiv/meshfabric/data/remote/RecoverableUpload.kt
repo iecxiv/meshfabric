@@ -114,19 +114,27 @@ internal class UploadChannel private constructor(
     private fun binary(data: ByteArray) = synchronized(lock) {
         if (closed || !gate.isCurrent(epoch) || socket?.send(ByteString.of(*UploadWire.encode(data))) != true) throw IOException("Upload data rejected locally")
     }
-    private suspend fun receive(action: String, id: String? = null, parent: String? = null): JsonObject =
-        withTimeoutOrNull(20_000L) {
+    private suspend fun receive(action: String, id: String? = null, parent: String? = null): JsonObject {
+        if (action != "uploadack") android.util.Log.d("MeshFilesUpload", "stage=WAIT_RESPONSE expected=$action")
+        val response = withTimeoutOrNull(20_000L) {
             while (true) {
-                val packet = messages.receive()
-                val kind = packet.get("action")?.asString ?: ""
-                val replyId = packet.get("reqid")?.takeUnless { it.isJsonNull }?.asString
+                if (!gate.isCurrent(epoch)) throw IOException("Upload attempt retired while waiting for response")
+                val packet = UploadResponseSupport.next(messages)
+                if (!gate.isCurrent(epoch)) throw IOException("Upload attempt retired before response dispatch")
+                val kind = UploadResponseSupport.text(packet, "action") ?: ""
+                val replyId = UploadResponseSupport.text(packet, "reqid")
                 if (kind == "uploaderror" && (replyId == null || replyId == id)) throw UploadRejected("Agent rejected upload")
-                val matchingId = id == null || replyId == id ||
-                    (replyId == null && parent != null && packet.get("path")?.asString?.let { UploadWire.key(it) == UploadWire.key(parent) } == true)
-                if (matchingId && (kind == action || (action == "ls" && kind == "dir"))) return@withTimeoutOrNull packet
+                if (UploadResponseSupport.matches(packet, action, id, parent)) return@withTimeoutOrNull packet
             }
             @Suppress("UNREACHABLE_CODE") error("unreachable")
-        } ?: throw IOException("Upload acknowledgement timed out")
+        }
+        if (response == null) {
+            android.util.Log.w("MeshFilesUpload", "stage=RESPONSE_TIMEOUT expected=$action")
+            throw IOException("Upload acknowledgement timed out: $action")
+        }
+        if (action != "uploadack") android.util.Log.d("MeshFilesUpload", "stage=RESPONSE_ACCEPTED expected=$action")
+        return response
+    }
 
     suspend fun list(parent: String): List<RemoteUploadEntry> {
         val id = UUID.randomUUID().toString()
@@ -184,14 +192,16 @@ internal class UploadChannel private constructor(
         })
         poll(parent) { entries -> entries.none { it.name == name } }
     }
-    suspend fun poll(parent: String, predicate: (List<RemoteUploadEntry>) -> Boolean): List<RemoteUploadEntry> {
-        repeat(8) {
-            val entries = list(parent)
-            if (predicate(entries)) return entries
-            delay(250L)
-        }
-        throw IOException("Remote upload finalization not yet confirmed")
-    }
+    suspend fun poll(parent: String, predicate: (List<RemoteUploadEntry>) -> Boolean): List<RemoteUploadEntry> =
+        withTimeoutOrNull(8000L) {
+            repeat(8) {
+                val entries = list(parent)
+                if (predicate(entries)) return@withTimeoutOrNull entries
+                delay(250L)
+            }
+            null
+        } ?: throw IOException("Remote upload finalization not yet confirmed")
+
     override fun close() {
         synchronized(lock) {
             closed = true
@@ -253,9 +263,15 @@ internal class UploadPublication(val parent: String, val target: String) {
         }
     }
     private suspend fun cleanupGarbage(relay: UploadChannel) {
-        for (name in garbage.toList()) {
-            try { relay.removeOwned(parent, name); garbage.remove(name) } catch (e: CancellationException) { throw e } catch (_: IOException) { }
+        val finished = withTimeoutOrNull(3000L) {
+            for (name in garbage.toList()) {
+                try { relay.removeOwned(parent, name); garbage.remove(name) }
+                catch (e: CancellationException) { throw e }
+                catch (_: IOException) { }
+            }
+            true
         }
+        if (finished != true) android.util.Log.w("MeshFilesUpload", "stage=CLEANUP_YIELDED_TO_RESTART")
     }
     suspend fun transfer(relay: UploadChannel, source: File, progress: (Long) -> Unit) {
         if (recover(relay)) return

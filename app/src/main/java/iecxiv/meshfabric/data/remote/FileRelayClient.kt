@@ -1795,9 +1795,14 @@ class FileSession(
                 uploadMutex.lock()
                 locked = true
                 while (coroutineContext.isActive && !isUserDisconnect && activeUploads[target] === session) {
-                    if (!ensureConnected()) { delay(750L); continue }
+                    if (!ensureConnected()) {
+                        Log.d("MeshFilesUpload", "stage=WAIT_RELAY")
+                        delay(750L)
+                        continue
+                    }
                     val epoch = session.networkAttempt.current()
                     try {
+                        Log.d("MeshFilesUpload", "stage=ATTEMPT_START epoch=$epoch")
                         session.started = true
                         session.sentBytes = 0L
                         _activeTransfers.update { entries -> entries.map {
