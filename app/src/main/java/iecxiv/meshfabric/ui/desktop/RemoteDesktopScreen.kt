@@ -178,7 +178,6 @@ fun RemoteDesktopScreen(
 
     DisposableEffect(nodeId) {
         viewModel.startSession(nodeId)
-        viewModel.resumeSession(nodeId)
         onDispose {
             viewModel.pauseSession(nodeId)
         }

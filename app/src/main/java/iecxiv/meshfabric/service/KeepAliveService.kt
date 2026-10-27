@@ -21,6 +21,7 @@ class KeepAliveService : Service() {
         const val ACTION_START = "iecxiv.meshfabric.action.START_KEEP_ALIVE"
         const val ACTION_STOP = "iecxiv.meshfabric.action.STOP_KEEP_ALIVE"
         const val EXTRA_HAS_ACTIVE_CONNECTED = "extra_has_active_connected"
+        const val EXTRA_HAS_RECOVERABLE_DESKTOP = "extra_has_recoverable_desktop"
         const val EXTRA_HAS_DISCONNECTED_BUFFER = "extra_has_disconnected_buffer"
 
         var isServiceRunning = false
@@ -31,12 +32,14 @@ class KeepAliveService : Service() {
         fun startService(
             context: Context,
             hasActiveConnected: Boolean = true,
-            hasDisconnectedBuffer: Boolean = false
+            hasDisconnectedBuffer: Boolean = false,
+            hasRecoverableDesktop: Boolean = false
         ) {
             val intent = Intent(context, KeepAliveService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_HAS_ACTIVE_CONNECTED, hasActiveConnected)
                 putExtra(EXTRA_HAS_DISCONNECTED_BUFFER, hasDisconnectedBuffer)
+                putExtra(EXTRA_HAS_RECOVERABLE_DESKTOP, hasRecoverableDesktop)
             }
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -52,10 +55,11 @@ class KeepAliveService : Service() {
         fun updateNotification(
             context: Context,
             hasActiveConnected: Boolean = true,
-            hasDisconnectedBuffer: Boolean = false
+            hasDisconnectedBuffer: Boolean = false,
+            hasRecoverableDesktop: Boolean = false
         ) {
             if (isServiceRunning) {
-                startService(context, hasActiveConnected, hasDisconnectedBuffer)
+                startService(context, hasActiveConnected, hasDisconnectedBuffer, hasRecoverableDesktop)
             }
         }
 
@@ -86,7 +90,7 @@ class KeepAliveService : Service() {
 
         val hasActiveConnected = intent?.getBooleanExtra(EXTRA_HAS_ACTIVE_CONNECTED, true) ?: true
         val hasDisconnectedBuffer = intent?.getBooleanExtra(EXTRA_HAS_DISCONNECTED_BUFFER, false) ?: false
-        val notification = createNotification(hasActiveConnected, hasDisconnectedBuffer)
+        val notification = createNotification(hasActiveConnected, hasDisconnectedBuffer, intent?.getBooleanExtra(EXTRA_HAS_RECOVERABLE_DESKTOP, false) ?: false)
 
         if (isServiceRunning) {
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -151,10 +155,11 @@ class KeepAliveService : Service() {
 
     private fun createNotification(
         hasActiveConnected: Boolean,
-        hasDisconnectedBuffer: Boolean
+        hasDisconnectedBuffer: Boolean,
+        hasRecoverableDesktop: Boolean
     ): Notification {
         val titleText = "MeshFabric"
-        val contentText = try {
+        val contentText = if (hasRecoverableDesktop && !hasDisconnectedBuffer) getString(R.string.notification_desktop_sessions_connected) else try {
             val app = iecxiv.meshfabric.MeshFabricApp.instance
             when {
                 hasActiveConnected && hasDisconnectedBuffer -> app.getString(R.string.notification_sessions_mixed)
