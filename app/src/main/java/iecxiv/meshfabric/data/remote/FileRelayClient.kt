@@ -207,6 +207,7 @@ class FileSession(
     private val gson = Gson()
     @Volatile var webSocket: WebSocket? = null
     @Volatile var isUserDisconnect = true
+    @Volatile private var irrecoverable = false
     private val navigation = FileNavigationState()
     private var socketEpoch = 0L
     private var attemptStarted = 0L
@@ -276,6 +277,10 @@ class FileSession(
     // Download State
     private var lastProgressNotificationTime = 0L
 
+    fun retainedSessionStatus(): SessionStatus = FileSessionPolicy.status(!isUserDisconnect, irrecoverable)
+
+    fun hasRecoverableState(): Boolean = FileSessionPolicy.active(!isUserDisconnect, irrecoverable)
+
     fun isConnected(): Boolean {
         return _connectionState.value && webSocket != null
     }
@@ -314,7 +319,7 @@ class FileSession(
     }
 
     suspend fun ensureConnected(): Boolean {
-        if (isUserDisconnect || !ensureControlSocketConnected()) return false
+        if (isUserDisconnect || irrecoverable || !ensureControlSocketConnected()) return false
         synchronized(this) { startRecovery() }
         repeat(80) {
             if (isUserDisconnect || meshClient.isUserLogout) return false
@@ -327,12 +332,13 @@ class FileSession(
     @Synchronized
     fun connect() {
         isUserDisconnect = false
+        irrecoverable = false
         startRecovery()
         if (isConnected()) listDirectory(navigation.desiredPath)
     }
 
     private fun startRecovery() {
-        if (isUserDisconnect || recoveryJob?.isActive == true) return
+        if (isUserDisconnect || irrecoverable || recoveryJob?.isActive == true) return
         if (!meshClient.connectionState.value && !meshClient.isUserLogout) meshClient.reconnectNow()
         recoveryJob = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             while (true) {
@@ -341,7 +347,7 @@ class FileSession(
                         disconnect()
                         return@launch
                     }
-                    if (!isUserDisconnect) {
+                    if (!isUserDisconnect && !irrecoverable) {
                         if (!meshClient.connectionState.value && webSocket != null) retireSocket()
                         if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
                         if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
@@ -351,6 +357,12 @@ class FileSession(
                         if (meshClient.connectionState.value && webSocket == null && nowMs() >= retryAt) {
                             try { openSocket() } catch (e: Exception) {
                                 Log.w("MeshFiles", "Cannot open files transport (${e.javaClass.simpleName})")
+                                if (FileSessionPolicy.configurationFailure(e)) {
+                                    irrecoverable = true
+                                    recoveryJob?.cancel()
+                                    recoveryJob = null
+                                    _statusMessage.value = "La configuración impide recuperar Archivos; corrígela y vuelve a intentar"
+                                }
                                 retireSocket()
                             }
                         }
@@ -379,6 +391,7 @@ class FileSession(
     @Synchronized
     fun refreshSession() {
         if (isUserDisconnect) return
+        irrecoverable = false
         navigation.request(navigation.desiredPath)
         if (!isConnected()) {
             retireSocket()
@@ -2991,7 +3004,7 @@ class FileSession(
 
     @Synchronized
     fun onNetworkChanged() {
-        if (isUserDisconnect) return
+        if (isUserDisconnect || irrecoverable) return
         activeDownloads.values.toList().forEach { it.networkAttempt.invalidate() }
         activeUploads.values.toList().filter { it.started && !it.completed }.forEach { it.networkAttempt.invalidate() }
         activeUploads.values.firstOrNull()?.context?.let { showUploadReconnectToast(it, "network-change") }
@@ -3042,11 +3055,7 @@ class FileRelayClient {
     fun updateSessionsStatus() {
         val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
             val sess = entry.value
-            when {
-                sess.isConnected() -> SessionStatus.CONNECTED
-                sess.fileList.value.isNotEmpty() && !sess.isUserDisconnect -> SessionStatus.DISCONNECTED_WITH_BUFFER
-                else -> SessionStatus.NONE
-            }
+            sess.retainedSessionStatus()
         }
         _sessionsStatus.value = map
         updateActiveNodes()
@@ -3054,7 +3063,7 @@ class FileRelayClient {
 
     fun updateActiveNodes() {
         val active = sessions.entries
-            .filter { it.value.isConnected() }
+            .filter { it.value.hasRecoverableState() }
             .map { cleanKey(it.key) }
             .toSet()
         _activeNodes.value = active
@@ -3141,28 +3150,24 @@ class FileRelayClient {
     }
 
     fun hasActiveSessions(): Boolean {
-        return sessions.values.any { it.isConnected() }
+        return sessions.values.any { it.hasRecoverableState() }
     }
 
     fun getSessionStatus(nodeId: String): SessionStatus {
         val session = sessions[cleanKey(nodeId)] ?: return SessionStatus.NONE
-        return when {
-            session.isConnected() -> SessionStatus.CONNECTED
-            session.fileList.value.isNotEmpty() && !session.isUserDisconnect -> SessionStatus.DISCONNECTED_WITH_BUFFER
-            else -> SessionStatus.NONE
-        }
+        return session.retainedSessionStatus()
     }
 
     fun hasDisconnectedWithBuffer(): Boolean {
-        return sessions.values.any { !it.isConnected() && it.fileList.value.isNotEmpty() && !it.isUserDisconnect }
+        return sessions.values.any { it.retainedSessionStatus() == SessionStatus.DISCONNECTED_WITH_BUFFER }
     }
 
     fun hasActiveOrBufferedSession(): Boolean {
-        return sessions.values.any { (it.isConnected() || it.fileList.value.isNotEmpty()) && !it.isUserDisconnect }
+        return sessions.values.any { !it.isUserDisconnect }
     }
 
     fun getSessionCount(): Int {
-        return sessions.values.count { (it.isConnected() || it.fileList.value.isNotEmpty()) && !it.isUserDisconnect }
+        return sessions.values.count { !it.isUserDisconnect }
     }
 
     fun onNetworkChanged() {
