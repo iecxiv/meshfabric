@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -442,33 +443,7 @@ class FileSession(
                     handleIncomingMessage(webSocket, text)
                     processJsonControlMessage(text)
                 } else {
-                    val activeDl = activeDownloads.values.firstOrNull()
-                    if (activeDl != null) {
-                        val chunkBytes = text.toByteArray(Charsets.UTF_8)
-                        activeDl.outputStream?.write(chunkBytes)
-                        activeDl.receivedBytes += chunkBytes.size
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == activeDl.filePath) {
-                                it.copy(
-                                    bytesTransferred = activeDl.receivedBytes,
-                                    totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
-                                )
-                            } else {
-                                it
-                            }
-                        }
-                        if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
-                            finishDownload(activeDl.filePath)
-                        } else if (activeDl.context != null) {
-                            updateDownloadNotification(
-                                activeDl.context,
-                                activeDl.fileName,
-                                activeDl.filePath,
-                                activeDl.receivedBytes,
-                                activeDl.totalSize
-                            )
-                        }
-                    } else if (readingFilePath != null) {
+                    if (readingFilePath != null) {
                         val chunkBytes = text.toByteArray(Charsets.UTF_8)
                         readingBuffer?.write(chunkBytes)
                         readingReceivedBytes += chunkBytes.size
@@ -504,41 +479,7 @@ class FileSession(
                 Log.d("MeshFilesRecvDataBytes", "WS Data Bytes: ${bytes.size} bytes")
                 val byteArray = bytes.toByteArray()
 
-                val activeDl = activeDownloads.values.firstOrNull()
-                if (activeDl != null) {
-                    try {
-                        activeDl.outputStream?.write(byteArray)
-                        activeDl.receivedBytes += byteArray.size
-
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == activeDl.filePath) {
-                                it.copy(
-                                    bytesTransferred = activeDl.receivedBytes,
-                                    totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
-                                )
-                            } else {
-                                it
-                            }
-                        }
-
-                        if (activeDl.context != null) {
-                            updateDownloadNotification(
-                                activeDl.context,
-                                activeDl.fileName,
-                                activeDl.filePath,
-                                activeDl.receivedBytes,
-                                activeDl.totalSize
-                            )
-                        }
-
-                        if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
-                            finishDownload(activeDl.filePath)
-                        }
-                        return
-                    } catch (e: Exception) {
-                        Log.e("MeshFilesDownload", "Error writing download chunk: ${e.localizedMessage}", e)
-                    }
-                } else if (copyingSourcePath != null) {
+                if (copyingSourcePath != null) {
                     try {
                         copyingFileOutputStream?.write(byteArray)
                         copyingReceivedBytes += byteArray.size
@@ -640,7 +581,7 @@ class FileSession(
             }
 
             if (action == "downloadEnd" || subaction == "end" || subaction == "close" || subaction == "complete") {
-                if (activeDownloads.isNotEmpty()) finishDownload()
+                // Shared relay completion belongs only to browser copy/read operations.
                 if (copyingSourcePath != null) finishCopyingFile()
                 if (readingFilePath != null) finishReadingFile()
                 return
@@ -649,10 +590,7 @@ class FileSession(
             if (action == "downloadStart" || subaction == "start") {
                 val reqid = json.get("reqid")?.asString ?: json.get("id")?.asString ?: ""
                 val size = json.get("size")?.asLong ?: 0L
-                val activeDl = activeDownloads.values.firstOrNull()
-                if (activeDl != null && size > 0) {
-                    activeDl.totalSize = size
-                }
+
                 val pullReq = JsonObject().apply {
                     addProperty("action", "download")
                     addProperty("subaction", "download")
@@ -676,35 +614,7 @@ class FileSession(
                     data.toByteArray(Charsets.UTF_8)
                 }
 
-                val activeDl = activeDownloads.values.firstOrNull()
-                if (activeDl != null) {
-                    activeDl.outputStream?.write(chunkBytes)
-                    activeDl.receivedBytes += chunkBytes.size
-                    _activeTransfers.value = _activeTransfers.value.map {
-                        if (it.filePath == activeDl.filePath) {
-                            it.copy(
-                                bytesTransferred = activeDl.receivedBytes,
-                                totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
-                            )
-                        } else {
-                            it
-                        }
-                    }
-                    if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
-                        finishDownload(activeDl.filePath)
-                    } else if (action == "readfile") {
-                        finishDownload(activeDl.filePath)
-                    } else if (activeDl.context != null) {
-                        updateDownloadNotification(
-                            activeDl.context,
-                            activeDl.fileName,
-                            activeDl.filePath,
-                            activeDl.receivedBytes,
-                            activeDl.totalSize
-                        )
-                    }
-                    return
-                }
+
 
                 if (readingFilePath != null) {
                     readingBuffer?.write(chunkBytes)
@@ -737,13 +647,7 @@ class FileSession(
             } else {
                 val size = json.get("size")?.asLong ?: 0L
                 if (size > 0) {
-                    val activeDl = activeDownloads.values.firstOrNull()
-                    if (activeDl != null) {
-                        activeDl.totalSize = size
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == activeDl.filePath) it.copy(totalBytes = size) else it
-                        }
-                    } else if (copyingSourcePath != null) {
+                    if (copyingSourcePath != null) {
                         copyingTotalSize = size
                     } else if (readingFilePath != null) {
                         readingTotalSize = size
@@ -1077,6 +981,7 @@ class FileSession(
 
                         var response = executeOnCurrentNetwork(reqBuilder.build())
 
+                        Log.d("MeshFilesDownload", "stage=HTTP_STATUS code=${response.code} epoch=$attemptEpoch")
                         if (!response.isSuccessful) {
                             response.close()
                             if (!session.networkAttempt.isCurrent(attemptEpoch)) {
@@ -1181,42 +1086,39 @@ class FileSession(
                         throw java.io.IOException("Download network changed before WebSocket fallback")
                     }
 
-                    // 2. Attempt WebSocket readfile download if HTTP did not complete
+                    // A dedicated relay owns every binary block of this fallback attempt.
                     if (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
-                        Log.d("MeshFilesDownload", "Attempting WS fallback download for ${item.path}...")
-
-                        if (!ensureConnected()) {
-                            throw java.io.IOException("WebSocket not connected for fallback download")
-                        }
-
-                        val outputStream = createDownloadOutputStream(context, targetName)
-                        session.outputStream = outputStream
+                        if (!ensureConnected()) throw java.io.IOException("Files relay unavailable for isolated download")
+                        Log.d("MeshFilesDownload", "stage=WS_ISOLATED_START epoch=$attemptEpoch")
+                        val output = createDownloadOutputStream(context, targetName)
+                        session.outputStream = output
                         session.receivedBytes = 0L
-
-                        val readReq = JsonObject().apply {
-                            addProperty("action", "readfile")
-                            addProperty("path", item.path)
-                            addProperty("reqid", reqIdStr)
-                            addProperty("id", reqIdStr)
-                        }
-
-                        val ws = webSocket
-                        if (ws == null || !ws.send(readReq.toString())) {
-                            throw java.io.IOException("Failed to send readfile WebSocket command")
-                        }
-
-                        // Wait while WS download chunks arrive (finishDownload will remove key when completed)
-                        while (activeDownloads.containsKey(item.path) && coroutineContext.isActive && isConnected() && session.networkAttempt.isCurrent(attemptEpoch)) {
-                            delay(200)
-                            if (!activeDownloads.containsKey(item.path)) {
-                                downloadSuccess = true
-                                break
+                        try {
+                            val received = IsolatedFileDownload.download(
+                                meshClient, fullNodeId, item.path, item.size.takeIf { it > 0L },
+                                output, session.networkAttempt, attemptEpoch
+                            ) { count ->
+                                session.receivedBytes = count
+                                _activeTransfers.update { transfers ->
+                                    transfers.map {
+                                        if (it.filePath == item.path) it.copy(bytesTransferred = count,
+                                            totalBytes = if (item.size > 0L) item.size else count) else it
+                                    }
+                                }
+                                updateDownloadNotification(context, targetName, item.path, count, item.size)
                             }
+                            session.receivedBytes = received
+                        } finally {
+                            try { output.close() } finally { session.outputStream = null }
                         }
-
-                        if (!downloadSuccess && (!isConnected() || activeDownloads.containsKey(item.path))) {
-                            throw java.io.IOException("WebSocket disconnected or download interrupted during WS transfer")
+                        if (activeDownloads[item.path] === session && coroutineContext.isActive &&
+                            session.networkAttempt.isCurrent(attemptEpoch)) {
+                            downloadSuccess = true
+                            Log.d("MeshFilesDownload", "stage=WS_ISOLATED_COMPLETE epoch=$attemptEpoch")
+                            finishDownload(item.path)
+                            return@launch
                         }
+                        throw java.io.IOException("Isolated download attempt was cancelled or retired")
                     }
 
                     if (!downloadSuccess && activeDownloads.containsKey(item.path)) {
