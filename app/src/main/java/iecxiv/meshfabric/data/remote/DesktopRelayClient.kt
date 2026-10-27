@@ -404,23 +404,8 @@ class DesktopSession(
                 }
             }
             27 -> {
-                if (data.size < 8) return
-                val offset = findImageStartOffset(data)
-                if (offset >= 0) {
-                    try {
-                        val bitmap = BitmapFactory.decodeByteArray(data, offset, data.size - offset)
-                        if (bitmap != null) {
-                            val requiredW = max(bitmap.width, _screenResolution.value.first)
-                            val requiredH = max(bitmap.height, _screenResolution.value.second)
-
-                            if (canvasBitmap == null || requiredW > canvasBitmap!!.width || requiredH > canvasBitmap!!.height) {
-                                initCanvas(max(requiredW, 1024), max(requiredH, 768))
-                            }
-                            drawTileOnCanvas(bitmap, 0, 0)
-                        }
-                    } catch (e: Exception) {
-                        Log.e("DesktopSession", "Error decoding Cmd 27: ${e.message}")
-                    }
+                if (data.size > 8) {
+                    handleBinaryFrame(data.copyOfRange(8, data.size))
                 }
             }
             3 -> {
@@ -741,13 +726,11 @@ class DesktopSession(
     }
 
     fun refreshDisplay() {
-        sendDisplaySelect(0)
-        sendCompressionSettings(
-            imageType = _settings.value.encoding.code,
-            compressionLevel = _settings.value.quality,
-            scalingLevel = _settings.value.scale
-        )
         sendUnPause()
+        if (webSocket != null) {
+            val pkt = byteArrayOf(0x00, 0x06, 0x00, 0x04)
+            webSocket?.send(ByteString.of(*pkt))
+        }
     }
 
     @Synchronized
@@ -767,6 +750,10 @@ class DesktopSession(
 
 class DesktopRelayClient {
 
+    companion object {
+        var activeInstance: DesktopRelayClient? = null
+    }
+
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private val sessions = ConcurrentHashMap<String, DesktopSession>()
 
@@ -776,6 +763,14 @@ class DesktopRelayClient {
     private val _sessionsStatus = MutableStateFlow<Map<String, iecxiv.meshfabric.data.model.SessionStatus>>(emptyMap())
     val desktopSessionsStatusFlow: StateFlow<Map<String, iecxiv.meshfabric.data.model.SessionStatus>> = _sessionsStatus.asStateFlow()
 
+    init {
+        activeInstance = this
+    }
+
+    private fun cleanKey(nodeId: String): String {
+        return nodeId.removePrefix("node//").removePrefix("node/").trim()
+    }
+
     fun updateSessionsStatus() {
         val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
             val sess = entry.value
@@ -783,10 +778,6 @@ class DesktopRelayClient {
         }
         _sessionsStatus.value = map
         updateActiveNodes()
-    }
-
-    private fun cleanKey(nodeId: String): String {
-        return nodeId.removePrefix("node//").removePrefix("node/").trim()
     }
 
     fun updateActiveNodes() {
@@ -800,10 +791,6 @@ class DesktopRelayClient {
     @Synchronized
     fun getSession(meshClient: MeshCentralClient, nodeId: String): DesktopSession {
         val key = cleanKey(nodeId)
-        meshClient.onClipboardReceivedListener = { nId, text ->
-            val k = cleanKey(nId)
-            sessions[k]?.updateRemoteClipboard(text)
-        }
         return sessions.getOrPut(key) {
             DesktopSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
                 sess.onStateChanged = { updateSessionsStatus() }
@@ -840,25 +827,10 @@ class DesktopRelayClient {
         return getSession(meshClient, nodeId).remoteClipboardText
     }
 
-    fun getFrameVersion(nodeId: String): StateFlow<Long> {
-        val session = sessions[cleanKey(nodeId)]
-        return session?.frameVersion ?: MutableStateFlow(0L).asStateFlow()
-    }
-
-    fun getSettings(nodeId: String): StateFlow<DesktopSettings> {
-        val session = sessions[cleanKey(nodeId)]
-        return session?.settings ?: MutableStateFlow(DesktopSettings()).asStateFlow()
-    }
-
-    fun getRemoteClipboardText(nodeId: String): StateFlow<String> {
-        val session = sessions[cleanKey(nodeId)]
-        return session?.remoteClipboardText ?: MutableStateFlow("").asStateFlow()
-    }
-
     fun connect(meshClient: MeshCentralClient, nodeId: String) {
         val session = getSession(meshClient, nodeId)
         session.connect()
-        updateActiveNodes()
+        updateSessionsStatus()
     }
 
     fun pauseSession(nodeId: String) {
@@ -867,10 +839,6 @@ class DesktopRelayClient {
 
     fun resumeSession(nodeId: String) {
         sessions[cleanKey(nodeId)]?.resumeSession()
-    }
-
-    fun updateSettings(nodeId: String, newSettings: DesktopSettings) {
-        sessions[cleanKey(nodeId)]?.updateSettings(newSettings)
     }
 
     fun sendMouseEvent(nodeId: String, actionButton: Int, x: Int, y: Int) {
@@ -889,24 +857,38 @@ class DesktopRelayClient {
         sessions[cleanKey(nodeId)]?.sendKeyCombo(*keyCodes)
     }
 
-    fun sendUnicodeKey(nodeId: String, char: Char) {
-        sessions[cleanKey(nodeId)]?.sendUnicodeKey(char)
-    }
-
     fun sendUnicodeText(nodeId: String, text: String) {
         sessions[cleanKey(nodeId)]?.sendUnicodeText(text)
     }
 
+    fun sendUnicodeKey(nodeId: String, char: Char) {
+        sessions[cleanKey(nodeId)]?.sendUnicodeKey(char)
+    }
+
     fun sendClipboardText(meshClient: MeshCentralClient, nodeId: String, text: String) {
-        getSession(meshClient, nodeId).sendClipboardText(text)
+        val session = getSession(meshClient, nodeId)
+        session.sendClipboardText(text)
     }
 
     fun requestRemoteClipboard(meshClient: MeshCentralClient, nodeId: String) {
-        getSession(meshClient, nodeId).requestRemoteClipboard()
+        val session = getSession(meshClient, nodeId)
+        session.requestRemoteClipboard()
+    }
+
+    fun sendLockScreen(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.sendLockScreen()
     }
 
     fun sendHotkeyCommand(nodeId: String, command: String) {
         sessions[cleanKey(nodeId)]?.sendHotkeyCommand(command)
+    }
+
+    fun sendDisplaySelect(nodeId: String, displayIndex: Int = 0) {
+        sessions[cleanKey(nodeId)]?.sendDisplaySelect(displayIndex)
+    }
+
+    fun updateSettings(nodeId: String, newSettings: DesktopSettings) {
+        sessions[cleanKey(nodeId)]?.updateSettings(newSettings)
     }
 
     fun refreshDisplay(nodeId: String) {
