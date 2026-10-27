@@ -834,6 +834,26 @@ class FileSession(
         }
     }
 
+    @Synchronized
+    private fun showDownloadReconnectToast(context: Context) {
+        var notify = false
+        for (download in activeDownloads.values.toList()) {
+            val pending = _activeTransfers.value.any {
+                it.filePath == download.filePath && !it.isCompleted
+            }
+            if (pending && download.networkAttempt.takeReconnectNotice()) notify = true
+        }
+        if (!notify || isUserDisconnect) return
+        val appContext = context.applicationContext
+        scope.launch(Dispatchers.Main) {
+            if (!isUserDisconnect && activeDownloads.isNotEmpty()) {
+                Toast.makeText(appContext,
+                    appContext.getString(R.string.unstable_network_reconnecting_download),
+                    Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     private fun createDownloadOutputStream(context: Context, fileName: String): OutputStream {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
@@ -1129,13 +1149,7 @@ class FileSession(
                     if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
                         Log.w("MeshFilesDownload", "Download interrupted for ${item.path} (${e.localizedMessage}). Deleting incomplete local file and restarting...")
 
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.unstable_network_reconnecting_download),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                        showDownloadReconnectToast(context)
 
                         try {
                             session.outputStream?.close()
@@ -3039,6 +3053,7 @@ class FileSession(
     fun onNetworkChanged() {
         if (isUserDisconnect) return
         activeDownloads.values.toList().forEach { it.networkAttempt.invalidate() }
+        activeDownloads.values.firstOrNull()?.context?.let { showDownloadReconnectToast(it) }
         retireSocket()
         failures = 0
         retryAt = 0L

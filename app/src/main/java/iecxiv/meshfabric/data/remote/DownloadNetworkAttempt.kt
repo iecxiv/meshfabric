@@ -3,8 +3,15 @@ package iecxiv.meshfabric.data.remote
 /** Owns the cancellable HTTP call for one download network generation. */
 internal class DownloadNetworkAttempt {
     private var generation = 0L
+    private var notifiedGeneration: Long? = null
     private var resource: Any? = null
     private var cancelAction: (() -> Unit)? = null
+
+    @Synchronized fun takeReconnectNotice(): Boolean {
+        if (notifiedGeneration == generation) return false
+        notifiedGeneration = generation
+        return true
+    }
 
     @Synchronized fun current(): Long = generation
     @Synchronized fun isCurrent(epoch: Long): Boolean = epoch == generation
