@@ -1,0 +1,91 @@
+                                onClick = { showKeyboardDialog = false },
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(stringResource(R.string.close))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Clipboard Dialog
+        if (showClipboardDialog) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showClipboardDialog = false }
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Text(stringResource(R.string.clipboard), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Text(stringResource(R.string.send_to_remote_clipboard), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedTextField(
+                            value = sendClipboardInput,
+                            onValueChange = { sendClipboardInput = it },
+                            label = { Text(stringResource(R.string.send_remote_clipboard_placeholder)) },
+                            maxLines = 3,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp, max = 90.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    android.util.Log.d("DesktopScreen", "Pegar de Android clicked")
+                                    val clip = clipboardManager.getText()?.text ?: ""
+                                    if (clip.isNotEmpty()) {
+                                        sendClipboardInput = clip
+                                        Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp)
+                            ) {
+                                Text(stringResource(R.string.paste_from_android), fontSize = 11.sp, maxLines = 1)
+                            }
+                            Button(
+                                onClick = {
+                                    android.util.Log.d("DesktopScreen", "Enviar al Remoto clicked, input='$sendClipboardInput'")
+                                    if (sendClipboardInput.isNotEmpty()) {
+                                        viewModel.sendClipboardText(nodeId, sendClipboardInput)
+                                        Toast.makeText(context, "Enviado al portapapeles remoto", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Ingresa texto para enviar", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp)
+                            ) {
+                                Text(stringResource(R.string.send_to_remote), fontSize = 11.sp, maxLines = 1)
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                        Text(stringResource(R.string.get_from_remote_clipboard), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        OutlinedTextField(

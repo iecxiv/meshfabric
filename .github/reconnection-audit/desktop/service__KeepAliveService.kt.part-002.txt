@@ -1,0 +1,38 @@
+                description = "Mantiene las sesiones de MeshFabric activas en segundo plano"
+                setShowBadge(false)
+            }
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    private fun createNotification(
+        hasActiveConnected: Boolean,
+        hasDisconnectedBuffer: Boolean
+    ): Notification {
+        val titleText = "MeshFabric"
+        val contentText = try {
+            val app = iecxiv.meshfabric.MeshFabricApp.instance
+            when {
+                hasActiveConnected && hasDisconnectedBuffer -> app.getString(R.string.notification_sessions_mixed)
+                hasDisconnectedBuffer -> app.getString(R.string.notification_sessions_disconnected)
+                else -> app.getString(R.string.notification_sessions_active)
+            }
+        } catch (_: Exception) {
+            when {
+                hasActiveConnected && hasDisconnectedBuffer -> "sesiones activas en segundo plano + sesiones desconectadas guardadas"
+                hasDisconnectedBuffer -> "sesiones desconectadas, cambio de red / tunel cerrado"
+                else -> "sesiones activas en segundo plano"
+            }
+        }
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_remote)
+            .setContentTitle(titleText)
+            .setContentText(contentText)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .build()
+    }
+}

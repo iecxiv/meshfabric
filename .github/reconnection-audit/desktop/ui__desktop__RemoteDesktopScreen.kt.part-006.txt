@@ -1,0 +1,92 @@
+                                    imageVector = Icons.Default.FullscreenExit,
+                                    contentDescription = "Salir de pantalla completa",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                        .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .pointerInput(maxUpwardOffsetPx) {
+                            detectVerticalDragGestures { change, dragAmount ->
+                                change.consume()
+                                if (maxUpwardOffsetPx < 0f) {
+                                    val currentPx = barRelativeY * maxUpwardOffsetPx
+                                    val newPx = (currentPx + dragAmount).coerceIn(maxUpwardOffsetPx, 0f)
+                                    barRelativeY = newPx / maxUpwardOffsetPx
+                                }
+                            }
+                        },
+                    shape = RoundedCornerShape(24.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp, vertical = 4.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    isControlsBarCollapsed = true
+                                    viewModel.setDesktopBarCollapsed(true)
+                                },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Plegar controles",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        FilterChip(
+                            selected = selectedMode == MouseMode.LEFT_CLICK,
+                            onClick = { selectedMode = MouseMode.LEFT_CLICK },
+                            label = { Text(stringResource(R.string.left_click), fontSize = 10.sp) },
+                            leadingIcon = { Icon(Icons.Default.Mouse, contentDescription = null, modifier = Modifier.size(13.dp)) },
+                            modifier = Modifier.height(32.dp)
+                        )
+                        FilterChip(
+                            selected = selectedMode == MouseMode.RIGHT_CLICK,
+                            onClick = { selectedMode = MouseMode.RIGHT_CLICK },
+                            label = { Text(stringResource(R.string.right_click), fontSize = 10.sp) },
+                            modifier = Modifier.height(32.dp)
+                        )
+                        FilterChip(
+                            selected = selectedMode == MouseMode.SCROLL,
+                            onClick = { selectedMode = MouseMode.SCROLL },
+                            label = { Text(stringResource(R.string.scroll), fontSize = 10.sp) },
+                            modifier = Modifier.height(32.dp)
+                        )
+                        IconButton(
+                            onClick = {
+                                isSoftKeyboardOpen = !isSoftKeyboardOpen
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Keyboard,
+                                contentDescription = "Teclado en pantalla",
+                                tint = if (isImeVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                            },
+                            modifier = Modifier.size(34.dp)

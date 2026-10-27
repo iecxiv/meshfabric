@@ -1,0 +1,108 @@
+              val rcookieVal = json.get("rcookie")?.asString ?: ""
+372:                         if (rcookieVal.isNotEmpty()) {
+373:                             relayAuthCookie = rcookieVal
+374:                         }
+375:                         if (cookieVal.isNotEmpty()) {
+376:                             userAuthCookie = cookieVal
+377:                         }
+378:                     }
+379:                     if (action == "userinfo") {
+380:                         val info = json.getAsJsonObject("userinfo")
+381:                         if (info != null) {
+382:                             val user = gson.fromJson(info, UserInfo::class.java)
+383:                             _userInfo.value = user
+384:                             controlRetries.reset()
+636:         pingJob = null
+637:     }
+638: 
+639:     private fun startNodePollLoop() {
+640:         stopNodePollLoop()
+641:         nodePollJob = launchControlWork { webSocket ->
+642:             while (true) {
+643:                 delay(10000)
+644:                 if (_connectionState.value && webSocket != null) {
+645:                     webSocket?.send("""{"action":"nodes"}""")
+646:                     webSocket?.send("""{"action":"meshes"}""")
+647:                 }
+648:             }
+649:         }
+650:     }
+651: 
+652:     private fun stopNodePollLoop() {
+653:         nodePollJob?.cancel()
+654:         nodePollJob = null
+655:     }
+656: 
+657:     fun sendClipboardRequest(nodeId: String) {
+658:         if (webSocket == null) return
+659:         val fullNodeId = if (!nodeId.startsWith("node//")) "node//" + nodeId.removePrefix("node/") else nodeId
+660: 
+661:         val msg1 = JsonObject().apply {
+662:             addProperty("action", "msg")
+663:             addProperty("type", "getclip")
+664:             addProperty("nodeid", fullNodeId)
+665:         }
+666:         val msg2 = JsonObject().apply {
+667:             addProperty("action", "getclip")
+668:             addProperty("nodeid", fullNodeId)
+669:         }
+670:         val msg3 = JsonObject().apply {
+671:             addProperty("action", "getclip")
+672:         }
+673:         val msg4 = JsonObject().apply {
+674:             addProperty("action", "msg")
+675:             addProperty("type", "getclipboard")
+676:             addProperty("nodeid", fullNodeId)
+677:         }
+678:         try {
+679:             webSocket?.send(msg1.toString())
+680:             webSocket?.send(msg2.toString())
+681:             webSocket?.send(msg3.toString())
+682:             webSocket?.send(msg4.toString())
+683:             Log.d("MeshCentralClient", "Sent getclip requests via control socket to $fullNodeId")
+684:         } catch (e: Exception) {
+685:             Log.e("MeshCentralClient", "Error sending getclip request: ${e.message}")
+686:         }
+687:     }
+688: 
+689:     fun sendClipboardText(nodeId: String, text: String) {
+690:         if (webSocket == null) return
+691:         val fullNodeId = if (!nodeId.startsWith("node//")) "node//" + nodeId.removePrefix("node/") else nodeId
+692: 
+693:         val msg1 = JsonObject().apply {
+694:             addProperty("action", "msg")
+695:             addProperty("type", "setclip")
+696:             addProperty("nodeid", fullNodeId)
+697:             addProperty("data", text)
+698:         }
+699:         val msg2 = JsonObject().apply {
+700:             addProperty("action", "setclip")
+701:             addProperty("nodeid", fullNodeId)
+702:             addProperty("data", text)
+703:         }
+704:         val msg3 = JsonObject().apply {
+705:             addProperty("action", "setclip")
+706:             addProperty("data", text)
+707:         }
+708:         val msg4 = JsonObject().apply {
+718:             webSocket?.send(msg4.toString())
+719:             Log.d("MeshCentralClient", "Sent setclip text via control socket to $fullNodeId: '$text'")
+720:         } catch (e: Exception) {
+721:             Log.e("MeshCentralClient", "Error sending setclip text: ${e.message}")
+722:         }
+723:     }
+724: 
+725:     fun hasActiveSessions(): Boolean {
+726:         return _connectionState.value && webSocket != null
+727:     }
+728: 
+729:     fun onNetworkChanged() {
+730:         controlGeneration.locked {
+731:             if(isUserLogout) return
+732:             controlGeneration.advance()
+733:             controlConnecting=false
+734:             controlTimeout?.cancel()
+735:             controlTimeout=null
+736:             cancelControlWork()
+737:             stopPingLoop()
+738:             stopNo

@@ -1,0 +1,81 @@
+) { controlRetries.request() }
+198: 
+199:     fun connectControlSocket(rawServerUrl:String,cookie:String,ignoreSslCert:Boolean=false) {
+200:         controlGeneration.locked {
+201:             val url=OkHttpHelper.sanitizeServerUrl(rawServerUrl)
+202:             val identity=Triple(url,cookie,ignoreSslCert)
+203:             if(webSocket!=null && controlIdentity==identity && (controlConnecting || _connectionState.value)) return
+204:             val epoch=controlGeneration.advance()
+205:             cancelControlWork()
+206:             controlTimeout?.cancel()
+207:             controlTimeout=null
+208:             stopPingLoop()
+209:             stopNodePollLoop()
+210:             val previous=webSocket
+211:             webSocket=null
+212:             previous?.cancel()
+213:             if(controlIdentity!=identity) {
+214:                 relayAuthCookie=""
+215:                 userAuthCookie=""
+216:                 _userInfo.value=null
+217:                 meshesMap.clear()
+218:                 nodesMap.clear()
+219:                 _groupedDevices.value=emptyList()
+220:             }
+221:             controlIdentity=identity
+222:             isUserLogout=false
+223:             serverUrl=url
+224:             authCookie=cookie
+225:             ignoreSsl=ignoreSslCert
+226:             _connectionState.value=false
+227:             _connectionStatus.value=ConnectionStatus.CONNECTING
+228:             controlConnecting=true
+229:             controlConfigValid=true
+230:             try {
+231:                 val client=OkHttpHelper.createClient(ignoreSslCert)
+232:                 okHttpClient=client
+233:                 val request=Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1"))
+234:                     .apply { if(cookie.isNotBlank()) header("Cookie",cookie) }.build()
+235:                 webSocket=client.newWebSocket(request,object:WebSocketListener() {
+236:                     override fun onOpen(socket:WebSocket,response:Response) {
+237:                         var accepted=false
+238:                         controlGeneration.runIfCurrent(epoch) {
+239:                             if(webSocket===socket && !isUserLogout) {
+240:                                 accepted=true
+241:                                 controlConnecting=false
+242:                                 controlTimeout?.cancel()
+243:                                 controlTimeout=null
+244:                                 _connectionStatus.value=ConnectionStatus.CONNECTED
+245:                                 _connectionState.value=true
+246:                                 controlRetries.cancel()
+247:                                 if(cookie.isNotBlank()) {
+248:                                     val token=extractRawToken(cookie)
+249:                                     val auth=JsonObject().apply {
+250:                                         addProperty("action","urlargs")
+251:                                         add("args",JsonObject().apply { addProperty("auth",token.ifEmpty { cookie }) })
+252:                                     }
+253:                                     socket.send(auth.toString())
+254:                                 }
+255:                                 launchControlWork { _ ->
+256:                                     delay(150)
+257:                                     requestServerData()
+258:                                     delay(400)
+259:                                     if(meshesMap.isEmpty() || nodesMap.isEmpty()) requestServerData()
+260:                                 }
+261:                                 startPingLoop()
+262:                                 startNodePollLoop()
+263:                             }
+264:                         }
+265:                         if(!accepted) socket.cancel()
+266:                     }
+267:                     override fun onMessage(socket:WebSocket,text:String) {
+268:                         controlGeneration.runIfCurrent(epoch) {
+269:                             if(webSocket===socket && !isUserLogout) handleControlMessage(text)
+270:                         }
+271:                     }
+272:                     override fun onClosing(socket:WebSocket,code:Int,reason:String) {
+273:                         retireControlSocket(epoch,socket)
+274:                         socket.close(code,reason)
+275:                     }
+276:                     override fun onClosed(socket:WebSocket,code:Int,reason:String) {
+277:                         retireC

@@ -1,0 +1,96 @@
+                                            offsetY += pan.y
+                                            event.changes.forEach { it.consume() }
+                                        }
+                                    } while (event.changes.any { it.pressed })
+
+                                    if (!isMoved && !isLongPressed) {
+                                        val xPct = (startPos.x / size.width).coerceIn(0f, 1f)
+                                        val yPct = (startPos.y / size.height).coerceIn(0f, 1f)
+
+                                        when (selectedMode) {
+                                            MouseMode.RIGHT_CLICK -> {
+                                                viewModel.performMouseClick(nodeId, xPct, yPct, isRightClick = true)
+                                            }
+                                            MouseMode.MIDDLE_CLICK -> {
+                                                viewModel.performMiddleClick(nodeId, xPct, yPct)
+                                            }
+                                            else -> {
+                                                viewModel.performMouseClick(nodeId, xPct, yPct, isRightClick = false)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                    ) {
+                        val currentFrameVersion = frameVersion
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            if (currentFrameVersion >= 0) {
+                                drawIntoCanvas { canvas ->
+                                    canvas.nativeCanvas.drawBitmap(
+                                        bitmap,
+                                        null,
+                                        android.graphics.RectF(0f, 0f, size.width, size.height),
+                                        null
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Cargando escritorio remoto...",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+
+            // Floating Controls Bar Overlay (Collapsible & Vertically Draggable)
+            if (isControlsBarCollapsed) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(12.dp)
+                        .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .pointerInput(maxUpwardOffsetPx) {
+                            detectVerticalDragGestures { change, dragAmount ->
+                                change.consume()
+                                if (maxUpwardOffsetPx < 0f) {
+                                    val currentPx = barRelativeY * maxUpwardOffsetPx
+                                    val newPx = (currentPx + dragAmount).coerceIn(maxUpwardOffsetPx, 0f)
+                                    barRelativeY = newPx / maxUpwardOffsetPx
+                                }
+                            }
+                        },
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                    shadowElevation = 6.dp
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(2.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                isControlsBarCollapsed = false
+                                viewModel.setDesktopBarCollapsed(false)
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = "Desplegar controles",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        if (isFullScreen) {
+                            IconButton(
+                                onClick = { isFullScreen = false },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(

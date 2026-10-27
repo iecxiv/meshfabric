@@ -1,0 +1,60 @@
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 18, 9) }, label = { Text("Alt+Tab", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 18, 115) }, label = { Text("Alt+F4", fontSize = 11.sp) })
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(stringResource(R.string.editing_and_shortcuts), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 65) }, label = { Text("Ctrl+A", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 67) }, label = { Text("Ctrl+C", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 86) }, label = { Text("Ctrl+V", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 88) }, label = { Text("Ctrl+X", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 90) }, label = { Text("Ctrl+Z", fontSize = 11.sp) })
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(stringResource(R.string.special_keys), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 27) }, label = { Text("Esc", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 9) }, label = { Text("Tab ⇥", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 13) }, label = { Text("Enter ↵", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 32) }, label = { Text(stringResource(R.string.space_key), fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 8) }, label = { Text(stringResource(R.string.backspace_key), fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 46) }, label = { Text(stringResource(R.string.delete_key), fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 91) }, label = { Text("Win Key", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 44) }, label = { Text(stringResource(R.string.print_screen), fontSize = 11.sp) })
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(stringResource(R.string.f_keys), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                for (f in 1..12) {
+                                    FilterChip(
+                                        selected = true,
+                                        onClick = { viewModel.sendSingleKey(nodeId, 111 + f) },
+                                        label = { Text("F$f", fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(

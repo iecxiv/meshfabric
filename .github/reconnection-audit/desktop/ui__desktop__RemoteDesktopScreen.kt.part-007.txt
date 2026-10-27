@@ -1,0 +1,87 @@
+                        ) {
+                            Icon(Icons.Default.FitScreen, contentDescription = stringResource(R.string.fit))
+                        }
+                        IconButton(
+                            onClick = {
+                                isFullScreen = !isFullScreen
+                            },
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isFullScreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                                contentDescription = if (isFullScreen) "Salir de pantalla completa" else "Pantalla completa"
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Combined Keyboard & Hotkeys Dialog
+        if (showKeyboardDialog) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showKeyboardDialog = false }
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(stringResource(R.string.keyboard_and_shortcuts), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // 1. Enviar Texto Directo
+                            Text(stringResource(R.string.send_direct_text), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            OutlinedTextField(
+                                value = textInput,
+                                onValueChange = { textInput = it },
+                                label = { Text(stringResource(R.string.text_to_send_placeholder)) },
+                                maxLines = 3,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 52.dp, max = 90.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = {
+                                    if (textInput.isNotEmpty()) {
+                                        viewModel.sendUnicodeText(nodeId, textInput)
+                                        textInput = ""
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(38.dp)
+                            ) {
+                                Text(stringResource(R.string.send_text), fontSize = 12.sp)
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                            // 2. Acciones Rápidas
+                            Text(stringResource(R.string.system_quick_actions), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 16, 27) }, label = { Text("Ctrl+Shift+Esc", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 91, 82) }, label = { Text("Win+R", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 91, 69) }, label = { Text("Win+E", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 91, 68) }, label = { Text("Win+D", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 91, 76) }, label = { Text("Win+L", fontSize = 11.sp) })

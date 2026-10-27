@@ -1,0 +1,56 @@
+    fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit) {
+    val os=node.osdesc.orEmpty()
+    Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
+        colors=CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface),
+        elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Surface(Modifier.size(40.dp),shape=CircleShape,color=(if(node.isOnline) OnlineGreen else OfflineGray).copy(alpha=0.15f)) {
+                    Box(contentAlignment=Alignment.Center) {
+                        Icon(when {
+                            os.contains("Windows",true)->Icons.Default.DesktopWindows
+                            os.contains("Android",true)->Icons.Default.Android
+                            else->Icons.Default.Computer
+                        },null,Modifier.size(24.dp),tint=if(node.isOnline) OnlineGreen else OfflineGray)
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment=Alignment.CenterVertically) {
+                        Text(node.name.ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f,fill=false),
+                            style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        Spacer(Modifier.width(8.dp))
+                        Surface(shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
+                            Text(if(node.isOnline) "ONLINE" else "OFFLINE",Modifier.padding(horizontal=6.dp,vertical=2.dp),color=Color.White,fontSize=9.sp,fontWeight=FontWeight.Bold)
+                        }
+                    }
+                    if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                LocalDeviceActionMenu.current(node)
+            }
+            if(node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE }) {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                    if(node.supportsDesktop || desktopStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.desktop),Icons.Default.DesktopWindows,desktopStatus,onOpenDesktop,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
+                    if(node.supportsTerminal || terminalStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.terminal),Icons.Default.Terminal,terminalStatus,onOpenTerminal,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
+                    if(node.supportsFiles || fileStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.files),Icons.Default.Folder,fileStatus,onOpenFiles,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+@Composable fun SessionActionButton(title:String,icon:ImageVector,status:SessionStatus,onOpen:()->Unit,modifier:Modifier=Modifier) {
+    val isConnected=status==SessionStatus.CONNECTED
+    val isDisconnectedWithBuffer=status==SessionStatus.DISCONNECTED_WITH_BUFFER
+    val isActiveOrBuffered=isConnected || isDisconnectedWithBuffer
+    val borderColor=when { isDisconnectedWithBuffer->MaterialTheme.colorScheme.error; isConnected->MaterialTheme.colorScheme.primary; else->MaterialTheme.colorScheme.outline }
+    val containerColor=when { isDisconnectedWithBuffer->MaterialTheme.colorScheme.errorContainer.copy(alpha=0.5f); isConnected->MaterialTheme.colorScheme.primaryContainer.copy(alpha=0.5f); else->Color.Unspecified }
+    val contentColor=when { isDisconnectedWithBuffer->MaterialTheme.colorScheme.error; isConnected->MaterialTheme.colorScheme.primary; else->MaterialTheme.colorScheme.onSurface }
+    OutlinedButton(onClick=onOpen,modifier=modifier,
+        border=androidx.compose.foundation.BorderStroke(width=if(isActiveOrBuffered) 2.dp else 1.dp,color=borderColor),
+        colors=ButtonDefaults.outlinedButtonColors(containerColor=containerColor),contentPadding=PaddingValues(horizontal=4.dp,vertical=4.dp)) {
+        Icon(imageVector=icon,contentDescription=null,modifier=Modifier.size(16.dp),tint=contentColor)
+        Spacer(Modifier.width(4.dp))
+        Text(text=title,fontSize=11.sp,fontWeight=if(isActiveOrBuffered) FontWeight.Bold else FontWeight.Normal,color=contentColor)
+    }
+}

@@ -1,0 +1,109 @@
+                            Icon(Icons.Default.Keyboard, contentDescription = "Teclado y Atajos")
+                        }
+                        IconButton(
+                            onClick = { showClipboardDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.ContentPaste, contentDescription = "Portapapeles")
+                        }
+                        IconButton(
+                            onClick = { showSettingsDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = "Opciones")
+                        }
+                        IconButton(
+                            onClick = { viewModel.refreshDisplay(nodeId) },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refrescar")
+                        }
+                        IconButton(
+                            onClick = {
+                                viewModel.stopSession(nodeId)
+                                onBack()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Desconectar Escritorio",
+                                tint = Color.Red
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            }
+        }
+    ) { innerPadding ->
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(if (isFullScreen) PaddingValues(0.dp) else innerPadding)
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            BasicTextField(
+                value = softKeyboardTextFieldValue,
+                onValueChange = { newValue ->
+                    val oldText = softKeyboardTextFieldValue.text
+                    val newText = newValue.text
+
+                    if (newText.length > oldText.length) {
+                        val addedText = newText.substring(oldText.length)
+                        viewModel.sendUnicodeText(nodeId, addedText)
+                    } else if (newText.length < oldText.length) {
+                        val deleteCount = oldText.length - newText.length
+                        repeat(deleteCount) {
+                            viewModel.sendSingleKey(nodeId, 8)
+                        }
+                    }
+
+                    softKeyboardTextFieldValue = TextFieldValue(
+                        text = newText,
+                        selection = TextRange(newText.length)
+                    )
+                },
+                modifier = Modifier
+                    .size(1.dp)
+                    .alpha(0.01f)
+                    .focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Send,
+                    autoCorrectEnabled = false
+                ),
+                keyboardActions = KeyboardActions(
+                    onSend = {
+                        viewModel.sendSingleKey(nodeId, 13)
+                    },
+                    onDone = {
+                        viewModel.sendSingleKey(nodeId, 13)
+                    }
+                )
+            )
+            val maxContainerHeightPx = constraints.maxHeight.toFloat()
+            val maxUpwardOffsetPx = -(maxContainerHeightPx - with(density) { 80.dp.toPx() }).coerceAtLeast(0f)
+            val currentOffsetY = if (maxUpwardOffsetPx < 0f) barRelativeY * maxUpwardOffsetPx else 0f
+            val bitmap = desktopBitmap
+            if (bitmap != null) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val imgWidth = bitmap.width.toFloat()
+                    val imgHeight = bitmap.height.toFloat()
+                    val containerWidth = constraints.maxWidth.toFloat()
+                    val containerHeight = constraints.maxHeight.toFloat()
+
+                    val scaleFit = minOf(containerWidth / imgWidth, containerHeight / imgHeight)
+                    val drawWidth = imgWidth * scaleFit
+                    val drawHeight = imgHeight * scaleFit
+
+                    Box(
+                        modifier = Modifier
+                            .size(
