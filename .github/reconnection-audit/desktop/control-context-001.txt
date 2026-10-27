@@ -1,0 +1,95 @@
+66:         private set
+67: 
+68:     var onNodeConnectedListener: ((String) -> Unit)? = null
+69:     var onClipboardReceivedListener: ((nodeId: String, text: String) -> Unit)? = null
+70: 
+71:     private val _connectionStatus = MutableStateFlow(ConnectionStatus.CONNECTING)
+72:     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
+73: 
+74:     private val _connectionState = MutableStateFlow(false)
+75:     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
+76: 
+77:     private val _userInfo = MutableStateFlow<UserInfo?>(null)
+78:     val userInfo: StateFlow<UserInfo?> = _userInfo.asStateFlow()
+79: 
+80:     private val meshesMap = ConcurrentHashMap<String, MeshGroup>()
+81:     private val nodesMap = ConcurrentHashMap<String, MeshNode>()
+82: 
+83:     fun getNodeMeshId(nodeId: String): String {
+84:         val cleanId = nodeId.removePrefix("node//").removePrefix("node/").trim()
+85:         val node = nodesMap[cleanId] ?: nodesMap["node//$cleanId"]
+86:         val meshId = node?.meshid ?: ""
+87:         return meshId.removePrefix("mesh//").removePrefix("mesh/").trim()
+88:     }
+89: 
+90:     // Emits list of groups mapped to their nodes, sorted alphabetically by group name.
+91:     // Within each group, nodes are sorted with Online nodes FIRST, then Offline nodes.
+92:     private val _groupedDevices = MutableStateFlow<List<Pair<MeshGroup, List<MeshNode>>>>(emptyList())
+93:     val groupedDevices: StateFlow<List<Pair<MeshGroup, List<MeshNode>>>> = _groupedDevices.asStateFlow()
+94: 
+95:     fun extractRawToken(cookie: String): String {
+96:         for (part in cookie.split(";")) {
+97:             val trimmed = part.trim()
+98:             if (trimmed.startsWith("xid=") || trimmed.startsWith("x-mesh-auth=") || trimmed.startsWith("auth=")) {
+99:                 val token = trimmed.substringAfter("=")
+100:                 if (token.startsWith("eyJ")) return token
+101:             }
+102:         }
+103:         for (part in cookie.split(";")) {
+104:             val token = part.trim().substringAfter("=")
+105:             if (token.startsWith("eyJ")) return token
+106:         }
+107:         val first = cookie.split(";")[0].trim()
+108:         return if (first.contains("=")) first.substringAfter("=") else first
+109:     }
+110: 
+111:     fun login(
+112:         rawServerUrl: String,
+113:         username: String,
+114:         pass: String,
+115:         otpToken: String = "",
+116:         ignoreSslCert: Boolean = false,
+117:         onResult: (AuthResult) -> Unit
+118:     ) {
+119:         val cleanUrl = OkHttpHelper.sanitizeServerUrl(rawServerUrl)
+120:         serverUrl = cleanUrl
+121:         ignoreSsl = ignoreSslCert
+122:         val client = OkHttpHelper.createClient(ignoreSslCert)
+123:         okHttpClient = client
+124: 
+125:         scope.launch {
+126:             try {
+127:                 val formBodyBuilder = FormBody.Builder()
+128:                     .add("username", username)
+129:                     .add("password", pass)
+130: 
+131:                 if (otpToken.isNotBlank()) {
+132:                     formBodyBuilder.add("vtoken", otpToken)
+133:                     formBodyBuilder.add("otptoken", otpToken)
+134:                     formBodyBuilder.add("token", otpToken)
+135:                 }
+136: 
+137:                 val request = Request.Builder()
+138:                     .url("$cleanUrl/login")
+139:                     .post(formBodyBuilder.build())
+177:                 }
+178:             } catch (e: Exception) {
+179:                 onResult(AuthResult.Error("Error de conexión: ${e.localizedMessage ?: "No se pudo contactar al servidor"}"))
+180:             }
+181:         }
+182:     }
+183: 
+184:     private val controlRetries=ControlRetry(scope,controlGeneration,
+185:         shouldConnect={ !isUserLogout && controlConfigValid && serverUrl.isNotBlank() && authCookie.isNotBlank() && !_connectionState.value && !controlConnecting },
+186:         connect={ connectControlSocket(serverUrl,authCookie,ignoreSsl) },
+187:         onError={
+188:             controlConnecting=false
+189:             _connectionState.value=false
+190:             _connectionStatus.value=ConnectionStatus.CONNECTING
+191:             Log.e("MeshCentralClient","Cannot start control connection (${it.javaClass.simpleName})")
+192:         })
+193:     @Volatile var isUserLogout: Boolean = false
+194: 
+195:     fun reconnectNow() { controlRetries.request(true) }
+196: 
+197:     private fun scheduleReconnect(

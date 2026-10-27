@@ -1,0 +1,89 @@
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(stringResource(R.string.swap_mouse_buttons), fontSize = 12.sp)
+                                Switch(
+                                    checked = settings.swapMouseButtons,
+                                    onCheckedChange = {
+                                        viewModel.updateSettings(nodeId, settings.copy(swapMouseButtons = it))
+                                    }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(stringResource(R.string.reverse_mouse_wheel), fontSize = 12.sp)
+                                Switch(
+                                    checked = settings.reverseMouseWheel,
+                                    onCheckedChange = {
+                                        viewModel.updateSettings(nodeId, settings.copy(reverseMouseWheel = it))
+                                    }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(stringResource(R.string.use_remote_keyboard_map), fontSize = 12.sp)
+                                Switch(
+                                    checked = settings.useRemoteKeyboardMap,
+                                    onCheckedChange = {
+                                        viewModel.updateSettings(nodeId, settings.copy(useRemoteKeyboardMap = it))
+                                    }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(stringResource(R.string.auto_clipboard), fontSize = 12.sp)
+                                Switch(
+                                    checked = settings.autoClipboard,
+                                    onCheckedChange = {
+                                        viewModel.updateSettings(nodeId, settings.copy(autoClipboard = it))
+                                    }
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(stringResource(R.string.lock_on_disconnect), fontSize = 12.sp)
+                                Switch(
+                                    checked = settings.lockOnDisconnect,
+                                    onCheckedChange = {
+                                        viewModel.updateSettings(nodeId, settings.copy(lockOnDisconnect = it))
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = { showSettingsDialog = false },
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(stringResource(R.string.close))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

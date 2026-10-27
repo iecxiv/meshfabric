@@ -136,7 +136,7 @@ class FileManagerViewModel(
     }
 
     fun refresh(nodeId: String) {
-        fileClient.listDirectory(nodeId, currentPath(nodeId).value)
+        fileClient.refresh(meshClient, nodeId)
     }
 
     fun clearStatus(nodeId: String) {

@@ -1,0 +1,80 @@
+dePollLoop()
+739:             val old=webSocket
+740:             webSocket=null
+741:             _connectionState.value=false
+742:             controlRetries.cancel()
+743:             old?.cancel()
+744:             _connectionStatus.value=if(serverUrl.isBlank() || authCookie.isBlank()) ConnectionStatus.DISCONNECTED else ConnectionStatus.CONNECTING
+745:             controlRetries.request(true)
+746:         }
+747:     }
+748: 
+749:     fun disconnect() {
+750:         controlGeneration.locked {
+751:             isUserLogout=true
+752:             controlConnecting=false
+753:             controlGeneration.advance()
+754:             controlTimeout?.cancel()
+755:             controlTimeout=null
+756:             controlRetries.cancel()
+757:             cancelControlWork()
+758:             stopPingLoop()
+759:             stopNodePollLoop()
+760:             val old=webSocket
+761:             webSocket=null
+762:             old?.cancel()
+763:             _connectionState.value=false
+764:             _connectionStatus.value=ConnectionStatus.DISCONNECTED
+765: 
+766:         isUserLogout = true
+767:         controlRetries.cancel()
+768:         stopPingLoop()
+769:         stopNodePollLoop()
+770:         webSocket?.close(1000, "User logout")
+771:         webSocket = null
+772:         _connectionStatus.value = ConnectionStatus.DISCONNECTED
+773:         _connectionState.value = false
+774:         meshesMap.clear()
+775:         nodesMap.clear()
+776:         _groupedDevices.value = emptyList()
+777: 
+778:         }
+779:     }
+780:     private fun cancelControlWork() {
+781:         val jobs=controlWork.toList()
+782:         controlWork.clear()
+783:         jobs.forEach { it.cancel() }
+784:     }
+785: 
+786:     private fun launchControlWork(block:suspend CoroutineScope.(WebSocket?)->Unit):Job = controlGeneration.locked {
+787:         val epoch=controlGeneration.current()
+788:         val captured=webSocket
+789:         val job=scope.launch(start=CoroutineStart.LAZY) {
+790:             val valid=controlGeneration.locked {
+791:                 captured!=null && controlGeneration.current()==epoch && webSocket===captured && !isUserLogout
+792:             }
+793:             if(valid) block(this,captured)
+794:         }
+795:         controlWork.add(job)
+796:         job.invokeOnCompletion { controlGeneration.locked { controlWork.remove(job) } }
+797:         job.start()
+798:         job
+799:     }
+800: 
+801:     private fun retireControlSocket(epoch:Long,socket:WebSocket):Boolean = controlGeneration.locked {
+802:         if(controlGeneration.current()!=epoch || webSocket!==socket) return@locked false
+803:         controlGeneration.advance()
+804:         controlConnecting=false
+805:         webSocket=null
+806:         controlTimeout?.cancel()
+807:         controlTimeout=null
+808:         cancelControlWork()
+809:         stopPingLoop()
+810:         stopNodePollLoop()
+811:         _connectionState.value=false
+812:         _connectionStatus.value=if(isUserLogout) ConnectionStatus.DISCONNECTED else ConnectionStatus.CONNECTING
+813:         if(!isUserLogout) controlRetries.request()
+814:         true
+815:     }
+816: 
+817: }

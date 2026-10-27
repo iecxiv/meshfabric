@@ -1,0 +1,95 @@
+ontrolSocket(epoch,socket)
+278:                     }
+279:                     override fun onFailure(socket:WebSocket,t:Throwable,response:Response?) {
+280:                         if(retireControlSocket(epoch,socket)) Log.e("MeshCentralClient","Control socket failed (${t.javaClass.simpleName})")
+281:                     }
+282:                 })
+283:                 val socket=webSocket!!
+284:                 controlTimeout=scope.launch {
+285:                     delay(20_000L)
+286:                     controlGeneration.runIfCurrent(epoch) {
+287:                         if(webSocket===socket && controlConnecting && !isUserLogout) {
+288:                             retireControlSocket(epoch,socket)
+289:                             socket.cancel()
+290:                         }
+291:                     }
+292:                 }
+293:             } catch(_:IllegalArgumentException) {
+294:                 controlConfigValid=false
+295:                 controlGeneration.advance()
+296:                 controlConnecting=false
+297:                 webSocket=null
+298:                 _connectionState.value=false
+299:                 _connectionStatus.value=ConnectionStatus.DISCONNECTED
+300:                 Log.e("MeshCentralClient","Invalid control connection configuration")
+301:             }
+302:         }
+303:     }
+304: 
+305:     fun requestServerData() {
+306:         webSocket?.send("""{"action":"userinfo"}""")
+307:         webSocket?.send("""{"action":"meshes"}""")
+308:         webSocket?.send("""{"action":"nodes"}""")
+309:         webSocket?.send("""{"action":"authcookie"}""")
+310:     }
+311: 
+312:     fun requestTunnel(nodeId:String,protocol:Int,tunnelId:String) {
+313:         val captured=webSocket ?: return
+314:         scope.launch {
+315:             if(relayAuthCookie.isEmpty()) {
+316:                 captured.send(JsonObject().apply { addProperty("action","authcookie") }.toString())
+317:                 delay(150)
+318:             }
+319:             controlGeneration.locked {
+320:                 if(webSocket!==captured || isUserLogout || !_connectionState.value) return@locked
+321:                 val fullNodeId="node//"+nodeId.removePrefix("node//").removePrefix("node/").trim()
+322:                 val encodedId=URLEncoder.encode(fullNodeId,"UTF-8")
+323:                 val token=URLEncoder.encode(relayAuthCookie.ifEmpty { extractRawToken(authCookie) },"UTF-8")
+324:                 val packet=JsonObject().apply {
+325:                     addProperty("action","msg")
+326:                     addProperty("type","tunnel")
+327:                     addProperty("nodeid",fullNodeId)
+328:                     addProperty("value","*/meshrelay.ashx?p=$protocol&nodeid=$encodedId&id=$tunnelId&rauth=$token&auth=$token")
+329:                     addProperty("usage",protocol)
+330:                     addProperty("rights",0xFFFFFFFF.toInt())
+331:                 }
+332:                 captured.send(packet.toString())
+333:             }
+334:         }
+335:     }
+336: 
+337:     fun sendTerminalResize(nodeId: String, cols: Int, rows: Int) {
+338:         if (cols < 5 || rows < 2) return
+339:         val fullNodeId = if (!nodeId.startsWith("node//")) "node//" + nodeId.removePrefix("node/") else nodeId
+340: 
+341:         val msg1 = JsonObject().apply {
+342:             addProperty("action", "msg")
+343:             addProperty("type", "termsize")
+344:             addProperty("nodeid", fullNodeId)
+345:             addProperty("cols", cols)
+346:             addProperty("rows", rows)
+347:         }
+348:         webSocket?.send(msg1.toString())
+349: 
+350:         val msg2 = JsonObject().apply {
+351:             addProperty("action", "termsize")
+352:             addProperty("nodeid", fullNodeId)
+353:             addProperty("cols", cols)
+354:             addProperty("rows", rows)
+355:         }
+356:         webSocket?.send(msg2.toString())
+357: 
+358:         Log.d("MeshCentralClient", "Sent PTY termsize to control socket: cols=$cols, rows=$rows")
+359:     }
+360: 
+361:     private fun handleControlMessage(text: String) {
+362:         try {
+363:             val json = gson.fromJson(text, JsonObject::class.java) ?: return
+364:             val action = json.get("action")?.asString ?: return
+365: 
+366: 
+367:             when (action) {
+368:                 "serverinfo", "userinfo", "authcookie" -> {
+369:                     if (action == "authcookie") {
+370:                         val cookieVal = json.get("cookie")?.asString ?: ""
+371:           

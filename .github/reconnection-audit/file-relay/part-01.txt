@@ -1,0 +1,325 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 1-321
+
+00001: package iecxiv.meshfabric.data.remote
+00002:
+00003: import android.app.NotificationChannel
+00004: import android.app.NotificationManager
+00005: import android.app.PendingIntent
+00006: import android.content.ContentValues
+00007: import android.content.Context
+00008: import android.content.Intent
+00009: import android.net.Uri
+00010: import android.os.Build
+00011: import android.os.Environment
+00012: import android.provider.MediaStore
+00013: import android.provider.OpenableColumns
+00014: import android.util.Log
+00015: import android.widget.Toast
+00016: import androidx.core.app.NotificationCompat
+00017: import com.google.gson.Gson
+00018: import com.google.gson.JsonObject
+00019: import iecxiv.meshfabric.R
+00020: import iecxiv.meshfabric.data.model.FileItem
+00021: import iecxiv.meshfabric.data.model.SessionStatus
+00022: import iecxiv.meshfabric.data.model.TransferProgress
+00023: import iecxiv.meshfabric.data.model.TransferType
+00024: import kotlinx.coroutines.CancellationException
+00025: import kotlinx.coroutines.CoroutineScope
+00026: import kotlinx.coroutines.Dispatchers
+00027: import kotlinx.coroutines.Job
+00028: import kotlinx.coroutines.delay
+00029: import kotlinx.coroutines.isActive
+00030: import kotlinx.coroutines.flow.MutableStateFlow
+00031: import kotlinx.coroutines.flow.SharingStarted
+00032: import kotlinx.coroutines.flow.StateFlow
+00033: import kotlinx.coroutines.flow.asStateFlow
+00034: import kotlinx.coroutines.flow.map
+00035: import kotlinx.coroutines.flow.stateIn
+00036: import kotlinx.coroutines.launch
+00037: import kotlinx.coroutines.withContext
+00038: import okhttp3.Request
+00039: import okhttp3.Response
+00040: import okhttp3.WebSocket
+00041: import okhttp3.WebSocketListener
+00042: import okio.ByteString
+00043: import java.io.ByteArrayOutputStream
+00044: import java.io.File
+00045: import java.io.FileInputStream
+00046: import java.io.FileOutputStream
+00047: import java.io.OutputStream
+00048: import java.net.URLEncoder
+00049: import java.util.Locale
+00050: import java.util.concurrent.ConcurrentHashMap
+00051: import kotlin.math.log10
+00052: import kotlin.math.pow
+00053: import kotlin.random.Random
+00054:
+00055: fun checkDownloadFileExists(context: Context, fileName: String): Boolean {
+00056:     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+00057:         try {
+00058:             val resolver = context.contentResolver
+00059:             val projection = arrayOf(MediaStore.MediaColumns._ID)
+00060:             val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+00061:             val selectionArgs = arrayOf(fileName, "%${Environment.DIRECTORY_DOWNLOADS}%")
+00062:             resolver.query(MediaStore.Downloads.EXTERNAL_CONTENT_URI, projection, selection, selectionArgs, null)?.use { cursor ->
+00063:                 if (cursor.count > 0) return true
+00064:             }
+00065:         } catch (_: Exception) {}
+00066:     }
+00067:     val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+00068:     if (File(publicDir, fileName).exists()) return true
+00069:
+00070:     val appDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+00071:     if (appDir != null && File(appDir, fileName).exists()) return true
+00072:
+00073:     return false
+00074: }
+00075:
+00076: fun getSuggestedFileName(context: Context, originalFileName: String): String {
+00077:     val dotIndex = originalFileName.lastIndexOf('.')
+00078:     val baseName: String
+00079:     val extension: String
+00080:     if (dotIndex > 0) {
+00081:         baseName = originalFileName.substring(0, dotIndex)
+00082:         extension = originalFileName.substring(dotIndex)
+00083:     } else {
+00084:         baseName = originalFileName
+00085:         extension = ""
+00086:     }
+00087:
+00088:     val cleanBaseName = baseName.replace(Regex("""\s*\(\d+\)$"""), "")
+00089:
+00090:     var counter = 1
+00091:     var candidate = "$cleanBaseName ($counter)$extension"
+00092:     while (checkDownloadFileExists(context, candidate)) {
+00093:         counter++
+00094:         candidate = "$cleanBaseName ($counter)$extension"
+00095:     }
+00096:     return candidate
+00097: }
+00098:
+00099: fun getSuggestedRemoteFileName(existingNames: List<String>, originalFileName: String): String {
+00100:     val dotIndex = originalFileName.lastIndexOf('.')
+00101:     val baseName: String
+00102:     val extension: String
+00103:     if (dotIndex > 0) {
+00104:         baseName = originalFileName.substring(0, dotIndex)
+00105:         extension = originalFileName.substring(dotIndex)
+00106:     } else {
+00107:         baseName = originalFileName
+00108:         extension = ""
+00109:     }
+00110:
+00111:     val cleanBaseName = baseName.replace(Regex("""\s*\(\d+\)$"""), "")
+00112:
+00113:     var counter = 1
+00114:     var candidate = "$cleanBaseName ($counter)$extension"
+00115:     while (existingNames.any { it.equals(candidate, ignoreCase = true) }) {
+00116:         counter++
+00117:         candidate = "$cleanBaseName ($counter)$extension"
+00118:     }
+00119:     return candidate
+00120: }
+00121:
+00122: fun deleteLocalDownloadFileIfExists(context: Context, fileName: String) {
+00123:     try {
+00124:         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+00125:             val resolver = context.contentResolver
+00126:             val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+00127:             val selectionArgs = arrayOf(fileName, "%${Environment.DIRECTORY_DOWNLOADS}%")
+00128:             resolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI, selection, selectionArgs)
+00129:         }
+00130:         val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+00131:         val file1 = File(publicDir, fileName)
+00132:         if (file1.exists()) file1.delete()
+00133:
+00134:         val appDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+00135:         if (appDir != null) {
+00136:             val file2 = File(appDir, fileName)
+00137:             if (file2.exists()) file2.delete()
+00138:         }
+00139:     } catch (e: Exception) {
+00140:         Log.e("MeshFilesDownload", "Error deleting local download file $fileName: ${e.localizedMessage}")
+00141:     }
+00142: }
+00143:
+00144: class ActiveDownloadSession(
+00145:     val filePath: String,
+00146:     val fileName: String,
+00147:     val reqId: String,
+00148:     var totalSize: Long,
+00149:     var receivedBytes: Long,
+00150:     var outputStream: OutputStream?,
+00151:     var downloadJob: Job? = null,
+00152:     val context: Context
+00153: )
+00154:
+00155: class ActiveUploadSession(
+00156:     val filePath: String,
+00157:     val fileName: String,
+00158:     var sentBytes: Long,
+00159:     val totalSize: Long,
+00160:     var uploadJob: Job?,
+00161:     val context: Context?
+00162: )
+00163:
+00164: class ActiveCopyMoveSession(
+00165:     val filePath: String,
+00166:     val fileName: String,
+00167:     val isMove: Boolean,
+00168:     var transferredBytes: Long,
+00169:     val totalSize: Long,
+00170:     var job: Job?,
+00171:     val context: Context?
+00172: )
+00173:
+00174: class ActiveZipSession(
+00175:     val zipPath: String,
+00176:     val fileName: String,
+00177:     val sourcePath: String,
+00178:     var totalSize: Long,
+00179:     var bytesCompressed: Long = 0L,
+00180:     var job: Job? = null
+00181: )
+00182:
+00183: class FileSession(
+00184:     val nodeId: String,
+00185:     val meshClient: MeshCentralClient,
+00186:     private val scope: CoroutineScope
+00187: ) {
+00188:     val cleanNodeId = if (nodeId.startsWith("node//")) {
+00189:         nodeId.substring(6)
+00190:     } else if (nodeId.startsWith("node/")) {
+00191:         nodeId.substring(5)
+00192:     } else {
+00193:         nodeId
+00194:     }.trimStart('/').trim()
+00195:
+00196:     val fullNodeId = "node//$cleanNodeId"
+00197:
+00198:     private val gson = Gson()
+00199:     var webSocket: WebSocket? = null
+00200:     var isUserDisconnect = false
+00201:     var onStateChanged: (() -> Unit)? = null
+00202:
+00203:     private val _connectionState = MutableStateFlow(false)
+00204:     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
+00205:
+00206:     private val _currentPath = MutableStateFlow("/")
+00207:     val currentPath: StateFlow<String> = _currentPath.asStateFlow()
+00208:
+00209:     private val _fileList = MutableStateFlow<List<FileItem>>(emptyList())
+00210:     val fileList: StateFlow<List<FileItem>> = _fileList.asStateFlow()
+00211:
+00212:     private val _statusMessage = MutableStateFlow<String?>(null)
+00213:     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+00214:
+00215:     private val _clipboardItem = MutableStateFlow<FileItem?>(null)
+00216:     val clipboardItem: StateFlow<FileItem?> = _clipboardItem.asStateFlow()
+00217:
+00218:     private val _isCutMode = MutableStateFlow(false)
+00219:     val isCutMode: StateFlow<Boolean> = _isCutMode.asStateFlow()
+00220:
+00221:     private var clipboardNodeId: String? = null
+00222:
+00223:     private val _fileContent = MutableStateFlow<Pair<String, String>?>(null)
+00224:     val fileContent: StateFlow<Pair<String, String>?> = _fileContent.asStateFlow()
+00225:
+00226:     private val _fileReadingProgress = MutableStateFlow<Float?>(null)
+00227:     val fileReadingProgress: StateFlow<Float?> = _fileReadingProgress.asStateFlow()
+00228:
+00229:     val activeDownloads = ConcurrentHashMap<String, ActiveDownloadSession>()
+00230:     val activeUploads = ConcurrentHashMap<String, ActiveUploadSession>()
+00231:     val activeCopyMoveSessions = ConcurrentHashMap<String, ActiveCopyMoveSession>()
+00232:     val activeZipSessions = ConcurrentHashMap<String, ActiveZipSession>()
+00233:     val savedFileContents = ConcurrentHashMap<String, String>()
+00234:     private val _activeTransfers = MutableStateFlow<List<TransferProgress>>(emptyList())
+00235:     val activeTransfers: StateFlow<List<TransferProgress>> = _activeTransfers.asStateFlow()
+00236:
+00237:     val activeTransfer: StateFlow<TransferProgress?> = _activeTransfers
+00238:         .map { it.lastOrNull() }
+00239:         .stateIn(scope, SharingStarted.Eagerly, null)
+00240:
+00241:     // Internal Copy-Paste Streaming State
+00242:     private var copyingDirectorySource: String? = null
+00243:     private var recursiveCopyTargetDir: String? = null
+00244:
+00245:     private var copyingSourcePath: String? = null
+00246:     private var copyingDestPath: String? = null
+00247:     private var copyingTotalSize: Long = 0L
+00248:     private var copyingReceivedBytes: Long = 0L
+00249:     private var copyingTempFile: File? = null
+00250:     private var copyingFileOutputStream: FileOutputStream? = null
+00251:
+00252:     // Internal File Reading State
+00253:     private var readingFilePath: String? = null
+00254:     private var readingTotalSize: Long = 0L
+00255:     private var readingReceivedBytes: Long = 0L
+00256:     private var readingBuffer: ByteArrayOutputStream? = null
+00257:
+00258:     // Download State
+00259:     private var lastProgressNotificationTime = 0L
+00260:
+00261:     fun isConnected(): Boolean {
+00262:         return _connectionState.value && webSocket != null
+00263:     }
+00264:
+00265:     private fun isProtocolJsonMessage(text: String): Boolean {
+00266:         val trimmed = text.trim()
+00267:         if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return false
+00268:         return try {
+00269:             val json = gson.fromJson(trimmed, JsonObject::class.java) ?: return false
+00270:             val action = json.get("action")?.asString ?: ""
+00271:             if (action in setOf("downloadStart", "downloadEnd", "downloadError")) {
+00272:                 return true
+00273:             }
+00274:             action in setOf("ls", "dir", "download", "read", "readfile", "msg", "upload", "mkdir", "rm", "deletefile", "deletefolder", "rmdir", "rmfile", "rename", "zip", "unzip", "dialogmessage") ||
+00275:                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
+00276:         } catch (e: Exception) {
+00277:             false
+00278:         }
+00279:     }
+00280:
+00281:     suspend fun ensureControlSocketConnected(): Boolean {
+00282:         if (meshClient.connectionState.value) return true
+00283:         Log.d("MeshFiles", "Control socket not connected, triggering immediate reconnect...")
+00284:         meshClient.reconnectNow()
+00285:         var waitMs = 0
+00286:         while (!meshClient.connectionState.value && waitMs < 6000) {
+00287:             delay(100)
+00288:             waitMs += 100
+00289:         }
+00290:         return meshClient.connectionState.value
+00291:     }
+00292:
+00293:     suspend fun ensureConnected(): Boolean {
+00294:         ensureControlSocketConnected()
+00295:         if (_connectionState.value && webSocket != null) return true
+00296:
+00297:         if (webSocket == null || !_connectionState.value || isUserDisconnect) {
+00298:             Log.d("MeshFiles", "Auto-reconnecting file relay for node '$cleanNodeId'...")
+00299:             connect()
+00300:         }
+00301:
+00302:         var waitMs = 0
+00303:         while (!_connectionState.value && waitMs < 8000) {
+00304:             delay(100)
+00305:             waitMs += 100
+00306:         }
+00307:         return _connectionState.value
+00308:     }
+00309:
+00310:     fun connect() {
+00311:         isUserDisconnect = false
+00312:
+00313:         if (isConnected()) {
+00314:             Log.d("MeshFiles", "Already connected to node: $cleanNodeId. Reusing files session at path: ${_currentPath.value}")
+00315:             listDirectory(_currentPath.value)
+00316:             return
+00317:         }
+00318:
+00319:         val serverUrl = meshClient.serverUrl
+00320:         val cookie = meshClient.authCookie
+00321:         val relayToken = meshClient.relayAuthCookie.ifEmpty {

@@ -13,15 +13,15 @@ class TerminalViewModel(
 ) : ViewModel() {
 
     fun isConnected(nodeId: String): StateFlow<Boolean> {
-        return terminalClient.getConnectionState(nodeId)
+        return terminalClient.getSession(meshClient, nodeId).connectionState
     }
 
     fun connectionStatus(nodeId: String): StateFlow<TerminalConnectionStatus> {
-        return terminalClient.getConnectionStatus(nodeId)
+        return terminalClient.getSession(meshClient, nodeId).connectionStatus
     }
 
     fun incomingDataFlow(nodeId: String): SharedFlow<String> {
-        return terminalClient.getIncomingDataFlow(nodeId)
+        return terminalClient.getSession(meshClient, nodeId).incomingDataFlow
     }
 
     fun getFullHistory(nodeId: String): String {

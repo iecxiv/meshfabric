@@ -1,0 +1,330 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 2759-3084
+
+02759:             item.path.substringBeforeLast('\\').ifEmpty { "\\" }
+02760:         } else {
+02761:             _currentPath.value
+02762:         }
+02763:
+02764:         val req = JsonObject().apply {
+02765:             addProperty("action", "unzip")
+02766:             addProperty("path", parentDir)
+02767:             addProperty("file", item.name)
+02768:             addProperty("src", item.name)
+02769:             addProperty("dest", parentDir)
+02770:             addProperty("target", parentDir)
+02771:         }
+02772:         webSocket?.send(req.toString())
+02773:         _statusMessage.value = "Descomprimiendo ${item.name}..."
+02774:         scope.launch {
+02775:             delay(1200)
+02776:             listDirectory(_currentPath.value)
+02777:         }
+02778:     }
+02779:
+02780:     fun openOnRemoteDevice(item: FileItem) {
+02781:         val parentDir = if (item.path.contains('/')) {
+02782:             item.path.substringBeforeLast('/').ifEmpty { "/" }
+02783:         } else if (item.path.contains('\\')) {
+02784:             item.path.substringBeforeLast('\\').ifEmpty { "\\" }
+02785:         } else {
+02786:             _currentPath.value
+02787:         }
+02788:
+02789:         val req1 = JsonObject().apply {
+02790:             addProperty("action", "open")
+02791:             addProperty("path", parentDir)
+02792:             addProperty("file", item.name)
+02793:             addProperty("target", item.path)
+02794:         }
+02795:         webSocket?.send(req1.toString())
+02796:
+02797:         val req2 = JsonObject().apply {
+02798:             addProperty("action", "open")
+02799:             addProperty("path", item.path)
+02800:             addProperty("target", item.path)
+02801:         }
+02802:         webSocket?.send(req2.toString())
+02803:
+02804:         val req3 = JsonObject().apply {
+02805:             addProperty("action", "openfile")
+02806:             addProperty("path", item.path)
+02807:             addProperty("file", item.name)
+02808:         }
+02809:         webSocket?.send(req3.toString())
+02810:
+02811:         _statusMessage.value = "Abriendo ${item.name} en el equipo remoto..."
+02812:     }
+02813:
+02814:     fun deleteItem(item: FileItem) {
+02815:         scope.launch(Dispatchers.IO) {
+02816:             try {
+02817:                 validateRemoteEntryName(item.name)
+02818:                 val parent = remoteParent(item.path)
+02819:
+02820:                 if (!isConnected()) {
+02821:                     connect()
+02822:                     var waitMs = 0
+02823:                     while (!_connectionState.value && waitMs < 5000) {
+02824:                         delay(100)
+02825:                         waitMs += 100
+02826:                     }
+02827:                 }
+02828:
+02829:                 check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
+02830:
+02831:                 val reqIdStr = Random.nextInt(100000, 999999).toString()
+02832:
+02833:                 val rmReq = JsonObject().apply {
+02834:                     addProperty("action", "rm")
+02835:                     addProperty("reqid", reqIdStr)
+02836:                     addProperty("id", reqIdStr)
+02837:                     addProperty("path", parent)
+02838:                     addProperty("file", item.name)
+02839:                     add("files", gson.toJsonTree(listOf(item.name)))
+02840:                     add("delfiles", gson.toJsonTree(listOf(item.name)))
+02841:                     if (item.isDir) {
+02842:                         addProperty("rec", 1)
+02843:                         addProperty("recursive", true)
+02844:                         addProperty("recurse", true)
+02845:                     }
+02846:                 }
+02847:                 webSocket?.send(rmReq.toString())
+02848:
+02849:                 val dfReq = JsonObject().apply {
+02850:                     addProperty("action", if (item.isDir) "deletefolder" else "deletefile")
+02851:                     addProperty("path", item.path)
+02852:                     addProperty("reqid", reqIdStr)
+02853:                     addProperty("id", reqIdStr)
+02854:                     if (item.isDir) {
+02855:                         addProperty("recursive", true)
+02856:                     }
+02857:                 }
+02858:                 webSocket?.send(dfReq.toString())
+02859:
+02860:                 savedFileContents.remove(item.path)
+02861:                 _statusMessage.value = "Eliminación solicitada: ${item.name}"
+02862:
+02863:                 delay(600)
+02864:                 if (isConnected()) {
+02865:                     listDirectory(_currentPath.value)
+02866:                 }
+02867:             } catch (e: Exception) {
+02868:                 Log.e("MeshFilesDelete", "No se pudo solicitar el borrado de ${item.path}", e)
+02869:                 _statusMessage.value = "Error al eliminar: ${e.localizedMessage}"
+02870:             }
+02871:         }
+02872:     }
+02873:
+02874:     fun deleteRemoteFilePath(fullPath: String) {
+02875:         scope.launch(Dispatchers.IO) {
+02876:             try {
+02877:                 val fileName = fullPath.substringAfterLast('/')
+02878:                 val parent = if (fullPath.contains('/')) {
+02879:                     val p = fullPath.substringBeforeLast('/')
+02880:                     if (p.isEmpty()) "/" else p
+02881:                 } else "/"
+02882:
+02883:                 val reqIdStr = Random.nextInt(100000, 999999).toString()
+02884:
+02885:                 val rmReq = JsonObject().apply {
+02886:                     addProperty("action", "rm")
+02887:                     addProperty("reqid", reqIdStr)
+02888:                     addProperty("id", reqIdStr)
+02889:                     addProperty("path", parent)
+02890:                     addProperty("file", fileName)
+02891:                     add("files", gson.toJsonTree(listOf(fileName)))
+02892:                     add("delfiles", gson.toJsonTree(listOf(fileName)))
+02893:                 }
+02894:                 webSocket?.send(rmReq.toString())
+02895:
+02896:                 val dfReq = JsonObject().apply {
+02897:                     addProperty("action", "deletefile")
+02898:                     addProperty("path", fullPath)
+02899:                     addProperty("reqid", reqIdStr)
+02900:                     addProperty("id", reqIdStr)
+02901:                 }
+02902:                 webSocket?.send(dfReq.toString())
+02903:
+02904:                 delay(500)
+02905:                 if (isConnected()) {
+02906:                     listDirectory(_currentPath.value)
+02907:                 }
+02908:             } catch (e: Exception) {
+02909:                 Log.e("MeshFilesUpload", "Error deleting remote file $fullPath: ${e.localizedMessage}", e)
+02910:             }
+02911:         }
+02912:     }
+02913:
+02914:     fun renameItem(item: FileItem, newName: String) {
+02915:         val parentDir = if (item.path.contains('/')) {
+02916:             item.path.substringBeforeLast('/').ifEmpty { "/" }
+02917:         } else if (item.path.contains('\\')) {
+02918:             item.path.substringBeforeLast('\\')
+02919:         } else {
+02920:             _currentPath.value
+02921:         }
+02922:         val cleanParent = if (parentDir == "/") "/" else parentDir.trimEnd('/')
+02923:         val newPath = if (cleanParent == "/") "/$newName" else "$cleanParent/$newName"
+02924:
+02925:         scope.launch(Dispatchers.IO) {
+02926:             try {
+02927:                 validateRemoteEntryName(item.name)
+02928:                 validateRemoteEntryName(newName)
+02929:
+02930:                 if (!isConnected()) {
+02931:                     connect()
+02932:                     var waitMs = 0
+02933:                     while (!_connectionState.value && waitMs < 5000) {
+02934:                         delay(100)
+02935:                         waitMs += 100
+02936:                     }
+02937:                 }
+02938:
+02939:                 check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
+02940:
+02941:                 val reqIdStr = Random.nextInt(100000, 999999).toString()
+02942:
+02943:                 val renameReq = JsonObject().apply {
+02944:                     addProperty("action", "rename")
+02945:                     addProperty("reqid", reqIdStr)
+02946:                     addProperty("id", reqIdStr)
+02947:                     addProperty("path", cleanParent.ifEmpty { "/" })
+02948:                     addProperty("oldfile", item.path)
+02949:                     addProperty("newfile", newPath)
+02950:                     addProperty("oldpath", item.path)
+02951:                     addProperty("newpath", newPath)
+02952:                     addProperty("oldname", item.name)
+02953:                     addProperty("newname", newName)
+02954:                 }
+02955:                 webSocket?.send(renameReq.toString())
+02956:
+02957:                 val savedContent = savedFileContents.remove(item.path)
+02958:                 if (savedContent != null) {
+02959:                     savedFileContents[newPath] = savedContent
+02960:                 }
+02961:
+02962:                 _statusMessage.value = "Renombrado a: $newName"
+02963:                 delay(600)
+02964:                 if (isConnected()) {
+02965:                     listDirectory(_currentPath.value)
+02966:                 }
+02967:             } catch (e: Exception) {
+02968:                 Log.e("MeshFilesRename", "Error al renombrar ${item.path} a $newName", e)
+02969:                 _statusMessage.value = "Error al renombrar: ${e.localizedMessage}"
+02970:             }
+02971:         }
+02972:     }
+02973:
+02974:     fun clearStatus() {
+02975:         _statusMessage.value = null
+02976:     }
+02977:
+02978:     fun disconnect(resetPath: Boolean = false) {
+02979:         isUserDisconnect = true
+02980:         copyingSourcePath = null
+02981:         copyingDestPath = null
+02982:         try {
+02983:             copyingFileOutputStream?.close()
+02984:         } catch (_: Exception) {}
+02985:         copyingFileOutputStream = null
+02986:         copyingTempFile?.delete()
+02987:         copyingTempFile = null
+02988:         readingFilePath = null
+02989:         readingBuffer = null
+02990:         _fileReadingProgress.value = null
+02991:         _activeTransfers.value = emptyList()
+02992:
+02993:         webSocket?.close(1000, "Disconnecting files")
+02994:         webSocket = null
+02995:         _connectionState.value = false
+02996:         _fileList.value = emptyList()
+02997:         if (resetPath) {
+02998:             _currentPath.value = "/"
+02999:         }
+03000:         _clipboardItem.value = null
+03001:         clipboardNodeId = null
+03002:         _fileContent.value = null
+03003:         onStateChanged?.invoke()
+03004:     }
+03005:
+03006:     fun onNetworkChanged() {
+03007:         if (!isUserDisconnect && !isConnected()) {
+03008:             connect()
+03009:         }
+03010:     }
+03011:
+03012:     private fun formatSize(size: Long): String {
+03013:         if (size <= 0) return "0 B"
+03014:         val units = arrayOf("B", "KB", "MB", "GB", "TB")
+03015:         val digitGroups = (log10(size.toDouble()) / log10(1024.0)).toInt()
+03016:         return String.format(Locale.getDefault(), "%.1f %s", size / 1024.0.pow(digitGroups.toDouble()), units[digitGroups])
+03017:     }
+03018: }
+03019:
+03020: class FileRelayClient {
+03021:
+03022:     companion object {
+03023:         var activeInstance: FileRelayClient? = null
+03024:     }
+03025:
+03026:     private val scope = CoroutineScope(Dispatchers.IO + Job())
+03027:     private val sessions = ConcurrentHashMap<String, FileSession>()
+03028:
+03029:     private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
+03030:     val activeNodesFlow: StateFlow<Set<String>> = _activeNodes.asStateFlow()
+03031:
+03032:     private val _sessionsStatus = MutableStateFlow<Map<String, SessionStatus>>(emptyMap())
+03033:     val fileSessionsStatusFlow: StateFlow<Map<String, SessionStatus>> = _sessionsStatus.asStateFlow()
+03034:
+03035:     init {
+03036:         activeInstance = this
+03037:     }
+03038:
+03039:     private fun cleanKey(nodeId: String): String {
+03040:         return if (nodeId.startsWith("node//")) {
+03041:             nodeId.substring(6)
+03042:         } else if (nodeId.startsWith("node/")) {
+03043:             nodeId.substring(5)
+03044:         } else {
+03045:             nodeId
+03046:         }.trimStart('/').trim()
+03047:     }
+03048:
+03049:     fun updateSessionsStatus() {
+03050:         val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
+03051:             val sess = entry.value
+03052:             when {
+03053:                 sess.isConnected() -> SessionStatus.CONNECTED
+03054:                 sess.fileList.value.isNotEmpty() && !sess.isUserDisconnect -> SessionStatus.DISCONNECTED_WITH_BUFFER
+03055:                 else -> SessionStatus.NONE
+03056:             }
+03057:         }
+03058:         _sessionsStatus.value = map
+03059:         updateActiveNodes()
+03060:     }
+03061:
+03062:     fun updateActiveNodes() {
+03063:         val active = sessions.entries
+03064:             .filter { it.value.isConnected() }
+03065:             .map { cleanKey(it.key) }
+03066:             .toSet()
+03067:         _activeNodes.value = active
+03068:     }
+03069:
+03070:     @Synchronized
+03071:     fun getSession(meshClient: MeshCentralClient, nodeId: String): FileSession {
+03072:         val key = cleanKey(nodeId)
+03073:         return sessions.getOrPut(key) {
+03074:             FileSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
+03075:                 sess.onStateChanged = { updateSessionsStatus() }
+03076:             }
+03077:         }
+03078:     }
+03079:
+03080:     fun isConnectedToNode(nodeId: String): Boolean {
+03081:         val session = sessions[cleanKey(nodeId)]
+03082:         return session?.isConnected() ?: false
+03083:     }
+03084:

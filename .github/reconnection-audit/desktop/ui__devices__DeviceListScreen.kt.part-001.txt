@@ -1,0 +1,78 @@
+package iecxiv.meshfabric.ui.devices
+
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import iecxiv.meshfabric.R
+import iecxiv.meshfabric.data.model.*
+import iecxiv.meshfabric.data.remote.ConnectionStatus
+import iecxiv.meshfabric.ui.components.MeshFabricAppBar
+import iecxiv.meshfabric.ui.management.LocalDeviceActionMenu
+import iecxiv.meshfabric.ui.theme.OfflineGray
+import iecxiv.meshfabric.ui.theme.OnlineGreen
+import kotlinx.coroutines.flow.MutableStateFlow
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable fun DeviceListScreen(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
+    onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
+    val groups by viewModel.groupedDevices.collectAsState()
+    val connection by viewModel.connectionStatus.collectAsState()
+    val search by viewModel.searchQuery.collectAsState()
+    val collapsed by viewModel.collapsedGroups.collectAsState()
+    val desktop by viewModel.desktopSessionsStatus.collectAsState()
+    val terminal by viewModel.terminalSessionsStatus.collectAsState()
+    val files by viewModel.fileSessionsStatus.collectAsState()
+    val appName by (viewModel.sessionManager?.appNameFlow ?: remember { MutableStateFlow("MeshFabric") }).collectAsState()
+    val hideSettings by (viewModel.sessionManager?.hideSettingsIconFlow ?: remember { MutableStateFlow(false) }).collectAsState()
+    val searchFocus=remember { FocusRequester() }
+    val keyboard=LocalSoftwareKeyboardController.current
+    val focusManager=LocalFocusManager.current
+    var showSearch by remember { mutableStateOf(false) }
+    var logout by remember { mutableStateOf(false) }
+    var closeSessions by remember { mutableStateOf(false) }
+    val expanded=groups.isEmpty() || groups.any { it.first.id !in collapsed }
+    val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(owner,viewModel) {
+        viewModel.refreshActiveSessions()
+        val observer=androidx.lifecycle.LifecycleEventObserver { _,event->
+            if(event==androidx.lifecycle.Lifecycle.Event.ON_RESUME) viewModel.refreshActiveSessions()
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    if(logout) AlertDialog(onDismissRequest={ logout=false },title={ Text(stringResource(R.string.confirm_logout_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
+        text={ Text(stringResource(R.string.confirm_logout_msg_custom,appName)) },
+        confirmButton={ TextButton(onClick={ logout=false; viewModel.closeAllActiveSessions(); onLogout() }) {
+            Text(stringResource(R.string.logout),color=MaterialTheme.colorScheme.error,fontWeight=FontWeight.Bold)
+        } },dismissButton={ TextButton(onClick={ logout=false }) { Text(stringResource(R.string.cancel)) } })
+    if(closeSessions) AlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
+        text={ Text(stringResource(R.string.confirm_disconnect_all_msg)) },
+        confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all),fontWeight=FontWeight.Bold) } },
+        dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })
+    Scaffold(topBar={ Column {
+        MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
+            if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
+            ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }

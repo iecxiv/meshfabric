@@ -1,0 +1,72 @@
+            ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
+            ToolIcon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search)) {
+                if(showSearch) {
+                    viewModel.searchQuery.value=""
+                    focusManager.clearFocus(force=true)
+                    keyboard?.hide()
+                }
+                showSearch=!showSearch
+            }
+            ToolIcon(Icons.AutoMirrored.Filled.Logout,stringResource(R.string.logout)) { logout=true }
+            ToolIcon(Icons.Default.PowerSettingsNew,stringResource(R.string.close_active_connections)) { closeSessions=true }
+        } })
+        AnimatedVisibility(showSearch) {
+            LaunchedEffect(showSearch) {
+                if(showSearch) {
+                    withFrameNanos { }
+                    searchFocus.requestFocus()
+                    keyboard?.show()
+                }
+            }
+            OutlinedTextField(search,{ viewModel.searchQuery.value=it },modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRequester(searchFocus),
+                placeholder={ Text(stringResource(R.string.search_devices_placeholder)) },singleLine=true,
+                trailingIcon={ if(search.isNotEmpty()) IconButton(onClick={ viewModel.searchQuery.value="" }) {
+                    Icon(Icons.Default.Close,stringResource(R.string.clear_search))
+                } })
+        }
+    } }) { padding ->
+        if(groups.isEmpty()) Box(Modifier.fillMaxSize().padding(padding),contentAlignment=Alignment.Center) {
+            Column(horizontalAlignment=Alignment.CenterHorizontally) {
+                if(connection==ConnectionStatus.CONNECTING) {
+                    CircularProgressIndicator(); Spacer(Modifier.height(16.dp)); Text(stringResource(R.string.connecting_server))
+                } else {
+                    Icon(Icons.Default.Computer,null,Modifier.size(64.dp),tint=MaterialTheme.colorScheme.outline)
+                    Text(stringResource(R.string.no_devices_found))
+                    Button(onClick={ viewModel.refresh() }) { Text(stringResource(R.string.reload_devices)) }
+                }
+            }
+        } else LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp,vertical=8.dp)) {
+            groups.forEach { (group,nodes)->
+                item(key="group_${group.id}") { GroupHeaderCard(group,nodes.count { it.isOnline },nodes.count { !it.isOnline },
+                    search.isNotBlank() || group.id !in collapsed) { viewModel.toggleGroupExpanded(group.id) } }
+                if(search.isNotBlank() || group.id !in collapsed) items(nodes,key={ "node_${it.id}" }) { node ->
+                    val clean=node.id.removePrefix("node//").removePrefix("node/").trim()
+                    DeviceCard(node,desktop[clean] ?: SessionStatus.NONE,terminal[clean] ?: SessionStatus.NONE,files[clean] ?: SessionStatus.NONE,
+                        { onOpenDesktop(node.id,node.name) },{ onOpenTerminal(node.id,node.name) },{ onOpenFiles(node.id,node.name) })
+                }
+            }
+        }
+    }
+}
+@Composable private fun ToolIcon(icon:ImageVector,label:String,click:()->Unit) {
+    IconButton(onClick=click,modifier=Modifier.size(38.dp)) { Icon(icon,label,Modifier.size(20.dp)) }
+}
+@Composable fun GroupHeaderCard(group:MeshGroup,onlineCount:Int,offlineCount:Int,isExpanded:Boolean,onToggleExpand:()->Unit) {
+    Card(Modifier.fillMaxWidth().padding(vertical=6.dp).clip(CardDefaults.shape).clickable(onClick=onToggleExpand),
+        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(group.name.ifEmpty { stringResource(R.string.unnamed_group) },style=MaterialTheme.typography.titleMedium,
+                    fontWeight=FontWeight.Bold,color=MaterialTheme.colorScheme.onPrimaryContainer)
+                Row {
+                    Text(stringResource(R.string.online_count,onlineCount),style=MaterialTheme.typography.labelMedium,color=OnlineGreen)
+                    if(offlineCount>0) Text(if(offlineCount==1) stringResource(R.string.offline_count_one) else stringResource(R.string.offline_count_many,offlineCount),
+                        style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Icon(if(isExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,null)
+        }
+    }
+}
+@Composable fun DeviceCard(node:MeshNode,desktopStatus:SessionStatus=SessionStatus.NONE,terminalStatus:SessionStatus=SessionStatus.NONE,

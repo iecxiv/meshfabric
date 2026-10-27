@@ -1,0 +1,145 @@
+        if (!_connectionState.value || webSocket == null) return
+        scope.launch {
+            for (char in text) {
+                sendChar(char)
+                delay(20)
+            }
+        }
+    }
+
+    fun sendUnicodeKey(char: Char) {
+        if (!_connectionState.value || webSocket == null) return
+        scope.launch {
+            sendChar(char)
+        }
+    }
+
+    private suspend fun sendChar(char: Char) {
+        val code = char.code
+        when (char) {
+            in 'a'..'z' -> {
+                val vk = 0x41 + (char - 'a')
+                sendKeyEvent(vk, isDown = true)
+                delay(15)
+                sendKeyEvent(vk, isDown = false)
+            }
+            in 'A'..'Z' -> {
+                val vk = 0x41 + (char - 'A')
+                sendKeyEvent(0x10, isDown = true)
+                delay(10)
+                sendKeyEvent(vk, isDown = true)
+                delay(15)
+                sendKeyEvent(vk, isDown = false)
+                delay(10)
+                sendKeyEvent(0x10, isDown = false)
+            }
+            in '0'..'9' -> {
+                val vk = 0x30 + (char - '0')
+                sendKeyEvent(vk, isDown = true)
+                delay(15)
+                sendKeyEvent(vk, isDown = false)
+            }
+            ' ' -> {
+                sendKeyEvent(0x20, isDown = true)
+                delay(15)
+                sendKeyEvent(0x20, isDown = false)
+            }
+            '\n', '\r' -> {
+                sendKeyEvent(0x0D, isDown = true)
+                delay(15)
+                sendKeyEvent(0x0D, isDown = false)
+            }
+            '\t' -> {
+                sendKeyEvent(0x09, isDown = true)
+                delay(15)
+                sendKeyEvent(0x09, isDown = false)
+            }
+            '\b' -> {
+                sendKeyEvent(0x08, isDown = true)
+                delay(15)
+                sendKeyEvent(0x08, isDown = false)
+            }
+            else -> {
+                send10ByteUnicodeKey(code)
+            }
+        }
+    }
+
+    private fun send10ByteUnicodeKey(charCode: Int) {
+        if (!_connectionState.value || webSocket == null) return
+
+        val pktDown = ByteArray(10)
+        pktDown[0] = 0x00
+        pktDown[1] = 0x01
+        pktDown[2] = 0x00
+        pktDown[3] = 0x0A
+        pktDown[4] = 0x02.toByte()
+        pktDown[5] = 0x00
+        pktDown[6] = ((charCode shr 24) and 0xFF).toByte()
+        pktDown[7] = ((charCode shr 16) and 0xFF).toByte()
+        pktDown[8] = ((charCode shr 8) and 0xFF).toByte()
+        pktDown[9] = (charCode and 0xFF).toByte()
+        webSocket?.send(ByteString.of(*pktDown))
+
+        val pktUp = ByteArray(10)
+        pktUp[0] = 0x00
+        pktUp[1] = 0x01
+        pktUp[2] = 0x00
+        pktUp[3] = 0x0A
+        pktUp[4] = 0x03.toByte()
+        pktUp[5] = 0x00
+        pktUp[6] = ((charCode shr 24) and 0xFF).toByte()
+        pktUp[7] = ((charCode shr 16) and 0xFF).toByte()
+        pktUp[8] = ((charCode shr 8) and 0xFF).toByte()
+        pktUp[9] = (charCode and 0xFF).toByte()
+        webSocket?.send(ByteString.of(*pktUp))
+    }
+
+    fun sendClipboardText(text: String) {
+        Log.d("DesktopSession", "sendClipboardText called for $cleanNodeId with text '$text'")
+        if (webSocket != null) {
+            val textBytes = text.toByteArray(Charsets.UTF_8)
+            val len = 4 + textBytes.size
+            val pkt = ByteArray(len)
+            pkt[0] = 0x00
+            pkt[1] = 0x09
+            pkt[2] = ((len shr 8) and 0xFF).toByte()
+            pkt[3] = (len and 0xFF).toByte()
+            System.arraycopy(textBytes, 0, pkt, 4, textBytes.size)
+            webSocket?.send(ByteString.of(*pkt))
+            Log.d("DesktopSession", "Sent binary clipboard text (cmd 9) to KVM socket for $cleanNodeId: '$text'")
+        }
+        meshClient.sendClipboardText(fullNodeId, text)
+    }
+
+    fun requestRemoteClipboard() {
+        Log.d("DesktopSession", "requestRemoteClipboard called for $cleanNodeId, ws connected=${_connectionState.value}, ws=$webSocket")
+        if (webSocket != null) {
+            val pkt = byteArrayOf(0x00, 0x09, 0x00, 0x04)
+            webSocket?.send(ByteString.of(*pkt))
+            Log.d("DesktopSession", "Sent binary getclipboard (cmd 9) to KVM socket for $cleanNodeId")
+        }
+        meshClient.sendClipboardRequest(fullNodeId)
+    }
+
+    fun sendLockScreen() {
+        sendKeyCombo(0x5B, 0x4C)
+    }
+
+    fun sendHotkeyCommand(command: String) {
+        when (command) {
+            "CTRL_ALT_DEL" -> sendKeyCombo(0x11, 0x12, 0x2E)
+            "ALT_TAB" -> sendKeyCombo(0x12, 0x09)
+            "WIN_KEY" -> sendSingleKey(0x5B)
+            "ESC" -> sendSingleKey(0x1B)
+            "LOCK" -> sendLockScreen()
+        }
+    }
+
+    fun sendDisplaySelect(displayIndex: Int = 0) {
+        if (!_connectionState.value || webSocket == null) return
+        val packet = ByteArray(6)
+        packet[0] = 0x00
+        packet[1] = 0x0B
+        packet[2] = 0x00
+        packet[3] = 0x06

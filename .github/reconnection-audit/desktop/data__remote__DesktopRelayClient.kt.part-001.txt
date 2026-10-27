@@ -1,0 +1,157 @@
+package iecxiv.meshfabric.data.remote
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okio.ByteString
+import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.max
+import kotlin.random.Random
+
+import iecxiv.meshfabric.R
+
+enum class DesktopEncoding(val code: Int, val label: String) {
+    JPEG(1, "JPEG"),
+    PNG(2, "PNG"),
+    TIFF(4, "TIFF"),
+    WEBP(3, "WebP")
+}
+
+enum class FrameRateOption(val delayMs: Long, val labelRes: Int) {
+    FAST(33L, R.string.fr_fast),
+    MEDIUM(100L, R.string.fr_medium),
+    SLOW(500L, R.string.fr_slow),
+    VERY_SLOW(1000L, R.string.fr_very_slow)
+}
+
+data class DesktopSettings(
+    val quality: Int = 50,
+    val scale: Int = 1024,
+    val frameRate: FrameRateOption = FrameRateOption.FAST,
+    val encoding: DesktopEncoding = DesktopEncoding.JPEG,
+    val swapMouseButtons: Boolean = false,
+    val reverseMouseWheel: Boolean = false,
+    val useRemoteKeyboardMap: Boolean = false,
+    val autoClipboard: Boolean = false,
+    val lockOnDisconnect: Boolean = false
+)
+
+class DesktopSession(
+    val nodeId: String,
+    val meshClient: MeshCentralClient,
+    private val scope: CoroutineScope
+) {
+    val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/").trim()
+    val fullNodeId = "node//$cleanNodeId"
+
+    var webSocket: WebSocket? = null
+    var isUserDisconnect = false
+
+    private val _connectionState = MutableStateFlow(false)
+    val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
+
+    private val _screenResolution = MutableStateFlow(Pair(1024, 768))
+    val screenResolution: StateFlow<Pair<Int, Int>> = _screenResolution.asStateFlow()
+
+    private val _desktopBitmap = MutableStateFlow<Bitmap?>(null)
+    val desktopBitmap: StateFlow<Bitmap?> = _desktopBitmap.asStateFlow()
+
+    private val _frameVersion = MutableStateFlow(0L)
+    val frameVersion: StateFlow<Long> = _frameVersion.asStateFlow()
+
+    private val _settings = MutableStateFlow(DesktopSettings())
+    val settings: StateFlow<DesktopSettings> = _settings.asStateFlow()
+
+    private val _remoteClipboardText = MutableStateFlow("")
+    val remoteClipboardText: StateFlow<String> = _remoteClipboardText.asStateFlow()
+
+    var onClipboardReceived: ((String) -> Unit)? = null
+    var onStateChanged: (() -> Unit)? = null
+
+    private var unpauseJob: Job? = null
+    private var canvasBitmap: Bitmap? = null
+    private var desktopCanvas: Canvas? = null
+    private val paint = Paint().apply {
+        isFilterBitmap = true
+        isDither = true
+    }
+
+    fun isConnected(): Boolean {
+        return _connectionState.value && webSocket != null
+    }
+
+    private fun updateState(connected: Boolean) {
+        _connectionState.value = connected
+        onStateChanged?.invoke()
+    }
+
+    fun updateSettings(newSettings: DesktopSettings) {
+        val oldSettings = _settings.value
+        _settings.value = newSettings
+        if (oldSettings.quality != newSettings.quality ||
+            oldSettings.scale != newSettings.scale ||
+            oldSettings.encoding != newSettings.encoding) {
+            sendCompressionSettings(
+                imageType = newSettings.encoding.code,
+                compressionLevel = newSettings.quality,
+                scalingLevel = newSettings.scale
+            )
+            sendUnPause()
+        }
+    }
+
+    private fun startUnpauseLoop() {
+        stopUnpauseLoop()
+        unpauseJob = scope.launch {
+            while (true) {
+                val delayMs = _settings.value.frameRate.delayMs.coerceAtLeast(100L)
+                delay(delayMs)
+                if (_connectionState.value && webSocket != null) {
+                    sendUnPause()
+                }
+            }
+        }
+    }
+
+    fun stopUnpauseLoop() {
+        unpauseJob?.cancel()
+        unpauseJob = null
+    }
+
+    fun pauseSession() {
+        Log.d("DesktopSession", "Pausing KVM unpause loop for $cleanNodeId")
+        stopUnpauseLoop()
+    }
+
+    fun resumeSession() {
+        Log.d("DesktopSession", "Resuming KVM session for $cleanNodeId")
+        if (_connectionState.value && webSocket != null) {
+            refreshDisplay()
+            startUnpauseLoop()
+        }
+    }
+
+    fun connect() {
+        if (webSocket != null) {
+            Log.d("DesktopSession", "Session for $cleanNodeId already has a WebSocket. Reusing existing session.")
+            resumeSession()
+            return
+        }
+
+        isUserDisconnect = false
+

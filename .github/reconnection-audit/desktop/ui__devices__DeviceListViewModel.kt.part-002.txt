@@ -1,0 +1,13 @@
+    fun isFilesActive(nodeId: String): Boolean = fileClient.isConnectedToNode(nodeId)
+
+    fun closeAllActiveSessions() {
+        desktopClient.disconnectAll()
+        terminalClient.disconnectAll()
+        fileClient.disconnectAll()
+        refreshActiveSessions()
+    }
+
+    fun refresh() {
+        meshClient.requestServerData()
+    }
+}

@@ -1,0 +1,7 @@
+app/src/main/java/iecxiv/meshfabric/data/remote/DesktopRelayClient.kt: sha256=3110c693dbed0cd804f52206ffec745a0bbca8c37597c8651affa224cb1fec1d parts=7
+app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopViewModel.kt: sha256=2356bbf64a338d6ce035dc07963c3add24e8416fb56c64fe87f20af96e14956c parts=2
+app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt: sha256=a71536643024dd3c000ba3f422fecfec60a2c0de3458035c91d4e2c02675ccb3 parts=12
+app/src/main/java/iecxiv/meshfabric/MainActivity.kt: sha256=1b2442617f557090e6dd2b68706cc5f25287297e4cd87edf4276e99fd619ce1a parts=2
+app/src/main/java/iecxiv/meshfabric/service/KeepAliveService.kt: sha256=066cba14fb50216a01f63b71cebe672060dc0c71e0a4a62a67aefb58010c5b17 parts=2
+app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt: sha256=b71600014210eea5b4e4815de103a33d2baae6c48047736ad6a4634de3ea725f parts=3
+app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListViewModel.kt: sha256=c2b8f21ebb78845da141239ed9c7245748058dfd1ceba8d9b238b4bf8407906a parts=2

@@ -1,0 +1,71 @@
+                                width = (drawWidth / density.density).dp,
+                                height = (drawHeight / density.density).dp
+                            )
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                            .pointerInput(nodeId, selectedMode, showClipboardDialog, showKeyboardDialog, showSettingsDialog) {
+                                if (showClipboardDialog || showKeyboardDialog || showSettingsDialog) return@pointerInput
+                                val touchSlop = viewConfiguration.touchSlop
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = true)
+                                    val startPos = down.position
+                                    val startTime = System.currentTimeMillis()
+                                    var isMoved = false
+                                    var isLongPressed = false
+
+                                    var dragAmountY = 0f
+
+                                    do {
+                                        val event = awaitPointerEvent()
+                                        val pointerCount = event.changes.size
+
+                                        if (pointerCount == 1) {
+                                            val change = event.changes[0]
+                                            val diff = change.position - startPos
+                                            if (diff.getDistance() > touchSlop) {
+                                                isMoved = true
+                                            }
+
+                                            if (!isMoved && !isLongPressed && (System.currentTimeMillis() - startTime) > 400) {
+                                                isLongPressed = true
+                                                change.consume()
+                                                val xPct = (change.position.x / size.width).coerceIn(0f, 1f)
+                                                val yPct = (change.position.y / size.height).coerceIn(0f, 1f)
+                                                viewModel.performMouseClick(nodeId, xPct, yPct, isRightClick = true)
+                                            }
+
+                                            if (isMoved) {
+                                                val panChange = change.positionChange()
+                                                if (scale > 1f) {
+                                                    offsetX += panChange.x
+                                                    offsetY += panChange.y
+                                                    change.consume()
+                                                } else if (selectedMode == MouseMode.SCROLL) {
+                                                    dragAmountY += panChange.y
+                                                    if (kotlin.math.abs(dragAmountY) >= touchSlop) {
+                                                        val xPct = (change.position.x / size.width).coerceIn(0f, 1f)
+                                                        val yPct = (change.position.y / size.height).coerceIn(0f, 1f)
+                                                        val (resWidth, resHeight) = viewModel.screenResolution(nodeId).value
+                                                        val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
+                                                        val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
+                                                        val s = settings
+
+                                                        val direction = if (dragAmountY < 0) -1 else 1
+                                                        val factor = if (s.reverseMouseWheel) -1 else 1
+                                                        val delta = 120 * direction * factor
+
+                                                        viewModel.sendMouseScroll(nodeId, remoteX, remoteY, delta)
+                                                        dragAmountY = 0f
+                                                    }
+                                                    change.consume()
+                                                }
+                                            }
+                                        } else if (pointerCount >= 2) {
+                                            val zoom = event.calculateZoom()
+                                            val pan = event.calculatePan()
+                                            scale = (scale * zoom).coerceIn(0.5f, 5f)
+                                            offsetX += pan.x

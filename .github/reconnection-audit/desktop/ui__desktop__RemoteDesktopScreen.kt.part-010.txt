@@ -1,0 +1,100 @@
+                            value = remoteClipboardText,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text(stringResource(R.string.received_remote_clipboard_placeholder)) },
+                            maxLines = 3,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 52.dp, max = 90.dp)
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    android.util.Log.d("DesktopScreen", "Solicitar del Remoto clicked")
+                                    viewModel.requestRemoteClipboard(nodeId)
+                                    Toast.makeText(context, "Solicitando del remoto...", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp)
+                            ) {
+                                Text(stringResource(R.string.request_from_remote), fontSize = 11.sp, maxLines = 1)
+                            }
+                            Button(
+                                onClick = {
+                                    android.util.Log.d("DesktopScreen", "Copiar a Android clicked, text='$remoteClipboardText'")
+                                    if (remoteClipboardText.isNotEmpty()) {
+                                        clipboardManager.setText(AnnotatedString(remoteClipboardText))
+                                        Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "El portapapeles remoto está vacío", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp),
+                                contentPadding = PaddingValues(horizontal = 4.dp)
+                            ) {
+                                Text(stringResource(R.string.copy_to_android), fontSize = 11.sp, maxLines = 1)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            TextButton(
+                                onClick = { showClipboardDialog = false },
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(stringResource(R.string.close))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Desktop Options / Settings Dialog
+        if (showSettingsDialog) {
+            val qualityList = listOf(100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 5, 1)
+            val scaleList = listOf(
+                1024 to "100%",
+                896 to "87.5%",
+                768 to "75%",
+                640 to "62.5%",
+                512 to "50%",
+                384 to "37.5%",
+                256 to "25%",
+                128 to "12.5%"
+            )
+
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = { showSettingsDialog = false }
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(stringResource(R.string.desktop_options), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .fillMaxWidth()

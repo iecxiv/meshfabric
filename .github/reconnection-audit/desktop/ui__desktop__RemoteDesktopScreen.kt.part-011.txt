@@ -1,0 +1,88 @@
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            // Quality
+                            Text(stringResource(R.string.quality), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                qualityList.forEach { q ->
+                                    FilterChip(
+                                        selected = settings.quality == q,
+                                        onClick = {
+                                            viewModel.updateSettings(nodeId, settings.copy(quality = q))
+                                        },
+                                        label = { Text("$q%", fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                            // Scale
+                            Text(stringResource(R.string.scale), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                scaleList.forEach { (scaleVal, label) ->
+                                    FilterChip(
+                                        selected = settings.scale == scaleVal,
+                                        onClick = {
+                                            viewModel.updateSettings(nodeId, settings.copy(scale = scaleVal))
+                                        },
+                                        label = { Text(label, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                            // Frame Rate
+                            Text(stringResource(R.string.frame_rate), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                FrameRateOption.entries.forEach { fr ->
+                                    FilterChip(
+                                        selected = settings.frameRate == fr,
+                                        onClick = {
+                                            viewModel.updateSettings(nodeId, settings.copy(frameRate = fr))
+                                        },
+                                        label = { Text(stringResource(fr.labelRes), fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                            // Encoding
+                            Text(stringResource(R.string.encoding), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                DesktopEncoding.entries.forEach { enc ->
+                                    FilterChip(
+                                        selected = settings.encoding == enc,
+                                        onClick = {
+                                            viewModel.updateSettings(nodeId, settings.copy(encoding = enc))
+                                        },
+                                        label = { Text(enc.label, fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                            // Other settings
+                            Text(stringResource(R.string.other_settings), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),

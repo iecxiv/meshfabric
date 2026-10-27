@@ -1,0 +1,99 @@
+        sessions[cleanKey(nodeId)]?.pauseSession()
+    }
+
+    fun resumeSession(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.resumeSession()
+    }
+
+    fun updateSettings(nodeId: String, newSettings: DesktopSettings) {
+        sessions[cleanKey(nodeId)]?.updateSettings(newSettings)
+    }
+
+    fun sendMouseEvent(nodeId: String, actionButton: Int, x: Int, y: Int) {
+        sessions[cleanKey(nodeId)]?.sendMouseEvent(actionButton, x, y)
+    }
+
+    fun sendMouseScroll(nodeId: String, x: Int, y: Int, delta: Int) {
+        sessions[cleanKey(nodeId)]?.sendMouseScroll(x, y, delta)
+    }
+
+    fun sendSingleKey(nodeId: String, keyCode: Int) {
+        sessions[cleanKey(nodeId)]?.sendSingleKey(keyCode)
+    }
+
+    fun sendKeyCombo(nodeId: String, vararg keyCodes: Int) {
+        sessions[cleanKey(nodeId)]?.sendKeyCombo(*keyCodes)
+    }
+
+    fun sendUnicodeKey(nodeId: String, char: Char) {
+        sessions[cleanKey(nodeId)]?.sendUnicodeKey(char)
+    }
+
+    fun sendUnicodeText(nodeId: String, text: String) {
+        sessions[cleanKey(nodeId)]?.sendUnicodeText(text)
+    }
+
+    fun sendClipboardText(meshClient: MeshCentralClient, nodeId: String, text: String) {
+        getSession(meshClient, nodeId).sendClipboardText(text)
+    }
+
+    fun requestRemoteClipboard(meshClient: MeshCentralClient, nodeId: String) {
+        getSession(meshClient, nodeId).requestRemoteClipboard()
+    }
+
+    fun sendHotkeyCommand(nodeId: String, command: String) {
+        sessions[cleanKey(nodeId)]?.sendHotkeyCommand(command)
+    }
+
+    fun refreshDisplay(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.refreshDisplay()
+    }
+
+    fun hasActiveSessions(): Boolean {
+        return sessions.values.any { it.isConnected() }
+    }
+
+    fun getSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus {
+        val session = sessions[cleanKey(nodeId)] ?: return iecxiv.meshfabric.data.model.SessionStatus.NONE
+        return when {
+            session.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+            session.desktopBitmap.value != null && !session.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+            else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
+        }
+    }
+
+    fun hasDisconnectedWithBuffer(): Boolean {
+        return sessions.values.any { !it.isConnected() && it.desktopBitmap.value != null && !it.isUserDisconnect }
+    }
+
+    fun getSessionCount(): Int {
+        return sessions.values.count { (it.isConnected() || it.desktopBitmap.value != null) && !it.isUserDisconnect }
+    }
+
+    fun onNetworkChanged() {
+        for (session in sessions.values) {
+            if (!session.isUserDisconnect && !session.isConnected()) {
+                session.connect()
+            }
+        }
+    }
+
+    fun disconnectSession(nodeId: String) {
+        val key = cleanKey(nodeId)
+        val session = sessions.remove(key)
+        session?.disconnect()
+        updateActiveNodes()
+    }
+
+    fun disconnectAll() {
+        for (session in sessions.values) {
+            session.disconnect()
+        }
+        sessions.clear()
+        updateActiveNodes()
+    }
+
+    fun disconnect() {
+        disconnectAll()
+    }
+}

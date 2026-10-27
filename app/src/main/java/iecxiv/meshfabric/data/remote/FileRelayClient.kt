@@ -25,12 +25,14 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -150,16 +152,23 @@ class ActiveDownloadSession(
     var outputStream: OutputStream?,
     var downloadJob: Job? = null,
     val context: Context
-)
+) {
+    internal val networkAttempt = DownloadNetworkAttempt()
+    @Volatile internal var completed = false
+}
 
 class ActiveUploadSession(
     val filePath: String,
     val fileName: String,
     var sentBytes: Long,
-    val totalSize: Long,
+    var totalSize: Long,
     var uploadJob: Job?,
     val context: Context?
-)
+) {
+    internal val networkAttempt = DownloadNetworkAttempt()
+    @Volatile internal var started = false
+    @Volatile internal var completed = false
+}
 
 class ActiveCopyMoveSession(
     val filePath: String,
@@ -196,8 +205,16 @@ class FileSession(
     val fullNodeId = "node//$cleanNodeId"
 
     private val gson = Gson()
-    var webSocket: WebSocket? = null
-    var isUserDisconnect = false
+    @Volatile var webSocket: WebSocket? = null
+    @Volatile var isUserDisconnect = true
+    private val navigation = FileNavigationState()
+    private var socketEpoch = 0L
+    private var attemptStarted = 0L
+    private var listingStarted = 0L
+    private var retryAt = 0L
+    private var failures = 0
+    private var recoveryJob: Job? = null
+    private var initialListingJob: Job? = null
     var onStateChanged: (() -> Unit)? = null
 
     private val _connectionState = MutableStateFlow(false)
@@ -228,6 +245,7 @@ class FileSession(
 
     val activeDownloads = ConcurrentHashMap<String, ActiveDownloadSession>()
     val activeUploads = ConcurrentHashMap<String, ActiveUploadSession>()
+    private val uploadMutex = kotlinx.coroutines.sync.Mutex()
     val activeCopyMoveSessions = ConcurrentHashMap<String, ActiveCopyMoveSession>()
     val activeZipSessions = ConcurrentHashMap<String, ActiveZipSession>()
     val savedFileContents = ConcurrentHashMap<String, String>()
@@ -278,44 +296,113 @@ class FileSession(
         }
     }
 
+    private fun nowMs() = System.nanoTime() / 1_000_000L
+
+    private fun current(socket: WebSocket, epoch: Long): Boolean =
+        !isUserDisconnect && socketEpoch == epoch && webSocket === socket
+
     suspend fun ensureControlSocketConnected(): Boolean {
+        if (isUserDisconnect || meshClient.isUserLogout) return false
         if (meshClient.connectionState.value) return true
-        Log.d("MeshFiles", "Control socket not connected, triggering immediate reconnect...")
         meshClient.reconnectNow()
-        var waitMs = 0
-        while (!meshClient.connectionState.value && waitMs < 6000) {
-            delay(100)
-            waitMs += 100
+        repeat(60) {
+            if (isUserDisconnect || meshClient.isUserLogout) return false
+            if (meshClient.connectionState.value) return true
+            delay(100L)
         }
         return meshClient.connectionState.value
     }
 
     suspend fun ensureConnected(): Boolean {
-        ensureControlSocketConnected()
-        if (_connectionState.value && webSocket != null) return true
-
-        if (webSocket == null || !_connectionState.value || isUserDisconnect) {
-            Log.d("MeshFiles", "Auto-reconnecting file relay for node '$cleanNodeId'...")
-            connect()
+        if (isUserDisconnect || !ensureControlSocketConnected()) return false
+        synchronized(this) { startRecovery() }
+        repeat(80) {
+            if (isUserDisconnect || meshClient.isUserLogout) return false
+            if (isConnected()) return true
+            delay(100L)
         }
-
-        var waitMs = 0
-        while (!_connectionState.value && waitMs < 8000) {
-            delay(100)
-            waitMs += 100
-        }
-        return _connectionState.value
+        return isConnected()
     }
 
+    @Synchronized
     fun connect() {
         isUserDisconnect = false
+        startRecovery()
+        if (isConnected()) listDirectory(navigation.desiredPath)
+    }
 
-        if (isConnected()) {
-            Log.d("MeshFiles", "Already connected to node: $cleanNodeId. Reusing files session at path: ${_currentPath.value}")
-            listDirectory(_currentPath.value)
-            return
+    private fun startRecovery() {
+        if (isUserDisconnect || recoveryJob?.isActive == true) return
+        if (!meshClient.connectionState.value && !meshClient.isUserLogout) meshClient.reconnectNow()
+        recoveryJob = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            while (true) {
+                synchronized(this@FileSession) {
+                    if (meshClient.isUserLogout) {
+                        disconnect()
+                        return@launch
+                    }
+                    if (!isUserDisconnect) {
+                        if (!meshClient.connectionState.value && webSocket != null) retireSocket()
+                        if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
+                        if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
+                            _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"
+                            retireSocket()
+                        }
+                        if (meshClient.connectionState.value && webSocket == null && nowMs() >= retryAt) {
+                            try { openSocket() } catch (e: Exception) {
+                                Log.w("MeshFiles", "Cannot open files transport (${e.javaClass.simpleName})")
+                                retireSocket()
+                            }
+                        }
+                    }
+                }
+                delay(500L)
+            }
         }
+        recoveryJob?.start()
+    }
 
+    private fun retireSocket() {
+        socketEpoch++
+        initialListingJob?.cancel()
+        initialListingJob = null
+        val old = webSocket
+        webSocket = null
+        _connectionState.value = false
+        navigation.transportReset()
+        old?.cancel()
+        retryAt = nowMs() + (1000L shl failures.coerceIn(0, 5)).coerceAtMost(30_000L)
+        failures = (failures + 1).coerceAtMost(5)
+        onStateChanged?.invoke()
+    }
+
+    @Synchronized
+    fun refreshSession() {
+        if (isUserDisconnect) return
+        navigation.request(navigation.desiredPath)
+        if (!isConnected()) {
+            retireSocket()
+            retryAt = 0L
+            startRecovery()
+        } else pumpListing()
+    }
+
+    private fun pumpListing() {
+        if (!isConnected() || !meshClient.connectionState.value || isUserDisconnect) return
+        val request = navigation.next() ?: return
+        val req = JsonObject().apply {
+            addProperty("action", "ls")
+            addProperty("path", request.path)
+            addProperty("reqid", request.id)
+        }
+        listingStarted = nowMs()
+        if (webSocket?.send(req.toString()) != true) retireSocket()
+    }
+
+    private fun openSocket() {
+        if (isUserDisconnect || meshClient.isUserLogout || !meshClient.connectionState.value || webSocket != null) return
+        val epoch = ++socketEpoch
+        attemptStarted = nowMs()
         val serverUrl = meshClient.serverUrl
         val cookie = meshClient.authCookie
         val relayToken = meshClient.relayAuthCookie.ifEmpty {
@@ -335,27 +422,25 @@ class FileSession(
             "/meshrelay.ashx?p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
         )
 
-        Log.d("MeshFiles", "Connecting files WS for $cleanNodeId to: $wsUrl")
+        Log.d("MeshFiles", "Opening files transport for $cleanNodeId")
 
         val requestBuilder = Request.Builder().url(wsUrl)
         if (cookie.isNotBlank()) {
             requestBuilder.addHeader("Cookie", cookie)
         }
 
-        webSocket?.close(1000, "Reconnecting")
-        webSocket = null
-
         webSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("MeshFiles", "WebSocket onOpen for $cleanNodeId. Ensuring control socket is ready...")
-                scope.launch(Dispatchers.IO) {
-                    ensureControlSocketConnected()
-                    Log.d("MeshFiles", "Control socket ready. Requesting tunnel ID $tunnelId...")
-                    meshClient.requestTunnel(nodeId = fullNodeId, protocol = 5, tunnelId = tunnelId)
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                if (!meshClient.connectionState.value) { retireSocket(); return }
+                meshClient.requestTunnel(nodeId = fullNodeId, protocol = 5, tunnelId = tunnelId)
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
                 Log.d("MeshFilesRecvRawText", "WS Text: $text")
                 if (text == "c" || text == "cr") {
                     handleIncomingMessage(webSocket, text)
@@ -365,33 +450,7 @@ class FileSession(
                     handleIncomingMessage(webSocket, text)
                     processJsonControlMessage(text)
                 } else {
-                    val activeDl = activeDownloads.values.firstOrNull()
-                    if (activeDl != null) {
-                        val chunkBytes = text.toByteArray(Charsets.UTF_8)
-                        activeDl.outputStream?.write(chunkBytes)
-                        activeDl.receivedBytes += chunkBytes.size
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == activeDl.filePath) {
-                                it.copy(
-                                    bytesTransferred = activeDl.receivedBytes,
-                                    totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
-                                )
-                            } else {
-                                it
-                            }
-                        }
-                        if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
-                            finishDownload(activeDl.filePath)
-                        } else if (activeDl.context != null) {
-                            updateDownloadNotification(
-                                activeDl.context,
-                                activeDl.fileName,
-                                activeDl.filePath,
-                                activeDl.receivedBytes,
-                                activeDl.totalSize
-                            )
-                        }
-                    } else if (readingFilePath != null) {
+                    if (readingFilePath != null) {
                         val chunkBytes = text.toByteArray(Charsets.UTF_8)
                         readingBuffer?.write(chunkBytes)
                         readingReceivedBytes += chunkBytes.size
@@ -408,9 +467,12 @@ class FileSession(
                         handleIncomingMessage(webSocket, text)
                     }
                 }
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
                 val textCandidate = try { bytes.utf8().trim() } catch (_: Exception) { "" }
                 val isJson = isProtocolJsonMessage(textCandidate)
 
@@ -424,41 +486,7 @@ class FileSession(
                 Log.d("MeshFilesRecvDataBytes", "WS Data Bytes: ${bytes.size} bytes")
                 val byteArray = bytes.toByteArray()
 
-                val activeDl = activeDownloads.values.firstOrNull()
-                if (activeDl != null) {
-                    try {
-                        activeDl.outputStream?.write(byteArray)
-                        activeDl.receivedBytes += byteArray.size
-
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == activeDl.filePath) {
-                                it.copy(
-                                    bytesTransferred = activeDl.receivedBytes,
-                                    totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
-                                )
-                            } else {
-                                it
-                            }
-                        }
-
-                        if (activeDl.context != null) {
-                            updateDownloadNotification(
-                                activeDl.context,
-                                activeDl.fileName,
-                                activeDl.filePath,
-                                activeDl.receivedBytes,
-                                activeDl.totalSize
-                            )
-                        }
-
-                        if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
-                            finishDownload(activeDl.filePath)
-                        }
-                        return
-                    } catch (e: Exception) {
-                        Log.e("MeshFilesDownload", "Error writing download chunk: ${e.localizedMessage}", e)
-                    }
-                } else if (copyingSourcePath != null) {
+                if (copyingSourcePath != null) {
                     try {
                         copyingFileOutputStream?.write(byteArray)
                         copyingReceivedBytes += byteArray.size
@@ -499,40 +527,48 @@ class FileSession(
                 }
 
                 handleIncomingMessage(webSocket, textCandidate)
+                }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = false
-                this@FileSession.webSocket = null
-                onStateChanged?.invoke()
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                retireSocket()
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = false
-                this@FileSession.webSocket = null
-                onStateChanged?.invoke()
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                retireSocket()
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("MeshFiles", "onFailure for $cleanNodeId: ${t.localizedMessage}", t)
-                _connectionState.value = false
-                this@FileSession.webSocket = null
-                onStateChanged?.invoke()
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                Log.w("MeshFiles", "Files transport failed (${t.javaClass.simpleName})")
+                retireSocket()
+                }
             }
+
         })
     }
 
     private fun handleIncomingMessage(webSocket: WebSocket, text: String) {
         Log.d("MeshFilesRecv", "Files WS Recv (${text.length} chars): $text")
         if (text == "c" || text == "cr") {
+            if (_connectionState.value) return
             _connectionState.value = true
+            failures = 0
             onStateChanged?.invoke()
             webSocket.send("5")
-
-            scope.launch {
-                delay(200)
-                val targetPath = _currentPath.value.ifEmpty { "/" }
-                listDirectory(targetPath)
+            val epoch = socketEpoch
+            initialListingJob = scope.launch {
+                delay(200L)
+                synchronized(this@FileSession) {
+                    if (current(webSocket, epoch)) pumpListing()
+                }
             }
         } else {
             handleJsonMessage(text)
@@ -552,7 +588,7 @@ class FileSession(
             }
 
             if (action == "downloadEnd" || subaction == "end" || subaction == "close" || subaction == "complete") {
-                if (activeDownloads.isNotEmpty()) finishDownload()
+                // Shared relay completion belongs only to browser copy/read operations.
                 if (copyingSourcePath != null) finishCopyingFile()
                 if (readingFilePath != null) finishReadingFile()
                 return
@@ -561,10 +597,7 @@ class FileSession(
             if (action == "downloadStart" || subaction == "start") {
                 val reqid = json.get("reqid")?.asString ?: json.get("id")?.asString ?: ""
                 val size = json.get("size")?.asLong ?: 0L
-                val activeDl = activeDownloads.values.firstOrNull()
-                if (activeDl != null && size > 0) {
-                    activeDl.totalSize = size
-                }
+
                 val pullReq = JsonObject().apply {
                     addProperty("action", "download")
                     addProperty("subaction", "download")
@@ -588,35 +621,7 @@ class FileSession(
                     data.toByteArray(Charsets.UTF_8)
                 }
 
-                val activeDl = activeDownloads.values.firstOrNull()
-                if (activeDl != null) {
-                    activeDl.outputStream?.write(chunkBytes)
-                    activeDl.receivedBytes += chunkBytes.size
-                    _activeTransfers.value = _activeTransfers.value.map {
-                        if (it.filePath == activeDl.filePath) {
-                            it.copy(
-                                bytesTransferred = activeDl.receivedBytes,
-                                totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
-                            )
-                        } else {
-                            it
-                        }
-                    }
-                    if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
-                        finishDownload(activeDl.filePath)
-                    } else if (action == "readfile") {
-                        finishDownload(activeDl.filePath)
-                    } else if (activeDl.context != null) {
-                        updateDownloadNotification(
-                            activeDl.context,
-                            activeDl.fileName,
-                            activeDl.filePath,
-                            activeDl.receivedBytes,
-                            activeDl.totalSize
-                        )
-                    }
-                    return
-                }
+
 
                 if (readingFilePath != null) {
                     readingBuffer?.write(chunkBytes)
@@ -649,13 +654,7 @@ class FileSession(
             } else {
                 val size = json.get("size")?.asLong ?: 0L
                 if (size > 0) {
-                    val activeDl = activeDownloads.values.firstOrNull()
-                    if (activeDl != null) {
-                        activeDl.totalSize = size
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == activeDl.filePath) it.copy(totalBytes = size) else it
-                        }
-                    } else if (copyingSourcePath != null) {
+                    if (copyingSourcePath != null) {
                         copyingTotalSize = size
                     } else if (readingFilePath != null) {
                         readingTotalSize = size
@@ -675,7 +674,8 @@ class FileSession(
                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
 
             if (isDirectoryListing) {
-                val path = json.get("path")?.asString ?: "/"
+                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }
+                var path = responsePath ?: navigation.pending?.path ?: return
 
                 val recursiveTarget = recursiveCopyTargetDir
                 if (recursiveTarget != null && path == copyingDirectorySource) {
@@ -717,7 +717,16 @@ class FileSession(
                     return
                 }
 
-                _currentPath.value = path.ifEmpty { "/" }
+                val hasListing = json.getAsJsonArray("dir") != null ||
+                    json.getAsJsonArray("files") != null || json.getAsJsonArray("list") != null
+                val acceptedPath = navigation.accept(json.get("reqid")?.asString, responsePath, hasListing)
+                pumpListing()
+                if (acceptedPath == null) {
+                    if (!hasListing) _statusMessage.value = "No se pudo listar la ruta solicitada; se conserva la ubicación anterior"
+                    return
+                }
+                path = acceptedPath
+                _currentPath.value = path
 
                 val items = mutableListOf<FileItem>()
                 val dirArray = json.getAsJsonArray("dir")
@@ -832,6 +841,53 @@ class FileSession(
         }
     }
 
+    @Synchronized
+    private fun showDownloadReconnectToast(context: Context, source: String = "retry") {
+        val pending = activeDownloads.values.toList().filter {
+            !it.completed && it.downloadJob?.isActive != false
+        }.map { it to it.networkAttempt.current() }
+        Log.d("MeshDownloadToast", "REQUEST source=$source candidates=${pending.size}")
+        if (pending.isEmpty() || isUserDisconnect) {
+            Log.d("MeshDownloadToast", "DISCARDED source=$source reason=no-pending-work-or-closed")
+            return
+        }
+        val appContext = context.applicationContext
+        scope.launch(Dispatchers.Main.immediate) {
+            if (isUserDisconnect) {
+                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=session-closed")
+                return@launch
+            }
+            val eligible = pending.filter { (download, epoch) ->
+                activeDownloads[download.filePath] === download && !download.completed &&
+                    download.downloadJob?.isActive != false && download.networkAttempt.isCurrent(epoch)
+            }
+            if (eligible.isEmpty()) {
+                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=work-cancelled-complete-or-retired")
+                return@launch
+            }
+            val toast = Toast.makeText(appContext,
+                appContext.getString(R.string.unstable_network_reconnecting_download), Toast.LENGTH_SHORT)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                toast.addCallback(object : Toast.Callback() {
+                    override fun onToastShown() { Log.d("MeshDownloadToast", "SHOWN source=$source") }
+                    override fun onToastHidden() { Log.d("MeshDownloadToast", "HIDDEN source=$source") }
+                })
+            }
+            val claimed = eligible.filter { (download, epoch) -> download.networkAttempt.takeReconnectNotice(epoch) }
+            if (claimed.isEmpty()) {
+                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=duplicate-generation")
+                return@launch
+            }
+            try {
+                toast.show()
+                Log.d("MeshDownloadToast", "SHOW_REQUESTED source=$source count=${claimed.size}")
+            } catch (e: Exception) {
+                claimed.forEach { (download, epoch) -> download.networkAttempt.releaseReconnectNotice(epoch) }
+                Log.w("MeshDownloadToast", "SHOW_FAILED source=$source type=${e.javaClass.simpleName}")
+            }
+        }
+    }
+
     private fun createDownloadOutputStream(context: Context, fileName: String): OutputStream {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
@@ -890,16 +946,6 @@ class FileSession(
             deleteLocalDownloadFileIfExists(context, targetName)
         }
 
-        val meshId = meshClient.getNodeMeshId(nodeId)
-        val serverUrl = meshClient.serverUrl.trimEnd('/')
-
-        val cookieToken = meshClient.userAuthCookie.ifEmpty {
-            meshClient.relayAuthCookie.ifEmpty {
-                meshClient.extractRawToken(meshClient.authCookie)
-            }
-        }
-        val sessionCookie = meshClient.authCookie.trim()
-
         Toast.makeText(context, context.getString(R.string.starting_download, targetName), Toast.LENGTH_SHORT).show()
 
         val progress = TransferProgress(
@@ -939,6 +985,18 @@ class FileSession(
                         continue
                     }
 
+                    val attemptEpoch = session.networkAttempt.current()
+                    val meshId = meshClient.getNodeMeshId(nodeId)
+                    val serverUrl = meshClient.serverUrl.trimEnd('/')
+
+                    val cookieToken = meshClient.userAuthCookie.ifEmpty {
+                        meshClient.relayAuthCookie.ifEmpty {
+                            meshClient.extractRawToken(meshClient.authCookie)
+                        }
+                    }
+                    val sessionCookie = meshClient.authCookie.trim()
+
+
                     session.receivedBytes = 0L
                     _activeTransfers.value = _activeTransfers.value.map {
                         if (it.filePath == item.path) it.copy(bytesTransferred = 0L, totalBytes = item.size) else it
@@ -946,11 +1004,22 @@ class FileSession(
 
                     deleteLocalDownloadFileIfExists(context, targetName)
 
-                    // 1. Attempt HTTP Download
+                    // 1. Attempt HTTP Download, owned by this network generation.
+                    var httpResponse: Response? = null
+                    var activeHttpCall: okhttp3.Call? = null
                     try {
                         val outputStream = createDownloadOutputStream(context, targetName)
                         session.outputStream = outputStream
                         val client = OkHttpHelper.createDownloadClient(meshClient.ignoreSsl)
+                        fun executeOnCurrentNetwork(request: Request): Response {
+                            val call = client.newCall(request)
+                            activeHttpCall = call
+                            if (!session.networkAttempt.bind(attemptEpoch, call) { call.cancel() }) {
+                                throw java.io.IOException("Download network changed before request")
+                            }
+                            return call.execute().also { httpResponse = it }
+                        }
+
 
                         val encodedC = try { URLEncoder.encode(cookieToken, "UTF-8") } catch (_: Exception) { cookieToken }
                         val encodedM = try { URLEncoder.encode(meshId, "UTF-8") } catch (_: Exception) { meshId }
@@ -964,13 +1033,18 @@ class FileSession(
                         var reqBuilder = Request.Builder().url(downloadUrl).get()
                         if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
 
-                        var response = client.newCall(reqBuilder.build()).execute()
+                        var response = executeOnCurrentNetwork(reqBuilder.build())
 
+                        Log.d("MeshFilesDownload", "stage=HTTP_STATUS code=${response.code} epoch=$attemptEpoch")
                         if (!response.isSuccessful) {
+                            response.close()
+                            if (!session.networkAttempt.isCurrent(attemptEpoch)) {
+                                throw java.io.IOException("Download network changed during HTTP response")
+                            }
                             downloadUrl = "$serverUrl/devicefile.ashx?c=$encodedC&m=$encodedM&n=$encodedN&f=$encodedF2"
                             reqBuilder = Request.Builder().url(downloadUrl).get()
                             if (sessionCookie.isNotBlank()) reqBuilder.addHeader("Cookie", sessionCookie)
-                            response = client.newCall(reqBuilder.build()).execute()
+                            response = executeOnCurrentNetwork(reqBuilder.build())
                         }
 
                         if (response.isSuccessful && response.body != null) {
@@ -988,9 +1062,12 @@ class FileSession(
                                         val bytesRead = input.read(buffer)
                                         if (bytesRead == -1) break
 
-                                        output.write(buffer, 0, bytesRead)
-                                        receivedBytes += bytesRead
-                                        session.receivedBytes = receivedBytes
+                                        val accepted = session.networkAttempt.runIfCurrent(attemptEpoch) {
+                                            output.write(buffer, 0, bytesRead)
+                                            receivedBytes += bytesRead
+                                            session.receivedBytes = receivedBytes
+                                        }
+                                        if (!accepted) throw java.io.IOException("Download network changed during read")
 
                                         val current = receivedBytes
                                         _activeTransfers.value = _activeTransfers.value.map {
@@ -1011,6 +1088,7 @@ class FileSession(
 
                             if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
                                 if (totalSize <= 0 || receivedBytes >= totalSize) {
+                                    session.completed = true
                                     downloadSuccess = true
                                     _activeTransfers.value = _activeTransfers.value.map {
                                         if (it.filePath == item.path) {
@@ -1046,50 +1124,56 @@ class FileSession(
                         }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
+                        if (!session.networkAttempt.isCurrent(attemptEpoch)) {
+                            throw java.io.IOException("Download network changed; restarting on the current network", e)
+                        }
                         Log.w("MeshFilesDownload", "HTTP download attempt failed: ${e.localizedMessage}")
                     } finally {
+                        httpResponse?.close()
+                        activeHttpCall?.let { session.networkAttempt.release(attemptEpoch, it) }
                         try {
                             session.outputStream?.close()
                         } catch (_: Exception) {}
                         session.outputStream = null
                     }
 
-                    // 2. Attempt WebSocket readfile download if HTTP did not complete
+                    if (!session.networkAttempt.isCurrent(attemptEpoch)) {
+                        throw java.io.IOException("Download network changed before WebSocket fallback")
+                    }
+
+                    // A dedicated relay owns every binary block of this fallback attempt.
                     if (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
-                        Log.d("MeshFilesDownload", "Attempting WS fallback download for ${item.path}...")
-
-                        if (!ensureConnected()) {
-                            throw java.io.IOException("WebSocket not connected for fallback download")
-                        }
-
-                        val outputStream = createDownloadOutputStream(context, targetName)
-                        session.outputStream = outputStream
+                        if (!ensureConnected()) throw java.io.IOException("Files relay unavailable for isolated download")
+                        Log.d("MeshFilesDownload", "stage=WS_ISOLATED_START epoch=$attemptEpoch")
+                        val output = createDownloadOutputStream(context, targetName)
+                        session.outputStream = output
                         session.receivedBytes = 0L
-
-                        val readReq = JsonObject().apply {
-                            addProperty("action", "readfile")
-                            addProperty("path", item.path)
-                            addProperty("reqid", reqIdStr)
-                            addProperty("id", reqIdStr)
-                        }
-
-                        val ws = webSocket
-                        if (ws == null || !ws.send(readReq.toString())) {
-                            throw java.io.IOException("Failed to send readfile WebSocket command")
-                        }
-
-                        // Wait while WS download chunks arrive (finishDownload will remove key when completed)
-                        while (activeDownloads.containsKey(item.path) && coroutineContext.isActive && isConnected()) {
-                            delay(200)
-                            if (!activeDownloads.containsKey(item.path)) {
-                                downloadSuccess = true
-                                break
+                        try {
+                            val received = IsolatedFileDownload.download(
+                                meshClient, fullNodeId, item.path, item.size.takeIf { it > 0L },
+                                output, session.networkAttempt, attemptEpoch
+                            ) { count ->
+                                session.receivedBytes = count
+                                _activeTransfers.update { transfers ->
+                                    transfers.map {
+                                        if (it.filePath == item.path) it.copy(bytesTransferred = count,
+                                            totalBytes = if (item.size > 0L) item.size else count) else it
+                                    }
+                                }
+                                updateDownloadNotification(context, targetName, item.path, count, item.size)
                             }
+                            session.receivedBytes = received
+                        } finally {
+                            try { output.close() } finally { session.outputStream = null }
                         }
-
-                        if (!downloadSuccess && (!isConnected() || activeDownloads.containsKey(item.path))) {
-                            throw java.io.IOException("WebSocket disconnected or download interrupted during WS transfer")
+                        if (activeDownloads[item.path] === session && coroutineContext.isActive &&
+                            session.networkAttempt.isCurrent(attemptEpoch)) {
+                            downloadSuccess = true
+                            Log.d("MeshFilesDownload", "stage=WS_ISOLATED_COMPLETE epoch=$attemptEpoch")
+                            finishDownload(item.path)
+                            return@launch
                         }
+                        throw java.io.IOException("Isolated download attempt was cancelled or retired")
                     }
 
                     if (!downloadSuccess && activeDownloads.containsKey(item.path)) {
@@ -1100,13 +1184,7 @@ class FileSession(
                     if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
                         Log.w("MeshFilesDownload", "Download interrupted for ${item.path} (${e.localizedMessage}). Deleting incomplete local file and restarting...")
 
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.unstable_network_reconnecting_download),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                        showDownloadReconnectToast(context)
 
                         try {
                             session.outputStream?.close()
@@ -1185,6 +1263,7 @@ class FileSession(
             val ctx = session?.context
 
             session?.downloadJob?.cancel()
+            session?.networkAttempt?.invalidate()
 
             try {
                 session?.outputStream?.flush()
@@ -1219,32 +1298,15 @@ class FileSession(
     }
 
     fun cancelUpload(targetFilePath: String? = null) {
-        try {
-            val key = targetFilePath ?: activeUploads.keys.firstOrNull()
-            val session = if (key != null) activeUploads.remove(key) else null
-
-            val name = session?.fileName ?: "archivo"
-            val ctx = session?.context
-
-            session?.uploadJob?.cancel()
-
-            if (session != null) {
-                val notificationManager = ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-                notificationManager?.cancel(session.filePath.hashCode())
-
-                deleteRemoteFilePath(session.filePath)
-            }
-
-            _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
-
-            if (ctx != null) {
-                scope.launch(Dispatchers.Main) {
-                    Toast.makeText(ctx, ctx.getString(R.string.upload_canceled, name), Toast.LENGTH_SHORT).show()
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("MeshFilesUpload", "Error canceling upload: ${e.localizedMessage}", e)
-        }
+        val key = targetFilePath ?: activeUploads.keys.firstOrNull() ?: return
+        val session = activeUploads[key] ?: return
+        if (session.completed || !activeUploads.remove(key, session)) return
+        session.networkAttempt.invalidate()
+        session.uploadJob?.cancel()
+        _activeTransfers.update { entries -> entries.filterNot { it.isUpload && it.filePath == key } }
+        val ctx = session.context
+        (ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(key.hashCode())
+        _statusMessage.value = "Subida cancelada: ${session.fileName}"
     }
 
     private fun ensureNotificationChannel(context: Context) {
@@ -1619,16 +1681,12 @@ class FileSession(
         }
     }
 
+    @Synchronized
     fun listDirectory(path: String) {
-        val targetPath = if (path.isEmpty()) "/" else path
-        val req = JsonObject().apply {
-            addProperty("action", "ls")
-            addProperty("path", targetPath)
-        }
-        scope.launch(Dispatchers.IO) {
-            ensureConnected()
-            webSocket?.send(req.toString())
-        }
+        if (isUserDisconnect) return
+        navigation.request(path)
+        startRecovery()
+        pumpListing()
     }
 
     fun createFolder(folderName: String) {
@@ -1672,264 +1730,198 @@ class FileSession(
     }
 
     fun uploadRawFileToPath(fullPath: String, bytes: ByteArray, context: Context? = null) {
-        val fileName = fullPath.substringAfterLast('/')
-        val fileSize = bytes.size.toLong()
-
-        val session = ActiveUploadSession(
-            filePath = fullPath,
-            fileName = fileName,
-            sentBytes = 0L,
-            totalSize = fileSize,
-            uploadJob = null,
-            context = context
-        )
-        activeUploads[fullPath] = session
-
-        val progress = TransferProgress(
-            fileName = fileName,
-            filePath = fullPath,
-            isUpload = true,
-            bytesTransferred = 0L,
-            totalBytes = fileSize
-        )
-        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath } + progress
-
-        if (context != null) {
-            updateUploadNotification(context, fileName, fullPath, 0L, fileSize)
-        }
-
-        session.uploadJob = scope.launch(Dispatchers.IO) {
-            var uploadSuccess = false
-
-            while (!uploadSuccess && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
-                try {
-                    if (!ensureConnected()) {
-                        delay(2000)
-                        continue
-                    }
-
-                    session.sentBytes = 0L
-                    _activeTransfers.value = _activeTransfers.value.map {
-                        if (it.filePath == fullPath) it.copy(bytesTransferred = 0L, totalBytes = fileSize) else it
-                    }
-
-                    val req = JsonObject().apply {
-                        addProperty("action", "upload")
-                        addProperty("path", fullPath)
-                        addProperty("size", bytes.size)
-                    }
-                    val ws = webSocket
-                    if (ws == null || !ws.send(req.toString())) {
-                        throw java.io.IOException("WebSocket disconnected before upload start")
-                    }
-
-                    delay(150)
-
-                    val chunkSize = 64 * 1024
-                    var offset = 0
-                    val total = bytes.size
-
-                    if (total == 0) {
-                        if (ws.send(ByteString.EMPTY)) {
-                            uploadSuccess = true
-                        } else {
-                            throw java.io.IOException("Failed to send empty byte string")
-                        }
-                    } else {
-                        while (offset < total && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
-                            val length = minOf(chunkSize, total - offset)
-                            val chunk = ByteString.of(*bytes.copyOfRange(offset, offset + length))
-                            val currentWs = webSocket
-
-                            if (currentWs == null || !isConnected() || !currentWs.send(chunk)) {
-                                throw java.io.IOException("WebSocket disconnected or chunk send failed")
-                            }
-
-                            offset += length
-
-                            session.sentBytes = offset.toLong()
-                            val currOffset = offset.toLong()
-                            _activeTransfers.value = _activeTransfers.value.map {
-                                if (it.filePath == fullPath) it.copy(bytesTransferred = currOffset) else it
-                            }
-
-                            if (context != null) {
-                                updateUploadNotification(context, fileName, fullPath, currOffset, total.toLong())
-                            }
-                            delay(10)
-                        }
-                        if (offset >= total && activeUploads.containsKey(fullPath)) {
-                            uploadSuccess = true
-                        }
-                    }
-
-                    if (uploadSuccess && activeUploads.containsKey(fullPath)) {
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == fullPath) it.copy(bytesTransferred = fileSize, isCompleted = true) else it
-                        }
-
-                        if (context != null) {
-                            showUploadCompleteNotification(context, fileName, fullPath, fileSize)
-                        }
-
-                        delay(1500)
-                        activeUploads.remove(fullPath)
-                        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
-                        listDirectory(_currentPath.value)
-                    } else if (activeUploads.containsKey(fullPath)) {
-                        throw java.io.IOException("Raw upload loop ended incomplete ($offset / $total)")
-                    }
-                } catch (e: Exception) {
-                    if (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
-                        Log.w("MeshFilesUpload", "Raw upload interrupted for $fullPath (${e.localizedMessage}). Deleting incomplete remote file and restarting...")
-
-                        if (context != null) {
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(context, context.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
-                            }
-                        }
-
-                        deleteRemoteFilePath(fullPath)
-                        delay(2000)
-                    }
-                }
-            }
-
-            if (!uploadSuccess) {
-                activeUploads.remove(fullPath)
-                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
-                deleteRemoteFilePath(fullPath)
-            }
-        }
+        val snapshot = bytes.copyOf()
+        runRecoverableUpload(fullPath, context) { destination -> destination.writeBytes(snapshot) }
     }
 
     fun uploadUri(uri: Uri, context: Context, customFileName: String? = null) {
-        val fileName = customFileName?.trim()?.ifBlank { null } ?: getFileNameFromUri(context, uri)
-        val path = _currentPath.value.trimEnd('/')
-        val fullPath = if (path.isEmpty()) "/$fileName" else "$path/$fileName"
-        uploadUriToPath(fullPath, uri, context)
+        val name = customFileName?.trim()?.ifBlank { null } ?: getFileNameFromUri(context, uri)
+        uploadUriToPath(UploadWire.join(UploadWire.key(_currentPath.value), name), uri, context)
     }
 
     fun uploadUriToPath(fullPath: String, uri: Uri, context: Context) {
-        val fileName = fullPath.substringAfterLast('/')
-        val fileSize = getFileSizeFromUri(context, uri)
-
-        val session = ActiveUploadSession(
-            filePath = fullPath,
-            fileName = fileName,
-            sentBytes = 0L,
-            totalSize = fileSize,
-            uploadJob = null,
-            context = context
-        )
-        activeUploads[fullPath] = session
-
-        val progress = TransferProgress(
-            fileName = fileName,
-            filePath = fullPath,
-            isUpload = true,
-            bytesTransferred = 0L,
-            totalBytes = fileSize
-        )
-        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath } + progress
-
-        updateUploadNotification(context, fileName, fullPath, 0L, fileSize)
-
-        session.uploadJob = scope.launch(Dispatchers.IO) {
-            var uploadSuccess = false
-
-            while (!uploadSuccess && activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
-                try {
-                    if (!ensureConnected()) {
-                        delay(2000)
-                        continue
-                    }
-
-                    session.sentBytes = 0L
-                    _activeTransfers.value = _activeTransfers.value.map {
-                        if (it.filePath == fullPath) it.copy(bytesTransferred = 0L, totalBytes = fileSize) else it
-                    }
-
-                    val req = JsonObject().apply {
-                        addProperty("action", "upload")
-                        addProperty("path", fullPath)
-                        addProperty("size", fileSize)
-                    }
-                    val ws = webSocket
-                    if (ws == null || !ws.send(req.toString())) {
-                        throw java.io.IOException("WebSocket disconnected before upload start")
-                    }
-
-                    delay(150)
-
-                    val chunkSize = 64 * 1024
-                    var totalSent = 0L
-
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    if (inputStream == null) {
-                        Log.e("MeshFilesUpload", "Could not open input stream for $uri")
-                        break
-                    }
-
-                    inputStream.use { stream ->
-                        val buffer = ByteArray(chunkSize)
-                        while (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
-                            val bytesRead = stream.read(buffer)
-                            if (bytesRead == -1) break
-
-                            val chunk = ByteString.of(*buffer.copyOfRange(0, bytesRead))
-                            val currentWs = webSocket
-
-                            if (currentWs == null || !isConnected() || !currentWs.send(chunk)) {
-                                throw java.io.IOException("WebSocket disconnected or chunk send failed")
-                            }
-
-                            totalSent += bytesRead
-
-                            session.sentBytes = totalSent
-                            val currOffset = totalSent
-                            _activeTransfers.value = _activeTransfers.value.map {
-                                if (it.filePath == fullPath) it.copy(bytesTransferred = currOffset, totalBytes = maxOf(fileSize, currOffset)) else it
-                            }
-
-                            updateUploadNotification(context, fileName, fullPath, currOffset, maxOf(fileSize, currOffset))
-                            delay(10)
-                        }
-                    }
-
-                    if (totalSent >= fileSize && activeUploads.containsKey(fullPath)) {
-                        uploadSuccess = true
-                        _activeTransfers.value = _activeTransfers.value.map {
-                            if (it.filePath == fullPath) it.copy(bytesTransferred = totalSent, totalBytes = totalSent, isCompleted = true) else it
-                        }
-
-                        showUploadCompleteNotification(context, fileName, fullPath, totalSent)
-
-                        delay(1500)
-                        activeUploads.remove(fullPath)
-                        _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
-                        listDirectory(_currentPath.value)
-                    } else if (activeUploads.containsKey(fullPath)) {
-                        throw java.io.IOException("Upload loop ended incomplete ($totalSent / $fileSize)")
-                    }
-                } catch (e: Exception) {
-                    if (activeUploads.containsKey(fullPath) && coroutineContext.isActive) {
-                        Log.w("MeshFilesUpload", "Upload interrupted for $fullPath (${e.localizedMessage}). Deleting incomplete remote file and restarting...")
-
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, context.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
-                        }
-
-                        deleteRemoteFilePath(fullPath)
-                        delay(2000)
+        val appContext = context.applicationContext
+        runRecoverableUpload(fullPath, appContext) { destination ->
+            val input = appContext.contentResolver.openInputStream(uri)
+                ?: throw java.io.IOException("No se puede abrir el origen de la subida")
+            input.use { source ->
+                destination.outputStream().use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        if (count > 0) output.write(buffer, 0, count)
                     }
                 }
             }
+        }
+    }
 
-            if (!uploadSuccess) {
-                activeUploads.remove(fullPath)
-                _activeTransfers.value = _activeTransfers.value.filter { it.filePath != fullPath }
-                deleteRemoteFilePath(fullPath)
+    private fun runRecoverableUpload(fullPath: String, context: Context?, prepare: suspend (File) -> Unit) {
+        if (isUserDisconnect) { _statusMessage.value = "Abre la sesión de Archivos antes de subir"; return }
+        val target = UploadWire.key(fullPath)
+        val name = UploadWire.name(target)
+        val parent = try {
+            validateRemoteEntryName(name)
+            remoteParent(target)
+        } catch (e: IllegalArgumentException) { _statusMessage.value = e.message; return }
+        val ctx = (context ?: iecxiv.meshfabric.MeshFabricApp.instance).applicationContext
+        val session = ActiveUploadSession(target, name, 0L, 0L, null, ctx)
+        if (activeUploads.putIfAbsent(target, session) != null) {
+            _statusMessage.value = "Ya hay una subida pendiente para ese destino"
+            return
+        }
+        _activeTransfers.update { entries ->
+            entries.filterNot { it.isUpload && it.filePath == target } +
+                TransferProgress(fileName = name, filePath = target, isUpload = true)
+        }
+        session.uploadJob = scope.launch(Dispatchers.IO, start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            var source: File? = null
+            var locked = false
+            var remoteTouched = false
+            val publication = UploadPublication(parent, name)
+            try {
+                val directory = File(ctx.filesDir, "meshfabric-upload-sources")
+                check(directory.isDirectory || directory.mkdirs()) { "No se puede preparar el origen local" }
+                val staged = File.createTempFile("upload-", ".part", directory)
+                source = staged
+                prepare(staged)
+                coroutineContext.ensureActive()
+                session.totalSize = staged.length()
+                _activeTransfers.update { entries -> entries.map {
+                    if (it.isUpload && it.filePath == target) it.copy(totalBytes = session.totalSize) else it
+                } }
+                uploadMutex.lock()
+                locked = true
+                while (coroutineContext.isActive && !isUserDisconnect && activeUploads[target] === session) {
+                    if (!ensureConnected()) {
+                        Log.d("MeshFilesUpload", "stage=WAIT_RELAY")
+                        delay(750L)
+                        continue
+                    }
+                    val epoch = session.networkAttempt.current()
+                    try {
+                        Log.d("MeshFilesUpload", "stage=ATTEMPT_START epoch=$epoch")
+                        session.started = true
+                        session.sentBytes = 0L
+                        _activeTransfers.update { entries -> entries.map {
+                            if (it.isUpload && it.filePath == target) it.copy(bytesTransferred = 0L,
+                                totalBytes = session.totalSize, isCompleted = false) else it
+                        } }
+                        val verified = UploadChannel.connect(meshClient, fullNodeId, session.networkAttempt, epoch).use { relay ->
+                            remoteTouched = true
+                            publication.transfer(relay, staged) { confirmed ->
+                                if (!session.networkAttempt.isCurrent(epoch) || activeUploads[target] !== session) {
+                                    throw java.io.IOException("Intento de subida retirado")
+                                }
+                                session.sentBytes = confirmed
+                                _activeTransfers.update { entries -> entries.map {
+                                    if (it.isUpload && it.filePath == target) it.copy(bytesTransferred = confirmed,
+                                        totalBytes = session.totalSize) else it
+                                } }
+                                updateUploadNotification(ctx, name, target, confirmed, session.totalSize)
+                            }
+                            relay.list(parent).firstOrNull { it.name == name && !it.directory && it.size == staged.length() }
+                                ?: throw java.io.IOException("El tamaño remoto no está confirmado")
+                        }
+                        val accepted = synchronized(this@FileSession) {
+                            if (isUserDisconnect || activeUploads[target] !== session || !session.networkAttempt.isCurrent(epoch)) false
+                            else {
+                                session.completed = true
+                                session.sentBytes = verified.size
+                                savedFileContents.remove(target)
+                                if (_fileContent.value?.first == target) _fileContent.value = null
+                                if (UploadWire.key(_currentPath.value) == UploadWire.key(parent)) {
+                                    _fileList.update { entries ->
+                                        val item = FileItem(name, false, verified.size, verified.modified, target)
+                                        (entries.filterNot { UploadWire.key(it.path) == target } + item)
+                                            .sortedWith(compareByDescending<FileItem> { it.isDir }.thenBy { it.name.lowercase() })
+                                    }
+                                }
+                                navigation.refresh()
+                                pumpListing()
+                                true
+                            }
+                        }
+                        if (!accepted) throw java.io.IOException("La sesión cambió antes de confirmar la subida")
+                        _activeTransfers.update { entries -> entries.map {
+                            if (it.isUpload && it.filePath == target) it.copy(bytesTransferred = verified.size,
+                                totalBytes = verified.size, isCompleted = true) else it
+                        } }
+                        showUploadCompleteNotification(ctx, name, target, verified.size)
+                        _statusMessage.value = "Subida completada: $name"
+                        Log.d("MeshFilesUpload", "stage=VERIFIED_COMPLETE bytes=${verified.size}")
+                        delay(1200L)
+                        break
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: UploadRejected) { _statusMessage.value = "El agente ha rechazado la subida"; break }
+                    catch (e: UploadConflict) { _statusMessage.value = e.message; break }
+                    catch (e: java.io.IOException) {
+                        if (activeUploads[target] !== session || isUserDisconnect) break
+                        Log.w("MeshFilesUpload", "stage=RESTART_FROM_ZERO type=${e.javaClass.simpleName}")
+                        showUploadReconnectToast(ctx, "retry")
+                        delay(2000L)
+                    }
+                }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) {
+                Log.e("MeshFilesUpload", "stage=SOURCE_OR_WORKER_FAILED type=${e.javaClass.simpleName}")
+                _statusMessage.value = "No se pudo completar la subida: ${e.javaClass.simpleName}"
+            } finally {
+                session.networkAttempt.invalidate()
+                try {
+                    if (locked && remoteTouched && !session.completed) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+                            try {
+                                val cleaned = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                    if (!meshClient.connectionState.value || meshClient.isUserLogout) return@withTimeoutOrNull false
+                                    val cleanupGate = DownloadNetworkAttempt()
+                                    UploadChannel.connect(meshClient, fullNodeId, cleanupGate, cleanupGate.current()).use {
+                                        publication.cancelCleanup(it)
+                                    }
+                                    true
+                                }
+                                if (cleaned != true) Log.w("MeshFilesUpload", "stage=OWNED_REMOTE_CLEANUP_PENDING")
+                            } catch (e: Exception) {
+                                Log.w("MeshFilesUpload", "stage=OWNED_REMOTE_CLEANUP_PENDING type=${e.javaClass.simpleName}")
+                            }
+                        }
+                    }
+                } finally {
+                    if (locked) uploadMutex.unlock()
+                    source?.delete()
+                    if (activeUploads.remove(target, session)) {
+                        _activeTransfers.update { entries -> entries.filterNot { it.isUpload && it.filePath == target } }
+                    }
+                    if (!session.completed && activeUploads[target] == null) {
+                        (ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(target.hashCode())
+                    }
+                }
+            }
+        }
+        session.uploadJob?.start()
+    }
+
+    @Synchronized
+    private fun showUploadReconnectToast(context: Context, source: String) {
+        val pending = activeUploads.values.toList().filter {
+            it.started && !it.completed && it.uploadJob?.isActive != false
+        }.map { it to it.networkAttempt.current() }
+        val ctx = context.applicationContext
+        scope.launch(Dispatchers.Main.immediate) {
+            if (isUserDisconnect) return@launch
+            val claimed = pending.filter { (session, epoch) ->
+                activeUploads[session.filePath] === session && !session.completed &&
+                    session.uploadJob?.isActive != false && session.networkAttempt.takeReconnectNotice(epoch)
+            }
+            if (claimed.isEmpty()) return@launch
+            try {
+                Toast.makeText(ctx, ctx.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
+                Log.d("MeshUploadToast", "SHOW_REQUESTED source=$source count=${claimed.size}")
+            } catch (e: Exception) {
+                claimed.forEach { (session, epoch) -> session.networkAttempt.releaseReconnectNotice(epoch) }
+                Log.w("MeshUploadToast", "SHOW_FAILED source=$source type=${e.javaClass.simpleName}")
             }
         }
     }
@@ -1989,21 +1981,8 @@ class FileSession(
     }
 
     fun saveFileContent(filePath: String, newContent: String) {
-        val bytes = newContent.toByteArray(Charsets.UTF_8)
-        val newSize = bytes.size.toLong()
-
-        savedFileContents[filePath] = newContent
-        _fileContent.value = Pair(filePath, newContent)
-        _fileList.value = _fileList.value.map { item ->
-            if (item.path == filePath) {
-                item.copy(size = newSize)
-            } else {
-                item
-            }
-        }
-
-        uploadRawFileToPath(filePath, bytes)
-        _statusMessage.value = "Archivo guardado exitosamente"
+        uploadRawFileToPath(filePath, newContent.toByteArray(Charsets.UTF_8))
+        _statusMessage.value = "Guardando archivo..."
     }
 
     fun cancelFileReading() {
@@ -2975,8 +2954,14 @@ class FileSession(
         _statusMessage.value = null
     }
 
+    @Synchronized
     fun disconnect(resetPath: Boolean = false) {
         isUserDisconnect = true
+        activeDownloads.keys.toList().forEach { cancelDownload(it) }
+        activeUploads.keys.toList().forEach { cancelUpload(it) }
+        recoveryJob?.cancel()
+        recoveryJob = null
+        retireSocket()
         copyingSourcePath = null
         copyingDestPath = null
         try {
@@ -2996,6 +2981,7 @@ class FileSession(
         _fileList.value = emptyList()
         if (resetPath) {
             _currentPath.value = "/"
+            navigation.reset()
         }
         _clipboardItem.value = null
         clipboardNodeId = null
@@ -3003,10 +2989,17 @@ class FileSession(
         onStateChanged?.invoke()
     }
 
+    @Synchronized
     fun onNetworkChanged() {
-        if (!isUserDisconnect && !isConnected()) {
-            connect()
-        }
+        if (isUserDisconnect) return
+        activeDownloads.values.toList().forEach { it.networkAttempt.invalidate() }
+        activeUploads.values.toList().filter { it.started && !it.completed }.forEach { it.networkAttempt.invalidate() }
+        activeUploads.values.firstOrNull()?.context?.let { showUploadReconnectToast(it, "network-change") }
+        activeDownloads.values.firstOrNull()?.context?.let { showDownloadReconnectToast(it, "network-change") }
+        retireSocket()
+        failures = 0
+        retryAt = 0L
+        startRecovery()
     }
 
     private fun formatSize(size: Long): String {
@@ -3174,9 +3167,7 @@ class FileRelayClient {
 
     fun onNetworkChanged() {
         for (session in sessions.values) {
-            if (!session.isUserDisconnect && !session.isConnected()) {
-                session.onNetworkChanged()
-            }
+            if (!session.isUserDisconnect) session.onNetworkChanged()
         }
     }
 
@@ -3190,6 +3181,10 @@ class FileRelayClient {
         for (session in sessions.values) {
             session.cancelDownload()
         }
+    }
+
+    fun refresh(meshClient: MeshCentralClient, nodeId: String) {
+        getSession(meshClient, nodeId).refreshSession()
     }
 
     fun listDirectory(nodeId: String, path: String) {

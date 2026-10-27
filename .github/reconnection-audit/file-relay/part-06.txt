@@ -1,0 +1,298 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 1366-1659
+
+01366:             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+01367:
+01368:             val notificationId = filePath.hashCode()
+01369:
+01370:             val builder = NotificationCompat.Builder(context, "file_downloads")
+01371:                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
+01372:                 .setContentTitle("Descarga completada")
+01373:                 .setContentText("$fileName (${formatSize(total)}) guardado en Descargas")
+01374:                 .setProgress(0, 0, false)
+01375:                 .setOngoing(false)
+01376:                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+01377:                 .setAutoCancel(true)
+01378:
+01379:             notificationManager.notify(notificationId, builder.build())
+01380:         } catch (e: Exception) {
+01381:             Log.e("MeshFilesDownload", "Error showing completion notification: ${e.localizedMessage}", e)
+01382:         }
+01383:     }
+01384:
+01385:     private fun showUploadCompleteNotification(context: Context, fileName: String, filePath: String, total: Long) {
+01386:         try {
+01387:             ensureNotificationChannel(context)
+01388:             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+01389:
+01390:             val notificationId = filePath.hashCode()
+01391:
+01392:             val builder = NotificationCompat.Builder(context, "file_downloads")
+01393:                 .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+01394:                 .setContentTitle("Subida completada")
+01395:                 .setContentText("$fileName (${formatSize(total)}) subido con éxito")
+01396:                 .setProgress(0, 0, false)
+01397:                 .setOngoing(false)
+01398:                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+01399:                 .setAutoCancel(true)
+01400:
+01401:             notificationManager.notify(notificationId, builder.build())
+01402:         } catch (e: Exception) {
+01403:             Log.e("MeshFilesUpload", "Error showing completion notification: ${e.localizedMessage}", e)
+01404:         }
+01405:     }
+01406:
+01407:     private fun finishDownload(targetFilePath: String? = null) {
+01408:         try {
+01409:             val key = targetFilePath ?: activeDownloads.keys.firstOrNull() ?: return
+01410:             val session = activeDownloads.remove(key) ?: return
+01411:
+01412:             session.outputStream?.flush()
+01413:             session.outputStream?.close()
+01414:
+01415:             val fileName = session.fileName
+01416:             val totalSize = session.receivedBytes
+01417:             val ctx = session.context
+01418:
+01419:             _activeTransfers.value = _activeTransfers.value.map {
+01420:                 if (it.filePath == key) {
+01421:                     it.copy(bytesTransferred = totalSize, totalBytes = totalSize, isCompleted = true)
+01422:                 } else {
+01423:                     it
+01424:                 }
+01425:             }
+01426:
+01427:             scope.launch {
+01428:                 delay(1200)
+01429:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
+01430:             }
+01431:
+01432:             if (ctx != null) {
+01433:                 showDownloadCompleteNotification(ctx, fileName, key, totalSize)
+01434:                 scope.launch(Dispatchers.Main) {
+01435:                     Toast.makeText(
+01436:                         ctx,
+01437:                         "Descarga completada: $fileName (${formatSize(totalSize)}) en carpeta Downloads",
+01438:                         Toast.LENGTH_LONG
+01439:                     ).show()
+01440:                 }
+01441:             }
+01442:         } catch (e: Exception) {
+01443:             Log.e("MeshFilesDownload", "Error finishing download: ${e.localizedMessage}", e)
+01444:         }
+01445:     }
+01446:
+01447:     private fun startFileCopyStream(srcPath: String, destPath: String, size: Long, context: Context? = null) {
+01448:         val targetName = destPath.substringAfterLast('/')
+01449:         if (size == 0L) {
+01450:             uploadRawFileToPath(destPath, ByteArray(0), context)
+01451:             _statusMessage.value = "Copiado exitosamente: $targetName"
+01452:             _clipboardItem.value = null
+01453:             return
+01454:         }
+01455:
+01456:         val progress = TransferProgress(
+01457:             fileName = targetName,
+01458:             filePath = destPath,
+01459:             isUpload = false,
+01460:             bytesTransferred = 0L,
+01461:             totalBytes = size,
+01462:             type = TransferType.COPY
+01463:         )
+01464:         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath } + progress
+01465:
+01466:         copyingSourcePath = srcPath
+01467:         copyingDestPath = destPath
+01468:         copyingTotalSize = size
+01469:         copyingReceivedBytes = 0L
+01470:
+01471:         try {
+01472:             copyingTempFile = File.createTempFile("mesh_copy_", ".tmp", context?.cacheDir)
+01473:             copyingFileOutputStream = FileOutputStream(copyingTempFile)
+01474:         } catch (e: Exception) {
+01475:             Log.e("MeshFilesCopy", "Error creating copy temp file: ${e.localizedMessage}", e)
+01476:         }
+01477:
+01478:         val session = ActiveCopyMoveSession(
+01479:             filePath = destPath,
+01480:             fileName = targetName,
+01481:             isMove = false,
+01482:             transferredBytes = 0L,
+01483:             totalSize = size,
+01484:             job = null,
+01485:             context = context
+01486:         )
+01487:         activeCopyMoveSessions[destPath] = session
+01488:
+01489:         val reqId = Random.nextInt(100000, 999999)
+01490:
+01491:         val parentDir = if (srcPath.contains('/')) {
+01492:             srcPath.substringBeforeLast('/').ifEmpty { "/" }
+01493:         } else {
+01494:             _currentPath.value
+01495:         }
+01496:         val fileName = srcPath.substringAfterLast('/')
+01497:
+01498:         val req1 = JsonObject().apply {
+01499:             addProperty("action", "download")
+01500:             addProperty("path", parentDir)
+01501:             addProperty("file", fileName)
+01502:             addProperty("subaction", "start")
+01503:             addProperty("id", reqId)
+01504:         }
+01505:         webSocket?.send(req1.toString())
+01506:
+01507:         scope.launch(Dispatchers.IO) {
+01508:             delay(50)
+01509:             val req2 = JsonObject().apply {
+01510:                 addProperty("action", "download")
+01511:                 addProperty("path", parentDir)
+01512:                 addProperty("file", fileName)
+01513:                 addProperty("subaction", "download")
+01514:                 addProperty("id", reqId)
+01515:             }
+01516:             webSocket?.send(req2.toString())
+01517:         }
+01518:     }
+01519:
+01520:     private fun finishCopyingFile() {
+01521:         try {
+01522:             val destPath = copyingDestPath ?: return
+01523:             val targetName = destPath.substringAfterLast('/')
+01524:             val tempFile = copyingTempFile
+01525:
+01526:             try {
+01527:                 copyingFileOutputStream?.flush()
+01528:                 copyingFileOutputStream?.close()
+01529:             } catch (_: Exception) {}
+01530:             copyingFileOutputStream = null
+01531:
+01532:             copyingSourcePath = null
+01533:             copyingDestPath = null
+01534:             copyingTotalSize = 0L
+01535:             copyingReceivedBytes = 0L
+01536:             copyingTempFile = null
+01537:
+01538:             if (tempFile != null && tempFile.exists() && activeCopyMoveSessions.containsKey(destPath)) {
+01539:                 scope.launch(Dispatchers.IO) {
+01540:                     try {
+01541:                         val fileLen = tempFile.length()
+01542:                         val totalSize = fileLen.coerceAtLeast(1L)
+01543:                         val uploadReq = JsonObject().apply {
+01544:                             addProperty("action", "upload")
+01545:                             addProperty("path", destPath)
+01546:                             addProperty("size", fileLen)
+01547:                         }
+01548:                         webSocket?.send(uploadReq.toString())
+01549:                         delay(100)
+01550:
+01551:                         FileInputStream(tempFile).use { input ->
+01552:                             val buffer = ByteArray(64 * 1024)
+01553:                             var uploaded = 0L
+01554:                             while (activeCopyMoveSessions.containsKey(destPath)) {
+01555:                                 val read = input.read(buffer)
+01556:                                 if (read == -1) break
+01557:                                 val chunk = ByteString.of(*buffer.copyOfRange(0, read))
+01558:                                 webSocket?.send(chunk)
+01559:                                 uploaded += read
+01560:
+01561:                                 val prog = (totalSize / 2) + if (fileLen > 0) (uploaded * totalSize) / (fileLen * 2) else 0L
+01562:                                 _activeTransfers.value = _activeTransfers.value.map {
+01563:                                     if (it.filePath == destPath) it.copy(bytesTransferred = prog.coerceAtMost(totalSize), totalBytes = totalSize) else it
+01564:                                 }
+01565:                                 delay(10)
+01566:                             }
+01567:                         }
+01568:
+01569:                         if (activeCopyMoveSessions.containsKey(destPath)) {
+01570:                             _activeTransfers.value = _activeTransfers.value.map {
+01571:                                 if (it.filePath == destPath) it.copy(bytesTransferred = totalSize, isCompleted = true) else it
+01572:                             }
+01573:                             _clipboardItem.value = null
+01574:                             clipboardNodeId = null
+01575:                             _statusMessage.value = "Copiado exitosamente: $targetName"
+01576:                             activeCopyMoveSessions.remove(destPath)
+01577:                             delay(1200)
+01578:                             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+01579:                             if (isConnected()) {
+01580:                                 listDirectory(_currentPath.value)
+01581:                             }
+01582:                         }
+01583:                     } catch (e: Exception) {
+01584:                         Log.e("MeshFilesCopy", "Error finishing WS copy: ${e.localizedMessage}", e)
+01585:                     } finally {
+01586:                         tempFile.delete()
+01587:                     }
+01588:                 }
+01589:             } else {
+01590:                 tempFile?.delete()
+01591:                 activeCopyMoveSessions.remove(destPath)
+01592:                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
+01593:             }
+01594:         } catch (e: Exception) {
+01595:             Log.e("MeshFilesCopy", "Error finishing copy: ${e.localizedMessage}", e)
+01596:         }
+01597:     }
+01598:
+01599:     private fun finishReadingFile() {
+01600:         try {
+01601:             val path = readingFilePath ?: return
+01602:             val bytes = readingBuffer?.toByteArray() ?: ByteArray(0)
+01603:             val textContent = String(bytes, Charsets.UTF_8)
+01604:
+01605:             scope.launch {
+01606:                 _fileReadingProgress.value = 1.0f
+01607:                 delay(150)
+01608:                 readingFilePath = null
+01609:                 readingBuffer = null
+01610:                 readingTotalSize = 0L
+01611:                 readingReceivedBytes = 0L
+01612:                 _fileReadingProgress.value = null
+01613:
+01614:                 _fileContent.value = Pair(path, textContent)
+01615:             }
+01616:         } catch (e: Exception) {
+01617:             Log.e("MeshFilesRead", "Error finishing read: ${e.localizedMessage}", e)
+01618:             _fileReadingProgress.value = null
+01619:         }
+01620:     }
+01621:
+01622:     fun listDirectory(path: String) {
+01623:         val targetPath = if (path.isEmpty()) "/" else path
+01624:         val req = JsonObject().apply {
+01625:             addProperty("action", "ls")
+01626:             addProperty("path", targetPath)
+01627:         }
+01628:         scope.launch(Dispatchers.IO) {
+01629:             ensureConnected()
+01630:             webSocket?.send(req.toString())
+01631:         }
+01632:     }
+01633:
+01634:     fun createFolder(folderName: String) {
+01635:         val path = _currentPath.value.trimEnd('/')
+01636:         val fullPath = if (path.isEmpty()) "/$folderName" else "$path/$folderName"
+01637:         val req = JsonObject().apply {
+01638:             addProperty("action", "mkdir")
+01639:             addProperty("path", fullPath)
+01640:         }
+01641:         scope.launch(Dispatchers.IO) {
+01642:             ensureConnected()
+01643:             webSocket?.send(req.toString())
+01644:             delay(200)
+01645:             listDirectory(_currentPath.value)
+01646:         }
+01647:     }
+01648:
+01649:     fun createFile(fileName: String, content: String = "") {
+01650:         val path = _currentPath.value.trimEnd('/')
+01651:         val fullPath = if (path.isEmpty()) "/$fileName" else "$path/$fileName"
+01652:         val req = JsonObject().apply {
+01653:             addProperty("action", "upload")
+01654:             addProperty("path", fullPath)
+01655:             addProperty("size", content.toByteArray().size)
+01656:         }
+01657:         scope.launch(Dispatchers.IO) {
+01658:             ensureConnected()
+01659:             webSocket?.send(req.toString())

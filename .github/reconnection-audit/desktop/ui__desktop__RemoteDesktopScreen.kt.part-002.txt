@@ -1,0 +1,123 @@
+import iecxiv.meshfabric.data.remote.DesktopEncoding
+import iecxiv.meshfabric.data.remote.FrameRateOption
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun RemoteDesktopScreen(
+    nodeId: String,
+    nodeName: String,
+    viewModel: RemoteDesktopViewModel,
+    onBack: () -> Unit
+) {
+    val isConnected by viewModel.isConnected(nodeId).collectAsState()
+    val desktopBitmap by viewModel.desktopBitmap(nodeId).collectAsState()
+    val frameVersion by viewModel.frameVersion(nodeId).collectAsState()
+    val settings by viewModel.settings(nodeId).collectAsState()
+    val remoteClipboardText by viewModel.remoteClipboardText(nodeId).collectAsState()
+
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+
+    var selectedMode by remember { mutableStateOf(MouseMode.LEFT_CLICK) }
+    var isControlsBarCollapsed by rememberSaveable {
+        mutableStateOf(viewModel.isDesktopBarCollapsed())
+    }
+    var isFullScreen by rememberSaveable { mutableStateOf(false) }
+    var barRelativeY by rememberSaveable { mutableFloatStateOf(0f) }
+
+    var isSoftKeyboardOpen by remember { mutableStateOf(false) }
+    var softKeyboardTextFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    var showKeyboardDialog by remember { mutableStateOf(false) }
+    var showClipboardDialog by remember { mutableStateOf(false) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+
+    var textInput by remember { mutableStateOf("") }
+    var sendClipboardInput by remember { mutableStateOf("") }
+
+    val density = LocalDensity.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
+    val isImeVisible = WindowInsets.isImeVisible
+
+    LaunchedEffect(isImeVisible) {
+        if (!isImeVisible && isSoftKeyboardOpen) {
+            isSoftKeyboardOpen = false
+        }
+    }
+
+    LaunchedEffect(isSoftKeyboardOpen) {
+        if (isSoftKeyboardOpen) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        } else {
+            keyboardController?.hide()
+        }
+    }
+
+    BackHandler(enabled = isFullScreen) {
+        isFullScreen = false
+    }
+
+    val view = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(isFullScreen) {
+        val window = (view.context as? android.app.Activity)?.window ?: return@LaunchedEffect
+        val insetsController = androidx.core.view.WindowCompat.getInsetsController(window, view)
+        if (isFullScreen) {
+            insetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    DisposableEffect(nodeId) {
+        viewModel.startSession(nodeId)
+        viewModel.resumeSession(nodeId)
+        onDispose {
+            viewModel.pauseSession(nodeId)
+        }
+    }
+
+    LaunchedEffect(remoteClipboardText, settings.autoClipboard) {
+        if (settings.autoClipboard && remoteClipboardText.isNotEmpty()) {
+            clipboardManager.setText(AnnotatedString(remoteClipboardText))
+            Toast.makeText(context, "Portapapeles copiado automáticamente a Android", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(showClipboardDialog) {
+        if (showClipboardDialog) {
+            viewModel.requestRemoteClipboard(nodeId)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            if (!isFullScreen) {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(text = stringResource(R.string.desktop_title, nodeName), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(
+                                text = if (isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_connecting),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isConnected) Color.Green else Color.Yellow
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { showKeyboardDialog = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {

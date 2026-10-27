@@ -87,7 +87,7 @@ class MainActivity : ComponentActivity() {
                     desktopClient.hasDisconnectedWithBuffer() ||
                     fileClient.hasDisconnectedWithBuffer()
 
-            KeepAliveService.updateNotification(applicationContext, hasActiveConnected, hasDisconnected)
+            KeepAliveService.updateNotification(applicationContext, hasActiveConnected, hasDisconnected, desktopClient.hasActiveSessions())
         }
 
         setContent {
@@ -171,7 +171,7 @@ class MainActivity : ComponentActivity() {
                 fileClient.hasDisconnectedWithBuffer()
 
         if (totalActiveSessions > 0) {
-            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions)
+            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions, desktopClient.hasActiveSessions())
         } else {
             KeepAliveService.stopService(applicationContext)
         }

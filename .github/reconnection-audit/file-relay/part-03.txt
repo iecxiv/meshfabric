@@ -1,0 +1,255 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 583-833
+
+00583:
+00584:             if (data != null) {
+00585:                 val chunkBytes = try {
+00586:                     android.util.Base64.decode(data, android.util.Base64.DEFAULT)
+00587:                 } catch (_: Exception) {
+00588:                     data.toByteArray(Charsets.UTF_8)
+00589:                 }
+00590:
+00591:                 val activeDl = activeDownloads.values.firstOrNull()
+00592:                 if (activeDl != null) {
+00593:                     activeDl.outputStream?.write(chunkBytes)
+00594:                     activeDl.receivedBytes += chunkBytes.size
+00595:                     _activeTransfers.value = _activeTransfers.value.map {
+00596:                         if (it.filePath == activeDl.filePath) {
+00597:                             it.copy(
+00598:                                 bytesTransferred = activeDl.receivedBytes,
+00599:                                 totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
+00600:                             )
+00601:                         } else {
+00602:                             it
+00603:                         }
+00604:                     }
+00605:                     if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
+00606:                         finishDownload(activeDl.filePath)
+00607:                     } else if (action == "readfile") {
+00608:                         finishDownload(activeDl.filePath)
+00609:                     } else if (activeDl.context != null) {
+00610:                         updateDownloadNotification(
+00611:                             activeDl.context,
+00612:                             activeDl.fileName,
+00613:                             activeDl.filePath,
+00614:                             activeDl.receivedBytes,
+00615:                             activeDl.totalSize
+00616:                         )
+00617:                     }
+00618:                     return
+00619:                 }
+00620:
+00621:                 if (readingFilePath != null) {
+00622:                     readingBuffer?.write(chunkBytes)
+00623:                     readingReceivedBytes += chunkBytes.size
+00624:                     finishReadingFile()
+00625:                     return
+00626:                 }
+00627:
+00628:                 if (copyingSourcePath != null) {
+00629:                     try {
+00630:                         copyingFileOutputStream?.write(chunkBytes)
+00631:                         copyingReceivedBytes += chunkBytes.size
+00632:                         val progress = if (copyingTotalSize > 0) {
+00633:                             (copyingReceivedBytes * copyingTotalSize) / (copyingTotalSize * 2)
+00634:                         } else {
+00635:                             copyingReceivedBytes / 2
+00636:                         }
+00637:                         val destPath = copyingDestPath
+00638:                         _activeTransfers.value = _activeTransfers.value.map {
+00639:                             if (it.filePath == destPath) it.copy(bytesTransferred = progress) else it
+00640:                         }
+00641:                         if (copyingTotalSize > 0 && copyingReceivedBytes >= copyingTotalSize) {
+00642:                             finishCopyingFile()
+00643:                         }
+00644:                         return
+00645:                     } catch (e: Exception) {
+00646:                         Log.e("MeshFilesCopy", "Error writing copy chunk: ${e.localizedMessage}", e)
+00647:                     }
+00648:                 }
+00649:             } else {
+00650:                 val size = json.get("size")?.asLong ?: 0L
+00651:                 if (size > 0) {
+00652:                     val activeDl = activeDownloads.values.firstOrNull()
+00653:                     if (activeDl != null) {
+00654:                         activeDl.totalSize = size
+00655:                         _activeTransfers.value = _activeTransfers.value.map {
+00656:                             if (it.filePath == activeDl.filePath) it.copy(totalBytes = size) else it
+00657:                         }
+00658:                     } else if (copyingSourcePath != null) {
+00659:                         copyingTotalSize = size
+00660:                     } else if (readingFilePath != null) {
+00661:                         readingTotalSize = size
+00662:                     }
+00663:                 }
+00664:             }
+00665:         } catch (e: Exception) {
+00666:             Log.e("MeshFiles", "Error parsing control JSON: ${e.localizedMessage}", e)
+00667:         }
+00668:     }
+00669:
+00670:     private fun handleJsonMessage(text: String) {
+00671:         try {
+00672:             val json = gson.fromJson(text, JsonObject::class.java) ?: return
+00673:             val action = json.get("action")?.asString ?: ""
+00674:             val isDirectoryListing = action == "ls" || action == "dir" ||
+00675:                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
+00676:
+00677:             if (isDirectoryListing) {
+00678:                 val path = json.get("path")?.asString ?: "/"
+00679:
+00680:                 val recursiveTarget = recursiveCopyTargetDir
+00681:                 if (recursiveTarget != null && path == copyingDirectorySource) {
+00682:                     recursiveCopyTargetDir = null
+00683:                     copyingDirectorySource = null
+00684:
+00685:                     val dirArray = json.getAsJsonArray("dir")
+00686:                         ?: json.getAsJsonArray("files")
+00687:                         ?: json.getAsJsonArray("list")
+00688:
+00689:                     if (dirArray != null) {
+00690:                         for (elem in dirArray) {
+00691:                             if (!elem.isJsonObject) continue
+00692:                             val obj = elem.asJsonObject
+00693:                             val name = obj.get("name")?.asString ?: obj.get("n")?.asString ?: continue
+00694:                             val t = obj.get("t")?.asInt ?: 0
+00695:                             val isDir = (t == 1 || t == 2) || (t == 0 && name.endsWith("/"))
+00696:                             val cleanName = name.removeSuffix("/")
+00697:                             val srcItemPath = "$path/$cleanName"
+00698:                             val destItemPath = "$recursiveTarget/$cleanName"
+00699:
+00700:                             if (isDir) {
+00701:                                 val req = JsonObject().apply {
+00702:                                     addProperty("action", "mkdir")
+00703:                                     addProperty("path", destItemPath)
+00704:                                 }
+00705:                                 webSocket?.send(req.toString())
+00706:                             } else {
+00707:                                 val fileSize = try { obj.get("s")?.asLong ?: 0L } catch (e: Exception) { 0L }
+00708:                                 startFileCopyStream(srcItemPath, destItemPath, fileSize)
+00709:                             }
+00710:                         }
+00711:                     }
+00712:                     _statusMessage.value = "Copiados elementos de carpeta"
+00713:                     scope.launch {
+00714:                         delay(600)
+00715:                         listDirectory(_currentPath.value)
+00716:                     }
+00717:                     return
+00718:                 }
+00719:
+00720:                 _currentPath.value = path.ifEmpty { "/" }
+00721:
+00722:                 val items = mutableListOf<FileItem>()
+00723:                 val dirArray = json.getAsJsonArray("dir")
+00724:                     ?: json.getAsJsonArray("files")
+00725:                     ?: json.getAsJsonArray("list")
+00726:
+00727:                 if (dirArray != null) {
+00728:                     for (elem in dirArray) {
+00729:                         if (!elem.isJsonObject) continue
+00730:                         val obj = elem.asJsonObject
+00731:                         val name = obj.get("name")?.asString
+00732:                             ?: obj.get("n")?.asString
+00733:                             ?: continue
+00734:                         val t = obj.get("t")?.asInt ?: 0
+00735:                         val isDir = (t == 1 || t == 2) || (t == 0 && name.endsWith("/"))
+00736:
+00737:                         var size = try {
+00738:                             obj.get("s")?.asLong ?: obj.get("size")?.asLong ?: 0L
+00739:                         } catch (e: Exception) { 0L }
+00740:
+00741:                         val modified = try {
+00742:                             obj.get("d")?.asLong ?: obj.get("date")?.asLong ?: 0L
+00743:                         } catch (e: Exception) { 0L }
+00744:
+00745:                         val cleanName = name.removeSuffix("/")
+00746:                         val cleanPath = path.trimEnd('/')
+00747:                         val itemPath = if (cleanPath.isEmpty()) "/$cleanName" else "$cleanPath/$cleanName"
+00748:
+00749:                         if (!isDir && size == 0L) {
+00750:                             val saved = savedFileContents[itemPath]
+00751:                             if (saved != null && saved.isNotEmpty()) {
+00752:                                 size = saved.toByteArray(Charsets.UTF_8).size.toLong()
+00753:                             } else {
+00754:                                 val cached = _fileContent.value
+00755:                                 if (cached != null && cached.first == itemPath && cached.second.isNotEmpty()) {
+00756:                                     size = cached.second.toByteArray(Charsets.UTF_8).size.toLong()
+00757:                                 } else {
+00758:                                     val existing = _fileList.value.firstOrNull { it.path == itemPath }
+00759:                                     if (existing != null && existing.size > 0L) {
+00760:                                         size = existing.size
+00761:                                     }
+00762:                                 }
+00763:                             }
+00764:                         }
+00765:
+00766:                         items.add(
+00767:                             FileItem(
+00768:                                 name = cleanName,
+00769:                                 isDir = isDir,
+00770:                                 size = size,
+00771:                                 modifiedTime = modified,
+00772:                                 path = itemPath
+00773:                             )
+00774:                         )
+00775:                     }
+00776:                 }
+00777:
+00778:                 val sortedItems = items.sortedWith(
+00779:                     compareByDescending<FileItem> { it.isDir }
+00780:                         .thenBy { it.name.lowercase() }
+00781:                 )
+00782:                 _fileList.value = sortedItems
+00783:                 onStateChanged?.invoke()
+00784:                 if (activeZipSessions.isNotEmpty()) {
+00785:                     val cleanCurrent = path.trimEnd('/')
+00786:                     for (session in activeZipSessions.values.toList()) {
+00787:                         val zipParent = if (session.zipPath.contains('/')) {
+00788:                             session.zipPath.substringBeforeLast('/').ifEmpty { "/" }
+00789:                         } else {
+00790:                             "/"
+00791:                         }
+00792:                         val cleanZipParent = zipParent.trimEnd('/')
+00793:                         if (cleanZipParent.equals(cleanCurrent, ignoreCase = true) || (cleanZipParent.isEmpty() && cleanCurrent.isEmpty())) {
+00794:                             val fileCreated = sortedItems.firstOrNull { it.name.equals(session.fileName, ignoreCase = true) }
+00795:                             if (fileCreated != null) {
+00796:                                 if (fileCreated.size > 0L) {
+00797:                                     session.totalSize = fileCreated.size
+00798:                                 }
+00799:                                 finishZip(session)
+00800:                             }
+00801:                         }
+00802:                     }
+00803:                 }
+00804:                 Log.d("MeshFiles", "Successfully parsed ${sortedItems.size} items for path '$path' on $cleanNodeId")
+00805:             } else if (action == "zip" || action == "dialogmessage" || json.get("subaction")?.asString == "zip" || json.has("zip") || (activeZipSessions.isNotEmpty() && (json.has("current") || json.has("percent") || json.has("progress") || json.has("compressed")))) {
+00806:                 handleZipControlMessage(json)
+00807:             } else if (action == "download" || action == "read" || action == "readfile") {
+00808:                 val path = json.get("path")?.asString ?: ""
+00809:                 val content = json.get("data")?.asString
+00810:                     ?: json.get("content")?.asString
+00811:                     ?: json.get("text")?.asString
+00812:
+00813:                 if (path.isNotEmpty() && content != null) {
+00814:                     readingFilePath = null
+00815:                     readingBuffer = null
+00816:                     _fileReadingProgress.value = null
+00817:                     _fileContent.value = Pair(path, content)
+00818:                 }
+00819:             } else if (action == "rm" || action == "rename" || action == "mkdir") {
+00820:                 scope.launch {
+00821:                     delay(300)
+00822:                     listDirectory(_currentPath.value)
+00823:                 }
+00824:             } else if (action == "msg") {
+00825:                 val msg = json.get("value")?.asString
+00826:                 if (msg != null) {
+00827:                     _statusMessage.value = msg
+00828:                 }
+00829:             }
+00830:         } catch (e: Exception) {
+00831:             Log.e("MeshFiles", "Error parsing JSON: ${e.localizedMessage}", e)
+00832:         }
+00833:     }

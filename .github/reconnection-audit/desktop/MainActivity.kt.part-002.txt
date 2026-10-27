@@ -1,0 +1,76 @@
+                    MeshCentralNavGraph(
+                        navController = navController,
+                        loginViewModel = loginViewModel,
+                        deviceListViewModel = deviceListViewModel,
+                        desktopViewModel = desktopViewModel,
+                        terminalViewModel = terminalViewModel,
+                        fileManagerViewModel = fileManagerViewModel,
+                        settingsViewModel = settingsViewModel
+                    )
+                }
+            }
+        }
+    }
+
+    private fun updateTaskDescription(appName: String, customIconPath: String?) {
+        try {
+            val bitmap = if (!customIconPath.isNullOrBlank()) {
+                try {
+                    val file = File(customIconPath)
+                    if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
+                } catch (_: Exception) { null }
+            } else null
+
+            @Suppress("DEPRECATION")
+            val taskDesc = ActivityManager.TaskDescription(appName, bitmap)
+            setTaskDescription(taskDesc)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        KeepAliveService.stopService(applicationContext)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val session = sessionManager.getSession()
+        if (session != null && session.serverUrl.isNotBlank() && session.authCookie.isNotBlank()) {
+            if (!meshClient.connectionState.value) {
+                meshClient.connectControlSocket(
+                    rawServerUrl = session.serverUrl,
+                    cookie = session.authCookie,
+                    ignoreSslCert = session.ignoreSsl
+                )
+            }
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        val totalActiveSessions = terminalClient.getSessionCount() +
+                desktopClient.getSessionCount() +
+                fileClient.getSessionCount()
+
+        val hasActiveConnected = terminalClient.hasActiveSessions() ||
+                desktopClient.hasActiveSessions() ||
+                fileClient.hasActiveSessions()
+
+        val hasDisconnectedSessions = terminalClient.hasDisconnectedWithBuffer() ||
+                desktopClient.hasDisconnectedWithBuffer() ||
+                fileClient.hasDisconnectedWithBuffer()
+
+        if (totalActiveSessions > 0) {
+            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions)
+        } else {
+            KeepAliveService.stopService(applicationContext)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Keep active sessions alive unless destroyed by user action or task removed
+    }
+}

@@ -1,0 +1,265 @@
+Source: app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+Original blob: 3999cbe42d876544ee856e04878990c33a95e191
+Lines: 322-582
+
+00322:             meshClient.userAuthCookie.ifEmpty {
+00323:                 meshClient.extractRawToken(cookie)
+00324:             }
+00325:         }
+00326:         val encodedRelayToken = try { URLEncoder.encode(relayToken, "UTF-8") } catch (e: Exception) { relayToken }
+00327:         val ignoreSsl = meshClient.ignoreSsl
+00328:
+00329:         val client = OkHttpHelper.createClient(ignoreSsl)
+00330:         val tunnelId = Random.nextInt(100000, 999999).toString()
+00331:         val encodedNodeId = try { URLEncoder.encode(fullNodeId, "UTF-8") } catch (e: Exception) { fullNodeId }
+00332:
+00333:         val wsUrl = OkHttpHelper.toWebSocketUrl(
+00334:             serverUrl,
+00335:             "/meshrelay.ashx?p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
+00336:         )
+00337:
+00338:         Log.d("MeshFiles", "Connecting files WS for $cleanNodeId to: $wsUrl")
+00339:
+00340:         val requestBuilder = Request.Builder().url(wsUrl)
+00341:         if (cookie.isNotBlank()) {
+00342:             requestBuilder.addHeader("Cookie", cookie)
+00343:         }
+00344:
+00345:         webSocket?.close(1000, "Reconnecting")
+00346:         webSocket = null
+00347:
+00348:         webSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
+00349:             override fun onOpen(webSocket: WebSocket, response: Response) {
+00350:                 Log.d("MeshFiles", "WebSocket onOpen for $cleanNodeId. Ensuring control socket is ready...")
+00351:                 scope.launch(Dispatchers.IO) {
+00352:                     ensureControlSocketConnected()
+00353:                     Log.d("MeshFiles", "Control socket ready. Requesting tunnel ID $tunnelId...")
+00354:                     meshClient.requestTunnel(nodeId = fullNodeId, protocol = 5, tunnelId = tunnelId)
+00355:                 }
+00356:             }
+00357:
+00358:             override fun onMessage(webSocket: WebSocket, text: String) {
+00359:                 Log.d("MeshFilesRecvRawText", "WS Text: $text")
+00360:                 if (text == "c" || text == "cr") {
+00361:                     handleIncomingMessage(webSocket, text)
+00362:                     return
+00363:                 }
+00364:                 if (isProtocolJsonMessage(text)) {
+00365:                     handleIncomingMessage(webSocket, text)
+00366:                     processJsonControlMessage(text)
+00367:                 } else {
+00368:                     val activeDl = activeDownloads.values.firstOrNull()
+00369:                     if (activeDl != null) {
+00370:                         val chunkBytes = text.toByteArray(Charsets.UTF_8)
+00371:                         activeDl.outputStream?.write(chunkBytes)
+00372:                         activeDl.receivedBytes += chunkBytes.size
+00373:                         _activeTransfers.value = _activeTransfers.value.map {
+00374:                             if (it.filePath == activeDl.filePath) {
+00375:                                 it.copy(
+00376:                                     bytesTransferred = activeDl.receivedBytes,
+00377:                                     totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
+00378:                                 )
+00379:                             } else {
+00380:                                 it
+00381:                             }
+00382:                         }
+00383:                         if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
+00384:                             finishDownload(activeDl.filePath)
+00385:                         } else if (activeDl.context != null) {
+00386:                             updateDownloadNotification(
+00387:                                 activeDl.context,
+00388:                                 activeDl.fileName,
+00389:                                 activeDl.filePath,
+00390:                                 activeDl.receivedBytes,
+00391:                                 activeDl.totalSize
+00392:                             )
+00393:                         }
+00394:                     } else if (readingFilePath != null) {
+00395:                         val chunkBytes = text.toByteArray(Charsets.UTF_8)
+00396:                         readingBuffer?.write(chunkBytes)
+00397:                         readingReceivedBytes += chunkBytes.size
+00398:                         val progress = if (readingTotalSize > 0) {
+00399:                             (readingReceivedBytes.toFloat() / readingTotalSize.toFloat()).coerceIn(0.05f, 1.0f)
+00400:                         } else {
+00401:                             0.5f
+00402:                         }
+00403:                         _fileReadingProgress.value = progress
+00404:                         if (readingTotalSize > 0 && readingReceivedBytes >= readingTotalSize) {
+00405:                             finishReadingFile()
+00406:                         }
+00407:                     } else {
+00408:                         handleIncomingMessage(webSocket, text)
+00409:                     }
+00410:                 }
+00411:             }
+00412:
+00413:             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+00414:                 val textCandidate = try { bytes.utf8().trim() } catch (_: Exception) { "" }
+00415:                 val isJson = isProtocolJsonMessage(textCandidate)
+00416:
+00417:                 if (isJson || textCandidate == "c") {
+00418:                     Log.d("MeshFilesRecvJsonBytes", "WS JSON/Control Bytes: $textCandidate")
+00419:                     handleIncomingMessage(webSocket, textCandidate)
+00420:                     processJsonControlMessage(textCandidate)
+00421:                     return
+00422:                 }
+00423:
+00424:                 Log.d("MeshFilesRecvDataBytes", "WS Data Bytes: ${bytes.size} bytes")
+00425:                 val byteArray = bytes.toByteArray()
+00426:
+00427:                 val activeDl = activeDownloads.values.firstOrNull()
+00428:                 if (activeDl != null) {
+00429:                     try {
+00430:                         activeDl.outputStream?.write(byteArray)
+00431:                         activeDl.receivedBytes += byteArray.size
+00432:
+00433:                         _activeTransfers.value = _activeTransfers.value.map {
+00434:                             if (it.filePath == activeDl.filePath) {
+00435:                                 it.copy(
+00436:                                     bytesTransferred = activeDl.receivedBytes,
+00437:                                     totalBytes = if (activeDl.totalSize > 0) activeDl.totalSize else activeDl.receivedBytes
+00438:                                 )
+00439:                             } else {
+00440:                                 it
+00441:                             }
+00442:                         }
+00443:
+00444:                         if (activeDl.context != null) {
+00445:                             updateDownloadNotification(
+00446:                                 activeDl.context,
+00447:                                 activeDl.fileName,
+00448:                                 activeDl.filePath,
+00449:                                 activeDl.receivedBytes,
+00450:                                 activeDl.totalSize
+00451:                             )
+00452:                         }
+00453:
+00454:                         if (activeDl.totalSize > 0 && activeDl.receivedBytes >= activeDl.totalSize) {
+00455:                             finishDownload(activeDl.filePath)
+00456:                         }
+00457:                         return
+00458:                     } catch (e: Exception) {
+00459:                         Log.e("MeshFilesDownload", "Error writing download chunk: ${e.localizedMessage}", e)
+00460:                     }
+00461:                 } else if (copyingSourcePath != null) {
+00462:                     try {
+00463:                         copyingFileOutputStream?.write(byteArray)
+00464:                         copyingReceivedBytes += byteArray.size
+00465:                         val progress = if (copyingTotalSize > 0) {
+00466:                             (copyingReceivedBytes * copyingTotalSize) / (copyingTotalSize * 2)
+00467:                         } else {
+00468:                             copyingReceivedBytes / 2
+00469:                         }
+00470:                         val destPath = copyingDestPath
+00471:                         _activeTransfers.value = _activeTransfers.value.map {
+00472:                             if (it.filePath == destPath) it.copy(bytesTransferred = progress) else it
+00473:                         }
+00474:                         if (copyingTotalSize > 0 && copyingReceivedBytes >= copyingTotalSize) {
+00475:                             finishCopyingFile()
+00476:                         }
+00477:                         return
+00478:                     } catch (e: Exception) {
+00479:                         Log.e("MeshFilesCopy", "Error buffering copy chunk: ${e.localizedMessage}", e)
+00480:                     }
+00481:                 } else if (readingFilePath != null) {
+00482:                     try {
+00483:                         readingBuffer?.write(byteArray)
+00484:                         readingReceivedBytes += byteArray.size
+00485:                         val progress = if (readingTotalSize > 0) {
+00486:                             (readingReceivedBytes.toFloat() / readingTotalSize.toFloat()).coerceIn(0.05f, 1.0f)
+00487:                         } else {
+00488:                             0.5f
+00489:                         }
+00490:                         _fileReadingProgress.value = progress
+00491:
+00492:                         if (readingTotalSize > 0 && readingReceivedBytes >= readingTotalSize) {
+00493:                             finishReadingFile()
+00494:                         }
+00495:                         return
+00496:                     } catch (e: Exception) {
+00497:                         Log.e("MeshFilesRead", "Error buffering read chunk: ${e.localizedMessage}", e)
+00498:                     }
+00499:                 }
+00500:
+00501:                 handleIncomingMessage(webSocket, textCandidate)
+00502:             }
+00503:
+00504:             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+00505:                 _connectionState.value = false
+00506:                 this@FileSession.webSocket = null
+00507:                 onStateChanged?.invoke()
+00508:             }
+00509:
+00510:             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+00511:                 _connectionState.value = false
+00512:                 this@FileSession.webSocket = null
+00513:                 onStateChanged?.invoke()
+00514:             }
+00515:
+00516:             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+00517:                 Log.e("MeshFiles", "onFailure for $cleanNodeId: ${t.localizedMessage}", t)
+00518:                 _connectionState.value = false
+00519:                 this@FileSession.webSocket = null
+00520:                 onStateChanged?.invoke()
+00521:             }
+00522:         })
+00523:     }
+00524:
+00525:     private fun handleIncomingMessage(webSocket: WebSocket, text: String) {
+00526:         Log.d("MeshFilesRecv", "Files WS Recv (${text.length} chars): $text")
+00527:         if (text == "c" || text == "cr") {
+00528:             _connectionState.value = true
+00529:             onStateChanged?.invoke()
+00530:             webSocket.send("5")
+00531:
+00532:             scope.launch {
+00533:                 delay(200)
+00534:                 val targetPath = _currentPath.value.ifEmpty { "/" }
+00535:                 listDirectory(targetPath)
+00536:             }
+00537:         } else {
+00538:             handleJsonMessage(text)
+00539:         }
+00540:     }
+00541:
+00542:     private fun processJsonControlMessage(text: String) {
+00543:         if (!isProtocolJsonMessage(text)) return
+00544:         try {
+00545:             val json = gson.fromJson(text, JsonObject::class.java) ?: return
+00546:             val action = json.get("action")?.asString ?: ""
+00547:             val subaction = json.get("subaction")?.asString ?: ""
+00548:
+00549:             if (action == "zip" || action == "dialogmessage" || subaction == "zip" || json.has("zip")) {
+00550:                 handleZipControlMessage(json)
+00551:                 return
+00552:             }
+00553:
+00554:             if (action == "downloadEnd" || subaction == "end" || subaction == "close" || subaction == "complete") {
+00555:                 if (activeDownloads.isNotEmpty()) finishDownload()
+00556:                 if (copyingSourcePath != null) finishCopyingFile()
+00557:                 if (readingFilePath != null) finishReadingFile()
+00558:                 return
+00559:             }
+00560:
+00561:             if (action == "downloadStart" || subaction == "start") {
+00562:                 val reqid = json.get("reqid")?.asString ?: json.get("id")?.asString ?: ""
+00563:                 val size = json.get("size")?.asLong ?: 0L
+00564:                 val activeDl = activeDownloads.values.firstOrNull()
+00565:                 if (activeDl != null && size > 0) {
+00566:                     activeDl.totalSize = size
+00567:                 }
+00568:                 val pullReq = JsonObject().apply {
+00569:                     addProperty("action", "download")
+00570:                     addProperty("subaction", "download")
+00571:                     if (reqid.isNotEmpty()) {
+00572:                         addProperty("reqid", reqid)
+00573:                         addProperty("id", reqid)
+00574:                     }
+00575:                 }
+00576:                 webSocket?.send(pullReq.toString())
+00577:                 return
+00578:             }
+00579:
+00580:             val data = json.get("data")?.asString
+00581:                 ?: json.get("content")?.asString
+00582:                 ?: json.get("text")?.asString

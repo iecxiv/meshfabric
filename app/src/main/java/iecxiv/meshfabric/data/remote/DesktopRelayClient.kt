@@ -21,7 +21,6 @@ import okio.ByteString
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
-import kotlin.random.Random
 
 import iecxiv.meshfabric.R
 
@@ -59,8 +58,16 @@ class DesktopSession(
     val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/").trim()
     val fullNodeId = "node//$cleanNodeId"
 
-    var webSocket: WebSocket? = null
-    var isUserDisconnect = false
+    @Volatile var webSocket: WebSocket? = null
+    @Volatile var isUserDisconnect = true
+    private var visible = false
+    private var epoch = 0L
+    private var retryAt = 0L
+    private var attemptStarted = 0L
+    private var failures = 0
+    private var recoveryJob: Job? = null
+    private var tunnelJob: Job? = null
+    private var initializationJob: Job? = null
 
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
@@ -115,144 +122,209 @@ class DesktopSession(
         }
     }
 
+    private fun nowMs() = System.nanoTime() / 1_000_000L
+
+    private fun current(socket: WebSocket, generation: Long): Boolean =
+        !isUserDisconnect && epoch == generation && webSocket === socket
+
     private fun startUnpauseLoop() {
         stopUnpauseLoop()
+        val socket = webSocket ?: return
+        val generation = epoch
+        if (!visible) return
         unpauseJob = scope.launch {
             while (true) {
-                val delayMs = _settings.value.frameRate.delayMs.coerceAtLeast(100L)
-                delay(delayMs)
-                if (_connectionState.value && webSocket != null) {
-                    sendUnPause()
+                delay(_settings.value.frameRate.delayMs.coerceAtLeast(100L))
+                synchronized(this@DesktopSession) {
+                    if (current(socket, generation) && visible && isConnected()) sendUnPause()
                 }
             }
         }
     }
 
+    @Synchronized
     fun stopUnpauseLoop() {
         unpauseJob?.cancel()
         unpauseJob = null
     }
 
+    @Synchronized
     fun pauseSession() {
-        Log.d("DesktopSession", "Pausing KVM unpause loop for $cleanNodeId")
+        visible = false
         stopUnpauseLoop()
     }
 
+    @Synchronized
     fun resumeSession() {
-        Log.d("DesktopSession", "Resuming KVM session for $cleanNodeId")
-        if (_connectionState.value && webSocket != null) {
+        if (isUserDisconnect) return
+        visible = true
+        if (isConnected()) {
             refreshDisplay()
             startUnpauseLoop()
+        } else {
+            connect()
         }
     }
 
+    @Synchronized
     fun connect() {
-        if (webSocket != null) {
-            Log.d("DesktopSession", "Session for $cleanNodeId already has a WebSocket. Reusing existing session.")
+        isUserDisconnect = false
+        visible = true
+        onStateChanged?.invoke()
+        if (isConnected()) {
             resumeSession()
             return
         }
+        forceReconnect()
+    }
 
-        isUserDisconnect = false
-
-        val serverUrl = meshClient.serverUrl
-        val cookie = meshClient.authCookie
-        val ignoreSsl = meshClient.ignoreSsl
-
-        val client = OkHttpHelper.createClient(ignoreSsl)
-        val tunnelId = Random.nextInt(100000, 999999).toString()
-
-        val relayToken = meshClient.relayAuthCookie.ifEmpty {
-            meshClient.userAuthCookie.ifEmpty {
-                meshClient.extractRawToken(cookie)
+    @Synchronized
+    fun forceReconnect() {
+        if (isUserDisconnect) return
+        retireSocket()
+        failures = 0
+        retryAt = 0L
+        if (!meshClient.connectionState.value && !meshClient.isUserLogout) meshClient.reconnectNow()
+        if (recoveryJob?.isActive != true) {
+            recoveryJob = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                while (true) {
+                    synchronized(this@DesktopSession) {
+                        if (meshClient.isUserLogout) {
+                            disconnect()
+                            return@launch
+                        }
+                        if (!isUserDisconnect) {
+                            if (!meshClient.connectionState.value) {
+                                if (webSocket != null) retireSocket()
+                            } else if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) {
+                                Log.w("DesktopSession", "Desktop handshake timed out for $cleanNodeId")
+                                retireSocket()
+                            }
+                            if (meshClient.connectionState.value && webSocket == null && nowMs() >= retryAt) openSocket()
+                        }
+                    }
+                    delay(1000L)
+                }
             }
+            recoveryJob?.start()
         }
-        val encodedRelayToken = try { URLEncoder.encode(relayToken, "UTF-8") } catch (e: Exception) { relayToken }
-        val encodedNodeId = try { URLEncoder.encode(fullNodeId, "UTF-8") } catch (e: Exception) { fullNodeId }
+        if (meshClient.connectionState.value) openSocket()
+    }
 
-        val wsUrl = OkHttpHelper.toWebSocketUrl(
-            serverUrl,
-            "/meshrelay.ashx?p=2&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
-        )
+    private fun retireSocket() {
+        epoch++
+        tunnelJob?.cancel()
+        tunnelJob = null
+        initializationJob?.cancel()
+        initializationJob = null
+        stopUnpauseLoop()
+        val old = webSocket
+        webSocket = null
+        updateState(false)
+        old?.cancel()
+        retryAt = nowMs() + DesktopRecoveryPolicy.retryDelay(failures++)
+    }
 
-        Log.d("DesktopSession", "Connecting KVM WS ($cleanNodeId) to: $wsUrl")
+    private fun openSocket() {
+        if (isUserDisconnect || meshClient.isUserLogout || webSocket != null || !meshClient.connectionState.value) return
+        val generation = ++epoch
+        attemptStarted = nowMs()
+        try {
+            val token = meshClient.relayAuthCookie.ifEmpty {
+                meshClient.userAuthCookie.ifEmpty { meshClient.extractRawToken(meshClient.authCookie) }
+            }
+            val tunnelId = java.util.UUID.randomUUID().toString()
+            val encodedToken = URLEncoder.encode(token, "UTF-8")
+            val encodedNode = URLEncoder.encode(fullNodeId, "UTF-8")
+            val url = OkHttpHelper.toWebSocketUrl(meshClient.serverUrl,
+                "/meshrelay.ashx?p=2&nodeid=$encodedNode&id=$tunnelId&rauth=$encodedToken&auth=$encodedToken")
+            val request = Request.Builder().url(url).apply {
+                if (meshClient.authCookie.isNotBlank()) header("Cookie", meshClient.authCookie)
+            }.build()
+            webSocket = OkHttpHelper.createClient(meshClient.ignoreSsl).newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(socket: WebSocket, response: Response) {
+                    synchronized(this@DesktopSession) {
+                        if (!current(socket, generation)) { socket.cancel(); return }
+                        if (!meshClient.connectionState.value) { retireSocket(); return }
+                        meshClient.requestTunnel(fullNodeId, 2, tunnelId)
+                        tunnelJob = scope.launch {
+                            delay(1000L)
+                            synchronized(this@DesktopSession) {
+                                if (current(socket, generation) && !isConnected() && meshClient.connectionState.value) {
+                                    meshClient.requestTunnel(fullNodeId, 2, tunnelId)
+                                }
+                            }
+                        }
+                    }
+                }
 
-        val requestBuilder = Request.Builder().url(wsUrl)
-        if (cookie.isNotBlank()) {
-            requestBuilder.addHeader("Cookie", cookie)
+                override fun onMessage(socket: WebSocket, text: String) {
+                    synchronized(this@DesktopSession) {
+                        if (!current(socket, generation)) return
+                        if (text == "c" || text == "cr") {
+                            if (isConnected()) return
+                            tunnelJob?.cancel()
+                            tunnelJob = null
+                            failures = 0
+                            updateState(true)
+                            socket.send("2")
+                            initializationJob = scope.launch {
+                                for (wait in listOf(100L, 200L, 400L, 800L)) {
+                                    delay(wait)
+                                    synchronized(this@DesktopSession) {
+                                        if (!current(socket, generation)) return@launch
+                                        refreshDisplay()
+                                        if (wait == 400L) requestRemoteClipboard()
+                                    }
+                                }
+                            }
+                            startUnpauseLoop()
+                        } else if (text.trim().startsWith("{")) {
+                            handleJsonControlMessage(text.trim())
+                        }
+                    }
+                }
+
+                override fun onMessage(socket: WebSocket, bytes: ByteString) {
+                    synchronized(this@DesktopSession) {
+                        if (current(socket, generation)) handleBinaryFrame(bytes.toByteArray())
+                    }
+                }
+
+                override fun onClosing(socket: WebSocket, code: Int, reason: String) {
+                    synchronized(this@DesktopSession) {
+                        if (current(socket, generation)) retireSocket()
+                    }
+                    socket.cancel()
+                }
+
+                override fun onClosed(socket: WebSocket, code: Int, reason: String) {
+                    synchronized(this@DesktopSession) {
+                        if (current(socket, generation)) retireSocket()
+                    }
+                }
+
+                override fun onFailure(socket: WebSocket, t: Throwable, response: Response?) {
+                    synchronized(this@DesktopSession) {
+                        if (current(socket, generation)) {
+                            Log.w("DesktopSession", "Desktop transport failed for $cleanNodeId (${t.javaClass.simpleName})")
+                            retireSocket()
+                        }
+                    }
+                }
+            })
+        } catch (e: Exception) {
+            Log.w("DesktopSession", "Cannot open desktop transport for $cleanNodeId (${e.javaClass.simpleName})")
+            retireSocket()
         }
+    }
 
-        closeSocketOnly()
-
-        webSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("DesktopSession", "WebSocket onOpen ($cleanNodeId). Requesting tunnel...")
-                meshClient.requestTunnel(nodeId = fullNodeId, protocol = 2, tunnelId = tunnelId)
-                scope.launch {
-                    delay(300)
-                    if (!_connectionState.value && this@DesktopSession.webSocket == webSocket) {
-                        Log.d("DesktopSession", "Retrying tunnel request for ($cleanNodeId)...")
-                        meshClient.requestTunnel(nodeId = fullNodeId, protocol = 2, tunnelId = tunnelId)
-                    }
-                }
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d("DesktopSession", "Received text WS message: '$text' for $cleanNodeId")
-                if (text == "c" || text == "cr") {
-                    updateState(true)
-                    webSocket.send("2")
-                    scope.launch {
-                        delay(100)
-                        sendCompressionSettings(
-                            imageType = _settings.value.encoding.code,
-                            compressionLevel = _settings.value.quality,
-                            scalingLevel = _settings.value.scale
-                        )
-                        delay(200)
-                        refreshDisplay()
-                        delay(400)
-                        requestRemoteClipboard()
-                        delay(800)
-                        refreshDisplay()
-                    }
-                    startUnpauseLoop()
-                } else {
-                    val trimmed = text.trim()
-                    if (trimmed.startsWith("{")) {
-                        handleJsonControlMessage(trimmed)
-                    }
-                }
-            }
-
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                handleBinaryFrame(bytes.toByteArray())
-            }
-
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                if (this@DesktopSession.webSocket == webSocket) {
-                    updateState(false)
-                    stopUnpauseLoop()
-                }
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (this@DesktopSession.webSocket == webSocket) {
-                    updateState(false)
-                    this@DesktopSession.webSocket = null
-                    stopUnpauseLoop()
-                }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("DesktopSession", "onFailure ($cleanNodeId): ${t.localizedMessage}", t)
-                if (this@DesktopSession.webSocket == webSocket) {
-                    updateState(false)
-                    this@DesktopSession.webSocket = null
-                    stopUnpauseLoop()
-                }
-            }
-        })
+    @Synchronized
+    fun refreshOrReconnect() {
+        if (isConnected()) refreshDisplay() else {
+            isUserDisconnect = false
+            forceReconnect()
+        }
     }
 
     fun updateRemoteClipboard(text: String) {
@@ -678,24 +750,19 @@ class DesktopSession(
         sendUnPause()
     }
 
-    private fun closeSocketOnly() {
-        webSocket?.close(1000, "Reconnecting desktop session")
-        webSocket = null
-    }
-
+    @Synchronized
     fun disconnect() {
+        if (_settings.value.lockOnDisconnect && isConnected()) sendLockScreen()
         isUserDisconnect = true
-        stopUnpauseLoop()
-        if (_settings.value.lockOnDisconnect && _connectionState.value && webSocket != null) {
-            sendLockScreen()
-        }
-        webSocket?.close(1000, "Disconnecting desktop session")
-        webSocket = null
-        updateState(false)
+        visible = false
+        recoveryJob?.cancel()
+        recoveryJob = null
+        retireSocket()
         _desktopBitmap.value = null
         canvasBitmap = null
         desktopCanvas = null
     }
+
 }
 
 class DesktopRelayClient {
@@ -712,11 +779,7 @@ class DesktopRelayClient {
     fun updateSessionsStatus() {
         val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
             val sess = entry.value
-            when {
-                sess.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
-                sess.desktopBitmap.value != null && !sess.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
-                else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
-            }
+            DesktopRecoveryPolicy.status(!sess.isUserDisconnect)
         }
         _sessionsStatus.value = map
         updateActiveNodes()
@@ -728,7 +791,7 @@ class DesktopRelayClient {
 
     fun updateActiveNodes() {
         val active = sessions.entries
-            .filter { it.value.isConnected() }
+            .filter { !it.value.isUserDisconnect }
             .map { it.key }
             .toSet()
         _activeNodes.value = active
@@ -847,34 +910,30 @@ class DesktopRelayClient {
     }
 
     fun refreshDisplay(nodeId: String) {
-        sessions[cleanKey(nodeId)]?.refreshDisplay()
+        sessions[cleanKey(nodeId)]?.refreshOrReconnect()
     }
 
     fun hasActiveSessions(): Boolean {
-        return sessions.values.any { it.isConnected() }
+        return sessions.values.any { !it.isUserDisconnect }
     }
 
     fun getSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus {
         val session = sessions[cleanKey(nodeId)] ?: return iecxiv.meshfabric.data.model.SessionStatus.NONE
-        return when {
-            session.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
-            session.desktopBitmap.value != null && !session.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
-            else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
-        }
+        return DesktopRecoveryPolicy.status(!session.isUserDisconnect)
     }
 
     fun hasDisconnectedWithBuffer(): Boolean {
-        return sessions.values.any { !it.isConnected() && it.desktopBitmap.value != null && !it.isUserDisconnect }
+        return false // Desktop transport loss does not create a lost buffered session.
     }
 
     fun getSessionCount(): Int {
-        return sessions.values.count { (it.isConnected() || it.desktopBitmap.value != null) && !it.isUserDisconnect }
+        return sessions.values.count { !it.isUserDisconnect }
     }
 
     fun onNetworkChanged() {
         for (session in sessions.values) {
-            if (!session.isUserDisconnect && !session.isConnected()) {
-                session.connect()
+            if (!session.isUserDisconnect) {
+                session.forceReconnect()
             }
         }
     }
@@ -883,7 +942,7 @@ class DesktopRelayClient {
         val key = cleanKey(nodeId)
         val session = sessions.remove(key)
         session?.disconnect()
-        updateActiveNodes()
+        updateSessionsStatus()
     }
 
     fun disconnectAll() {
@@ -891,7 +950,7 @@ class DesktopRelayClient {
             session.disconnect()
         }
         sessions.clear()
-        updateActiveNodes()
+        updateSessionsStatus()
     }
 
     fun disconnect() {

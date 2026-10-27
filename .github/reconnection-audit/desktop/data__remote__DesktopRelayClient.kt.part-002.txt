@@ -1,0 +1,114 @@
+        val serverUrl = meshClient.serverUrl
+        val cookie = meshClient.authCookie
+        val ignoreSsl = meshClient.ignoreSsl
+
+        val client = OkHttpHelper.createClient(ignoreSsl)
+        val tunnelId = Random.nextInt(100000, 999999).toString()
+
+        val relayToken = meshClient.relayAuthCookie.ifEmpty {
+            meshClient.userAuthCookie.ifEmpty {
+                meshClient.extractRawToken(cookie)
+            }
+        }
+        val encodedRelayToken = try { URLEncoder.encode(relayToken, "UTF-8") } catch (e: Exception) { relayToken }
+        val encodedNodeId = try { URLEncoder.encode(fullNodeId, "UTF-8") } catch (e: Exception) { fullNodeId }
+
+        val wsUrl = OkHttpHelper.toWebSocketUrl(
+            serverUrl,
+            "/meshrelay.ashx?p=2&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
+        )
+
+        Log.d("DesktopSession", "Connecting KVM WS ($cleanNodeId) to: $wsUrl")
+
+        val requestBuilder = Request.Builder().url(wsUrl)
+        if (cookie.isNotBlank()) {
+            requestBuilder.addHeader("Cookie", cookie)
+        }
+
+        closeSocketOnly()
+
+        webSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d("DesktopSession", "WebSocket onOpen ($cleanNodeId). Requesting tunnel...")
+                meshClient.requestTunnel(nodeId = fullNodeId, protocol = 2, tunnelId = tunnelId)
+                scope.launch {
+                    delay(300)
+                    if (!_connectionState.value && this@DesktopSession.webSocket == webSocket) {
+                        Log.d("DesktopSession", "Retrying tunnel request for ($cleanNodeId)...")
+                        meshClient.requestTunnel(nodeId = fullNodeId, protocol = 2, tunnelId = tunnelId)
+                    }
+                }
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                Log.d("DesktopSession", "Received text WS message: '$text' for $cleanNodeId")
+                if (text == "c" || text == "cr") {
+                    updateState(true)
+                    webSocket.send("2")
+                    scope.launch {
+                        delay(100)
+                        sendCompressionSettings(
+                            imageType = _settings.value.encoding.code,
+                            compressionLevel = _settings.value.quality,
+                            scalingLevel = _settings.value.scale
+                        )
+                        delay(200)
+                        refreshDisplay()
+                        delay(400)
+                        requestRemoteClipboard()
+                        delay(800)
+                        refreshDisplay()
+                    }
+                    startUnpauseLoop()
+                } else {
+                    val trimmed = text.trim()
+                    if (trimmed.startsWith("{")) {
+                        handleJsonControlMessage(trimmed)
+                    }
+                }
+            }
+
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                handleBinaryFrame(bytes.toByteArray())
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                if (this@DesktopSession.webSocket == webSocket) {
+                    updateState(false)
+                    stopUnpauseLoop()
+                }
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (this@DesktopSession.webSocket == webSocket) {
+                    updateState(false)
+                    this@DesktopSession.webSocket = null
+                    stopUnpauseLoop()
+                }
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e("DesktopSession", "onFailure ($cleanNodeId): ${t.localizedMessage}", t)
+                if (this@DesktopSession.webSocket == webSocket) {
+                    updateState(false)
+                    this@DesktopSession.webSocket = null
+                    stopUnpauseLoop()
+                }
+            }
+        })
+    }
+
+    fun updateRemoteClipboard(text: String) {
+        val cleaned = text.replace("\u0000", "").trim()
+        if (cleaned.isNotEmpty()) {
+            Log.d("DesktopSession", "Updated remote clipboard for $cleanNodeId: '$cleaned'")
+            _remoteClipboardText.value = cleaned
+            onClipboardReceived?.invoke(cleaned)
+        }
+    }
+
+    private fun handleJsonControlMessage(text: String) {
+        try {
+            val json = com.google.gson.Gson().fromJson(text, com.google.gson.JsonObject::class.java) ?: return
+            val type = json.get("type")?.asString ?: json.get("action")?.asString ?: ""
+            Log.d("DesktopSession", "Received JSON control message type: $type for $cleanNodeId")

@@ -1,0 +1,90 @@
+        desktopClient.sendMouseEvent(nodeId, downAction, remoteX, remoteY)
+
+        viewModelScope.launch {
+            delay(40)
+            desktopClient.sendMouseEvent(nodeId, upAction, remoteX, remoteY)
+        }
+    }
+
+    fun performMiddleClick(nodeId: String, xPct: Float, yPct: Float) {
+        val (resWidth, resHeight) = screenResolution(nodeId).value
+        val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
+        val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
+
+        desktopClient.sendMouseEvent(nodeId, 0x00, remoteX, remoteY)
+        desktopClient.sendMouseEvent(nodeId, 0x20, remoteX, remoteY)
+
+        viewModelScope.launch {
+            delay(40)
+            desktopClient.sendMouseEvent(nodeId, 0x40, remoteX, remoteY)
+        }
+    }
+
+    fun sendMouseScroll(nodeId: String, remoteX: Int, remoteY: Int, delta: Int) {
+        desktopClient.sendMouseScroll(nodeId, remoteX, remoteY, delta)
+    }
+
+    fun updateSettings(nodeId: String, newSettings: DesktopSettings) {
+        desktopClient.updateSettings(nodeId, newSettings)
+        sessionManager?.saveDesktopSettings(newSettings)
+    }
+
+    fun setDesktopBarCollapsed(collapsed: Boolean) {
+        sessionManager?.saveDesktopBarCollapsed(collapsed)
+    }
+
+    fun isDesktopBarCollapsed(): Boolean {
+        return sessionManager?.isDesktopBarCollapsed() ?: false
+    }
+
+    fun sendUnicodeText(nodeId: String, text: String) {
+        desktopClient.sendUnicodeText(nodeId, text)
+    }
+
+    fun sendSingleKey(nodeId: String, keyCode: Int) {
+        desktopClient.sendSingleKey(nodeId, keyCode)
+    }
+
+    fun sendKeyCombo(nodeId: String, vararg keyCodes: Int) {
+        desktopClient.sendKeyCombo(nodeId, *keyCodes)
+    }
+
+    fun sendClipboardText(nodeId: String, text: String) {
+        viewModelScope.launch {
+            desktopClient.sendClipboardText(meshClient, nodeId, text)
+            delay(300)
+            desktopClient.sendClipboardText(meshClient, nodeId, text)
+        }
+    }
+
+    fun requestRemoteClipboard(nodeId: String) {
+        viewModelScope.launch {
+            desktopClient.requestRemoteClipboard(meshClient, nodeId)
+            delay(300)
+            desktopClient.requestRemoteClipboard(meshClient, nodeId)
+            delay(700)
+            desktopClient.requestRemoteClipboard(meshClient, nodeId)
+        }
+    }
+
+    fun sendCtrlAltDel(nodeId: String) {
+        desktopClient.sendKeyCombo(nodeId, 0x11, 0x12, 0x2E)
+    }
+
+    fun sendHotkeyCommand(nodeId: String, command: String) {
+        desktopClient.sendHotkeyCommand(nodeId, command)
+    }
+
+    fun refreshDisplay(nodeId: String) {
+        desktopClient.refreshDisplay(nodeId)
+    }
+
+    fun stopSession(nodeId: String) {
+        desktopClient.disconnectSession(nodeId)
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        desktopClient.disconnectAll()
+    }
+}
