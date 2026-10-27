@@ -28,7 +28,10 @@ internal object UploadWire {
         (a.modified == 0L || b.modified == 0L || a.modified == b.modified)
     fun key(path: String): String = path.replace('\\', '/').trimEnd('/').ifEmpty { "/" }
     fun name(path: String): String = key(path).substringAfterLast('/')
-    fun parent(path: String): String = key(path).substringBeforeLast('/', "").ifEmpty { "/" }
+    fun parent(path: String): String {
+        val parent = key(path).substringBeforeLast('/', "").ifEmpty { "/" }
+        return if (Regex("^[A-Za-z]:$").matches(parent)) "$parent/" else parent
+    }
     fun join(parent: String, name: String): String = if (parent == "/") "/$name" else "${parent.trimEnd('/')}/$name"
 }
 

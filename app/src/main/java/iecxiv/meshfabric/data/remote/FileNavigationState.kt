@@ -19,6 +19,8 @@ internal class FileNavigationState {
         desiredPath = target
     }
 
+    fun refresh() { dirty = true }
+
     fun next(): Request? {
         if (pending != null || !dirty) return null
         dirty = false
@@ -30,7 +32,7 @@ internal class FileNavigationState {
         if (id != null && id != sent.id.toString()) return null
         if (path != null && key(path) != key(sent.path)) return null
         pending = null
-        if (key(desiredPath) != key(sent.path) || !success) return null
+        if (dirty || key(desiredPath) != key(sent.path) || !success) return null
         val accepted = path ?: sent.path
         confirmedPath = accepted
         desiredPath = accepted
