@@ -196,8 +196,16 @@ class FileSession(
     val fullNodeId = "node//$cleanNodeId"
 
     private val gson = Gson()
-    var webSocket: WebSocket? = null
-    var isUserDisconnect = false
+    @Volatile var webSocket: WebSocket? = null
+    @Volatile var isUserDisconnect = true
+    private val navigation = FileNavigationState()
+    private var socketEpoch = 0L
+    private var attemptStarted = 0L
+    private var listingStarted = 0L
+    private var retryAt = 0L
+    private var failures = 0
+    private var recoveryJob: Job? = null
+    private var initialListingJob: Job? = null
     var onStateChanged: (() -> Unit)? = null
 
     private val _connectionState = MutableStateFlow(false)
@@ -278,44 +286,113 @@ class FileSession(
         }
     }
 
+    private fun nowMs() = System.nanoTime() / 1_000_000L
+
+    private fun current(socket: WebSocket, epoch: Long): Boolean =
+        !isUserDisconnect && socketEpoch == epoch && webSocket === socket
+
     suspend fun ensureControlSocketConnected(): Boolean {
+        if (isUserDisconnect || meshClient.isUserLogout) return false
         if (meshClient.connectionState.value) return true
-        Log.d("MeshFiles", "Control socket not connected, triggering immediate reconnect...")
         meshClient.reconnectNow()
-        var waitMs = 0
-        while (!meshClient.connectionState.value && waitMs < 6000) {
-            delay(100)
-            waitMs += 100
+        repeat(60) {
+            if (isUserDisconnect || meshClient.isUserLogout) return false
+            if (meshClient.connectionState.value) return true
+            delay(100L)
         }
         return meshClient.connectionState.value
     }
 
     suspend fun ensureConnected(): Boolean {
-        ensureControlSocketConnected()
-        if (_connectionState.value && webSocket != null) return true
-
-        if (webSocket == null || !_connectionState.value || isUserDisconnect) {
-            Log.d("MeshFiles", "Auto-reconnecting file relay for node '$cleanNodeId'...")
-            connect()
+        if (isUserDisconnect || !ensureControlSocketConnected()) return false
+        synchronized(this) { startRecovery() }
+        repeat(80) {
+            if (isUserDisconnect || meshClient.isUserLogout) return false
+            if (isConnected()) return true
+            delay(100L)
         }
-
-        var waitMs = 0
-        while (!_connectionState.value && waitMs < 8000) {
-            delay(100)
-            waitMs += 100
-        }
-        return _connectionState.value
+        return isConnected()
     }
 
+    @Synchronized
     fun connect() {
         isUserDisconnect = false
+        startRecovery()
+        if (isConnected()) listDirectory(navigation.desiredPath)
+    }
 
-        if (isConnected()) {
-            Log.d("MeshFiles", "Already connected to node: $cleanNodeId. Reusing files session at path: ${_currentPath.value}")
-            listDirectory(_currentPath.value)
-            return
+    private fun startRecovery() {
+        if (isUserDisconnect || recoveryJob?.isActive == true) return
+        if (!meshClient.connectionState.value && !meshClient.isUserLogout) meshClient.reconnectNow()
+        recoveryJob = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            while (true) {
+                synchronized(this@FileSession) {
+                    if (meshClient.isUserLogout) {
+                        disconnect()
+                        return@launch
+                    }
+                    if (!isUserDisconnect) {
+                        if (!meshClient.connectionState.value && webSocket != null) retireSocket()
+                        if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
+                        if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
+                            _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"
+                            retireSocket()
+                        }
+                        if (meshClient.connectionState.value && webSocket == null && nowMs() >= retryAt) {
+                            try { openSocket() } catch (e: Exception) {
+                                Log.w("MeshFiles", "Cannot open files transport (${e.javaClass.simpleName})")
+                                retireSocket()
+                            }
+                        }
+                    }
+                }
+                delay(500L)
+            }
         }
+        recoveryJob?.start()
+    }
 
+    private fun retireSocket() {
+        socketEpoch++
+        initialListingJob?.cancel()
+        initialListingJob = null
+        val old = webSocket
+        webSocket = null
+        _connectionState.value = false
+        navigation.transportReset()
+        old?.cancel()
+        retryAt = nowMs() + (1000L shl failures.coerceIn(0, 5)).coerceAtMost(30_000L)
+        failures = (failures + 1).coerceAtMost(5)
+        onStateChanged?.invoke()
+    }
+
+    @Synchronized
+    fun refreshSession() {
+        if (isUserDisconnect) return
+        navigation.request(navigation.desiredPath)
+        if (!isConnected()) {
+            retireSocket()
+            retryAt = 0L
+            startRecovery()
+        } else pumpListing()
+    }
+
+    private fun pumpListing() {
+        if (!isConnected() || !meshClient.connectionState.value || isUserDisconnect) return
+        val request = navigation.next() ?: return
+        val req = JsonObject().apply {
+            addProperty("action", "ls")
+            addProperty("path", request.path)
+            addProperty("reqid", request.id)
+        }
+        listingStarted = nowMs()
+        if (webSocket?.send(req.toString()) != true) retireSocket()
+    }
+
+    private fun openSocket() {
+        if (isUserDisconnect || meshClient.isUserLogout || !meshClient.connectionState.value || webSocket != null) return
+        val epoch = ++socketEpoch
+        attemptStarted = nowMs()
         val serverUrl = meshClient.serverUrl
         val cookie = meshClient.authCookie
         val relayToken = meshClient.relayAuthCookie.ifEmpty {
@@ -335,27 +412,25 @@ class FileSession(
             "/meshrelay.ashx?p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
         )
 
-        Log.d("MeshFiles", "Connecting files WS for $cleanNodeId to: $wsUrl")
+        Log.d("MeshFiles", "Opening files transport for $cleanNodeId")
 
         val requestBuilder = Request.Builder().url(wsUrl)
         if (cookie.isNotBlank()) {
             requestBuilder.addHeader("Cookie", cookie)
         }
 
-        webSocket?.close(1000, "Reconnecting")
-        webSocket = null
-
         webSocket = client.newWebSocket(requestBuilder.build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("MeshFiles", "WebSocket onOpen for $cleanNodeId. Ensuring control socket is ready...")
-                scope.launch(Dispatchers.IO) {
-                    ensureControlSocketConnected()
-                    Log.d("MeshFiles", "Control socket ready. Requesting tunnel ID $tunnelId...")
-                    meshClient.requestTunnel(nodeId = fullNodeId, protocol = 5, tunnelId = tunnelId)
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                if (!meshClient.connectionState.value) { retireSocket(); return }
+                meshClient.requestTunnel(nodeId = fullNodeId, protocol = 5, tunnelId = tunnelId)
                 }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
                 Log.d("MeshFilesRecvRawText", "WS Text: $text")
                 if (text == "c" || text == "cr") {
                     handleIncomingMessage(webSocket, text)
@@ -408,9 +483,12 @@ class FileSession(
                         handleIncomingMessage(webSocket, text)
                     }
                 }
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
                 val textCandidate = try { bytes.utf8().trim() } catch (_: Exception) { "" }
                 val isJson = isProtocolJsonMessage(textCandidate)
 
@@ -499,40 +577,48 @@ class FileSession(
                 }
 
                 handleIncomingMessage(webSocket, textCandidate)
+                }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = false
-                this@FileSession.webSocket = null
-                onStateChanged?.invoke()
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                retireSocket()
+                }
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                _connectionState.value = false
-                this@FileSession.webSocket = null
-                onStateChanged?.invoke()
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                retireSocket()
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("MeshFiles", "onFailure for $cleanNodeId: ${t.localizedMessage}", t)
-                _connectionState.value = false
-                this@FileSession.webSocket = null
-                onStateChanged?.invoke()
+                synchronized(this@FileSession) {
+                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                Log.w("MeshFiles", "Files transport failed (${t.javaClass.simpleName})")
+                retireSocket()
+                }
             }
+
         })
     }
 
     private fun handleIncomingMessage(webSocket: WebSocket, text: String) {
         Log.d("MeshFilesRecv", "Files WS Recv (${text.length} chars): $text")
         if (text == "c" || text == "cr") {
+            if (_connectionState.value) return
             _connectionState.value = true
+            failures = 0
             onStateChanged?.invoke()
             webSocket.send("5")
-
-            scope.launch {
-                delay(200)
-                val targetPath = _currentPath.value.ifEmpty { "/" }
-                listDirectory(targetPath)
+            val epoch = socketEpoch
+            initialListingJob = scope.launch {
+                delay(200L)
+                synchronized(this@FileSession) {
+                    if (current(webSocket, epoch)) pumpListing()
+                }
             }
         } else {
             handleJsonMessage(text)
@@ -675,7 +761,8 @@ class FileSession(
                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
 
             if (isDirectoryListing) {
-                val path = json.get("path")?.asString ?: "/"
+                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }
+                var path = responsePath ?: navigation.pending?.path ?: return
 
                 val recursiveTarget = recursiveCopyTargetDir
                 if (recursiveTarget != null && path == copyingDirectorySource) {
@@ -717,7 +804,16 @@ class FileSession(
                     return
                 }
 
-                _currentPath.value = path.ifEmpty { "/" }
+                val hasListing = json.getAsJsonArray("dir") != null ||
+                    json.getAsJsonArray("files") != null || json.getAsJsonArray("list") != null
+                val acceptedPath = navigation.accept(json.get("reqid")?.asString, responsePath, hasListing)
+                pumpListing()
+                if (acceptedPath == null) {
+                    if (!hasListing) _statusMessage.value = "No se pudo listar la ruta solicitada; se conserva la ubicación anterior"
+                    return
+                }
+                path = acceptedPath
+                _currentPath.value = path
 
                 val items = mutableListOf<FileItem>()
                 val dirArray = json.getAsJsonArray("dir")
@@ -1619,16 +1715,12 @@ class FileSession(
         }
     }
 
+    @Synchronized
     fun listDirectory(path: String) {
-        val targetPath = if (path.isEmpty()) "/" else path
-        val req = JsonObject().apply {
-            addProperty("action", "ls")
-            addProperty("path", targetPath)
-        }
-        scope.launch(Dispatchers.IO) {
-            ensureConnected()
-            webSocket?.send(req.toString())
-        }
+        if (isUserDisconnect) return
+        navigation.request(path)
+        startRecovery()
+        pumpListing()
     }
 
     fun createFolder(folderName: String) {
@@ -2975,8 +3067,12 @@ class FileSession(
         _statusMessage.value = null
     }
 
+    @Synchronized
     fun disconnect(resetPath: Boolean = false) {
         isUserDisconnect = true
+        recoveryJob?.cancel()
+        recoveryJob = null
+        retireSocket()
         copyingSourcePath = null
         copyingDestPath = null
         try {
@@ -2996,6 +3092,7 @@ class FileSession(
         _fileList.value = emptyList()
         if (resetPath) {
             _currentPath.value = "/"
+            navigation.reset()
         }
         _clipboardItem.value = null
         clipboardNodeId = null
@@ -3003,10 +3100,13 @@ class FileSession(
         onStateChanged?.invoke()
     }
 
+    @Synchronized
     fun onNetworkChanged() {
-        if (!isUserDisconnect && !isConnected()) {
-            connect()
-        }
+        if (isUserDisconnect) return
+        retireSocket()
+        failures = 0
+        retryAt = 0L
+        startRecovery()
     }
 
     private fun formatSize(size: Long): String {
@@ -3174,9 +3274,7 @@ class FileRelayClient {
 
     fun onNetworkChanged() {
         for (session in sessions.values) {
-            if (!session.isUserDisconnect && !session.isConnected()) {
-                session.onNetworkChanged()
-            }
+            if (!session.isUserDisconnect) session.onNetworkChanged()
         }
     }
 
@@ -3190,6 +3288,10 @@ class FileRelayClient {
         for (session in sessions.values) {
             session.cancelDownload()
         }
+    }
+
+    fun refresh(meshClient: MeshCentralClient, nodeId: String) {
+        getSession(meshClient, nodeId).refreshSession()
     }
 
     fun listDirectory(nodeId: String, path: String) {
