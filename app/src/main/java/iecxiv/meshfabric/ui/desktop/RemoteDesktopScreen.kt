@@ -357,7 +357,7 @@ fun RemoteDesktopScreen(
                                         if (pointerCount == 1) {
                                             val change = event.changes[0]
                                             val diff = change.position - startPos
-                                            if (diff.getDistance() > touchSlop) {
+                                            if (diff.getDistance() * scale > touchSlop) {
                                                 isMoved = true
                                             }
 
@@ -370,8 +370,9 @@ fun RemoteDesktopScreen(
                                             }
 
                                             if (isMoved) {
-                                                val panChange = change.positionChange()
-                                                if (scale > 1f) {
+                                                // Pointer deltas are local to the scaled layer; translation and slop use screen pixels.
+                                                val panChange = change.positionChange() * scale
+                                                if (scale > 1f && selectedMode != MouseMode.SCROLL) {
                                                     offsetX += panChange.x
                                                     offsetY += panChange.y
                                                     change.consume()
@@ -396,8 +397,10 @@ fun RemoteDesktopScreen(
                                                 }
                                             }
                                         } else if (pointerCount >= 2) {
+                                            // A pinch must not produce a remote click when the fingers are released.
+                                            isMoved = true
                                             val zoom = event.calculateZoom()
-                                            val pan = event.calculatePan()
+                                            val pan = event.calculatePan() * scale
                                             scale = (scale * zoom).coerceIn(0.5f, 5f)
                                             offsetX += pan.x
                                             offsetY += pan.y
