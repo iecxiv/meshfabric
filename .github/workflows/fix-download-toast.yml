@@ -1,0 +1,160 @@
+name: Verify download reconnect toast consistency
+
+on:
+  push:
+    branches: [reconnection-tests]
+    paths: ['.github/workflows/fix-download-toast.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-download-toast
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/reconnection-tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: reconnection-tests
+          fetch-depth: 1
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded notification-only fix
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root = Path('app/src/main/java/iecxiv/meshfabric/data/remote')
+          def read_checked(name, expected):
+              p = root / name
+              raw = p.read_bytes()
+              actual = hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+              assert actual == expected, f'Review changed source: {name}'
+              return p, raw.decode()
+          p, s = read_checked('DownloadNetworkAttempt.kt', '1bb5bf53fb942f7c5d7cfef333da110684b65c37')
+          needle = '    private var generation = 0L'
+          assert s.count(needle) == 1
+          s = s.replace(needle, needle + '\n    private var notifiedGeneration: Long? = null', 1)
+          needle = '    @Synchronized fun current(): Long = generation'
+          assert s.count(needle) == 1
+          s = s.replace(needle, '''    @Synchronized fun takeReconnectNotice(): Boolean {
+                  if (notifiedGeneration == generation) return false
+                  notifiedGeneration = generation
+                  return true
+              }
+
+          ''' + needle, 1)
+          p.write_text(s)
+          p, s = read_checked('FileRelayClient.kt', 'd1771d986880e4c8084af07db48a644d84b88cfb')
+          needle = '    private fun createDownloadOutputStream(context: Context, fileName: String): OutputStream {'
+          assert s.count(needle) == 1
+          helper = '''    @Synchronized
+              private fun showDownloadReconnectToast(context: Context) {
+                  var notify = false
+                  for (download in activeDownloads.values.toList()) {
+                      val pending = _activeTransfers.value.any {
+                          it.filePath == download.filePath && !it.isCompleted
+                      }
+                      if (pending && download.networkAttempt.takeReconnectNotice()) notify = true
+                  }
+                  if (!notify || isUserDisconnect) return
+                  val appContext = context.applicationContext
+                  scope.launch(Dispatchers.Main) {
+                      if (!isUserDisconnect && activeDownloads.isNotEmpty()) {
+                          Toast.makeText(appContext,
+                              appContext.getString(R.string.unstable_network_reconnecting_download),
+                              Toast.LENGTH_SHORT).show()
+                      }
+                  }
+              }
+
+          '''
+          s = s.replace(needle, helper + needle, 1)
+          old = '''                        withContext(Dispatchers.Main) {
+                                      Toast.makeText(
+                                          context,
+                                          context.getString(R.string.unstable_network_reconnecting_download),
+                                          Toast.LENGTH_SHORT
+                                      ).show()
+                                  }'''
+          assert s.count(old) == 1, 'Review existing download retry toast'
+          s = s.replace(old, '                        showDownloadReconnectToast(context)', 1)
+          needle = '        activeDownloads.values.toList().forEach { it.networkAttempt.invalidate() }'
+          assert s.count(needle) == 1
+          s = s.replace(needle, needle + '\n        activeDownloads.values.firstOrNull()?.context?.let { showDownloadReconnectToast(it) }', 1)
+          p.write_text('\n'.join(line.rstrip() for line in s.splitlines()).rstrip() + '\n')
+          test = Path('app/src/test/java/iecxiv/meshfabric/data/remote/DownloadReconnectNoticeTest.kt')
+          test.parent.mkdir(parents=True, exist_ok=True)
+          test.write_text('''package iecxiv.meshfabric.data.remote
+
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class DownloadReconnectNoticeTest {
+              @Test fun networkCallbackAndCatchShareOneNotice() {
+                  val attempt = DownloadNetworkAttempt()
+                  attempt.invalidate()
+                  assertTrue(attempt.takeReconnectNotice())
+                  assertFalse(attempt.takeReconnectNotice())
+              }
+              @Test fun eachNetworkDirectionCanNotify() {
+                  val attempt = DownloadNetworkAttempt()
+                  attempt.invalidate()
+                  assertTrue(attempt.takeReconnectNotice())
+                  attempt.invalidate()
+                  assertTrue(attempt.takeReconnectNotice())
+                  assertFalse(attempt.takeReconnectNotice())
+              }
+              @Test fun openingAnotherTransportDoesNotDuplicateNotice() {
+                  val attempt = DownloadNetworkAttempt()
+                  assertTrue(attempt.takeReconnectNotice())
+                  val resource = Any()
+                  attempt.bind(attempt.current(), resource) { }
+                  attempt.release(attempt.current(), resource)
+                  assertFalse(attempt.takeReconnectNotice())
+              }
+          }
+          ''')
+          PY
+      - name: Build, test and lint
+        run: |
+          set -euo pipefail
+          git diff --check
+          bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Publish verified toast fix
+        run: |
+          set -euo pipefail
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/DownloadNetworkAttempt.kt app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt app/src/test/java/iecxiv/meshfabric/data/remote/DownloadReconnectNoticeTest.kt
+          git rm .github/workflows/fix-download-toast.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(files): notify download reconnects in both network directions'
+          git push origin HEAD:refs/heads/reconnection-tests
+      - name: Upload verification artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: download-toast-verification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 14
