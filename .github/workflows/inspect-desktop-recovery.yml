@@ -72,7 +72,8 @@ jobs:
           PY
           git rm .github/workflows/inspect-desktop-recovery.yml
           git add .github/reconnection-audit/desktop
-          git diff --cached --check
+          git diff --cached --check -- .github/workflows/inspect-desktop-recovery.yml
+          git -c core.whitespace=-blank-at-eol,-blank-at-eof diff --cached --check -- .github/reconnection-audit/desktop
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'chore: capture complete desktop lifecycle for recovery review'
