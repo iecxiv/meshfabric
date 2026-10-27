@@ -328,17 +328,8 @@ fun RemoteDesktopScreen(
 
                     Box(
                         modifier = Modifier
-                            .size(
-                                width = (drawWidth / density.density).dp,
-                                height = (drawHeight / density.density).dp
-                            )
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                translationX = offsetX,
-                                translationY = offsetY
-                            )
-                            .pointerInput(nodeId, selectedMode, showClipboardDialog, showKeyboardDialog, showSettingsDialog) {
+                            .fillMaxSize()
+                            .pointerInput(nodeId, selectedMode, showClipboardDialog, showKeyboardDialog, showSettingsDialog, scale, offsetX, offsetY, drawWidth, drawHeight, containerWidth, containerHeight) {
                                 if (showClipboardDialog || showKeyboardDialog || showSettingsDialog) return@pointerInput
                                 val touchSlop = viewConfiguration.touchSlop
                                 awaitEachGesture {
@@ -357,30 +348,29 @@ fun RemoteDesktopScreen(
                                         if (pointerCount == 1) {
                                             val change = event.changes[0]
                                             val diff = change.position - startPos
-                                            if (diff.getDistance() * scale > touchSlop) {
+                                            if (diff.getDistance() > touchSlop) {
                                                 isMoved = true
                                             }
 
                                             if (!isMoved && !isLongPressed && (System.currentTimeMillis() - startTime) > 400) {
                                                 isLongPressed = true
                                                 change.consume()
-                                                val xPct = (change.position.x / size.width).coerceIn(0f, 1f)
-                                                val yPct = (change.position.y / size.height).coerceIn(0f, 1f)
+                                                val localX = (change.position.x - containerWidth / 2f - offsetX) / scale + drawWidth / 2f
+                                                val localY = (change.position.y - containerHeight / 2f - offsetY) / scale + drawHeight / 2f
+                                                val xPct = (localX / drawWidth).coerceIn(0f, 1f)
+                                                val yPct = (localY / drawHeight).coerceIn(0f, 1f)
                                                 viewModel.performMouseClick(nodeId, xPct, yPct, isRightClick = true)
                                             }
 
                                             if (isMoved) {
-                                                // Pointer deltas are local to the scaled layer; translation and slop use screen pixels.
-                                                val panChange = change.positionChange() * scale
-                                                if (scale > 1f && selectedMode != MouseMode.SCROLL) {
-                                                    offsetX += panChange.x
-                                                    offsetY += panChange.y
-                                                    change.consume()
-                                                } else if (selectedMode == MouseMode.SCROLL) {
+                                                val panChange = change.positionChange()
+                                                if (selectedMode == MouseMode.SCROLL) {
                                                     dragAmountY += panChange.y
                                                     if (kotlin.math.abs(dragAmountY) >= touchSlop) {
-                                                        val xPct = (change.position.x / size.width).coerceIn(0f, 1f)
-                                                        val yPct = (change.position.y / size.height).coerceIn(0f, 1f)
+                                                        val localX = (change.position.x - containerWidth / 2f - offsetX) / scale + drawWidth / 2f
+                                                        val localY = (change.position.y - containerHeight / 2f - offsetY) / scale + drawHeight / 2f
+                                                        val xPct = (localX / drawWidth).coerceIn(0f, 1f)
+                                                        val yPct = (localY / drawHeight).coerceIn(0f, 1f)
                                                         val (resWidth, resHeight) = viewModel.screenResolution(nodeId).value
                                                         val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
                                                         val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
@@ -394,23 +384,32 @@ fun RemoteDesktopScreen(
                                                         dragAmountY = 0f
                                                     }
                                                     change.consume()
+                                                } else if (scale > 1f) {
+                                                    val maxOffsetX = ((drawWidth * scale - containerWidth) / 2f).coerceAtLeast(0f)
+                                                    val maxOffsetY = ((drawHeight * scale - containerHeight) / 2f).coerceAtLeast(0f)
+                                                    offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                                    offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                                    change.consume()
                                                 }
                                             }
                                         } else if (pointerCount >= 2) {
-                                            // A pinch must not produce a remote click when the fingers are released.
                                             isMoved = true
                                             val zoom = event.calculateZoom()
-                                            val pan = event.calculatePan() * scale
-                                            scale = (scale * zoom).coerceIn(0.5f, 5f)
-                                            offsetX += pan.x
-                                            offsetY += pan.y
+                                            val pan = event.calculatePan()
+                                            scale = (scale * zoom).coerceIn(1f, 5f)
+                                            val maxOffsetX = ((drawWidth * scale - containerWidth) / 2f).coerceAtLeast(0f)
+                                            val maxOffsetY = ((drawHeight * scale - containerHeight) / 2f).coerceAtLeast(0f)
+                                            offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                            offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
                                             event.changes.forEach { it.consume() }
                                         }
                                     } while (event.changes.any { it.pressed })
 
                                     if (!isMoved && !isLongPressed) {
-                                        val xPct = (startPos.x / size.width).coerceIn(0f, 1f)
-                                        val yPct = (startPos.y / size.height).coerceIn(0f, 1f)
+                                        val localX = (startPos.x - containerWidth / 2f - offsetX) / scale + drawWidth / 2f
+                                        val localY = (startPos.y - containerHeight / 2f - offsetY) / scale + drawHeight / 2f
+                                        val xPct = (localX / drawWidth).coerceIn(0f, 1f)
+                                        val yPct = (localY / drawHeight).coerceIn(0f, 1f)
 
                                         when (selectedMode) {
                                             MouseMode.RIGHT_CLICK -> {
@@ -425,18 +424,33 @@ fun RemoteDesktopScreen(
                                         }
                                     }
                                 }
-                            }
+                            },
+                        contentAlignment = Alignment.Center
                     ) {
-                        val currentFrameVersion = frameVersion
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                            if (currentFrameVersion >= 0) {
-                                drawIntoCanvas { canvas ->
-                                    canvas.nativeCanvas.drawBitmap(
-                                        bitmap,
-                                        null,
-                                        android.graphics.RectF(0f, 0f, size.width, size.height),
-                                        null
-                                    )
+                        Box(
+                            modifier = Modifier
+                                .size(
+                                    width = (drawWidth / density.density).dp,
+                                    height = (drawHeight / density.density).dp
+                                )
+                                .graphicsLayer(
+                                    scaleX = scale,
+                                    scaleY = scale,
+                                    translationX = offsetX,
+                                    translationY = offsetY
+                                )
+                        ) {
+                            val currentFrameVersion = frameVersion
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                if (currentFrameVersion >= 0) {
+                                    drawIntoCanvas { canvas ->
+                                        canvas.nativeCanvas.drawBitmap(
+                                            bitmap,
+                                            null,
+                                            android.graphics.RectF(0f, 0f, size.width, size.height),
+                                            null
+                                        )
+                                    }
                                 }
                             }
                         }
