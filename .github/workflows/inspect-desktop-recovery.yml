@@ -1,0 +1,79 @@
+name: Inspect desktop recovery lifecycle
+
+on:
+  push:
+    branches: [reconnection-tests]
+    paths: ['.github/workflows/inspect-desktop-recovery.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: inspect-desktop-recovery
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/reconnection-tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: reconnection-tests
+          fetch-depth: 1
+      - name: Capture complete desktop sources in readable fragments
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root = Path('app/src/main/java/iecxiv/meshfabric')
+          dest = Path('.github/reconnection-audit/desktop')
+          dest.mkdir(parents=True, exist_ok=True)
+          sources = [
+              root / 'data/remote/DesktopRelayClient.kt',
+              root / 'ui/desktop/RemoteDesktopViewModel.kt',
+              root / 'ui/desktop/RemoteDesktopScreen.kt',
+              root / 'MainActivity.kt',
+              root / 'service/KeepAliveService.kt',
+          ]
+          sources += sorted((root / 'ui/devices').glob('*.kt'))
+          sources += sorted((root / 'data/model').glob('*Session*.kt'))
+          manifest = []
+          for source in sources:
+              raw = source.read_bytes()
+              lines = raw.decode('utf-8').splitlines(keepends=True)
+              stem = str(source.relative_to(root)).replace('/', '__')
+              chunks = []
+              chunk = ''
+              for line in lines:
+                  if chunk and len((chunk + line).encode('utf-8')) > 5000:
+                      chunks.append(chunk)
+                      chunk = ''
+                  chunk += line
+              if chunk:
+                  chunks.append(chunk)
+              for i, content in enumerate(chunks, 1):
+                  (dest / f'{stem}.part-{i:03d}.txt').write_text(content, encoding='utf-8')
+              manifest.append(f'{source}: sha256={hashlib.sha256(raw).hexdigest()} parts={len(chunks)}')
+          control = root / 'data/remote/MeshCentralClient.kt'
+          lines = control.read_text(encoding='utf-8').splitlines()
+          selected = set()
+          for i, line in enumerate(lines):
+              if any(term in line for term in ['fun requestTunnel', 'fun onNetworkChanged', 'connectionState', 'suspend fun ensure', 'fun ensureControl']):
+                  selected.update(range(max(0, i - 8), min(len(lines), i + 65)))
+          excerpt = '\n'.join(f'{i + 1}: {lines[i]}' for i in sorted(selected)) + '\n'
+          for i in range(0, len(excerpt), 4500):
+              (dest / f'control-context-{i // 4500 + 1:03d}.txt').write_text(excerpt[i:i + 4500], encoding='utf-8')
+          (dest / 'manifest.txt').write_text('\n'.join(manifest) + '\n', encoding='utf-8')
+          PY
+          git rm .github/workflows/inspect-desktop-recovery.yml
+          git add .github/reconnection-audit/desktop
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: capture complete desktop lifecycle for recovery review'
+          git push origin HEAD:refs/heads/reconnection-tests
