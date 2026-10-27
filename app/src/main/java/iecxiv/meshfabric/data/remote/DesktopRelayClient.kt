@@ -404,23 +404,8 @@ class DesktopSession(
                 }
             }
             27 -> {
-                if (data.size < 8) return
-                val offset = findImageStartOffset(data)
-                if (offset >= 0) {
-                    try {
-                        val bitmap = BitmapFactory.decodeByteArray(data, offset, data.size - offset)
-                        if (bitmap != null) {
-                            val requiredW = max(bitmap.width, _screenResolution.value.first)
-                            val requiredH = max(bitmap.height, _screenResolution.value.second)
-
-                            if (canvasBitmap == null || requiredW > canvasBitmap!!.width || requiredH > canvasBitmap!!.height) {
-                                initCanvas(max(requiredW, 1024), max(requiredH, 768))
-                            }
-                            drawTileOnCanvas(bitmap, 0, 0)
-                        }
-                    } catch (e: Exception) {
-                        Log.e("DesktopSession", "Error decoding Cmd 27: ${e.message}")
-                    }
+                if (data.size > 8) {
+                    handleBinaryFrame(data.copyOfRange(8, data.size))
                 }
             }
             3 -> {
@@ -741,31 +726,26 @@ class DesktopSession(
     }
 
     fun refreshDisplay() {
-        sendDisplaySelect(0)
-        sendCompressionSettings(
-            imageType = _settings.value.encoding.code,
-            compressionLevel = _settings.value.quality,
-            scalingLevel = _settings.value.scale
-        )
         sendUnPause()
+        if (webSocket != null) {
+            val pkt = byteArrayOf(0x00, 0x06, 0x00, 0x04)
+            webSocket?.send(ByteString.of(*pkt))
+        }
     }
 
-    @Synchronized
     fun disconnect() {
-        if (_settings.value.lockOnDisconnect && isConnected()) sendLockScreen()
         isUserDisconnect = true
-        visible = false
+        retireSocket()
         recoveryJob?.cancel()
         recoveryJob = null
-        retireSocket()
-        _desktopBitmap.value = null
-        canvasBitmap = null
-        desktopCanvas = null
     }
-
 }
 
 class DesktopRelayClient {
+
+    companion object {
+        var activeInstance: DesktopRelayClient? = null
+    }
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private val sessions = ConcurrentHashMap<String, DesktopSession>()
@@ -779,7 +759,11 @@ class DesktopRelayClient {
     fun updateSessionsStatus() {
         val map = sessions.mapKeys { cleanKey(it.key) }.mapValues { entry ->
             val sess = entry.value
-            DesktopRecoveryPolicy.status(!sess.isUserDisconnect)
+            when {
+                sess.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+                sess.desktopBitmap.value != null && !sess.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+                else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
+            }
         }
         _sessionsStatus.value = map
         updateActiveNodes()
@@ -791,8 +775,8 @@ class DesktopRelayClient {
 
     fun updateActiveNodes() {
         val active = sessions.entries
-            .filter { !it.value.isUserDisconnect }
-            .map { it.key }
+            .filter { it.value.isConnected() }
+            .map { cleanKey(it.key) }
             .toSet()
         _activeNodes.value = active
     }
@@ -800,9 +784,9 @@ class DesktopRelayClient {
     @Synchronized
     fun getSession(meshClient: MeshCentralClient, nodeId: String): DesktopSession {
         val key = cleanKey(nodeId)
-        meshClient.onClipboardReceivedListener = { nId, text ->
-            val k = cleanKey(nId)
-            sessions[k]?.updateRemoteClipboard(text)
+        val existing = sessions[key]
+        if (existing != null) {
+            return existing
         }
         return sessions.getOrPut(key) {
             DesktopSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
@@ -816,65 +800,91 @@ class DesktopRelayClient {
         return session?.isConnected() ?: false
     }
 
-    fun getConnectionState(meshClient: MeshCentralClient, nodeId: String): StateFlow<Boolean> {
+    fun isConnected(meshClient: MeshCentralClient, nodeId: String): StateFlow<Boolean> {
         return getSession(meshClient, nodeId).connectionState
     }
 
-    fun getScreenResolution(meshClient: MeshCentralClient, nodeId: String): StateFlow<Pair<Int, Int>> {
-        return getSession(meshClient, nodeId).screenResolution
-    }
-
-    fun getDesktopBitmap(meshClient: MeshCentralClient, nodeId: String): StateFlow<Bitmap?> {
+    fun desktopBitmap(meshClient: MeshCentralClient, nodeId: String): StateFlow<Bitmap?> {
         return getSession(meshClient, nodeId).desktopBitmap
     }
 
-    fun getFrameVersion(meshClient: MeshCentralClient, nodeId: String): StateFlow<Long> {
+    fun frameVersion(meshClient: MeshCentralClient, nodeId: String): StateFlow<Long> {
         return getSession(meshClient, nodeId).frameVersion
     }
 
-    fun getSettings(meshClient: MeshCentralClient, nodeId: String): StateFlow<DesktopSettings> {
+    fun settings(meshClient: MeshCentralClient, nodeId: String): StateFlow<DesktopSettings> {
         return getSession(meshClient, nodeId).settings
     }
 
-    fun getRemoteClipboardText(meshClient: MeshCentralClient, nodeId: String): StateFlow<String> {
+    fun remoteClipboardText(meshClient: MeshCentralClient, nodeId: String): StateFlow<String> {
         return getSession(meshClient, nodeId).remoteClipboardText
     }
 
-    fun getFrameVersion(nodeId: String): StateFlow<Long> {
+    fun screenResolution(nodeId: String): StateFlow<Pair<Int, Int>> {
         val session = sessions[cleanKey(nodeId)]
-        return session?.frameVersion ?: MutableStateFlow(0L).asStateFlow()
+        return session?.screenResolution ?: MutableStateFlow(Pair(1024, 768)).asStateFlow()
     }
 
-    fun getSettings(nodeId: String): StateFlow<DesktopSettings> {
-        val session = sessions[cleanKey(nodeId)]
-        return session?.settings ?: MutableStateFlow(DesktopSettings()).asStateFlow()
-    }
-
-    fun getRemoteClipboardText(nodeId: String): StateFlow<String> {
-        val session = sessions[cleanKey(nodeId)]
-        return session?.remoteClipboardText ?: MutableStateFlow("").asStateFlow()
-    }
-
-    fun connect(meshClient: MeshCentralClient, nodeId: String) {
+    fun startSession(meshClient: MeshCentralClient, nodeId: String) {
         val session = getSession(meshClient, nodeId)
         session.connect()
-        updateActiveNodes()
+        updateSessionsStatus()
     }
 
     fun pauseSession(nodeId: String) {
         sessions[cleanKey(nodeId)]?.pauseSession()
+        updateSessionsStatus()
     }
 
-    fun resumeSession(nodeId: String) {
-        sessions[cleanKey(nodeId)]?.resumeSession()
+    fun stopSession(nodeId: String) {
+        val key = cleanKey(nodeId)
+        val session = sessions.remove(key)
+        session?.disconnect()
+        updateSessionsStatus()
     }
 
-    fun updateSettings(nodeId: String, newSettings: DesktopSettings) {
-        sessions[cleanKey(nodeId)]?.updateSettings(newSettings)
+    fun disconnect() {
+        disconnectAll()
     }
 
-    fun sendMouseEvent(nodeId: String, actionButton: Int, x: Int, y: Int) {
-        sessions[cleanKey(nodeId)]?.sendMouseEvent(actionButton, x, y)
+    fun disconnectAll() {
+        for (session in sessions.values) {
+            session.disconnect()
+        }
+        sessions.clear()
+        updateSessionsStatus()
+    }
+
+    fun performMouseClick(nodeId: String, xPct: Float, yPct: Float, isRightClick: Boolean) {
+        val session = sessions[cleanKey(nodeId)] ?: return
+        val (resWidth, resHeight) = session.screenResolution.value
+        val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
+        val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
+        val settings = session.settings.value
+
+        val effectiveRight = if (settings.swapMouseButtons) !isRightClick else isRightClick
+
+        val btnDown = if (effectiveRight) 0x08 else 0x02
+        val btnUp = if (effectiveRight) 0x10 else 0x04
+
+        session.sendMouseEvent(btnDown, remoteX, remoteY)
+        scope.launch {
+            delay(30)
+            session.sendMouseEvent(btnUp, remoteX, remoteY)
+        }
+    }
+
+    fun performMiddleClick(nodeId: String, xPct: Float, yPct: Float) {
+        val session = sessions[cleanKey(nodeId)] ?: return
+        val (resWidth, resHeight) = session.screenResolution.value
+        val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
+        val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
+
+        session.sendMouseEvent(0x20, remoteX, remoteY)
+        scope.launch {
+            delay(30)
+            session.sendMouseEvent(0x40, remoteX, remoteY)
+        }
     }
 
     fun sendMouseScroll(nodeId: String, x: Int, y: Int, delta: Int) {
@@ -889,51 +899,51 @@ class DesktopRelayClient {
         sessions[cleanKey(nodeId)]?.sendKeyCombo(*keyCodes)
     }
 
-    fun sendUnicodeKey(nodeId: String, char: Char) {
-        sessions[cleanKey(nodeId)]?.sendUnicodeKey(char)
-    }
-
     fun sendUnicodeText(nodeId: String, text: String) {
         sessions[cleanKey(nodeId)]?.sendUnicodeText(text)
     }
 
-    fun sendClipboardText(meshClient: MeshCentralClient, nodeId: String, text: String) {
-        getSession(meshClient, nodeId).sendClipboardText(text)
+    fun sendClipboardText(nodeId: String, text: String) {
+        sessions[cleanKey(nodeId)]?.sendClipboardText(text)
     }
 
-    fun requestRemoteClipboard(meshClient: MeshCentralClient, nodeId: String) {
-        getSession(meshClient, nodeId).requestRemoteClipboard()
+    fun requestRemoteClipboard(nodeId: String) {
+        sessions[cleanKey(nodeId)]?.requestRemoteClipboard()
     }
 
-    fun sendHotkeyCommand(nodeId: String, command: String) {
-        sessions[cleanKey(nodeId)]?.sendHotkeyCommand(command)
+    fun updateSettings(nodeId: String, newSettings: DesktopSettings) {
+        sessions[cleanKey(nodeId)]?.updateSettings(newSettings)
     }
 
     fun refreshDisplay(nodeId: String) {
-        sessions[cleanKey(nodeId)]?.refreshOrReconnect()
+        sessions[cleanKey(nodeId)]?.refreshDisplay()
     }
 
     fun hasActiveSessions(): Boolean {
-        return sessions.values.any { !it.isUserDisconnect }
+        return sessions.values.any { it.isConnected() }
     }
 
     fun getSessionStatus(nodeId: String): iecxiv.meshfabric.data.model.SessionStatus {
         val session = sessions[cleanKey(nodeId)] ?: return iecxiv.meshfabric.data.model.SessionStatus.NONE
-        return DesktopRecoveryPolicy.status(!session.isUserDisconnect)
+        return when {
+            session.isConnected() -> iecxiv.meshfabric.data.model.SessionStatus.CONNECTED
+            session.desktopBitmap.value != null && !session.isUserDisconnect -> iecxiv.meshfabric.data.model.SessionStatus.DISCONNECTED_WITH_BUFFER
+            else -> iecxiv.meshfabric.data.model.SessionStatus.NONE
+        }
     }
 
     fun hasDisconnectedWithBuffer(): Boolean {
-        return false // Desktop transport loss does not create a lost buffered session.
+        return sessions.values.any { !it.isConnected() && it.desktopBitmap.value != null && !it.isUserDisconnect }
     }
 
     fun getSessionCount(): Int {
-        return sessions.values.count { !it.isUserDisconnect }
+        return sessions.values.count { (it.isConnected() || it.desktopBitmap.value != null) && !it.isUserDisconnect }
     }
 
     fun onNetworkChanged() {
         for (session in sessions.values) {
-            if (!session.isUserDisconnect) {
-                session.forceReconnect()
+            if (!session.isUserDisconnect && !session.isConnected()) {
+                session.connect()
             }
         }
     }
@@ -943,17 +953,5 @@ class DesktopRelayClient {
         val session = sessions.remove(key)
         session?.disconnect()
         updateSessionsStatus()
-    }
-
-    fun disconnectAll() {
-        for (session in sessions.values) {
-            session.disconnect()
-        }
-        sessions.clear()
-        updateSessionsStatus()
-    }
-
-    fun disconnect() {
-        disconnectAll()
     }
 }
