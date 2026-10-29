@@ -1,0 +1,4 @@
+<resources>
+    <string name="terminal_renderer_stopped">El renderizador de la terminal se ha detenido. Sal de esta pantalla y vuelve a abrir la terminal. La sesión remota no se ha reiniciado.</string>
+    <string name="terminal_output_continuity_lost">Se ha perdido la continuidad de la salida. Desconecta y crea una nueva sesión de terminal.</string>
+</resources>

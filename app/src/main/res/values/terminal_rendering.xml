@@ -1,0 +1,4 @@
+<resources>
+    <string name="terminal_renderer_stopped">The terminal renderer stopped. Leave this screen and reopen the terminal. The remote session has not been restarted.</string>
+    <string name="terminal_output_continuity_lost">Output continuity was lost. Disconnect and create a new terminal session.</string>
+</resources>
