@@ -10,6 +10,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import android.widget.FrameLayout
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -56,6 +57,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.res.stringResource
 import iecxiv.meshfabric.R
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -76,27 +78,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.gson.Gson
 
-class AndroidTerminalBridge(
-    private val onInput: (String) -> Unit,
-    private val onResize: (Int, Int) -> Unit,
-    private val onReady: () -> Unit
-) {
-    @JavascriptInterface
-    fun sendInput(data: String) {
-        onInput(data)
-    }
-
-    @JavascriptInterface
-    fun onTerminalResize(cols: Int, rows: Int) {
-        onResize(cols, rows)
-    }
-
-    @JavascriptInterface
-    fun onHtmlReady() {
-        onReady()
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -107,77 +88,22 @@ fun TerminalScreen(
     onBack: () -> Unit
 ) {
     val connectionStatus by viewModel.connectionStatus(nodeId).collectAsState()
-    val gson = remember { Gson() }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-
-    var currentFontSize by remember { mutableStateOf(11) }
-    var activeWebView by remember { mutableStateOf<WebView?>(null) }
-    var isHtmlReady by remember { mutableStateOf(false) }
-    var isHistoryLoaded by remember { mutableStateOf(false) }
+    val renderer = remember(nodeId, viewModel) { viewModel.renderTerminal(context, nodeId) }
+    val rendererError by renderer.error.collectAsState()
+    var attachmentToken by remember(renderer) { mutableStateOf<Long?>(null) }
     var showCommandDialog by remember { mutableStateOf(false) }
     var commandInput by remember { mutableStateOf("") }
     var selectedCtrlChar by remember { mutableStateOf('C') }
     var showCtrlDropdown by remember { mutableStateOf(false) }
     val ctrlLetters = remember { ('A'..'Z').toList() }
 
-    fun writeToTerminal(data: String) {
-        if (data.isEmpty()) return
-        val jsonStr = gson.toJson(data)
-        activeWebView?.post {
-            activeWebView?.evaluateJavascript("window.writeTerminalData($jsonStr);", null)
-        }
-    }
+    fun changeFontSize(delta: Int) { renderer.changeFontSize(delta) }
 
-    fun focusTerminal() {
-        activeWebView?.post {
-            activeWebView?.requestFocus()
-            activeWebView?.evaluateJavascript("window.focusTerminal();", null)
-        }
-    }
-
-    fun loadHistoryOnce() {
-        if (!isHistoryLoaded) {
-            isHistoryLoaded = true
-            isHtmlReady = true
-            val fullHistory = viewModel.getFullHistory(nodeId)
-            if (fullHistory.isNotEmpty()) {
-                writeToTerminal(fullHistory)
-            }
-            focusTerminal()
-        }
-    }
-
-    fun changeFontSize(delta: Int) {
-        val newSize = (currentFontSize + delta).coerceIn(8, 20)
-        currentFontSize = newSize
-        activeWebView?.post {
-            activeWebView?.evaluateJavascript("window.setFontSize($newSize);", null)
-        }
-    }
-
-
-    fun clearTerminal() {
-        activeWebView?.post {
-            activeWebView?.evaluateJavascript("window.clearTerminal();", null)
-        }
-    }
-
-    DisposableEffect(nodeId) {
+    DisposableEffect(renderer) {
         viewModel.startSession(nodeId)
-        onDispose {
-            // Keep terminal session alive on simple back navigation as requested in A1
-            activeWebView?.stopLoading()
-            activeWebView = null
-        }
-    }
-
-    LaunchedEffect(isHtmlReady, nodeId) {
-        if (isHtmlReady) {
-            viewModel.incomingDataFlow(nodeId).collect { data ->
-                writeToTerminal(data)
-            }
-        }
+        onDispose { attachmentToken?.let { viewModel.releaseRenderer(renderer, it) } }
     }
 
     Scaffold(
@@ -262,63 +188,24 @@ fun TerminalScreen(
                     .weight(1f)
                     .fillMaxWidth()
             ) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                            setBackgroundColor(0xFF0D1117.toInt())
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.allowFileAccess = true
-                            settings.allowContentAccess = true
-                            settings.useWideViewPort = false
-                            settings.loadWithOverviewMode = false
-                            settings.setSupportZoom(false)
-
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    Log.d("TerminalScreen", "onPageFinished: $url")
-                                    view?.postDelayed({
-                                        loadHistoryOnce()
-                                    }, 150)
-                                }
-                            }
-
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                                    Log.d("WebConsole", "${consoleMessage?.message()} -- From line ${consoleMessage?.lineNumber()} of ${consoleMessage?.sourceId()}")
-                                    return true
-                                }
-                            }
-
-                            val bridge = AndroidTerminalBridge(
-                                onInput = { inputData ->
-                                    viewModel.sendInput(nodeId, inputData)
-                                },
-                                onResize = { cols, rows ->
-                                    viewModel.sendResize(nodeId, cols, rows)
-                                },
-                                onReady = {
-                                    Log.d("TerminalScreen", "onHtmlReady triggered from JS!")
-                                    post {
-                                        loadHistoryOnce()
-                                    }
-                                }
-                            )
-                            addJavascriptInterface(bridge, "AndroidTerminal")
-                            loadUrl("file:///android_asset/terminal/terminal.html")
-                            activeWebView = this
-                        }
-                    },
-                    update = { view ->
-                        activeWebView = view
+                key(renderer) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx -> FrameLayout(ctx) },
+                        onReset = null,
+                        onRelease = { parent -> viewModel.releaseParent(renderer, parent) },
+                        update = { parent -> attachmentToken = renderer.attach(context, parent) }
+                    )
+                }
+                if (rendererError != null) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                        Text(
+                            text = stringResource(if (rendererError == TerminalRendererError.RENDERER_STOPPED)
+                                R.string.terminal_renderer_stopped else R.string.terminal_output_continuity_lost),
+                            modifier = Modifier.padding(16.dp)
+                        )
                     }
-                )
+                }
             }
 
             Surface(

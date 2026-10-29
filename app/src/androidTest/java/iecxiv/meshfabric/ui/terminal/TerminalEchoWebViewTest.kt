@@ -1,0 +1,150 @@
+package iecxiv.meshfabric.ui.terminal
+
+import android.annotation.SuppressLint
+import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.widget.FrameLayout
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.google.gson.Gson
+import iecxiv.meshfabric.data.remote.MeshCentralClient
+import iecxiv.meshfabric.data.remote.TerminalSession
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import okhttp3.Request
+import okhttp3.WebSocket
+import okio.ByteString
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+
+@RunWith(AndroidJUnit4::class)
+class TerminalEchoWebViewTest {
+    class EchoBridge {
+        val ready = CountDownLatch(1)
+        val acknowledgements = LinkedBlockingQueue<String>()
+        @JavascriptInterface fun onHtmlReady() { ready.countDown() }
+        @JavascriptInterface fun onTerminalResize(cols: Int, rows: Int) {}
+        @JavascriptInterface fun sendInput(text: String) {}
+        @JavascriptInterface fun onOutputConsumed(token: String) { acknowledgements.offer(token) }
+    }
+    private class FakeSocket : WebSocket {
+        override fun request(): Request = Request.Builder().url("https://example.invalid/").build()
+        override fun queueSize(): Long = 0L
+        override fun send(text: String): Boolean = true
+        override fun send(bytes: ByteString): Boolean = true
+        override fun close(code: Int, reason: String?): Boolean = true
+        override fun cancel() {}
+    }
+
+    @Test fun binaryFramesRenderAc1b() { verify("ac1b", true) }
+    @Test fun textFramesRenderAc1b() { verify("ac1b", false) }
+    @Test fun binaryFramesRenderTwoCsAndTwoOnes() { verify("cc11", true) }
+    @Test fun textFramesRenderTwoCsAndTwoOnes() { verify("cc11", false) }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun verify(expected: String, binary: Boolean) {
+        val bridge = EchoBridge()
+        val errors = ConcurrentLinkedQueue<String>()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val session = TerminalSession("synthetic-echo", MeshCentralClient(), scope)
+        val socket = FakeSocket()
+        session.activeSocket = socket
+        val textReceiver = TerminalSession::class.java.getDeclaredMethod(
+            "handleIncomingData", java.lang.Long.TYPE, WebSocket::class.java, String::class.java
+        ).apply { isAccessible = true }
+        val binaryReceiver = TerminalSession::class.java.getDeclaredMethod(
+            "handleTerminalOutput", String::class.java
+        ).apply { isAccessible = true }
+        val delivery = TerminalOutputDelivery().apply { attach(1L) }
+        val gson = Gson()
+        var webView: WebView? = null
+        val scenario = ActivityScenario.launch(TerminalEchoTestActivity::class.java)
+        try {
+            scenario.onActivity { activity ->
+                textReceiver.invoke(session, 0L, socket, "c")
+                assertTrue(session.connectionState.value)
+                webView = WebView(activity).also { view ->
+                    view.settings.javaScriptEnabled = true
+                    view.settings.allowFileAccess = true
+                    view.webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                            message?.let { errors.add(it.message()) }
+                            return true
+                        }
+                    }
+                    view.addJavascriptInterface(bridge, "AndroidTerminal")
+                    activity.host.addView(view, FrameLayout.LayoutParams(-1, -1))
+                    view.loadDataWithBaseURL("file:///android_asset/terminal/", HTML, "text/html", "UTF-8", null)
+                }
+            }
+            assertTrue("Runtime did not initialize: $errors", bridge.ready.await(20, TimeUnit.SECONDS))
+            for (character in expected) {
+                var token = ""
+                scenario.onActivity {
+                    if (binary) binaryReceiver.invoke(session, character.toString())
+                    else textReceiver.invoke(session, 0L, socket, character.toString())
+                    val slice = session.readOutput(delivery.cursor)
+                    assertFalse(slice.gap)
+                    assertEquals(character.toString(), slice.text)
+                    val batch = delivery.prepare(1L, slice)!!
+                    token = batch.token
+                    webView!!.evaluateJavascript(
+                        "window.writeTerminalBatch(${gson.toJson(batch.token)},${gson.toJson(batch.text)});", null
+                    )
+                }
+                val acknowledged = bridge.acknowledgements.poll(10, TimeUnit.SECONDS)
+                assertEquals("Parser ACK missing: $errors", token, acknowledged)
+                scenario.onActivity { assertTrue(delivery.acknowledge(1L, token)) }
+            }
+            val resultReady = CountDownLatch(1)
+            var actual = ""
+            scenario.onActivity {
+                webView!!.evaluateJavascript("window.__echoTerm.buffer.active.getLine(0).translateToString(true);") { json ->
+                    actual = gson.fromJson(json, String::class.java)
+                    resultReady.countDown()
+                }
+            }
+            assertTrue(resultReady.await(10, TimeUnit.SECONDS))
+            assertEquals("Actual bundled xterm buffer differs", expected, actual)
+        } finally {
+            scenario.onActivity {
+                session.closeSocketOnly()
+                webView?.let { view ->
+                    it.host.removeView(view)
+                    view.removeJavascriptInterface("AndroidTerminal")
+                    view.destroy()
+                }
+            }
+            scope.cancel()
+            scenario.close()
+        }
+    }
+
+    companion object {
+        private val HTML = """<!doctype html><html><head>
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <link rel="stylesheet" href="xterm.css">
+          <style>html,body{width:100%;height:100%;margin:0}#terminal-container{width:100%;height:100%}</style>
+          <script src="xterm.js"></script>
+          <script>
+            const OriginalTerminal = window.Terminal;
+            window.Terminal = function(options) {
+              const instance = new OriginalTerminal(options);
+              window.__echoTerm = instance;
+              return instance;
+            };
+          </script>
+          <script src="xterm-fit.js"></script><script src="terminal-resize.js"></script>
+          </head><body><div id="terminal-container"></div><div id="terminal-error" hidden></div>
+          <script src="terminal-runtime.js"></script></body></html>"""
+    }
+}

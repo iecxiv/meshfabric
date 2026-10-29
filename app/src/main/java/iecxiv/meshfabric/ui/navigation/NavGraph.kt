@@ -105,6 +105,7 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
             MeshFabricHome(viewModel=deviceListViewModel,
                 onLogout={
                     if(navController.acceptsNavigationFrom(entry)) {
+                        terminalViewModel.clearRendering()
                         loginViewModel.logout()
                         navController.navigateOnceFrom(entry,"login") { popUpTo("devices") { inclusive=true } }
                     }

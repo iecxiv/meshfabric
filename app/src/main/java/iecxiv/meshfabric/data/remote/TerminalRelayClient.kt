@@ -50,6 +50,9 @@ class TerminalSession(
     var lastRows = 25
 
     private val sessionHistory = StringBuilder()
+    private val outputJournal = TerminalOutputJournal()
+    val outputRevision: StateFlow<Long> = outputJournal.revision
+    fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice = outputJournal.read(cursor)
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
     private val _connectionStatus = MutableStateFlow(TerminalConnectionStatus.CONNECTING)
@@ -59,7 +62,7 @@ class TerminalSession(
 
     fun isConnected(): Boolean = _connectionState.value && activeSocket != null
     fun getFullHistory(): String = synchronized(sessionHistory) { sessionHistory.toString() }
-    fun clearHistory() { synchronized(sessionHistory) { sessionHistory.clear() } }
+    fun clearHistory() { synchronized(sessionHistory) { sessionHistory.clear(); outputJournal.clear() } }
 
     private fun getBufferFile(context: Context): File {
         val dir = File(context.filesDir, "terminal_buffers")
@@ -84,6 +87,8 @@ class TerminalSession(
                 synchronized(sessionHistory) {
                     sessionHistory.clear()
                     sessionHistory.append(content)
+                    outputJournal.clear()
+                    outputJournal.append(content)
                 }
                 hasPrintedDisconnectMessage = true
                 _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
@@ -111,7 +116,7 @@ class TerminalSession(
         if (isUserDisconnect || hasPrintedDisconnectMessage) return
         hasPrintedDisconnectMessage = true
         val disconnectBanner = "\r\n\u001b[38;5;130m${getDisconnectMessage()}\u001b[0m\r\n"
-        synchronized(sessionHistory) { sessionHistory.append(disconnectBanner) }
+        synchronized(sessionHistory) { sessionHistory.append(disconnectBanner); outputJournal.append(disconnectBanner) }
         _incomingDataFlow.tryEmit(disconnectBanner)
         saveBufferToDisk(iecxiv.meshfabric.MeshFabricApp.instance)
         onStateChanged?.invoke()
@@ -183,7 +188,10 @@ class TerminalSession(
                     }
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                         generation.runIfCurrent(epoch) {
-                            if (activeSocket === webSocket && !isUserDisconnect) handleIncomingData(epoch, webSocket, bytes.utf8())
+                            if (activeSocket === webSocket && !isUserDisconnect) {
+                                traceTerminalFrame("binary", bytes.size)
+                                handleTerminalOutput(bytes.utf8())
+                            }
                         }
                     }
                     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -229,8 +237,22 @@ class TerminalSession(
         true
     }
 
+    private var tracedFrames = 0
+    private val traceEnabled: Boolean get() = try {
+        (iecxiv.meshfabric.MeshFabricApp.instance.applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    } catch (_: Exception) { false }
+
+    private fun traceTerminalFrame(kind: String, size: Int) {
+        if (traceEnabled && tracedFrames < 64) {
+            tracedFrames++
+            Log.d("TerminalEcho", "rx=$tracedFrames kind=$kind size=$size connected=${_connectionState.value} handshake=$handshakeComplete")
+        }
+    }
+
     private fun handleIncomingData(epoch: Long, webSocket: WebSocket, data: String) {
-        if (data == "c" || data == "cr" || data == "1") {
+        traceTerminalFrame("text", data.length)
+        if (TerminalHandshakePolicy.shouldHandle(data, handshakeComplete)) {
             val wasConnected = _connectionState.value
             handshakeComplete = true
             handshakeTimeoutJob?.cancel()
@@ -249,12 +271,20 @@ class TerminalSession(
             }
             return
         }
+        handleTerminalOutput(data)
+    }
+
+    private fun handleTerminalOutput(data: String) {
         if (_connectionState.value) {
             synchronized(sessionHistory) {
                 sessionHistory.append(data)
+                outputJournal.append(data)
                 if (sessionHistory.length > 200000) sessionHistory.delete(0, 50000)
             }
             _incomingDataFlow.tryEmit(data)
+            if (traceEnabled && tracedFrames in 1..63) {
+                Log.d("TerminalEcho", "published chars=${data.length} revision=${outputRevision.value}")
+            }
         }
     }
 
