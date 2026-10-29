@@ -1,0 +1,39 @@
+name: Restore validated terminal phase 1
+
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/restore-terminal-phase1.yml]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: restore-terminal-phase1
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    if: github.ref == 'refs/heads/terminal-improve'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Restore exact phase 1 tree and remove this temporary workflow
+        shell: bash
+        env:
+          PHASE1: 1d1c90bc1b31736d58c61a10ccf59e8d721cba0f
+          EXPECTED_PARENT: 85038529b2144a7a2d4aa11509a943354fb8b4b8
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD^)" = "$EXPECTED_PARENT"
+          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/restore-terminal-phase1.yml'
+          git restore --source="$PHASE1" --staged --worktree -- .
+          test "$(git write-tree)" = "$(git rev-parse "$PHASE1^{tree}")"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'revert: restore validated terminal phase 1'
+          test "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse "$PHASE1^{tree}")"
+          git push origin HEAD:refs/heads/terminal-improve
