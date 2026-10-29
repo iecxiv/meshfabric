@@ -1,0 +1,10 @@
+<resources>
+    <string name="terminal_tools">Terminal tools</string>
+    <string name="terminal_copy_title">Select and copy</string>
+    <string name="terminal_copy_help">Long-press to select a fragment and copy it. Copy all copies this snapshot. Live terminal output continues separately.</string>
+    <string name="terminal_copy_limited">Limited snapshot: at most 2,000 recent rows and 200,000 characters. This is not the complete terminal history.</string>
+    <string name="terminal_copy_failed">Could not read the terminal text. Close this dialog and try again.</string>
+    <string name="terminal_copy_empty">No text to copy.</string>
+    <string name="terminal_copy_all">Copy all</string>
+    <string name="terminal_copy_done">Text copied</string>
+</resources>

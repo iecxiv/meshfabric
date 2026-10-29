@@ -1,0 +1,131 @@
+{
+  "base": "93603680e99ba83f1c9ab6ae9ee91efbab4600b6",
+  "versionName": "1.1.1",
+  "versionCode": 1,
+  "default_translatable_resources": 284,
+  "explicit_english_resources_before": 255,
+  "explicit_english_resources_after": 284,
+  "english_keys_added": [
+    [
+      "string",
+      "terminal_copy_all"
+    ],
+    [
+      "string",
+      "terminal_copy_done"
+    ],
+    [
+      "string",
+      "terminal_copy_empty"
+    ],
+    [
+      "string",
+      "terminal_copy_failed"
+    ],
+    [
+      "string",
+      "terminal_copy_help"
+    ],
+    [
+      "string",
+      "terminal_copy_limited"
+    ],
+    [
+      "string",
+      "terminal_copy_title"
+    ],
+    [
+      "string",
+      "terminal_output_continuity_lost"
+    ],
+    [
+      "string",
+      "terminal_paste_clipboard"
+    ],
+    [
+      "string",
+      "terminal_paste_confirm"
+    ],
+    [
+      "string",
+      "terminal_paste_controls"
+    ],
+    [
+      "string",
+      "terminal_paste_count"
+    ],
+    [
+      "string",
+      "terminal_paste_edit_label"
+    ],
+    [
+      "string",
+      "terminal_paste_edit_send"
+    ],
+    [
+      "string",
+      "terminal_paste_edit_title"
+    ],
+    [
+      "string",
+      "terminal_paste_empty"
+    ],
+    [
+      "string",
+      "terminal_paste_large"
+    ],
+    [
+      "string",
+      "terminal_paste_multiline"
+    ],
+    [
+      "string",
+      "terminal_paste_rejected"
+    ],
+    [
+      "string",
+      "terminal_paste_title"
+    ],
+    [
+      "string",
+      "terminal_paste_unknown"
+    ],
+    [
+      "string",
+      "terminal_paste_warning"
+    ],
+    [
+      "string",
+      "terminal_recovery_cancel"
+    ],
+    [
+      "string",
+      "terminal_recreate_title"
+    ],
+    [
+      "string",
+      "terminal_recreate_view"
+    ],
+    [
+      "string",
+      "terminal_recreate_warning"
+    ],
+    [
+      "string",
+      "terminal_renderer_stopped"
+    ],
+    [
+      "string",
+      "terminal_tools"
+    ],
+    [
+      "string",
+      "terminal_view_unresponsive"
+    ]
+  ],
+  "missing_english_resource_keys_after": [],
+  "source_files_scanned": 66,
+  "literal_candidates": 1830,
+  "all_ui_externalized": false,
+  "manual_review_required": true
+}
