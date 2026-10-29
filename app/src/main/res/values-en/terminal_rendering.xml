@@ -1,0 +1,9 @@
+<resources>
+    <string name="terminal_renderer_stopped">The terminal renderer stopped. Leave this screen and reopen the terminal. The remote session has not been restarted.</string>
+    <string name="terminal_output_continuity_lost">Output continuity was lost. Disconnect and create a new terminal session.</string>
+    <string name="terminal_view_unresponsive">The terminal view is not responding. The remote connection has not been restarted.</string>
+    <string name="terminal_recreate_view">Recreate view</string>
+    <string name="terminal_recreate_title">Recreate the terminal view?</string>
+    <string name="terminal_recreate_warning">Only the local view will be recreated. The remote shell stays open. Full-screen apps such as nano may need to redraw; their visual state cannot be guaranteed after rebuilding from history.</string>
+    <string name="terminal_recovery_cancel">Cancel</string>
+</resources>
