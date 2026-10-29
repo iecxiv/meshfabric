@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="terminal_paste_title">Pegar desde Android</string>
+    <string name="terminal_paste_warning">Revisa antes de pegar. No se añade Enter. Los saltos de línea incluidos pueden ejecutar comandos.</string>
+    <string name="terminal_paste_count">%1$d caracteres</string>
+    <string name="terminal_paste_empty">El portapapeles no contiene texto plano.</string>
+    <string name="terminal_paste_large">El texto supera 16384 caracteres. No se enviará nada.</string>
+    <string name="terminal_paste_clipboard">No se pudo leer el portapapeles.</string>
+    <string name="terminal_paste_controls">El texto contiene controles no permitidos o Unicode inválido. No se enviará nada.</string>
+    <string name="terminal_paste_multiline">Entiendo que los saltos de línea incluidos pueden ejecutar comandos.</string>
+    <string name="terminal_paste_unknown">No se pudo confirmar el envío. Comprueba la terminal antes de volver a pegar.</string>
+    <string name="terminal_paste_rejected">No se inició el pegado. Cierra y comprueba la conexión.</string>
+    <string name="terminal_paste_confirm">Pegar en la terminal</string>
+</resources>

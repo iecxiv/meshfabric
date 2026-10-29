@@ -33,7 +33,8 @@ class TerminalEchoWebViewTest {
         val acknowledgements = LinkedBlockingQueue<String>()
         @JavascriptInterface fun onHtmlReady() { ready.countDown() }
         @JavascriptInterface fun onTerminalResize(cols: Int, rows: Int) {}
-        @JavascriptInterface fun sendInput(text: String) {}
+        val inputs = LinkedBlockingQueue<String>()
+        @JavascriptInterface fun sendInput(text: String) { inputs.offer(text) }
         @JavascriptInterface fun onOutputConsumed(token: String) { acknowledgements.offer(token) }
     }
     private class FakeSocket : WebSocket {
@@ -50,6 +51,11 @@ class TerminalEchoWebViewTest {
     @Test fun binaryFramesRenderTwoCsAndTwoOnes() { verify("cc11", true) }
     @Test fun textFramesRenderTwoCsAndTwoOnes() { verify("cc11", false) }
 
+    @Test fun pasteSingleLineAddsNoEnter() { verify("ready", true, paste = "ac1b") }
+    @Test fun pasteNormalizesCrLf() { verify("ready", true, paste = "one\r\ntwo") }
+    @Test fun pasteBracketedMultiline() { verify("ready", true, paste = "one\ntwo\n", bracketed = true) }
+    @Test fun pasteRejectsEscapeInjection() { verify("ready", true, paste = 27.toChar().toString() + "[201~", pasteAccepted = false) }
+
     @Test fun copyExcludesAnsiColorSequences() { verify("\u001b[31mc1\u001b[0m", true, "c1") }
     @Test fun clipboardPayloadIsMarkedSensitive() {
         val clip = terminalCopyClip("ac1b")
@@ -58,7 +64,7 @@ class TerminalEchoWebViewTest {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun verify(expected: String, binary: Boolean, displayed: String = expected) {
+    private fun verify(expected: String, binary: Boolean, displayed: String = expected, paste: String? = null, bracketed: Boolean = false, pasteAccepted: Boolean = true) {
         val bridge = EchoBridge()
         val errors = ConcurrentLinkedQueue<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -134,6 +140,30 @@ class TerminalEchoWebViewTest {
             val captured = gson.fromJson(copyJson, com.google.gson.JsonObject::class.java)
             assertEquals(displayed, captured.get("text").asString)
             assertFalse(captured.get("truncated").asBoolean)
+            if (paste != null) {
+                if (bracketed) {
+                    scenario.onActivity {
+                        webView!!.evaluateJavascript("window.writeTerminalBatch('paste-mode', String.fromCharCode(27) + '[?2004h');", null)
+                    }
+                    assertEquals("paste-mode", bridge.acknowledgements.poll(10, TimeUnit.SECONDS))
+                }
+                val pasteReady = CountDownLatch(1)
+                var accepted = ""
+                scenario.onActivity {
+                    webView!!.evaluateJavascript("window.pasteTerminalText(${gson.toJson(paste)});") { json ->
+                        accepted = json
+                        pasteReady.countDown()
+                    }
+                }
+                assertTrue(pasteReady.await(10, TimeUnit.SECONDS))
+                assertEquals(pasteAccepted.toString(), accepted)
+                if (pasteAccepted) {
+                    val normalized = paste.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r")
+                    val expectedPaste = if (bracketed) "\u001b[200~" + normalized + "\u001b[201~" else normalized
+                    assertEquals(expectedPaste, bridge.inputs.poll(10, TimeUnit.SECONDS))
+                }
+                assertNull("Unexpected extra paste input", bridge.inputs.poll(200, TimeUnit.MILLISECONDS))
+            }
         } finally {
             scenario.onActivity {
                 session.closeSocketOnly()

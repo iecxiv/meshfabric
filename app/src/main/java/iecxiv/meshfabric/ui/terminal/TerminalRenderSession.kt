@@ -167,6 +167,23 @@ internal class TerminalRenderSession(
         }
     }
 
+    suspend fun paste(text: String): TerminalPasteResult {
+        checkMainThread()
+        if (isDestroyed || !ready || !isAttached || failure.value != null ||
+            !session.connectionState.value || TerminalPastePolicy.issue(text) != null) return TerminalPasteResult.REJECTED
+        return kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+            kotlinx.coroutines.suspendCancellableCoroutine<TerminalPasteResult> { continuation ->
+                webView.evaluateJavascript("window.pasteTerminalText(${gson.toJson(text)});") { json ->
+                    if (continuation.isActive) continuation.resume(when (json) {
+                        "true" -> TerminalPasteResult.DISPATCHED
+                        "false" -> TerminalPasteResult.REJECTED
+                        else -> TerminalPasteResult.UNKNOWN
+                    })
+                }
+            }
+        } ?: TerminalPasteResult.UNKNOWN
+    }
+
     fun changeFontSize(delta: Int) {
         checkMainThread()
         if (isDestroyed) return

@@ -93,7 +93,21 @@
     if (!term || disposed || failed || !window.MeshTerminalSelection) return null;
     return window.MeshTerminalSelection.capture(term.buffer.active, 2000, 200000);
   };
-  window.getFontSize = function () { return fontSize; };
+  window.pasteTerminalText = function (data) {
+  if (!term || !readySent || disposed || failed || typeof data !== 'string' || !data.length || data.length > 16384) return false;
+  for (var i = 0; i < data.length; i++) {
+    var c = data.charCodeAt(i);
+    if ((c < 32 && c !== 9 && c !== 10 && c !== 13) || (c >= 127 && c <= 159) ||
+        (c >= 0x202A && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069)) return false;
+    if (c >= 0xD800 && c <= 0xDBFF) {
+      var next = data.charCodeAt(++i);
+      if (!(next >= 0xDC00 && next <= 0xDFFF)) return false;
+    } else if (c >= 0xDC00 && c <= 0xDFFF) return false;
+  }
+  term.paste(data);
+  return true;
+};
+window.getFontSize = function () { return fontSize; };
   window.clearTerminal = function () { if (term && !failed && !disposed) term.clear(); };
   window.focusTerminal = function () { if (term && !failed && !disposed) term.focus(); };
   function requestResize() {

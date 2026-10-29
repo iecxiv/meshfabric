@@ -99,6 +99,22 @@ fun TerminalScreen(
     var showCopyDialog by remember(renderer) { mutableStateOf(false) }
     var copySnapshot by remember(renderer) { mutableStateOf<TerminalCopySnapshot?>(null) }
     var copyLoading by remember(renderer) { mutableStateOf(false) }
+    var showPasteDialog by remember(renderer) { mutableStateOf(false) }
+    var pasteDraft by remember(renderer) { mutableStateOf<TerminalPasteDraft?>(null) }
+    var pasteAttempted by remember(renderer) { mutableStateOf(false) }
+    var pasteBusy by remember(renderer) { mutableStateOf(false) }
+    var pasteResult by remember(renderer) { mutableStateOf<TerminalPasteResult?>(null) }
+    LaunchedEffect(pasteAttempted, renderer) {
+        if (pasteAttempted) {
+            val text = pasteDraft?.text
+            pasteResult = if (text == null) TerminalPasteResult.REJECTED else renderer.paste(text)
+            pasteBusy = false
+            if (pasteResult == TerminalPasteResult.DISPATCHED) {
+                showPasteDialog = false
+                pasteDraft = null
+            }
+        }
+    }
     LaunchedEffect(showCopyDialog, renderer) {
         copySnapshot = null
         copyLoading = showCopyDialog
@@ -193,6 +209,18 @@ fun TerminalScreen(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.terminal_copy_title)) },
                                 onClick = { showTerminalMenu = false; showCopyDialog = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.terminal_paste_title)) },
+                                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
+                                onClick = {
+                                    showTerminalMenu = false
+                                    pasteDraft = readTerminalPaste(context)
+                                    pasteAttempted = false
+                                    pasteBusy = false
+                                    pasteResult = null
+                                    showPasteDialog = true
+                                }
                             )
                         }
                     }
@@ -370,6 +398,21 @@ fun TerminalScreen(
 
         if (showCopyDialog) {
             TerminalCopyDialog(copySnapshot, copyLoading, onDismiss = { showCopyDialog = false })
+        }
+
+        if (showPasteDialog) {
+            TerminalPasteDialog(
+                text = pasteDraft?.text, issue = pasteDraft?.issue,
+                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED && rendererError == null,
+                attempted = pasteAttempted, busy = pasteBusy, result = pasteResult,
+                onConfirm = { if (!pasteAttempted) { pasteBusy = true; pasteAttempted = true } },
+                onDismiss = {
+                    showPasteDialog = false
+                    pasteDraft = null
+                    pasteAttempted = false
+                    pasteResult = null
+                }
+            )
         }
 
         // Command Input Dialog
