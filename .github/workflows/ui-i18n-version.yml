@@ -1,0 +1,213 @@
+name: Audit UI resources and prepare 1.1.1
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/ui-i18n-version.yml]
+permissions:
+  contents: write
+concurrency:
+  group: ui-i18n-version
+  cancel-in-progress: false
+jobs:
+  audit-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify reviewed base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/terminal-improve
+          git merge-base --is-ancestor 93603680e99ba83f1c9ab6ae9ee91efbab4600b6 HEAD
+          git diff --exit-code 93603680e99ba83f1c9ab6ae9ee91efbab4600b6 HEAD -- . ':(exclude).github/workflows/ui-i18n-version.yml'
+      - name: Audit main sources and resources and set version
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import collections
+          import csv
+          import json
+          import re
+          import xml.etree.ElementTree as ET
+
+          base = Path('app/src/main')
+          res = base / 'res'
+          modules = ['terminal_rendering.xml', 'terminal_selection.xml', 'terminal_paste.xml', 'terminal_paste_edit.xml']
+          planned = {}
+          for module in modules:
+              target = res / 'values-en' / module
+              if target.exists():
+                  raise RuntimeError('English module already exists: ' + module)
+              planned[target] = (res / 'values' / module).read_text(encoding='utf-8')
+          def resources(directory, additions=None):
+              result = {}
+              entries = {p: p.read_text(encoding='utf-8') for p in directory.glob('*.xml')}
+              entries.update(additions or {})
+              for path, content in entries.items():
+                  for node in ET.fromstring(content):
+                      if node.tag not in ('string', 'plurals', 'string-array') or node.get('translatable') == 'false':
+                          continue
+                      key = (node.tag, node.get('name'))
+                      if key in result:
+                          raise RuntimeError('Duplicate resource: ' + str(key))
+                      result[key] = node
+              return result
+          original = resources(res / 'values')
+          english_before = resources(res / 'values-en')
+          english = resources(res / 'values-en', planned)
+          missing = sorted(set(original) - set(english))
+          if missing:
+              raise RuntimeError('English resources still missing: ' + repr(missing))
+          slash = chr(92)
+          format_pattern = '(?<!%)%(?!%)(?:' + slash + 'd+' + slash + '$)?[-#+ 0,(]*' + slash + 'd*(?:' + slash + '.' + slash + 'd+)?[a-zA-Z]'
+          pattern = re.compile(format_pattern)
+          def tokens(node):
+              return collections.Counter(pattern.findall(''.join(node.itertext())))
+          for key, default in original.items():
+              translated = english[key]
+              if key[0] == 'string' and tokens(default) != tokens(translated):
+                  raise RuntimeError('English format mismatch: ' + str(key))
+              if key[0] == 'string-array':
+                  left, right = list(default), list(translated)
+                  if len(left) != len(right) or any(tokens(a) != tokens(b) for a, b in zip(left, right)):
+                      raise RuntimeError('English array mismatch: ' + str(key))
+              if key[0] == 'plurals':
+                  left = {n.get('quantity'): n for n in default}
+                  right = {n.get('quantity'): n for n in translated}
+                  if 'other' not in right or any(tokens(left[q]) != tokens(right[q]) for q in left.keys() & right.keys()):
+                      raise RuntimeError('English plural mismatch: ' + str(key))
+          gradle = Path('app/build.gradle.kts')
+          config = gradle.read_text(encoding='utf-8')
+          code_pattern = slash + 'bversionCode' + slash + 's*=' + slash + 's*(' + slash + 'd+)'
+          name_pattern = slash + 'bversionName' + slash + 's*=' + slash + 's*"([^"]+)"'
+          if re.findall(code_pattern, config) != ['1'] or re.findall(name_pattern, config) != ['1.0.9']:
+              raise RuntimeError('Unexpected version configuration')
+          updated = config.replace('versionName = "1.0.9"', 'versionName = "1.1.1"')
+          if re.findall(code_pattern, updated) != ['1']:
+              raise RuntimeError('versionCode must stay 1')
+          planned[gradle] = updated
+          out = Path('docs/i18n')
+          if any((out / name).exists() for name in ['candidates.csv', 'summary.json', 'README.md']):
+              raise RuntimeError('Audit targets already exist')
+          literal = re.compile('"""[' + slash + 's' + slash + 'S]*?"""|"(?:' + slash * 2 + '.|[^"' + slash * 2 + '])*"')
+          rows = []
+          source_files = 0
+          for path in sorted(base.rglob('*')):
+              if not path.is_file():
+                  continue
+              kind = path.suffix.lower()
+              if kind not in ('.kt', '.java', '.js', '.html', '.xml'):
+                  continue
+              if kind == '.xml':
+                  if any(part.startswith('values') for part in path.parts):
+                      continue
+                  try:
+                      tree = ET.fromstring(path.read_text(encoding='utf-8'))
+                  except ET.ParseError:
+                      continue
+                  for node in tree.iter():
+                      for attr, value in node.attrib.items():
+                          name = attr.split('}')[-1]
+                          if name in ('text', 'hint', 'title', 'summary', 'contentDescription', 'label', 'prompt') and value and not value.startswith(('@', '?')):
+                              rows.append([str(path), '', 'xml_attribute', json.dumps(value, ensure_ascii=False), name])
+                  continue
+              if kind in ('.js', '.html') and (path.name.startswith('xterm') or path.name.endswith('.min.js')):
+                  continue
+              text = path.read_text(encoding='utf-8')
+              source_files += 1
+              for match in literal.finditer(text):
+                  raw = match.group(0)
+                  if not re.search(r'[A-Za-zÀ-ÿ]', raw):
+                      continue
+                  line = text.count(chr(10), 0, match.start()) + 1
+                  start = text.rfind(chr(10), 0, match.start()) + 1
+                  end = text.find(chr(10), match.end())
+                  context = text[start:end if end >= 0 else len(text)].strip()
+                  rows.append([str(path), line, 'literal_candidate', json.dumps(raw[:500], ensure_ascii=False), json.dumps(context[:250], ensure_ascii=False)])
+          for text in planned.values():
+              text.encode('utf-8')
+          for path, text in planned.items():
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(text, encoding='utf-8')
+          out.mkdir(parents=True, exist_ok=True)
+          with (out / 'candidates.csv').open('w', encoding='utf-8', newline='') as handle:
+              writer = csv.writer(handle, lineterminator=chr(10))
+              writer.writerow(['path', 'line', 'kind', 'literal_json', 'context_json'])
+              writer.writerows(rows)
+          summary = {
+              'base': '93603680e99ba83f1c9ab6ae9ee91efbab4600b6',
+              'versionName': '1.1.1', 'versionCode': 1,
+              'default_translatable_resources': len(original),
+              'explicit_english_resources_before': len(english_before),
+              'explicit_english_resources_after': len(english),
+              'english_keys_added': [list(k) for k in sorted(set(english) - set(english_before))],
+              'missing_english_resource_keys_after': [],
+              'source_files_scanned': source_files, 'literal_candidates': len(rows),
+              'all_ui_externalized': False, 'manual_review_required': True
+          }
+          (out / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2) + chr(10), encoding='utf-8')
+          (out / 'README.md').write_text('''# UI localization inventory - not a completed localization
+
+          Version name is 1.1.1; version code remains 1. Four reviewed English-default terminal resource modules are now explicit values-en resources. Default translatable resource keys have explicit English coverage and placeholders are checked. This verifies resource structure, not translation meaning.
+
+          Hardcoded UI text still exists, notably management states, operation labels, errors and terminal labels. candidates.csv inventories literals across main Kotlin/Java and non-vendored JS/HTML plus literal XML UI attributes. It is heuristic: comments, protocol keys, technical data and non-UI strings may appear; interpolated/composed text and runtime/server errors require manual review. Candidate content/context are bounded. Never blindly replace protocol, command or backend data strings. No runtime clipboard, terminal history, credentials or network content is read.
+
+          This inventory is not proof that every UI phrase was found or translated. all_ui_externalized is deliberately false. Remaining migration needs reviewed resource mappings and lifecycle-safe resolution outside composables. No automatic language guessing or Spanish-as-English fallback is introduced.
+
+          Compilation and JVM/Node checks gate publication. Lint is collected separately and its outcome is recorded below; failed lint is not treated as clean. Device English/Spanish layout and accessibility need review. Focus, keyboard, special keys, scrolling and networking are unchanged.
+          ''', encoding='utf-8')
+          PY
+          git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing JavaScript tests
+        run: |
+          node app/src/test/js/terminal-runtime.test.js
+          node app/src/test/js/terminal-selection.test.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Collect full lint audit
+        id: lint
+        continue-on-error: true
+        run: bash ./gradlew :app:lintDebug --no-daemon --stacktrace
+      - name: Record lint outcome and publish bounded audit
+        env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: |
+          set -euo pipefail
+          printf '\nLint outcome: %s\n' "$LINT_OUTCOME" >> docs/i18n/README.md
+          remote_head=$(git ls-remote origin refs/heads/terminal-improve | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          rm .github/workflows/ui-i18n-version.yml
+          git add -- app/build.gradle.kts app/src/main/res/values-en/terminal_rendering.xml app/src/main/res/values-en/terminal_selection.xml app/src/main/res/values-en/terminal_paste.xml app/src/main/res/values-en/terminal_paste_edit.xml docs/i18n/candidates.csv docs/i18n/summary.json docs/i18n/README.md .github/workflows/ui-i18n-version.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: set version 1.1.1 and audit UI localization gaps'
+          git push origin HEAD:refs/heads/terminal-improve
+      - name: Upload localization audit lint and APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-i18n-1.1.1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            docs/i18n/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
