@@ -108,6 +108,7 @@ fun TerminalScreen(
 ) {
     val connectionStatus by viewModel.connectionStatus(nodeId).collectAsState()
     val gson = remember { Gson() }
+    val readyGate = remember(nodeId) { TerminalReadyGate() }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
@@ -166,6 +167,7 @@ fun TerminalScreen(
     DisposableEffect(nodeId) {
         viewModel.startSession(nodeId)
         onDispose {
+            readyGate.invalidate()
             // Keep terminal session alive on simple back navigation as requested in A1
             activeWebView?.stopLoading()
             activeWebView = null
@@ -283,9 +285,7 @@ fun TerminalScreen(
                                 override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     Log.d("TerminalScreen", "onPageFinished: $url")
-                                    view?.postDelayed({
-                                        loadHistoryOnce()
-                                    }, 150)
+                                    // Page loading is not terminal readiness; wait for onHtmlReady.
                                 }
                             }
 
@@ -296,6 +296,8 @@ fun TerminalScreen(
                                 }
                             }
 
+                            val terminalWebView = this
+                            val pageGeneration = readyGate.begin()
                             val bridge = AndroidTerminalBridge(
                                 onInput = { inputData ->
                                     viewModel.sendInput(nodeId, inputData)
@@ -305,8 +307,10 @@ fun TerminalScreen(
                                 },
                                 onReady = {
                                     Log.d("TerminalScreen", "onHtmlReady triggered from JS!")
-                                    post {
-                                        loadHistoryOnce()
+                                    terminalWebView.post {
+                                        if (activeWebView === terminalWebView && readyGate.accept(pageGeneration)) {
+                                            loadHistoryOnce()
+                                        }
                                     }
                                 }
                             )
