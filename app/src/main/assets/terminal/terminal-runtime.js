@@ -32,11 +32,12 @@
     try {
       if (resize) resize.flush();
       if (!queue.length) return;
-      var chunks = [], length = 0;
+      var chunks = [], tokens = [], length = 0;
       while (queue.length && length < 65536) {
         var chunk = queue.shift();
-        chunks.push(chunk);
-        length += chunk.length;
+        chunks.push(chunk.data);
+        length += chunk.data.length;
+        if (chunk.token !== null) tokens.push(chunk.token);
       }
       var buffer = term.buffer.active;
       var follow = buffer.type === 'normal' && buffer.viewportY >= buffer.baseY;
@@ -47,21 +48,37 @@
         if (disposed || failed) return;
         try {
           if (follow && term.buffer.active === buffer && buffer.type === 'normal') term.scrollToBottom();
+          if (tokens.length) {
+            var bridge = window.AndroidTerminal;
+            if (!bridge || typeof bridge.onOutputConsumed !== 'function') throw new Error('ACK bridge unavailable');
+            tokens.forEach(function (token) { bridge.onOutputConsumed(token); });
+          }
           drain();
         } catch (error) { fail(error); }
       });
     } catch (error) { fail(error); }
   }
 
-  window.writeTerminalData = function (data) {
-    if (disposed || failed || typeof data !== 'string' || !data.length) return;
+  function enqueueTerminalData(data, token) {
+    if (disposed || failed || typeof data !== 'string' || !data.length) return false;
     if (queuedChars + data.length > MAX_PENDING_CHARS) {
       fail(new RangeError('Terminal output queue limit exceeded'));
-      return;
+      return false;
     }
-    queue.push(data);
+    queue.push({ data: data, token: token });
     queuedChars += data.length;
     drain();
+    return !failed;
+  }
+  window.writeTerminalData = function (data) { return enqueueTerminalData(data, null); };
+  window.writeTerminalBatch = function (token, data) {
+    if (typeof token !== 'string' || !token.length || token.length > 128) return false;
+    return enqueueTerminalData(data, token);
+  };
+  window.showTerminalDeliveryError = function () {
+    fail(new Error('Output continuity lost'));
+    var panel = document.getElementById('terminal-error');
+    panel.textContent = 'Output continuity lost. Disconnect and create a new terminal session. / Se ha perdido la continuidad de la salida. Desconecta y crea una nueva sesion de terminal.';
   };
   window.setFontSize = function (size) {
     var parsed = Number(size);

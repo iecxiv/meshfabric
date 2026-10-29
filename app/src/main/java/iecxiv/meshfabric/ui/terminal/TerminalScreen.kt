@@ -79,7 +79,8 @@ import com.google.gson.Gson
 class AndroidTerminalBridge(
     private val onInput: (String) -> Unit,
     private val onResize: (Int, Int) -> Unit,
-    private val onReady: () -> Unit
+    private val onReady: () -> Unit,
+    private val onConsumed: (String) -> Unit = {}
 ) {
     @JavascriptInterface
     fun sendInput(data: String) {
@@ -95,6 +96,11 @@ class AndroidTerminalBridge(
     fun onHtmlReady() {
         onReady()
     }
+
+    @JavascriptInterface
+    fun onOutputConsumed(token: String) {
+        onConsumed(token)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -109,6 +115,12 @@ fun TerminalScreen(
     val connectionStatus by viewModel.connectionStatus(nodeId).collectAsState()
     val gson = remember { Gson() }
     val readyGate = remember(nodeId) { TerminalReadyGate() }
+    val outputDelivery = remember(nodeId) { TerminalOutputDelivery() }
+    val outputSession = remember(nodeId, viewModel) {
+        viewModel.terminalClient.getSession(viewModel.meshClient, nodeId)
+    }
+    var activePageGeneration by remember(nodeId) { mutableStateOf<Long?>(null) }
+    var deliveryError by remember(nodeId) { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
@@ -122,11 +134,26 @@ fun TerminalScreen(
     var showCtrlDropdown by remember { mutableStateOf(false) }
     val ctrlLetters = remember { ('A'..'Z').toList() }
 
-    fun writeToTerminal(data: String) {
-        if (data.isEmpty()) return
-        val jsonStr = gson.toJson(data)
-        activeWebView?.post {
-            activeWebView?.evaluateJavascript("window.writeTerminalData($jsonStr);", null)
+    fun stopOutput(reason: String) {
+        if (deliveryError != null) return
+        deliveryError = reason
+        outputDelivery.invalidate()
+        Log.w("TerminalOutput", "Delivery stopped: $reason")
+        activeWebView?.evaluateJavascript("window.showTerminalDeliveryError();", null)
+    }
+
+    fun pumpOutput() {
+        if (!isHtmlReady || deliveryError != null || outputDelivery.hasPending) return
+        val target = activeWebView ?: return
+        val page = activePageGeneration ?: return
+        val slice = outputSession.readOutput(outputDelivery.cursor)
+        if (slice.gap) { stopOutput("journal_gap"); return }
+        val batch = outputDelivery.prepare(page, slice) ?: return
+        val script = "window.writeTerminalBatch(${gson.toJson(batch.token)},${gson.toJson(batch.text)});"
+        target.evaluateJavascript(script) { accepted ->
+            if (activeWebView === target && activePageGeneration == page && accepted != "true") {
+                stopOutput("javascript_rejected")
+            }
         }
     }
 
@@ -141,11 +168,8 @@ fun TerminalScreen(
         if (!isHistoryLoaded) {
             isHistoryLoaded = true
             isHtmlReady = true
-            val fullHistory = viewModel.getFullHistory(nodeId)
-            if (fullHistory.isNotEmpty()) {
-                writeToTerminal(fullHistory)
-            }
             focusTerminal()
+            pumpOutput()
         }
     }
 
@@ -168,17 +192,17 @@ fun TerminalScreen(
         viewModel.startSession(nodeId)
         onDispose {
             readyGate.invalidate()
+            outputDelivery.invalidate()
+            activePageGeneration = null
             // Keep terminal session alive on simple back navigation as requested in A1
             activeWebView?.stopLoading()
             activeWebView = null
         }
     }
 
-    LaunchedEffect(isHtmlReady, nodeId) {
-        if (isHtmlReady) {
-            viewModel.incomingDataFlow(nodeId).collect { data ->
-                writeToTerminal(data)
-            }
+    LaunchedEffect(isHtmlReady, nodeId, deliveryError) {
+        if (isHtmlReady && deliveryError == null) {
+            outputSession.outputRevision.collect { pumpOutput() }
         }
     }
 
@@ -309,8 +333,16 @@ fun TerminalScreen(
                                     Log.d("TerminalScreen", "onHtmlReady triggered from JS!")
                                     terminalWebView.post {
                                         if (activeWebView === terminalWebView && readyGate.accept(pageGeneration)) {
+                                            activePageGeneration = pageGeneration
+                                            outputDelivery.attach(pageGeneration)
                                             loadHistoryOnce()
                                         }
+                                    }
+                                },
+                                onConsumed = { token ->
+                                    terminalWebView.post {
+                                        if (activeWebView === terminalWebView && activePageGeneration == pageGeneration &&
+                                            outputDelivery.acknowledge(pageGeneration, token)) pumpOutput()
                                     }
                                 }
                             )

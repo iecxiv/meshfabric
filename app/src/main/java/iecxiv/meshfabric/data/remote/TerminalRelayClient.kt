@@ -50,6 +50,9 @@ class TerminalSession(
     var lastRows = 25
 
     private val sessionHistory = StringBuilder()
+    private val outputJournal = TerminalOutputJournal()
+    val outputRevision: StateFlow<Long> = outputJournal.revision
+    fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice = outputJournal.read(cursor)
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
     private val _connectionStatus = MutableStateFlow(TerminalConnectionStatus.CONNECTING)
@@ -59,7 +62,7 @@ class TerminalSession(
 
     fun isConnected(): Boolean = _connectionState.value && activeSocket != null
     fun getFullHistory(): String = synchronized(sessionHistory) { sessionHistory.toString() }
-    fun clearHistory() { synchronized(sessionHistory) { sessionHistory.clear() } }
+    fun clearHistory() { synchronized(sessionHistory) { sessionHistory.clear(); outputJournal.clear() } }
 
     private fun getBufferFile(context: Context): File {
         val dir = File(context.filesDir, "terminal_buffers")
@@ -84,6 +87,8 @@ class TerminalSession(
                 synchronized(sessionHistory) {
                     sessionHistory.clear()
                     sessionHistory.append(content)
+                    outputJournal.clear()
+                    outputJournal.append(content)
                 }
                 hasPrintedDisconnectMessage = true
                 _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
@@ -111,7 +116,7 @@ class TerminalSession(
         if (isUserDisconnect || hasPrintedDisconnectMessage) return
         hasPrintedDisconnectMessage = true
         val disconnectBanner = "\r\n\u001b[38;5;130m${getDisconnectMessage()}\u001b[0m\r\n"
-        synchronized(sessionHistory) { sessionHistory.append(disconnectBanner) }
+        synchronized(sessionHistory) { sessionHistory.append(disconnectBanner); outputJournal.append(disconnectBanner) }
         _incomingDataFlow.tryEmit(disconnectBanner)
         saveBufferToDisk(iecxiv.meshfabric.MeshFabricApp.instance)
         onStateChanged?.invoke()
@@ -252,6 +257,7 @@ class TerminalSession(
         if (_connectionState.value) {
             synchronized(sessionHistory) {
                 sessionHistory.append(data)
+                outputJournal.append(data)
                 if (sessionHistory.length > 200000) sessionHistory.delete(0, 50000)
             }
             _incomingDataFlow.tryEmit(data)

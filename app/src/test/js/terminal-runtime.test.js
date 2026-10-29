@@ -116,4 +116,54 @@ test('queue overflow is visible rather than silently dropping stream data', () =
   const h = runtimeHarness(); h.window.writeTerminalData('x'.repeat(2 * 1024 * 1024 + 1));
   assert.equal(h.panel.hidden, false); assert.equal(h.terminal.writes.length, 0);
 });
+
+test('batch ACK waits for parser completion', () => {
+  const h = runtimeHarness(), acks = [];
+  h.window.AndroidTerminal.onOutputConsumed = token => acks.push(token);
+  assert.equal(h.window.writeTerminalBatch('one', 'abc'), true);
+  assert.deepEqual(acks, []);
+  h.terminal.complete();
+  assert.deepEqual(acks, ['one']);
+});
+test('batch ACKs preserve processing order', () => {
+  const h = runtimeHarness(), acks = [];
+  h.window.AndroidTerminal.onOutputConsumed = token => acks.push(token);
+  h.window.writeTerminalBatch('one', 'a');
+  h.window.writeTerminalBatch('two', 'b');
+  h.terminal.complete();
+  assert.deepEqual(acks, ['one']);
+  h.terminal.complete();
+  assert.deepEqual(acks, ['one', 'two']);
+});
+test('legacy writes remain supported without ACK', () => {
+  const h = runtimeHarness(), acks = [];
+  h.window.AndroidTerminal.onOutputConsumed = token => acks.push(token);
+  h.window.writeTerminalData('legacy'); h.terminal.complete();
+  assert.deepEqual(acks, []);
+  assert.deepEqual(h.terminal.writes, ['legacy']);
+});
+test('invalid batch token is rejected', () => {
+  const h = runtimeHarness();
+  assert.equal(h.window.writeTerminalBatch(null, 'text'), false);
+  assert.equal(h.terminal.writes.length, 0);
+});
+test('native gap stops the renderer with a visible error', () => {
+  const h = runtimeHarness();
+  h.window.showTerminalDeliveryError();
+  assert.equal(h.panel.hidden, false);
+  assert.equal(h.window.writeTerminalBatch('later', 'text'), false);
+});
+test('missing ACK bridge is an explicit error', () => {
+  const h = runtimeHarness();
+  h.window.writeTerminalBatch('one', 'abc'); h.terminal.complete();
+  assert.equal(h.panel.hidden, false);
+});
+test('overflowed batch is rejected without ACK', () => {
+  const h = runtimeHarness(), acks = [];
+  h.window.AndroidTerminal.onOutputConsumed = token => acks.push(token);
+  assert.equal(h.window.writeTerminalBatch('huge', 'x'.repeat(2 * 1024 * 1024 + 1)), false);
+  assert.deepEqual(acks, []);
+  assert.equal(h.panel.hidden, false);
+});
+
 console.log(passed + ' tests passed');
