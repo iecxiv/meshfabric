@@ -235,7 +235,7 @@ class TerminalSession(
     }
 
     private fun handleIncomingData(epoch: Long, webSocket: WebSocket, data: String) {
-        if (data == "c" || data == "cr" || data == "1") {
+        if (TerminalHandshakePolicy.shouldHandle(data, handshakeComplete)) {
             val wasConnected = _connectionState.value
             handshakeComplete = true
             handshakeTimeoutJob?.cancel()
