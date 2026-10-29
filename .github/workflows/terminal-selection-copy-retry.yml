@@ -1,0 +1,211 @@
+name: Retry verified terminal selection and copy
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/terminal-selection-copy-retry.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-selection-copy-retry
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check reviewed failed-task base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/terminal-improve
+          git merge-base --is-ancestor 7ecd6453f2c79ee2c60e9d9bdfa4eb30bbb403f8 HEAD
+          git diff --exit-code 7ecd6453f2c79ee2c60e9d9bdfa4eb30bbb403f8 HEAD -- . ':(exclude).github/workflows/terminal-selection-copy-retry.yml'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate UTF-8-safe selection patch and check JavaScript syntax
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          import subprocess
+          import textwrap
+
+          original = Path('.github/workflows/terminal-selection-copy.yml').read_text(encoding='utf-8')
+          start = "          python3 - <<'PY'" + chr(10)
+          if original.count(start) != 1:
+              raise RuntimeError('Unexpected original generator')
+          code = textwrap.dedent(original.split(start, 1)[1].split('          PY', 1)[0])
+          tree = ast.parse(code)
+          data = {}
+          for statement in tree.body:
+              if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+                  name = statement.targets[0].id
+                  if name in ('edits', 'newfiles'):
+                      if name in data:
+                          raise RuntimeError('Duplicate payload assignment')
+                      data[name] = ast.literal_eval(statement.value)
+          # The old generator is read as literal data only, never executed.
+          expected_edits = ['app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalEchoWebViewTest.kt', 'app/src/main/assets/terminal/terminal-runtime.js', 'app/src/main/assets/terminal/terminal.html', 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt', 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt']
+          expected_new = ['app/src/main/assets/terminal/terminal-selection.js', 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalCopyDialog.kt', 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalCopySnapshot.kt', 'app/src/main/res/values-es/terminal_selection.xml', 'app/src/main/res/values/terminal_selection.xml', 'app/src/test/js/terminal-selection.test.js', 'docs/terminal-selection-copy.md']
+          if set(data.get('edits', {})) != set(expected_edits) or set(data.get('newfiles', {})) != set(expected_new):
+              raise RuntimeError('Unexpected original payload paths')
+          data['newfiles']['app/src/main/assets/terminal/terminal-selection.js'] = r'''(function (root, factory) {
+            if (typeof module === 'object' && module.exports) module.exports = factory();
+            else root.MeshTerminalSelection = factory();
+          }(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+            'use strict';
+            var NL = String.fromCharCode(10);
+            function capture(buffer, maxLines, maxChars) {
+              maxLines = maxLines === undefined ? 2000 : maxLines;
+              maxChars = maxChars === undefined ? 200000 : maxChars;
+              if (!buffer || typeof buffer.getLine !== 'function' || !Number.isInteger(buffer.length) ||
+                  !Number.isInteger(maxLines) || maxLines < 1 || !Number.isInteger(maxChars) || maxChars < 2) {
+                throw new RangeError('Invalid terminal snapshot bounds');
+              }
+              var end = buffer.length;
+              while (end > 0) {
+                var tail = buffer.getLine(end - 1);
+                if (tail && tail.translateToString(true) !== '') break;
+                end--;
+              }
+              var start = Math.max(0, end - maxLines), pieces = [], used = 0, truncated = start > 0;
+              for (var i = start; i < end; i++) {
+                var line = buffer.getLine(i), next = i + 1 < end ? buffer.getLine(i + 1) : null;
+                var piece = (i > start && !(line && line.isWrapped) ? NL : '') +
+                  (line ? line.translateToString(!(next && next.isWrapped)) : '');
+                var remaining = maxChars - used;
+                if (piece.length > remaining) {
+                  var cut = remaining;
+                  var before = piece.charCodeAt(cut - 1), after = piece.charCodeAt(cut);
+                  if (cut > 0 && cut < piece.length && before >= 0xD800 && before <= 0xDBFF &&
+                      after >= 0xDC00 && after <= 0xDFFF) cut--;
+                  pieces.push(piece.slice(0, cut));
+                  truncated = true;
+                  break;
+                }
+                pieces.push(piece);
+                used += piece.length;
+              }
+              return { text: pieces.join(''), truncated: truncated };
+            }
+            return { capture: capture };
+          }));
+          '''
+          data['newfiles']['app/src/test/js/terminal-selection.test.js'] = r''''use strict';
+          const assert = require('node:assert/strict');
+          const {capture} = require('../../main/assets/terminal/terminal-selection.js');
+          const NL = String.fromCharCode(10), emoji = String.fromCodePoint(0x1F600);
+          let count = 0;
+          function test(name, body) { body(); count++; console.log('PASS ' + name); }
+          function buffer(rows) {
+            const lines = rows.map(row => typeof row === 'string' ? {text: row, wrapped: false} : row);
+            return Object.freeze({length: lines.length, getLine: i => lines[i] && Object.freeze({
+              isWrapped: !!lines[i].wrapped,
+              translateToString: trim => trim ? lines[i].text.replace(/ +$/, '') : lines[i].text
+            })});
+          }
+          test('keeps c and 1', () => assert.equal(capture(buffer(['ac1b','cc11'])).text, ['ac1b','cc11'].join(NL)));
+          test('empty buffer is empty', () => assert.deepEqual(capture(buffer([])), {text:'',truncated:false}));
+          test('omits blank viewport padding', () => assert.equal(capture(buffer(['abc','','   '])).text, 'abc'));
+          test('preserves real blank lines', () => assert.equal(capture(buffer(['a','','b'])).text, ['a','','b'].join(NL)));
+          test('soft wraps do not introduce newlines', () => assert.equal(capture(buffer(['abc',{text:'def',wrapped:true}])).text, 'abcdef'));
+          test('preserves wrapped spaces', () => assert.equal(capture(buffer(['a  ',{text:'b',wrapped:true}])).text, 'a  b'));
+          test('line bound reports truncation', () => assert.deepEqual(capture(buffer(['old','c','1']),2), {text:['c','1'].join(NL),truncated:true}));
+          test('character bound reports truncation', () => assert.deepEqual(capture(buffer(['abcdef']),2000,3), {text:'abc',truncated:true}));
+          test('does not split UTF16 pair', () => assert.deepEqual(capture(buffer(['a'+emoji+'b']),2000,2), {text:'a',truncated:true}));
+          test('keeps complete UTF16 pair', () => assert.equal(capture(buffer(['a'+emoji+'b']),2000,3).text, 'a'+emoji));
+          test('captures supplied active buffer', () => assert.equal(capture(buffer(['nano'])).text, 'nano'));
+          test('invalid bounds rejected', () => assert.throws(() => capture(buffer(['x']),0,2),RangeError));
+          console.log(count + ' selection tests passed');
+          '''
+          prepared = {}
+          for filename, replacements in data['edits'].items():
+              source = Path(filename).read_text(encoding='utf-8')
+              for old, new in replacements:
+                  if source.count(old) != 1:
+                      raise RuntimeError('Reviewed anchor mismatch: ' + filename)
+                  if filename.endswith('.kt'):
+                      new = new.replace(chr(27), chr(92) + 'u001b')
+                  source = source.replace(old, new, 1)
+              prepared[filename] = source
+          for filename, content in data['newfiles'].items():
+              if Path(filename).exists():
+                  raise RuntimeError('New target already exists: ' + filename)
+              prepared[filename] = content
+          # Strict encoding preflight for every file, before writing anything.
+          for filename, content in prepared.items():
+              content.encode('utf-8')
+          for filename, content in prepared.items():
+              target = Path(filename)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+          for filename in prepared:
+              if filename.endswith('.js'):
+                  subprocess.run(['node', '--check', filename], check=True)
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          PY
+      - name: JavaScript runtime and selection tests
+        run: |
+          node app/src/test/js/terminal-runtime.test.js
+          node app/src/test/js/terminal-selection.test.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and test APK and run unit tests
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real WebView echo and copy tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.terminal.TerminalEchoWebViewTest --no-daemon --stacktrace
+      - name: Publish verified polish and remove both temporary tasks
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/terminal-improve | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          rm .github/workflows/terminal-selection-copy.yml .github/workflows/terminal-selection-copy-retry.yml
+          git add -- app/src/main/assets/terminal/terminal.html app/src/main/assets/terminal/terminal-runtime.js app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalEchoWebViewTest.kt app/src/main/assets/terminal/terminal-selection.js app/src/test/js/terminal-selection.test.js app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalCopySnapshot.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalCopyDialog.kt app/src/main/res/values/terminal_selection.xml app/src/main/res/values-es/terminal_selection.xml docs/terminal-selection-copy.md .github/workflows/terminal-selection-copy.yml .github/workflows/terminal-selection-copy-retry.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: add native terminal text selection and explicit copy'
+          git push origin HEAD:refs/heads/terminal-improve
+      - name: Upload test reports, generated JavaScript and debug APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-selection-retry-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/src/main/assets/terminal/terminal-selection.js
+            app/src/test/js/terminal-selection.test.js
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
