@@ -1,4 +1,9 @@
 <resources>
     <string name="terminal_renderer_stopped">El renderizador de la terminal se ha detenido. Sal de esta pantalla y vuelve a abrir la terminal. La sesión remota no se ha reiniciado.</string>
     <string name="terminal_output_continuity_lost">Se ha perdido la continuidad de la salida. Desconecta y crea una nueva sesión de terminal.</string>
+    <string name="terminal_view_unresponsive">La vista de terminal no responde. La conexión remota no se ha reiniciado.</string>
+    <string name="terminal_recreate_view">Recrear vista</string>
+    <string name="terminal_recreate_title">¿Recrear la vista de terminal?</string>
+    <string name="terminal_recreate_warning">Solo se recreará la vista local. El shell remoto seguirá abierto. Las aplicaciones de pantalla completa como nano pueden necesitar redibujarse; no se garantiza su estado visual al reconstruirlo desde el historial.</string>
+    <string name="terminal_recovery_cancel">Cancelar</string>
 </resources>

@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class TerminalRendererError { OUTPUT_CONTINUITY, RENDERER_STOPPED }
+enum class TerminalRendererError { OUTPUT_CONTINUITY, RENDERER_STOPPED, ACK_TIMEOUT }
 
 /** UI-thread renderer owner. No callbacks capture a composable or an old Activity. */
 @SuppressLint("SetJavaScriptEnabled")
@@ -42,6 +42,11 @@ internal class TerminalRenderSession(
     val error: StateFlow<TerminalRendererError?> = failure.asStateFlow()
     private val webView = WebView(wrapper)
     private var outputJob: Job? = null
+    private val watchdogScope = scope
+    private val ackWatchdog = TerminalAckWatchdog()
+    private val visibility = TerminalAttachmentLease()
+    private var resumed = false
+    private var ackJob: Job? = null
     private var ready = false
     private var fontSize = 11
     var isDestroyed = false
@@ -83,6 +88,39 @@ internal class TerminalRenderSession(
 
     private fun checkMainThread() { check(Looper.myLooper() == Looper.getMainLooper()) }
 
+    private fun nowMs(): Long = android.os.SystemClock.elapsedRealtime()
+    fun bindVisibility(): Long {
+        val token = visibility.attach()
+        resumed = false
+        updateAckActivity()
+        return token
+    }
+    fun setResumed(token: Long, value: Boolean) {
+        if (isDestroyed || visibility.current != token) return
+        resumed = value
+        updateAckActivity()
+    }
+    fun unbindVisibility(token: Long) {
+        if (!visibility.release(token)) return
+        resumed = false
+        updateAckActivity()
+    }
+    private fun updateAckActivity() {
+        ackWatchdog.setActive(!isDestroyed && isAttached && resumed, nowMs())
+        scheduleAckCheck()
+    }
+    private fun scheduleAckCheck() {
+        ackJob?.cancel()
+        ackJob = null
+        val wait = ackWatchdog.remaining(nowMs()) ?: return
+        ackJob = watchdogScope.launch {
+            kotlinx.coroutines.delay(wait)
+            if (!isDestroyed && ackWatchdog.poll(nowMs()) && failure.value == null) {
+                failure.value = TerminalRendererError.ACK_TIMEOUT
+            }
+        }
+    }
+
     fun attach(context: Context, parent: FrameLayout): Long {
         checkMainThread()
         if (isDestroyed) return -1L
@@ -92,12 +130,14 @@ internal class TerminalRenderSession(
         val token = lease.attach()
         parent.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         webView.onResume()
+        updateAckActivity()
         if (ready) fitAndFocus()
         return token
     }
     fun detach(token: Long) {
         checkMainThread()
         if (!lease.release(token)) return
+        updateAckActivity()
         (webView.parent as? ViewGroup)?.removeView(webView)
         if (!isDestroyed) webView.onPause()
         wrapper.baseContext = appContext
@@ -120,6 +160,9 @@ internal class TerminalRenderSession(
     private fun stopOutput() {
         if (isDestroyed || failure.value != null) return
         failure.value = TerminalRendererError.OUTPUT_CONTINUITY
+        ackWatchdog.reset()
+        ackJob?.cancel()
+        ackJob = null
         delivery.invalidate()
         webView.evaluateJavascript("window.showTerminalDeliveryError();", null)
     }
@@ -128,6 +171,8 @@ internal class TerminalRenderSession(
         val slice = session.readOutput(delivery.cursor)
         if (slice.gap) { stopOutput(); return }
         val batch = delivery.prepare(page, slice) ?: return
+        ackWatchdog.sent(batch.token, nowMs())
+        scheduleAckCheck()
         webView.evaluateJavascript("window.writeTerminalBatch(${gson.toJson(batch.token)},${gson.toJson(batch.text)});") { accepted ->
             if (!isDestroyed && accepted != "true") stopOutput()
         }
@@ -136,6 +181,10 @@ internal class TerminalRenderSession(
         checkMainThread()
         if (isDestroyed) return
         isDestroyed = true
+        visibility.invalidate()
+        ackWatchdog.reset()
+        ackJob?.cancel()
+        ackJob = null
         ready = false
         outputJob?.cancel()
         outputJob = null
@@ -170,7 +219,12 @@ internal class TerminalRenderSession(
             }
         }
         @JavascriptInterface fun onOutputConsumed(token: String) {
-            webView.post { if (!isDestroyed && delivery.acknowledge(page, token)) pump() }
+            webView.post {
+                if (!isDestroyed && failure.value == null && ackWatchdog.acknowledge(token) && delivery.acknowledge(page, token)) {
+                    scheduleAckCheck()
+                    pump()
+                }
+            }
         }
     }
 }

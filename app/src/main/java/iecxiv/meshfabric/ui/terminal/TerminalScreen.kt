@@ -90,7 +90,9 @@ fun TerminalScreen(
     val connectionStatus by viewModel.connectionStatus(nodeId).collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val renderer = remember(nodeId, viewModel) { viewModel.renderTerminal(context, nodeId) }
+    var rendererVersion by remember(nodeId) { mutableStateOf(0) }
+    val renderer = remember(nodeId, viewModel, rendererVersion) { viewModel.renderTerminal(context, nodeId) }
+    var showRecoveryDialog by remember(renderer) { mutableStateOf(false) }
     val rendererError by renderer.error.collectAsState()
     var attachmentToken by remember(renderer) { mutableStateOf<Long?>(null) }
     var showCommandDialog by remember { mutableStateOf(false) }
@@ -101,8 +103,21 @@ fun TerminalScreen(
 
     fun changeFontSize(delta: Int) { renderer.changeFontSize(delta) }
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(renderer, lifecycleOwner) {
+        val binding = renderer.bindVisibility()
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
+            renderer.setResumed(binding, lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        renderer.setResumed(binding, lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            renderer.unbindVisibility(binding)
+        }
+    }
+    LaunchedEffect(nodeId, viewModel) { viewModel.startSession(nodeId) }
     DisposableEffect(renderer) {
-        viewModel.startSession(nodeId)
         onDispose { attachmentToken?.let { viewModel.releaseRenderer(renderer, it) } }
     }
 
@@ -199,11 +214,18 @@ fun TerminalScreen(
                 }
                 if (rendererError != null) {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-                        Text(
-                            text = stringResource(if (rendererError == TerminalRendererError.RENDERER_STOPPED)
-                                R.string.terminal_renderer_stopped else R.string.terminal_output_continuity_lost),
-                            modifier = Modifier.padding(16.dp)
-                        )
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(stringResource(when (rendererError) {
+                                TerminalRendererError.RENDERER_STOPPED -> R.string.terminal_renderer_stopped
+                                TerminalRendererError.ACK_TIMEOUT -> R.string.terminal_view_unresponsive
+                                else -> R.string.terminal_output_continuity_lost
+                            }))
+                            if (rendererError != TerminalRendererError.OUTPUT_CONTINUITY) {
+                                OutlinedButton(onClick = { showRecoveryDialog = true }) {
+                                    Text(stringResource(R.string.terminal_recreate_view))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -301,6 +323,25 @@ fun TerminalScreen(
                     )
                 }
             }
+        }
+
+        if (showRecoveryDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showRecoveryDialog = false },
+                title = { Text(stringResource(R.string.terminal_recreate_title)) },
+                text = { Text(stringResource(R.string.terminal_recreate_warning)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showRecoveryDialog = false
+                        if (viewModel.resetRenderer(renderer)) rendererVersion++
+                    }) { Text(stringResource(R.string.terminal_recreate_view)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRecoveryDialog = false }) {
+                        Text(stringResource(R.string.terminal_recovery_cancel))
+                    }
+                }
+            )
         }
 
         // Command Input Dialog
