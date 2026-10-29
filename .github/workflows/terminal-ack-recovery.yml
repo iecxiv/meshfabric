@@ -1,0 +1,120 @@
+name: Verify and publish foreground terminal ACK recovery
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/terminal-ack-recovery.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-ack-recovery
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check reviewed base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/terminal-improve
+          git merge-base --is-ancestor 07aad548ce066b345af63764e3f2dd41d1075258 HEAD
+          git diff --exit-code 07aad548ce066b345af63764e3f2dd41d1075258 HEAD -- . ':(exclude).github/workflows/terminal-ack-recovery.yml'
+      - name: Prepare foreground watchdog and explicit view recovery
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          def replace_once(source, old, new):
+              if source.count(old) != 1:
+                  raise RuntimeError('Reviewed source anchor mismatch; refusing to overwrite')
+              return source.replace(old, new, 1)
+
+          edits = {'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt': [('enum class TerminalRendererError { OUTPUT_CONTINUITY, RENDERER_STOPPED }', 'enum class TerminalRendererError { OUTPUT_CONTINUITY, RENDERER_STOPPED, ACK_TIMEOUT }'), ('    private var outputJob: Job? = null\n', '    private var outputJob: Job? = null\n    private val watchdogScope = scope\n    private val ackWatchdog = TerminalAckWatchdog()\n    private val visibility = TerminalAttachmentLease()\n    private var resumed = false\n    private var ackJob: Job? = null\n'), ('    fun attach(context: Context, parent: FrameLayout): Long {', '    private fun nowMs(): Long = android.os.SystemClock.elapsedRealtime()\n    fun bindVisibility(): Long {\n        val token = visibility.attach()\n        resumed = false\n        updateAckActivity()\n        return token\n    }\n    fun setResumed(token: Long, value: Boolean) {\n        if (isDestroyed || visibility.current != token) return\n        resumed = value\n        updateAckActivity()\n    }\n    fun unbindVisibility(token: Long) {\n        if (!visibility.release(token)) return\n        resumed = false\n        updateAckActivity()\n    }\n    private fun updateAckActivity() {\n        ackWatchdog.setActive(!isDestroyed && isAttached && resumed, nowMs())\n        scheduleAckCheck()\n    }\n    private fun scheduleAckCheck() {\n        ackJob?.cancel()\n        ackJob = null\n        val wait = ackWatchdog.remaining(nowMs()) ?: return\n        ackJob = watchdogScope.launch {\n            kotlinx.coroutines.delay(wait)\n            if (!isDestroyed && ackWatchdog.poll(nowMs()) && failure.value == null) {\n                failure.value = TerminalRendererError.ACK_TIMEOUT\n            }\n        }\n    }\n\n    fun attach(context: Context, parent: FrameLayout): Long {'), ('        webView.onResume()\n', '        webView.onResume()\n        updateAckActivity()\n'), ('        if (!lease.release(token)) return\n', '        if (!lease.release(token)) return\n        updateAckActivity()\n'), ('        failure.value = TerminalRendererError.OUTPUT_CONTINUITY\n', '        failure.value = TerminalRendererError.OUTPUT_CONTINUITY\n        ackWatchdog.reset()\n        ackJob?.cancel()\n        ackJob = null\n'), ('        val batch = delivery.prepare(page, slice) ?: return\n', '        val batch = delivery.prepare(page, slice) ?: return\n        ackWatchdog.sent(batch.token, nowMs())\n        scheduleAckCheck()\n'), ('        isDestroyed = true\n', '        isDestroyed = true\n        visibility.invalidate()\n        ackWatchdog.reset()\n        ackJob?.cancel()\n        ackJob = null\n'), ('            webView.post { if (!isDestroyed && delivery.acknowledge(page, token)) pump() }', '            webView.post {\n                if (!isDestroyed && failure.value == null && ackWatchdog.acknowledge(token) && delivery.acknowledge(page, token)) {\n                    scheduleAckCheck()\n                    pump()\n                }\n            }')], 'app/src/main/java/iecxiv/meshfabric/ui/terminal/RetainedTerminalStore.kt': [('    fun remove(key: K) { entries.remove(key)?.let(dispose) }', '    fun remove(key: K) { entries.remove(key)?.let(dispose) }\n    fun removeIf(key: K, expected: V): Boolean {\n        val current = entries[key] ?: return false\n        if (current !== expected) return false\n        entries.remove(key)\n        dispose(current)\n        return true\n    }')], 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt': [('    fun clearRendering() { renderers.clear() }', '    fun clearRendering() { renderers.clear() }\n    internal fun resetRenderer(expected: TerminalRenderSession): Boolean =\n        renderers.removeIf(expected.session.cleanNodeId, expected)')], 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt': [('    val renderer = remember(nodeId, viewModel) { viewModel.renderTerminal(context, nodeId) }', '    var rendererVersion by remember(nodeId) { mutableStateOf(0) }\n    val renderer = remember(nodeId, viewModel, rendererVersion) { viewModel.renderTerminal(context, nodeId) }\n    var showRecoveryDialog by remember(renderer) { mutableStateOf(false) }'), ('    DisposableEffect(renderer) {\n        viewModel.startSession(nodeId)\n', '    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current\n    DisposableEffect(renderer, lifecycleOwner) {\n        val binding = renderer.bindVisibility()\n        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->\n            renderer.setResumed(binding, lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))\n        }\n        lifecycleOwner.lifecycle.addObserver(observer)\n        renderer.setResumed(binding, lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))\n        onDispose {\n            lifecycleOwner.lifecycle.removeObserver(observer)\n            renderer.unbindVisibility(binding)\n        }\n    }\n    LaunchedEffect(nodeId, viewModel) { viewModel.startSession(nodeId) }\n    DisposableEffect(renderer) {\n'), ('                        Text(\n                            text = stringResource(if (rendererError == TerminalRendererError.RENDERER_STOPPED)\n                                R.string.terminal_renderer_stopped else R.string.terminal_output_continuity_lost),\n                            modifier = Modifier.padding(16.dp)\n                        )', '                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {\n                            Text(stringResource(when (rendererError) {\n                                TerminalRendererError.RENDERER_STOPPED -> R.string.terminal_renderer_stopped\n                                TerminalRendererError.ACK_TIMEOUT -> R.string.terminal_view_unresponsive\n                                else -> R.string.terminal_output_continuity_lost\n                            }))\n                            if (rendererError != TerminalRendererError.OUTPUT_CONTINUITY) {\n                                OutlinedButton(onClick = { showRecoveryDialog = true }) {\n                                    Text(stringResource(R.string.terminal_recreate_view))\n                                }\n                            }\n                        }'), ('        // Command Input Dialog\n', '        if (showRecoveryDialog) {\n            androidx.compose.material3.AlertDialog(\n                onDismissRequest = { showRecoveryDialog = false },\n                title = { Text(stringResource(R.string.terminal_recreate_title)) },\n                text = { Text(stringResource(R.string.terminal_recreate_warning)) },\n                confirmButton = {\n                    TextButton(onClick = {\n                        showRecoveryDialog = false\n                        if (viewModel.resetRenderer(renderer)) rendererVersion++\n                    }) { Text(stringResource(R.string.terminal_recreate_view)) }\n                },\n                dismissButton = {\n                    TextButton(onClick = { showRecoveryDialog = false }) {\n                        Text(stringResource(R.string.terminal_recovery_cancel))\n                    }\n                }\n            )\n        }\n\n        // Command Input Dialog\n')], 'app/src/main/res/values/terminal_rendering.xml': [('</resources>', '    <string name="terminal_view_unresponsive">The terminal view is not responding. The remote connection has not been restarted.</string>\n    <string name="terminal_recreate_view">Recreate view</string>\n    <string name="terminal_recreate_title">Recreate the terminal view?</string>\n    <string name="terminal_recreate_warning">Only the local view will be recreated. The remote shell stays open. Full-screen apps such as nano may need to redraw; their visual state cannot be guaranteed after rebuilding from history.</string>\n    <string name="terminal_recovery_cancel">Cancel</string>\n</resources>')], 'app/src/main/res/values-es/terminal_rendering.xml': [('</resources>', '    <string name="terminal_view_unresponsive">La vista de terminal no responde. La conexión remota no se ha reiniciado.</string>\n    <string name="terminal_recreate_view">Recrear vista</string>\n    <string name="terminal_recreate_title">¿Recrear la vista de terminal?</string>\n    <string name="terminal_recreate_warning">Solo se recreará la vista local. El shell remoto seguirá abierto. Las aplicaciones de pantalla completa como nano pueden necesitar redibujarse; no se garantiza su estado visual al reconstruirlo desde el historial.</string>\n    <string name="terminal_recovery_cancel">Cancelar</string>\n</resources>')], 'gradle/libs.versions.toml': [('lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }', 'lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }\nlifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }')], 'app/build.gradle.kts': [('    implementation(libs.lifecycle.runtime.ktx)\n', '    implementation(libs.lifecycle.runtime.ktx)\n    implementation(libs.lifecycle.runtime.compose)\n')]}
+          newfiles = {'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalAckWatchdog.kt': 'package iecxiv.meshfabric.ui.terminal\n\n/** Monotonic-clock policy. Only a visible, resumed view spends its ACK deadline. */\ninternal class TerminalAckWatchdog(private val timeoutMs: Long = 20_000L) {\n    private var active = false\n    private var token: String? = null\n    private var deadline: Long? = null\n    private var expired = false\n    init { require(timeoutMs > 0) }\n\n    fun setActive(value: Boolean, now: Long) {\n        if (active == value) return\n        active = value\n        deadline = if (value && token != null && !expired) now + timeoutMs else null\n    }\n    fun sent(value: String, now: Long) {\n        token = value\n        expired = false\n        deadline = if (active) now + timeoutMs else null\n    }\n    fun acknowledge(value: String): Boolean {\n        if (expired || token != value) return false\n        token = null\n        deadline = null\n        return true\n    }\n    fun remaining(now: Long): Long? = if (active && !expired) deadline?.let { (it - now).coerceAtLeast(0L) } else null\n    fun poll(now: Long): Boolean {\n        val due = deadline ?: return false\n        if (!active || expired || token == null || now < due) return false\n        expired = true\n        deadline = null\n        return true\n    }\n    fun reset() {\n        active = false\n        token = null\n        deadline = null\n        expired = false\n    }\n}\n', 'app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalAckWatchdogTest.kt': 'package iecxiv.meshfabric.ui.terminal\n\nimport org.junit.Assert.*\nimport org.junit.Test\n\nclass TerminalAckWatchdogTest {\n    @Test fun idleViewNeverTimesOut() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); assertFalse(w.poll(999)) }\n    @Test fun visiblePendingBatchGetsFullDeadline() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 5); assertFalse(w.poll(24)); assertTrue(w.poll(25)) }\n    @Test fun backgroundSuspendsDeadline() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); w.setActive(false, 5); assertFalse(w.poll(999)); assertNull(w.remaining(999)) }\n    @Test fun resumeGetsFreshFullDeadline() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); w.setActive(false, 19); w.setActive(true, 1000); assertFalse(w.poll(1019)); assertTrue(w.poll(1020)) }\n    @Test fun matchingAckClearsDeadline() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); assertTrue(w.acknowledge("a")); assertNull(w.remaining(50)); assertFalse(w.poll(50)) }\n    @Test fun wrongAckDoesNotClearPendingBatch() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); assertFalse(w.acknowledge("old")); assertTrue(w.poll(20)) }\n    @Test fun timeoutIsReportedOnlyOnce() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); assertTrue(w.poll(20)); assertFalse(w.poll(30)) }\n    @Test fun lateAckCannotRecoverTimedOutView() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); assertTrue(w.poll(20)); assertFalse(w.acknowledge("a")) }\n    @Test fun duplicateActiveEventsDoNotExtendDeadline() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); w.setActive(true, 19); assertTrue(w.poll(20)) }\n    @Test fun hiddenBatchStartsDeadlineOnlyOnResume() { val w = TerminalAckWatchdog(20); w.sent("a", 0); assertFalse(w.poll(999)); w.setActive(true, 1000); assertEquals(20L, w.remaining(1000)); assertTrue(w.poll(1020)) }\n    @Test fun nextBatchGetsOwnDeadline() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); assertTrue(w.acknowledge("a")); w.sent("b", 10); assertFalse(w.poll(29)); assertTrue(w.poll(30)) }\n    @Test fun resetInvalidatesOldAck() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); w.reset(); assertFalse(w.acknowledge("a")); assertFalse(w.poll(999)) }\n    @Test fun sessionsHaveIndependentDeadlines() { val a = TerminalAckWatchdog(20); val b = TerminalAckWatchdog(20); a.setActive(true, 0); b.setActive(true, 0); a.sent("a", 0); b.sent("b", 10); assertTrue(a.poll(20)); assertFalse(b.poll(20)) }\n    @Test fun backgroundAckCanFinishWithoutFalseTimeout() { val w = TerminalAckWatchdog(20); w.setActive(true, 0); w.sent("a", 0); w.setActive(false, 5); assertTrue(w.acknowledge("a")); w.setActive(true, 1000); assertFalse(w.poll(2000)) }\n}\n', 'docs/terminal-ack-recovery.md': '# Foreground-only terminal ACK watchdog\n\nA pending parser acknowledgement has a 20-second deadline only while its renderer is attached and the current navigation lifecycle is RESUMED. Detach/background cancels the scheduled check without abandoning the pending output. Returning to RESUMED gives a fresh full deadline. Repeated RESUMED callbacks do not extend it. An idle/static terminal has no deadline.\n\nOn expiration the view shows ACK_TIMEOUT and stops advancing output. Late ACKs cannot silently clear that error. The socket, remote PTY and journal are not restarted. No Ctrl+L or other synthetic input is sent.\n\nACK_TIMEOUT and renderer loss offer an explicit, confirmed Recreate view action. It removes only the exact expected cached renderer, then constructs another renderer bound to the existing session. Starting the network session is keyed to node/navigation, not renderer replacement. OUTPUT_CONTINUITY gaps do not offer this button because replay cannot recover an already-truncated journal.\n\nRecreation is not a VT snapshot restore. The confirmation warns that nano and other full-screen programs may need a redraw. Existing replay/geometry limitations remain. No automatic retry loop or session-disconnect fallback is added. A watchdog is a conservative timeout heuristic, not proof of a renderer-process crash.\n\nVisibility bindings use tokens so a previous screen cannot pause a newer host. Recovery uses identity-checked removal so an obsolete button cannot destroy a replacement renderer. Observers are removed on disposal; Lifecycle/Activity objects are not stored by the renderer.\n\nFourteen new pure JVM watchdog tests and two store recovery tests are supplied. Existing JavaScript, pipeline, readiness, handshake and four real-WebView echo tests must pass in CI before publication. These do not yet exercise the recovery dialog or Android foreground/background transitions on a physical device. Check those manually, together with nano/keyboard/rotation and c/1 input.\n'}
+          extra_store_tests = '    @Test fun staleRecoveryCannotRemoveReplacementRenderer() {\n        val store = store()\n        val old = store.acquire("a", { true }) { Entry("old") }\n        val current = store.acquire("a", { false }) { Entry("new") }\n        assertFalse(store.removeIf("a", old))\n        assertEquals(0, current.closes)\n    }\n    @Test fun recoveryRemovesOnlyExpectedRendererOnce() {\n        val store = store()\n        val current = store.acquire("a", { true }) { Entry("a") }\n        assertTrue(store.removeIf("a", current))\n        assertFalse(store.removeIf("a", current))\n        assertEquals(1, current.closes)\n    }\n'
+          prepared = {}
+          for filename, replacements in edits.items():
+              source = Path(filename).read_text(encoding='utf-8')
+              for old, new in replacements:
+                  source = replace_once(source, old, new)
+              prepared[filename] = source
+          filename = 'app/src/test/java/iecxiv/meshfabric/ui/terminal/RetainedTerminalStoreTest.kt'
+          source = Path(filename).read_text(encoding='utf-8')
+          if not source.rstrip().endswith('}'):
+              raise RuntimeError('Unexpected store test ending')
+          prepared[filename] = source.rstrip()[:-1] + extra_store_tests + '}\n'
+          for filename, content in newfiles.items():
+              if Path(filename).exists():
+                  raise RuntimeError('New target already exists: ' + filename)
+              prepared[filename] = content
+          for filename, content in prepared.items():
+              target = Path(filename)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: JavaScript regression tests
+        run: node app/src/test/js/terminal-runtime.test.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and test APK and run unit tests
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Preserve real WebView c and 1 regression checks
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.terminal.TerminalEchoWebViewTest --no-daemon --stacktrace
+      - name: Publish only verified changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/terminal-improve | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          rm .github/workflows/terminal-ack-recovery.yml
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/RetainedTerminalStore.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/res/values/terminal_rendering.xml app/src/main/res/values-es/terminal_rendering.xml gradle/libs.versions.toml app/build.gradle.kts app/src/test/java/iecxiv/meshfabric/ui/terminal/RetainedTerminalStoreTest.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalAckWatchdog.kt app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalAckWatchdogTest.kt docs/terminal-ack-recovery.md .github/workflows/terminal-ack-recovery.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: detect foreground terminal ACK stalls and offer view-only recovery'
+          git push origin HEAD:refs/heads/terminal-improve
+      - name: Upload test reports and debug APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-ack-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
