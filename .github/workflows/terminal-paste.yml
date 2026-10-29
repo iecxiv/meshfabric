@@ -1,0 +1,380 @@
+name: Verify terminal paste preview
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/terminal-paste.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-paste-preview
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify reviewed base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/terminal-improve
+          git merge-base --is-ancestor 0444bb6b84adeb2834aa96d7f148a91ae85be16b HEAD
+          git diff --exit-code 0444bb6b84adeb2834aa96d7f148a91ae85be16b HEAD -- . ':(exclude).github/workflows/terminal-paste.yml'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply reviewed paste patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = 'app/src/main/java/iecxiv/meshfabric/ui/terminal/'
+          edits = {}
+          edits['app/src/main/assets/terminal/terminal-runtime.js'] = [(r'''  window.getFontSize = function () { return fontSize; };''', r'''  window.pasteTerminalText = function (data) {
+            if (!term || !readySent || disposed || failed || typeof data !== 'string' || !data.length || data.length > 16384) return false;
+            for (var i = 0; i < data.length; i++) {
+              var c = data.charCodeAt(i);
+              if ((c < 32 && c !== 9 && c !== 10 && c !== 13) || (c >= 127 && c <= 159) ||
+                  (c >= 0x202A && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069)) return false;
+              if (c >= 0xD800 && c <= 0xDBFF) {
+                var next = data.charCodeAt(++i);
+                if (!(next >= 0xDC00 && next <= 0xDFFF)) return false;
+              } else if (c >= 0xDC00 && c <= 0xDFFF) return false;
+            }
+            term.paste(data);
+            return true;
+          };
+          window.getFontSize = function () { return fontSize; };''')]
+          edits[p + 'TerminalRenderSession.kt'] = [(r'''    fun changeFontSize(delta: Int) {''', r'''    suspend fun paste(text: String): TerminalPasteResult {
+                  checkMainThread()
+                  if (isDestroyed || !ready || !isAttached || failure.value != null ||
+                      !session.connectionState.value || TerminalPastePolicy.issue(text) != null) return TerminalPasteResult.REJECTED
+                  return kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+                      kotlinx.coroutines.suspendCancellableCoroutine<TerminalPasteResult> { continuation ->
+                          webView.evaluateJavascript("window.pasteTerminalText(${gson.toJson(text)});") { json ->
+                              if (continuation.isActive) continuation.resume(when (json) {
+                                  "true" -> TerminalPasteResult.DISPATCHED
+                                  "false" -> TerminalPasteResult.REJECTED
+                                  else -> TerminalPasteResult.UNKNOWN
+                              })
+                          }
+                      }
+                  } ?: TerminalPasteResult.UNKNOWN
+              }
+
+              fun changeFontSize(delta: Int) {''')]
+          copy_anchor = r'''                            DropdownMenuItem(
+                                          text = { Text(stringResource(R.string.terminal_copy_title)) },
+                                          onClick = { showTerminalMenu = false; showCopyDialog = true }
+                                      )'''
+          # This anchor is assembled with exact existing indentation.
+          copy_anchor = '\n'.join(['                            DropdownMenuItem(', '                                text = { Text(stringResource(R.string.terminal_copy_title)) },', '                                onClick = { showTerminalMenu = false; showCopyDialog = true }', '                            )']) + '\n'
+          edits[p + 'TerminalScreen.kt'] = [
+              ('    var copyLoading by remember(renderer) { mutableStateOf(false) }\n', r'''    var copyLoading by remember(renderer) { mutableStateOf(false) }
+              var showPasteDialog by remember(renderer) { mutableStateOf(false) }
+              var pasteDraft by remember(renderer) { mutableStateOf<TerminalPasteDraft?>(null) }
+              var pasteAttempted by remember(renderer) { mutableStateOf(false) }
+              var pasteBusy by remember(renderer) { mutableStateOf(false) }
+              var pasteResult by remember(renderer) { mutableStateOf<TerminalPasteResult?>(null) }
+              LaunchedEffect(pasteAttempted, renderer) {
+                  if (pasteAttempted) {
+                      val text = pasteDraft?.text
+                      pasteResult = if (text == null) TerminalPasteResult.REJECTED else renderer.paste(text)
+                      pasteBusy = false
+                      if (pasteResult == TerminalPasteResult.DISPATCHED) {
+                          showPasteDialog = false
+                          pasteDraft = null
+                      }
+                  }
+              }
+          '''),
+              (copy_anchor, copy_anchor + r'''                            DropdownMenuItem(
+                                          text = { Text(stringResource(R.string.terminal_paste_title)) },
+                                          enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
+                                          onClick = {
+                                              showTerminalMenu = false
+                                              pasteDraft = readTerminalPaste(context)
+                                              pasteAttempted = false
+                                              pasteBusy = false
+                                              pasteResult = null
+                                              showPasteDialog = true
+                                          }
+                                      )
+          '''),
+              ('        // Command Input Dialog\n', r'''        if (showPasteDialog) {
+                      TerminalPasteDialog(
+                          text = pasteDraft?.text, issue = pasteDraft?.issue,
+                          enabled = connectionStatus == TerminalConnectionStatus.CONNECTED && rendererError == null,
+                          attempted = pasteAttempted, busy = pasteBusy, result = pasteResult,
+                          onConfirm = { if (!pasteAttempted) { pasteBusy = true; pasteAttempted = true } },
+                          onDismiss = {
+                              showPasteDialog = false
+                              pasteDraft = null
+                              pasteAttempted = false
+                              pasteResult = null
+                          }
+                      )
+                  }
+
+                  // Command Input Dialog
+          ''')]
+          test_path = 'app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalEchoWebViewTest.kt'
+          edits[test_path] = [
+              ('        @JavascriptInterface fun sendInput(text: String) {}', '        val inputs = LinkedBlockingQueue<String>()\n        @JavascriptInterface fun sendInput(text: String) { inputs.offer(text) }'),
+              ('    @Test fun copyExcludesAnsiColorSequences()', r'''    @Test fun pasteSingleLineAddsNoEnter() { verify("ready", true, paste = "ac1b") }
+              @Test fun pasteNormalizesCrLf() { verify("ready", true, paste = "one\r\ntwo") }
+              @Test fun pasteBracketedMultiline() { verify("ready", true, paste = "one\ntwo\n", bracketed = true) }
+              @Test fun pasteRejectsEscapeInjection() { verify("ready", true, paste = 27.toChar().toString() + "[201~", pasteAccepted = false) }
+
+              @Test fun copyExcludesAnsiColorSequences()'''),
+              ('private fun verify(expected: String, binary: Boolean, displayed: String = expected) {', 'private fun verify(expected: String, binary: Boolean, displayed: String = expected, paste: String? = null, bracketed: Boolean = false, pasteAccepted: Boolean = true) {'),
+              ('            assertFalse(captured.get("truncated").asBoolean)\n', r'''            assertFalse(captured.get("truncated").asBoolean)
+                      if (paste != null) {
+                          if (bracketed) {
+                              scenario.onActivity {
+                                  webView!!.evaluateJavascript("window.writeTerminalBatch('paste-mode', String.fromCharCode(27) + '[?2004h');", null)
+                              }
+                              assertEquals("paste-mode", bridge.acknowledgements.poll(10, TimeUnit.SECONDS))
+                          }
+                          val pasteReady = CountDownLatch(1)
+                          var accepted = ""
+                          scenario.onActivity {
+                              webView!!.evaluateJavascript("window.pasteTerminalText(${gson.toJson(paste)});") { json ->
+                                  accepted = json
+                                  pasteReady.countDown()
+                              }
+                          }
+                          assertTrue(pasteReady.await(10, TimeUnit.SECONDS))
+                          assertEquals(pasteAccepted.toString(), accepted)
+                          if (pasteAccepted) {
+                              val normalized = paste.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r")
+                              val expectedPaste = if (bracketed) "\u001b[200~" + normalized + "\u001b[201~" else normalized
+                              assertEquals(expectedPaste, bridge.inputs.poll(10, TimeUnit.SECONDS))
+                          }
+                          assertNull("Unexpected extra paste input", bridge.inputs.poll(200, TimeUnit.MILLISECONDS))
+                      }
+          ''')]
+          newfiles = {}
+          newfiles[p + 'TerminalPastePolicy.kt'] = r'''package iecxiv.meshfabric.ui.terminal
+
+          internal enum class TerminalPasteIssue { EMPTY, TOO_LARGE, CONTROL, UNICODE, CLIPBOARD }
+          internal enum class TerminalPasteResult { DISPATCHED, REJECTED, UNKNOWN }
+          internal object TerminalPastePolicy {
+              const val MAX_CHARS = 16384
+              fun issue(text: CharSequence?): TerminalPasteIssue? {
+                  if (text.isNullOrEmpty()) return TerminalPasteIssue.EMPTY
+                  if (text.length > MAX_CHARS) return TerminalPasteIssue.TOO_LARGE
+                  var i = 0
+                  while (i < text.length) {
+                      val c = text[i].code
+                      if ((c < 32 && c != 9 && c != 10 && c != 13) || c in 127..159 ||
+                          c in 0x202A..0x202E || c in 0x2066..0x2069) return TerminalPasteIssue.CONTROL
+                      if (c in 0xD800..0xDBFF) {
+                          if (i + 1 >= text.length || text[i + 1].code !in 0xDC00..0xDFFF) return TerminalPasteIssue.UNICODE
+                          i++
+                      } else if (c in 0xDC00..0xDFFF) return TerminalPasteIssue.UNICODE
+                      i++
+                  }
+                  return null
+              }
+              fun multiline(text: String): Boolean = text.any { it.code == 10 || it.code == 13 || it.code == 0x2028 || it.code == 0x2029 }
+          }
+          '''
+          newfiles[p + 'TerminalPasteDialog.kt'] = r'''package iecxiv.meshfabric.ui.terminal
+
+          import android.content.ClipboardManager
+          import android.content.Context
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.res.stringResource
+          import androidx.compose.ui.text.font.FontFamily
+          import androidx.compose.ui.unit.dp
+          import iecxiv.meshfabric.R
+
+          internal data class TerminalPasteDraft(val text: String?, val issue: TerminalPasteIssue?)
+          internal fun readTerminalPaste(context: Context): TerminalPasteDraft = try {
+              val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+              val clip = manager.primaryClip
+              val value = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text else null
+              val issue = TerminalPastePolicy.issue(value)
+              TerminalPasteDraft(if (issue == null) value.toString() else null, issue)
+          } catch (_: RuntimeException) { TerminalPasteDraft(null, TerminalPasteIssue.CLIPBOARD) }
+
+          @Composable
+          internal fun TerminalPasteDialog(
+              text: String?, issue: TerminalPasteIssue?, enabled: Boolean, attempted: Boolean,
+              busy: Boolean, result: TerminalPasteResult?, onConfirm: () -> Unit, onDismiss: () -> Unit
+          ) {
+              var acknowledged by remember(text) { mutableStateOf(false) }
+              val multiline = text != null && TerminalPastePolicy.multiline(text)
+              AlertDialog(
+                  onDismissRequest = { if (!busy) onDismiss() },
+                  title = { Text(stringResource(R.string.terminal_paste_title)) },
+                  text = {
+                      Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                          Text(stringResource(R.string.terminal_paste_warning))
+                          if (text != null) {
+                              Text(stringResource(R.string.terminal_paste_count, text.length))
+                              Text(text, fontFamily = FontFamily.Monospace,
+                                  modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState()))
+                          }
+                          if (issue != null) Text(stringResource(when (issue) {
+                              TerminalPasteIssue.EMPTY -> R.string.terminal_paste_empty
+                              TerminalPasteIssue.TOO_LARGE -> R.string.terminal_paste_large
+                              TerminalPasteIssue.CLIPBOARD -> R.string.terminal_paste_clipboard
+                              else -> R.string.terminal_paste_controls
+                          }), color = MaterialTheme.colorScheme.error)
+                          if (multiline) Row {
+                              Checkbox(checked = acknowledged, onCheckedChange = { acknowledged = it }, enabled = !attempted)
+                              Text(stringResource(R.string.terminal_paste_multiline))
+                          }
+                          if (busy) CircularProgressIndicator()
+                          if (result != null && result != TerminalPasteResult.DISPATCHED) Text(
+                              stringResource(if (result == TerminalPasteResult.UNKNOWN) R.string.terminal_paste_unknown else R.string.terminal_paste_rejected),
+                              color = MaterialTheme.colorScheme.error
+                          )
+                      }
+                  },
+                  confirmButton = {
+                      TextButton(onClick = onConfirm, enabled = enabled && !attempted && issue == null && text != null && (!multiline || acknowledged)) {
+                          Text(stringResource(R.string.terminal_paste_confirm))
+                      }
+                  },
+                  dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.close)) } }
+              )
+          }
+          '''
+          newfiles['app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalPastePolicyTest.kt'] = r'''package iecxiv.meshfabric.ui.terminal
+
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class TerminalPastePolicyTest {
+              @Test fun plainTextAcceptedWithoutTrimming() { assertNull(TerminalPastePolicy.issue(" ac1b ")) }
+              @Test fun emptyRejected() { assertEquals(TerminalPasteIssue.EMPTY, TerminalPastePolicy.issue("")) }
+              @Test fun nullRejected() { assertEquals(TerminalPasteIssue.EMPTY, TerminalPastePolicy.issue(null)) }
+              @Test fun oversizeRejectedNotTruncated() { assertEquals(TerminalPasteIssue.TOO_LARGE, TerminalPastePolicy.issue("a".repeat(16385))) }
+              @Test fun boundaryAccepted() { assertNull(TerminalPastePolicy.issue("a".repeat(16384))) }
+              @Test fun escapesRejected() { assertEquals(TerminalPasteIssue.CONTROL, TerminalPastePolicy.issue(27.toChar().toString() + "[201~")) }
+              @Test fun nulRejected() { assertEquals(TerminalPasteIssue.CONTROL, TerminalPastePolicy.issue(0.toChar().toString())) }
+              @Test fun c1Rejected() { assertEquals(TerminalPasteIssue.CONTROL, TerminalPastePolicy.issue(0x85.toChar().toString())) }
+              @Test fun bidiControlsRejected() { assertEquals(TerminalPasteIssue.CONTROL, TerminalPastePolicy.issue(0x202E.toChar().toString())) }
+              @Test fun emojiAccepted() { assertNull(TerminalPastePolicy.issue(String(Character.toChars(0x1F600)))) }
+              @Test fun unpairedSurrogateRejected() { assertEquals(TerminalPasteIssue.UNICODE, TerminalPastePolicy.issue(0xD800.toChar().toString())) }
+              @Test fun newlinesNeedAcknowledgement() {
+                  assertTrue(TerminalPastePolicy.multiline("one" + 10.toChar() + "two"))
+                  assertTrue(TerminalPastePolicy.multiline("one" + 13.toChar()))
+                  assertFalse(TerminalPastePolicy.multiline("one two"))
+                  assertNull(TerminalPastePolicy.issue("one" + 10.toChar() + "two" + 9.toChar()))
+              }
+          }
+          '''
+          strings = {
+              'terminal_paste_title': ('Paste from Android', 'Pegar desde Android'),
+              'terminal_paste_warning': ('Review before pasting. No Enter is added. Included line breaks can execute commands.', 'Revisa antes de pegar. No se añade Enter. Los saltos de línea incluidos pueden ejecutar comandos.'),
+              'terminal_paste_count': ('%1$d characters', '%1$d caracteres'),
+              'terminal_paste_empty': ('The clipboard has no plain text.', 'El portapapeles no contiene texto plano.'),
+              'terminal_paste_large': ('Text exceeds 16384 characters. Nothing will be sent.', 'El texto supera 16384 caracteres. No se enviará nada.'),
+              'terminal_paste_clipboard': ('Clipboard could not be read.', 'No se pudo leer el portapapeles.'),
+              'terminal_paste_controls': ('Text contains unsupported control characters or invalid Unicode. Nothing will be sent.', 'El texto contiene controles no permitidos o Unicode inválido. No se enviará nada.'),
+              'terminal_paste_multiline': ('I understand that included line breaks may execute commands.', 'Entiendo que los saltos de línea incluidos pueden ejecutar comandos.'),
+              'terminal_paste_unknown': ('Dispatch could not be confirmed. Check the terminal before pasting again.', 'No se pudo confirmar el envío. Comprueba la terminal antes de volver a pegar.'),
+              'terminal_paste_rejected': ('Paste was not started. Close and check the connection.', 'No se inició el pegado. Cierra y comprueba la conexión.'),
+              'terminal_paste_confirm': ('Paste into terminal', 'Pegar en la terminal')
+          }
+          for directory, index in [('values', 0), ('values-es', 1)]:
+              newfiles['app/src/main/res/' + directory + '/terminal_paste.xml'] = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n' + ''.join('    <string name="' + key + '">' + value[index] + '</string>\n' for key, value in strings.items()) + '</resources>\n'
+          newfiles['docs/terminal-paste.md'] = r'''# Explicit terminal paste
+
+          Menu -> Paste from Android -> full scrollable preview -> confirm. Clipboard is read only by that menu action, as plain text without URI coercion. No added Enter; existing newlines may execute commands and require acknowledgement. Limit: 16384 UTF-16 units, rejecting rather than truncating. Unsupported controls, bidi embeddings/isolates and malformed surrogates are rejected. Input uses the bundled xterm public paste API and its bracketed-paste/line-ending behavior.
+
+          One dispatch per preview, no automatic retry, no logging or persistence. Dispatch callback is not a remote receipt; timeout is unknown and prompts checking the terminal before another attempt. Cancellation cannot undo dispatched input. Existing command editor, focus, IME, keys, output delivery, resize and recovery are unchanged.
+
+          CI: existing Node/JVM tests, policy tests, real xterm WebView single-line/no-extra-Enter, CRLF, bracketed multiline and escape-injection tests; build app and test APK, emulator, then publish. Device checks remain: preview/scroll, acknowledgement/cancel, empty clipboard and disconnect. Clipboard contents and commands are not guaranteed safe.
+          '''
+          prepared = {}
+          for name, replacements in edits.items():
+              source = Path(name).read_text(encoding='utf-8')
+              for old, new in replacements:
+                  if source.count(old) != 1:
+                      raise RuntimeError('Reviewed anchor mismatch: ' + name)
+                  source = source.replace(old, new, 1)
+              prepared[name] = source
+          for name, content in newfiles.items():
+              if Path(name).exists():
+                  raise RuntimeError('New file already exists: ' + name)
+              prepared[name] = content
+          for content in prepared.values():
+              content.encode('utf-8')
+          for name, content in prepared.items():
+              path = Path(name)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(content, encoding='utf-8')
+          for name in prepared:
+              if name.endswith('.js'):
+                  subprocess.run(['node', '--check', name], check=True)
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          PY
+      - name: Existing JavaScript regression tests
+        run: |
+          node app/src/test/js/terminal-runtime.test.js
+          node app/src/test/js/terminal-selection.test.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real xterm echo copy and paste tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.terminal.TerminalEchoWebViewTest --no-daemon --stacktrace
+      - name: Publish verified functional commit
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/terminal-improve | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          rm .github/workflows/terminal-paste.yml
+          git add -- app/src/main/assets/terminal/terminal-runtime.js app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalEchoWebViewTest.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalPastePolicy.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalPasteDialog.kt app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalPastePolicyTest.kt app/src/main/res/values/terminal_paste.xml app/src/main/res/values-es/terminal_paste.xml docs/terminal-paste.md .github/workflows/terminal-paste.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: preview and confirm terminal clipboard paste'
+          git push origin HEAD:refs/heads/terminal-improve
+      - name: Upload reports and debug APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-paste-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
