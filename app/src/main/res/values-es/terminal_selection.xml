@@ -1,0 +1,10 @@
+<resources>
+    <string name="terminal_tools">Herramientas de terminal</string>
+    <string name="terminal_copy_title">Seleccionar y copiar</string>
+    <string name="terminal_copy_help">Mantén pulsado para seleccionar un fragmento y copiarlo. Copiar todo copia esta captura. La salida de la terminal continúa por separado.</string>
+    <string name="terminal_copy_limited">Captura limitada: hasta 2.000 filas recientes y 200.000 caracteres. No es todo el historial de la terminal.</string>
+    <string name="terminal_copy_failed">No se ha podido leer el texto. Cierra esta ventana y vuelve a intentarlo.</string>
+    <string name="terminal_copy_empty">No hay texto para copiar.</string>
+    <string name="terminal_copy_all">Copiar todo</string>
+    <string name="terminal_copy_done">Texto copiado</string>
+</resources>

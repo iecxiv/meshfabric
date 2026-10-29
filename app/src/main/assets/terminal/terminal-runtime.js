@@ -89,6 +89,10 @@
       requestResize();
     }
   };
+  window.getTerminalTextForCopy = function () {
+    if (!term || disposed || failed || !window.MeshTerminalSelection) return null;
+    return window.MeshTerminalSelection.capture(term.buffer.active, 2000, 200000);
+  };
   window.getFontSize = function () { return fontSize; };
   window.clearTerminal = function () { if (term && !failed && !disposed) term.clear(); };
   window.focusTerminal = function () { if (term && !failed && !disposed) term.focus(); };

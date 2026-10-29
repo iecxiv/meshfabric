@@ -50,8 +50,15 @@ class TerminalEchoWebViewTest {
     @Test fun binaryFramesRenderTwoCsAndTwoOnes() { verify("cc11", true) }
     @Test fun textFramesRenderTwoCsAndTwoOnes() { verify("cc11", false) }
 
+    @Test fun copyExcludesAnsiColorSequences() { verify("\u001b[31mc1\u001b[0m", true, "c1") }
+    @Test fun clipboardPayloadIsMarkedSensitive() {
+        val clip = terminalCopyClip("ac1b")
+        assertEquals("ac1b", clip.getItemAt(0).text.toString())
+        assertTrue(clip.description.extras!!.getBoolean("android.content.extra.IS_SENSITIVE"))
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
-    private fun verify(expected: String, binary: Boolean) {
+    private fun verify(expected: String, binary: Boolean, displayed: String = expected) {
         val bridge = EchoBridge()
         val errors = ConcurrentLinkedQueue<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -114,7 +121,19 @@ class TerminalEchoWebViewTest {
                 }
             }
             assertTrue(resultReady.await(10, TimeUnit.SECONDS))
-            assertEquals("Actual bundled xterm buffer differs", expected, actual)
+            assertEquals("Actual bundled xterm buffer differs", displayed, actual)
+            val copyReady = CountDownLatch(1)
+            var copyJson = ""
+            scenario.onActivity {
+                webView!!.evaluateJavascript("window.getTerminalTextForCopy();") { json ->
+                    copyJson = json
+                    copyReady.countDown()
+                }
+            }
+            assertTrue(copyReady.await(10, TimeUnit.SECONDS))
+            val captured = gson.fromJson(copyJson, com.google.gson.JsonObject::class.java)
+            assertEquals(displayed, captured.get("text").asString)
+            assertFalse(captured.get("truncated").asBoolean)
         } finally {
             scenario.onActivity {
                 session.closeSocketOnly()
@@ -143,7 +162,7 @@ class TerminalEchoWebViewTest {
               return instance;
             };
           </script>
-          <script src="xterm-fit.js"></script><script src="terminal-resize.js"></script>
+          <script src="xterm-fit.js"></script><script src="terminal-resize.js"></script><script src="terminal-selection.js"></script>
           </head><body><div id="terminal-container"></div><div id="terminal-error" hidden></div>
           <script src="terminal-runtime.js"></script></body></html>"""
     }

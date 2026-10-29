@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.coroutines.resume
 
 enum class TerminalRendererError { OUTPUT_CONTINUITY, RENDERER_STOPPED, ACK_TIMEOUT }
 
@@ -146,6 +147,26 @@ internal class TerminalRenderSession(
         checkMainThread()
         if (webView.parent === parent) lease.current?.let { detach(it) }
     }
+    suspend fun copySnapshot(): TerminalCopySnapshot? {
+        checkMainThread()
+        if (isDestroyed || !ready || failure.value != null) return null
+        return kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+            kotlinx.coroutines.suspendCancellableCoroutine<TerminalCopySnapshot?> { continuation ->
+                webView.evaluateJavascript("window.getTerminalTextForCopy();") { json ->
+                    if (!continuation.isActive) return@evaluateJavascript
+                    val snapshot = if (isDestroyed) null else try {
+                        val value = gson.fromJson(json, com.google.gson.JsonObject::class.java)
+                        val text = value?.get("text")?.asString
+                        if (text != null && text.length <= 200000) {
+                            TerminalCopySnapshot(text, value.get("truncated")?.asBoolean ?: false)
+                        } else null
+                    } catch (_: Exception) { null }
+                    continuation.resume(snapshot)
+                }
+            }
+        }
+    }
+
     fun changeFontSize(delta: Int) {
         checkMainThread()
         if (isDestroyed) return

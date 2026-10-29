@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -94,6 +95,18 @@ fun TerminalScreen(
     val renderer = remember(nodeId, viewModel, rendererVersion) { viewModel.renderTerminal(context, nodeId) }
     var showRecoveryDialog by remember(renderer) { mutableStateOf(false) }
     val rendererError by renderer.error.collectAsState()
+    var showTerminalMenu by remember(renderer) { mutableStateOf(false) }
+    var showCopyDialog by remember(renderer) { mutableStateOf(false) }
+    var copySnapshot by remember(renderer) { mutableStateOf<TerminalCopySnapshot?>(null) }
+    var copyLoading by remember(renderer) { mutableStateOf(false) }
+    LaunchedEffect(showCopyDialog, renderer) {
+        copySnapshot = null
+        copyLoading = showCopyDialog
+        if (showCopyDialog) {
+            copySnapshot = renderer.copySnapshot()
+            copyLoading = false
+        }
+    }
     var attachmentToken by remember(renderer) { mutableStateOf<Long?>(null) }
     var showCommandDialog by remember { mutableStateOf(false) }
     var commandInput by remember { mutableStateOf("") }
@@ -171,6 +184,17 @@ fun TerminalScreen(
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(Icons.Default.Keyboard, contentDescription = "Enviar Comando")
+                    }
+                    Box {
+                        IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null) {
+                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.terminal_tools))
+                        }
+                        DropdownMenu(expanded = showTerminalMenu, onDismissRequest = { showTerminalMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.terminal_copy_title)) },
+                                onClick = { showTerminalMenu = false; showCopyDialog = true }
+                            )
+                        }
                     }
                     IconButton(
                         onClick = {
@@ -342,6 +366,10 @@ fun TerminalScreen(
                     }
                 }
             )
+        }
+
+        if (showCopyDialog) {
+            TerminalCopyDialog(copySnapshot, copyLoading, onDismiss = { showCopyDialog = false })
         }
 
         // Command Input Dialog
