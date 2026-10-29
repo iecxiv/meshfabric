@@ -30,6 +30,13 @@ internal class RetainedTerminalStore<K, V : Any>(
         }
     }
     fun remove(key: K) { entries.remove(key)?.let(dispose) }
+    fun removeIf(key: K, expected: V): Boolean {
+        val current = entries[key] ?: return false
+        if (current !== expected) return false
+        entries.remove(key)
+        dispose(current)
+        return true
+    }
     fun clear() {
         val old = entries.values.toList()
         entries.clear()

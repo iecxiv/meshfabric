@@ -92,4 +92,18 @@ class RetainedTerminalStoreTest {
         assertFalse(lease.release(token))
         assertNull(lease.current)
     }
+    @Test fun staleRecoveryCannotRemoveReplacementRenderer() {
+        val store = store()
+        val old = store.acquire("a", { true }) { Entry("old") }
+        val current = store.acquire("a", { false }) { Entry("new") }
+        assertFalse(store.removeIf("a", old))
+        assertEquals(0, current.closes)
+    }
+    @Test fun recoveryRemovesOnlyExpectedRendererOnce() {
+        val store = store()
+        val current = store.acquire("a", { true }) { Entry("a") }
+        assertTrue(store.removeIf("a", current))
+        assertFalse(store.removeIf("a", current))
+        assertEquals(1, current.closes)
+    }
 }

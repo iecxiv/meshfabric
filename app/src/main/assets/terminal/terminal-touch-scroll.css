@@ -1,0 +1,6 @@
+/* Touch scroll uses the native viewport beneath the rendered rows. */
+@media (pointer: coarse) {
+  #terminal-container.mesh-native-touch-scroll .xterm-screen {
+    pointer-events: none;
+  }
+}

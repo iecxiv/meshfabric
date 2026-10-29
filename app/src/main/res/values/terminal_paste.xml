@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="terminal_paste_title">Paste from Android</string>
+    <string name="terminal_paste_warning">Review before pasting. No Enter is added. Included line breaks can execute commands.</string>
+    <string name="terminal_paste_count">%1$d characters</string>
+    <string name="terminal_paste_empty">The clipboard has no plain text.</string>
+    <string name="terminal_paste_large">Text exceeds 16384 characters. Nothing will be sent.</string>
+    <string name="terminal_paste_clipboard">Clipboard could not be read.</string>
+    <string name="terminal_paste_controls">Text contains unsupported control characters or invalid Unicode. Nothing will be sent.</string>
+    <string name="terminal_paste_multiline">I understand that included line breaks may execute commands.</string>
+    <string name="terminal_paste_unknown">Dispatch could not be confirmed. Check the terminal before pasting again.</string>
+    <string name="terminal_paste_rejected">Paste was not started. Close and check the connection.</string>
+    <string name="terminal_paste_confirm">Paste into terminal</string>
+</resources>

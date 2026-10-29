@@ -33,7 +33,8 @@ class TerminalEchoWebViewTest {
         val acknowledgements = LinkedBlockingQueue<String>()
         @JavascriptInterface fun onHtmlReady() { ready.countDown() }
         @JavascriptInterface fun onTerminalResize(cols: Int, rows: Int) {}
-        @JavascriptInterface fun sendInput(text: String) {}
+        val inputs = LinkedBlockingQueue<String>()
+        @JavascriptInterface fun sendInput(text: String) { inputs.offer(text) }
         @JavascriptInterface fun onOutputConsumed(token: String) { acknowledgements.offer(token) }
     }
     private class FakeSocket : WebSocket {
@@ -50,8 +51,20 @@ class TerminalEchoWebViewTest {
     @Test fun binaryFramesRenderTwoCsAndTwoOnes() { verify("cc11", true) }
     @Test fun textFramesRenderTwoCsAndTwoOnes() { verify("cc11", false) }
 
+    @Test fun pasteSingleLineAddsNoEnter() { verify("ready", true, paste = "ac1b") }
+    @Test fun pasteNormalizesCrLf() { verify("ready", true, paste = "one\r\ntwo") }
+    @Test fun pasteBracketedMultiline() { verify("ready", true, paste = "one\ntwo\n", bracketed = true) }
+    @Test fun pasteRejectsEscapeInjection() { verify("ready", true, paste = 27.toChar().toString() + "[201~", pasteAccepted = false) }
+
+    @Test fun copyExcludesAnsiColorSequences() { verify("\u001b[31mc1\u001b[0m", true, "c1") }
+    @Test fun clipboardPayloadIsMarkedSensitive() {
+        val clip = terminalCopyClip("ac1b")
+        assertEquals("ac1b", clip.getItemAt(0).text.toString())
+        assertTrue(clip.description.extras!!.getBoolean("android.content.extra.IS_SENSITIVE"))
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
-    private fun verify(expected: String, binary: Boolean) {
+    private fun verify(expected: String, binary: Boolean, displayed: String = expected, paste: String? = null, bracketed: Boolean = false, pasteAccepted: Boolean = true) {
         val bridge = EchoBridge()
         val errors = ConcurrentLinkedQueue<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -114,7 +127,43 @@ class TerminalEchoWebViewTest {
                 }
             }
             assertTrue(resultReady.await(10, TimeUnit.SECONDS))
-            assertEquals("Actual bundled xterm buffer differs", expected, actual)
+            assertEquals("Actual bundled xterm buffer differs", displayed, actual)
+            val copyReady = CountDownLatch(1)
+            var copyJson = ""
+            scenario.onActivity {
+                webView!!.evaluateJavascript("window.getTerminalTextForCopy();") { json ->
+                    copyJson = json
+                    copyReady.countDown()
+                }
+            }
+            assertTrue(copyReady.await(10, TimeUnit.SECONDS))
+            val captured = gson.fromJson(copyJson, com.google.gson.JsonObject::class.java)
+            assertEquals(displayed, captured.get("text").asString)
+            assertFalse(captured.get("truncated").asBoolean)
+            if (paste != null) {
+                if (bracketed) {
+                    scenario.onActivity {
+                        webView!!.evaluateJavascript("window.writeTerminalBatch('paste-mode', String.fromCharCode(27) + '[?2004h');", null)
+                    }
+                    assertEquals("paste-mode", bridge.acknowledgements.poll(10, TimeUnit.SECONDS))
+                }
+                val pasteReady = CountDownLatch(1)
+                var accepted = ""
+                scenario.onActivity {
+                    webView!!.evaluateJavascript("window.pasteTerminalText(${gson.toJson(paste)});") { json ->
+                        accepted = json
+                        pasteReady.countDown()
+                    }
+                }
+                assertTrue(pasteReady.await(10, TimeUnit.SECONDS))
+                assertEquals(pasteAccepted.toString(), accepted)
+                if (pasteAccepted) {
+                    val normalized = paste.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r")
+                    val expectedPaste = if (bracketed) "\u001b[200~" + normalized + "\u001b[201~" else normalized
+                    assertEquals(expectedPaste, bridge.inputs.poll(10, TimeUnit.SECONDS))
+                }
+                assertNull("Unexpected extra paste input", bridge.inputs.poll(200, TimeUnit.MILLISECONDS))
+            }
         } finally {
             scenario.onActivity {
                 session.closeSocketOnly()
@@ -129,10 +178,92 @@ class TerminalEchoWebViewTest {
         }
     }
 
+    @Test
+    @SuppressLint("SetJavaScriptEnabled")
+    fun touchScrollOverTextAndBlankUsesNativeViewport() {
+        val bridge = EchoBridge()
+        val gson = Gson()
+        var view: WebView? = null
+        val scenario = ActivityScenario.launch(TerminalEchoTestActivity::class.java)
+        fun evaluate(script: String): String {
+            val ready = CountDownLatch(1)
+            var result = ""
+            scenario.onActivity {
+                view!!.evaluateJavascript(script) { json -> result = json; ready.countDown() }
+            }
+            assertTrue("JavaScript callback timed out", ready.await(10, TimeUnit.SECONDS))
+            return result
+        }
+        fun write(token: String, data: String) {
+            assertEquals("true", evaluate("window.writeTerminalBatch(${gson.toJson(token)},${gson.toJson(data)});"))
+            assertEquals(token, bridge.acknowledgements.poll(10, TimeUnit.SECONDS))
+        }
+        fun classEnabled(): String = evaluate("document.getElementById('terminal-container').classList.contains('mesh-native-touch-scroll');")
+        fun swipe(xRatio: Float): Int {
+            evaluate("window.__echoTerm.scrollToBottom(); true;")
+            android.os.SystemClock.sleep(250)
+            val before = evaluate("window.__echoTerm.buffer.active.viewportY;").toInt()
+            val location = IntArray(2)
+            var width = 0
+            var height = 0
+            scenario.onActivity { view!!.getLocationOnScreen(location); width = view!!.width; height = view!!.height }
+            val down = android.os.SystemClock.uptimeMillis()
+            val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+            fun inject(action: Int, progress: Float) {
+                val event = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), action,
+                    location[0] + width * xRatio, location[1] + height * (0.25f + 0.45f * progress), 0)
+                event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+            }
+            inject(android.view.MotionEvent.ACTION_DOWN, 0f)
+            for (step in 1..20) {
+                android.os.SystemClock.sleep(12)
+                inject(android.view.MotionEvent.ACTION_MOVE, step / 20f)
+            }
+            inject(android.view.MotionEvent.ACTION_UP, 1f)
+            android.os.SystemClock.sleep(1200)
+            return before - evaluate("window.__echoTerm.buffer.active.viewportY;").toInt()
+        }
+        try {
+            scenario.onActivity { activity ->
+                view = WebView(activity).also {
+                    it.settings.javaScriptEnabled = true
+                    it.settings.allowFileAccess = true
+                    it.addJavascriptInterface(bridge, "AndroidTerminal")
+                    activity.host.addView(it, FrameLayout.LayoutParams(-1, -1))
+                    it.loadDataWithBaseURL("file:///android_asset/terminal/", HTML, "text/html", "UTF-8", null)
+                }
+            }
+            assertTrue(bridge.ready.await(20, TimeUnit.SECONDS))
+            assertEquals("true", evaluate("window.matchMedia('(pointer: coarse)').matches;"))
+            write("rows", (0..399).joinToString(13.toChar().toString() + 10.toChar()) { "row$it" })
+            assertEquals("true", classEnabled())
+            assertEquals("true", evaluate("getComputedStyle(document.querySelector('.xterm-screen')).pointerEvents === 'none';"))
+            assertEquals("true", evaluate("(function(){var r=document.querySelector('.xterm-screen').getBoundingClientRect();var e=document.elementFromPoint(r.left+5,r.top+5);return !!e && !!e.closest('.xterm-viewport');}());"))
+            assertTrue("Scroll starting over text moved fewer than three rows", swipe(0.02f) >= 3)
+            assertTrue("Scroll starting over blank area moved fewer than three rows", swipe(0.85f) >= 3)
+            val esc = 27.toChar().toString()
+            write("mouse-on", esc + "[?1000h")
+            assertEquals("false", classEnabled())
+            write("mouse-off", esc + "[?1000l")
+            assertEquals("true", classEnabled())
+            write("alternate-on", esc + "[?1049h")
+            assertEquals("false", classEnabled())
+            write("alternate-off", esc + "[?1049l")
+            assertEquals("true", classEnabled())
+        } finally {
+            scenario.onActivity {
+                view?.let { web -> it.host.removeView(web); web.removeJavascriptInterface("AndroidTerminal"); web.destroy() }
+            }
+            scenario.close()
+        }
+    }
+
     companion object {
         private val HTML = """<!doctype html><html><head>
           <meta name="viewport" content="width=device-width,initial-scale=1">
           <link rel="stylesheet" href="xterm.css">
+          <link rel="stylesheet" href="terminal-touch-scroll.css">
           <style>html,body{width:100%;height:100%;margin:0}#terminal-container{width:100%;height:100%}</style>
           <script src="xterm.js"></script>
           <script>
@@ -143,7 +274,7 @@ class TerminalEchoWebViewTest {
               return instance;
             };
           </script>
-          <script src="xterm-fit.js"></script><script src="terminal-resize.js"></script>
+          <script src="xterm-fit.js"></script><script src="terminal-resize.js"></script><script src="terminal-selection.js"></script>
           </head><body><div id="terminal-container"></div><div id="terminal-error" hidden></div>
           <script src="terminal-runtime.js"></script></body></html>"""
     }

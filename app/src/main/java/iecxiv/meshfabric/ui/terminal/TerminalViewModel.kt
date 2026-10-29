@@ -32,6 +32,8 @@ class TerminalViewModel(
         renderers.trim()
     }
     fun clearRendering() { renderers.clear() }
+    internal fun resetRenderer(expected: TerminalRenderSession): Boolean =
+        renderers.removeIf(expected.session.cleanNodeId, expected)
 
     fun isConnected(nodeId: String): StateFlow<Boolean> {
         return terminalClient.getSession(meshClient, nodeId).connectionState

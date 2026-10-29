@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -90,8 +91,48 @@ fun TerminalScreen(
     val connectionStatus by viewModel.connectionStatus(nodeId).collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val renderer = remember(nodeId, viewModel) { viewModel.renderTerminal(context, nodeId) }
+    var rendererVersion by remember(nodeId) { mutableStateOf(0) }
+    val renderer = remember(nodeId, viewModel, rendererVersion) { viewModel.renderTerminal(context, nodeId) }
+    var showRecoveryDialog by remember(renderer) { mutableStateOf(false) }
     val rendererError by renderer.error.collectAsState()
+    var showTerminalMenu by remember(renderer) { mutableStateOf(false) }
+    var showCopyDialog by remember(renderer) { mutableStateOf(false) }
+    var copySnapshot by remember(renderer) { mutableStateOf<TerminalCopySnapshot?>(null) }
+    var copyLoading by remember(renderer) { mutableStateOf(false) }
+    var showPasteDialog by remember(renderer) { mutableStateOf(false) }
+    var pasteDraft by remember(renderer) { mutableStateOf<TerminalPasteDraft?>(null) }
+    var pasteAttempted by remember(renderer) { mutableStateOf(false) }
+    var pasteBusy by remember(renderer) { mutableStateOf(false) }
+    var pasteResult by remember(renderer) { mutableStateOf<TerminalPasteResult?>(null) }
+    var pasteEditing by remember(renderer) { mutableStateOf(false) }
+    fun openPaste(editing: Boolean) {
+        showTerminalMenu = false
+        pasteEditing = editing
+        pasteDraft = readTerminalPaste(context)
+        pasteAttempted = false
+        pasteBusy = false
+        pasteResult = null
+        showPasteDialog = true
+    }
+    LaunchedEffect(pasteAttempted, renderer) {
+        if (pasteAttempted) {
+            val text = pasteDraft?.text
+            pasteResult = if (text == null) TerminalPasteResult.REJECTED else renderer.paste(text)
+            pasteBusy = false
+            if (pasteResult == TerminalPasteResult.DISPATCHED) {
+                showPasteDialog = false
+                pasteDraft = null
+            }
+        }
+    }
+    LaunchedEffect(showCopyDialog, renderer) {
+        copySnapshot = null
+        copyLoading = showCopyDialog
+        if (showCopyDialog) {
+            copySnapshot = renderer.copySnapshot()
+            copyLoading = false
+        }
+    }
     var attachmentToken by remember(renderer) { mutableStateOf<Long?>(null) }
     var showCommandDialog by remember { mutableStateOf(false) }
     var commandInput by remember { mutableStateOf("") }
@@ -101,8 +142,21 @@ fun TerminalScreen(
 
     fun changeFontSize(delta: Int) { renderer.changeFontSize(delta) }
 
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(renderer, lifecycleOwner) {
+        val binding = renderer.bindVisibility()
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, _ ->
+            renderer.setResumed(binding, lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        renderer.setResumed(binding, lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            renderer.unbindVisibility(binding)
+        }
+    }
+    LaunchedEffect(nodeId, viewModel) { viewModel.startSession(nodeId) }
     DisposableEffect(renderer) {
-        viewModel.startSession(nodeId)
         onDispose { attachmentToken?.let { viewModel.releaseRenderer(renderer, it) } }
     }
 
@@ -157,6 +211,27 @@ fun TerminalScreen(
                     ) {
                         Icon(Icons.Default.Keyboard, contentDescription = "Enviar Comando")
                     }
+                    Box {
+                        IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null) {
+                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.terminal_tools))
+                        }
+                        DropdownMenu(expanded = showTerminalMenu, onDismissRequest = { showTerminalMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.terminal_copy_title)) },
+                                onClick = { showTerminalMenu = false; showCopyDialog = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.terminal_paste_title)) },
+                                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
+                                onClick = { openPaste(false) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.terminal_paste_edit_title)) },
+                                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
+                                onClick = { openPaste(true) }
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = {
                             viewModel.stopSession(nodeId)
@@ -199,11 +274,18 @@ fun TerminalScreen(
                 }
                 if (rendererError != null) {
                     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-                        Text(
-                            text = stringResource(if (rendererError == TerminalRendererError.RENDERER_STOPPED)
-                                R.string.terminal_renderer_stopped else R.string.terminal_output_continuity_lost),
-                            modifier = Modifier.padding(16.dp)
-                        )
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(stringResource(when (rendererError) {
+                                TerminalRendererError.RENDERER_STOPPED -> R.string.terminal_renderer_stopped
+                                TerminalRendererError.ACK_TIMEOUT -> R.string.terminal_view_unresponsive
+                                else -> R.string.terminal_output_continuity_lost
+                            }))
+                            if (rendererError != TerminalRendererError.OUTPUT_CONTINUITY) {
+                                OutlinedButton(onClick = { showRecoveryDialog = true }) {
+                                    Text(stringResource(R.string.terminal_recreate_view))
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -301,6 +383,46 @@ fun TerminalScreen(
                     )
                 }
             }
+        }
+
+        if (showRecoveryDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showRecoveryDialog = false },
+                title = { Text(stringResource(R.string.terminal_recreate_title)) },
+                text = { Text(stringResource(R.string.terminal_recreate_warning)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showRecoveryDialog = false
+                        if (viewModel.resetRenderer(renderer)) rendererVersion++
+                    }) { Text(stringResource(R.string.terminal_recreate_view)) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRecoveryDialog = false }) {
+                        Text(stringResource(R.string.terminal_recovery_cancel))
+                    }
+                }
+            )
+        }
+
+        if (showCopyDialog) {
+            TerminalCopyDialog(copySnapshot, copyLoading, onDismiss = { showCopyDialog = false })
+        }
+
+        if (showPasteDialog) {
+            TerminalPasteDialog(
+                text = pasteDraft?.text, issue = pasteDraft?.issue,
+                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED && rendererError == null,
+                attempted = pasteAttempted, busy = pasteBusy, result = pasteResult,
+                editing = pasteEditing,
+                onEdit = { value -> if (!pasteAttempted) pasteDraft = editTerminalPaste(pasteDraft, value) },
+                onConfirm = { if (!pasteAttempted) { pasteBusy = true; pasteAttempted = true } },
+                onDismiss = {
+                    showPasteDialog = false
+                    pasteDraft = null
+                    pasteAttempted = false
+                    pasteResult = null
+                }
+            )
         }
 
         // Command Input Dialog
