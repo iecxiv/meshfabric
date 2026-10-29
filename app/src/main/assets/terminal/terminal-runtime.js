@@ -8,6 +8,7 @@
   function fail(error) {
     if (failed || disposed) return;
     failed = true;
+    syncTouchScroll();
     console.error('MeshTerminal runtime failure: ' + (error && error.name ? error.name : 'Error'));
     var panel = document.getElementById('terminal-error');
     panel.textContent = 'Terminal unavailable / Terminal no disponible. Return and reopen the terminal / Vuelve y abre la terminal de nuevo.';
@@ -47,6 +48,7 @@
         queuedChars -= length;
         if (disposed || failed) return;
         try {
+          syncTouchScroll();
           if (follow && term.buffer.active === buffer && buffer.type === 'normal') term.scrollToBottom();
           if (tokens.length) {
             var bridge = window.AndroidTerminal;
@@ -118,6 +120,7 @@ window.getFontSize = function () { return fontSize; };
 
   function dispose() {
     disposed = true;
+    syncTouchScroll();
     window.clearTimeout(readyTimer);
     if (resize) resize.dispose();
     if (observer) observer.disconnect();
@@ -129,6 +132,14 @@ window.getFontSize = function () { return fontSize; };
     queue = [];
     queuedChars = 0;
   }
+
+  function syncTouchScroll() {
+  var container = document.getElementById('terminal-container');
+  if (!container || !container.classList) return;
+  var enabled = term && !failed && !disposed && term.buffer.active.type === 'normal' &&
+    term.modes && term.modes.mouseTrackingMode === 'none';
+  container.classList.toggle('mesh-native-touch-scroll', !!enabled);
+}
 
   function initialize() {
     if (disposed) return;
@@ -154,6 +165,7 @@ window.getFontSize = function () { return fontSize; };
       fit = new FitClass();
       term.loadAddon(fit);
       term.open(container);
+      syncTouchScroll();
       resize = window.MeshTerminalResize.create({
         isBusy: function () { return writing; },
         measure: function () {

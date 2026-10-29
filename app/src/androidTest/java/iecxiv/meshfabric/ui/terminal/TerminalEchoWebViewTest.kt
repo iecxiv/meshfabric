@@ -178,10 +178,92 @@ class TerminalEchoWebViewTest {
         }
     }
 
+    @Test
+    @SuppressLint("SetJavaScriptEnabled")
+    fun touchScrollOverTextAndBlankUsesNativeViewport() {
+        val bridge = EchoBridge()
+        val gson = Gson()
+        var view: WebView? = null
+        val scenario = ActivityScenario.launch(TerminalEchoTestActivity::class.java)
+        fun evaluate(script: String): String {
+            val ready = CountDownLatch(1)
+            var result = ""
+            scenario.onActivity {
+                view!!.evaluateJavascript(script) { json -> result = json; ready.countDown() }
+            }
+            assertTrue("JavaScript callback timed out", ready.await(10, TimeUnit.SECONDS))
+            return result
+        }
+        fun write(token: String, data: String) {
+            assertEquals("true", evaluate("window.writeTerminalBatch(${gson.toJson(token)},${gson.toJson(data)});"))
+            assertEquals(token, bridge.acknowledgements.poll(10, TimeUnit.SECONDS))
+        }
+        fun classEnabled(): String = evaluate("document.getElementById('terminal-container').classList.contains('mesh-native-touch-scroll');")
+        fun swipe(xRatio: Float): Int {
+            evaluate("window.__echoTerm.scrollToBottom(); true;")
+            android.os.SystemClock.sleep(250)
+            val before = evaluate("window.__echoTerm.buffer.active.viewportY;").toInt()
+            val location = IntArray(2)
+            var width = 0
+            var height = 0
+            scenario.onActivity { view!!.getLocationOnScreen(location); width = view!!.width; height = view!!.height }
+            val down = android.os.SystemClock.uptimeMillis()
+            val automation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+            fun inject(action: Int, progress: Float) {
+                val event = android.view.MotionEvent.obtain(down, android.os.SystemClock.uptimeMillis(), action,
+                    location[0] + width * xRatio, location[1] + height * (0.25f + 0.45f * progress), 0)
+                event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                try { assertTrue(automation.injectInputEvent(event, true)) } finally { event.recycle() }
+            }
+            inject(android.view.MotionEvent.ACTION_DOWN, 0f)
+            for (step in 1..20) {
+                android.os.SystemClock.sleep(12)
+                inject(android.view.MotionEvent.ACTION_MOVE, step / 20f)
+            }
+            inject(android.view.MotionEvent.ACTION_UP, 1f)
+            android.os.SystemClock.sleep(1200)
+            return before - evaluate("window.__echoTerm.buffer.active.viewportY;").toInt()
+        }
+        try {
+            scenario.onActivity { activity ->
+                view = WebView(activity).also {
+                    it.settings.javaScriptEnabled = true
+                    it.settings.allowFileAccess = true
+                    it.addJavascriptInterface(bridge, "AndroidTerminal")
+                    activity.host.addView(it, FrameLayout.LayoutParams(-1, -1))
+                    it.loadDataWithBaseURL("file:///android_asset/terminal/", HTML, "text/html", "UTF-8", null)
+                }
+            }
+            assertTrue(bridge.ready.await(20, TimeUnit.SECONDS))
+            assertEquals("true", evaluate("window.matchMedia('(pointer: coarse)').matches;"))
+            write("rows", (0..399).joinToString(13.toChar().toString() + 10.toChar()) { "row$it" })
+            assertEquals("true", classEnabled())
+            assertEquals("true", evaluate("getComputedStyle(document.querySelector('.xterm-screen')).pointerEvents === 'none';"))
+            assertEquals("true", evaluate("(function(){var r=document.querySelector('.xterm-screen').getBoundingClientRect();var e=document.elementFromPoint(r.left+5,r.top+5);return !!e && !!e.closest('.xterm-viewport');}());"))
+            assertTrue("Scroll starting over text moved fewer than three rows", swipe(0.02f) >= 3)
+            assertTrue("Scroll starting over blank area moved fewer than three rows", swipe(0.85f) >= 3)
+            val esc = 27.toChar().toString()
+            write("mouse-on", esc + "[?1000h")
+            assertEquals("false", classEnabled())
+            write("mouse-off", esc + "[?1000l")
+            assertEquals("true", classEnabled())
+            write("alternate-on", esc + "[?1049h")
+            assertEquals("false", classEnabled())
+            write("alternate-off", esc + "[?1049l")
+            assertEquals("true", classEnabled())
+        } finally {
+            scenario.onActivity {
+                view?.let { web -> it.host.removeView(web); web.removeJavascriptInterface("AndroidTerminal"); web.destroy() }
+            }
+            scenario.close()
+        }
+    }
+
     companion object {
         private val HTML = """<!doctype html><html><head>
           <meta name="viewport" content="width=device-width,initial-scale=1">
           <link rel="stylesheet" href="xterm.css">
+          <link rel="stylesheet" href="terminal-touch-scroll.css">
           <style>html,body{width:100%;height:100%;margin:0}#terminal-container{width:100%;height:100%}</style>
           <script src="xterm.js"></script>
           <script>
