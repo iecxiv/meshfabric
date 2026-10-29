@@ -104,6 +104,16 @@ fun TerminalScreen(
     var pasteAttempted by remember(renderer) { mutableStateOf(false) }
     var pasteBusy by remember(renderer) { mutableStateOf(false) }
     var pasteResult by remember(renderer) { mutableStateOf<TerminalPasteResult?>(null) }
+    var pasteEditing by remember(renderer) { mutableStateOf(false) }
+    fun openPaste(editing: Boolean) {
+        showTerminalMenu = false
+        pasteEditing = editing
+        pasteDraft = readTerminalPaste(context)
+        pasteAttempted = false
+        pasteBusy = false
+        pasteResult = null
+        showPasteDialog = true
+    }
     LaunchedEffect(pasteAttempted, renderer) {
         if (pasteAttempted) {
             val text = pasteDraft?.text
@@ -213,14 +223,12 @@ fun TerminalScreen(
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.terminal_paste_title)) },
                                 enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
-                                onClick = {
-                                    showTerminalMenu = false
-                                    pasteDraft = readTerminalPaste(context)
-                                    pasteAttempted = false
-                                    pasteBusy = false
-                                    pasteResult = null
-                                    showPasteDialog = true
-                                }
+                                onClick = { openPaste(false) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.terminal_paste_edit_title)) },
+                                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
+                                onClick = { openPaste(true) }
                             )
                         }
                     }
@@ -405,6 +413,8 @@ fun TerminalScreen(
                 text = pasteDraft?.text, issue = pasteDraft?.issue,
                 enabled = connectionStatus == TerminalConnectionStatus.CONNECTED && rendererError == null,
                 attempted = pasteAttempted, busy = pasteBusy, result = pasteResult,
+                editing = pasteEditing,
+                onEdit = { value -> if (!pasteAttempted) pasteDraft = editTerminalPaste(pasteDraft, value) },
                 onConfirm = { if (!pasteAttempted) { pasteBusy = true; pasteAttempted = true } },
                 onDismiss = {
                     showPasteDialog = false

@@ -25,19 +25,26 @@ internal fun readTerminalPaste(context: Context): TerminalPasteDraft = try {
 @Composable
 internal fun TerminalPasteDialog(
     text: String?, issue: TerminalPasteIssue?, enabled: Boolean, attempted: Boolean,
-    busy: Boolean, result: TerminalPasteResult?, onConfirm: () -> Unit, onDismiss: () -> Unit
+    busy: Boolean, result: TerminalPasteResult?, onConfirm: () -> Unit, onDismiss: () -> Unit,
+    editing: Boolean = false, onEdit: (String) -> Unit = {}
 ) {
     var acknowledged by remember(text) { mutableStateOf(false) }
     val multiline = text != null && TerminalPastePolicy.multiline(text)
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
-        title = { Text(stringResource(R.string.terminal_paste_title)) },
+        title = { Text(stringResource(if (editing) R.string.terminal_paste_edit_title else R.string.terminal_paste_title)) },
         text = {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.terminal_paste_warning))
-                if (text != null) {
-                    Text(stringResource(R.string.terminal_paste_count, text.length))
-                    Text(text, fontFamily = FontFamily.Monospace,
+                if (text != null || editing) {
+                    Text(stringResource(R.string.terminal_paste_count, text?.length ?: 0))
+                    if (editing) OutlinedTextField(
+                        value = text.orEmpty(), onValueChange = onEdit, enabled = !attempted,
+                        label = { Text(stringResource(R.string.terminal_paste_edit_label)) },
+                        textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                        isError = issue != null && issue != TerminalPasteIssue.EMPTY,
+                        minLines = 3, maxLines = 8, modifier = Modifier.fillMaxWidth()
+                    ) else Text(text.orEmpty(), fontFamily = FontFamily.Monospace,
                         modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState()))
                 }
                 if (issue != null) Text(stringResource(when (issue) {
@@ -59,7 +66,7 @@ internal fun TerminalPasteDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm, enabled = enabled && !attempted && issue == null && text != null && (!multiline || acknowledged)) {
-                Text(stringResource(R.string.terminal_paste_confirm))
+                Text(stringResource(if (editing) R.string.terminal_paste_edit_send else R.string.terminal_paste_confirm))
             }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(stringResource(R.string.close)) } }

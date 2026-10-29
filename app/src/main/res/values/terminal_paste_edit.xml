@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="terminal_paste_edit_title">Paste with editing</string>
+    <string name="terminal_paste_edit_label">Text to send</string>
+    <string name="terminal_paste_edit_send">Send text</string>
+</resources>
