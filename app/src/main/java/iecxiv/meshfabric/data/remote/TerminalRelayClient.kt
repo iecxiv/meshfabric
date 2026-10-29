@@ -188,7 +188,10 @@ class TerminalSession(
                     }
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                         generation.runIfCurrent(epoch) {
-                            if (activeSocket === webSocket && !isUserDisconnect) handleIncomingData(epoch, webSocket, bytes.utf8())
+                            if (activeSocket === webSocket && !isUserDisconnect) {
+                                traceTerminalFrame("binary", bytes.size)
+                                handleTerminalOutput(bytes.utf8())
+                            }
                         }
                     }
                     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -234,7 +237,21 @@ class TerminalSession(
         true
     }
 
+    private var tracedFrames = 0
+    private val traceEnabled: Boolean get() = try {
+        (iecxiv.meshfabric.MeshFabricApp.instance.applicationInfo.flags and
+            android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+    } catch (_: Exception) { false }
+
+    private fun traceTerminalFrame(kind: String, size: Int) {
+        if (traceEnabled && tracedFrames < 64) {
+            tracedFrames++
+            Log.d("TerminalEcho", "rx=$tracedFrames kind=$kind size=$size connected=${_connectionState.value} handshake=$handshakeComplete")
+        }
+    }
+
     private fun handleIncomingData(epoch: Long, webSocket: WebSocket, data: String) {
+        traceTerminalFrame("text", data.length)
         if (TerminalHandshakePolicy.shouldHandle(data, handshakeComplete)) {
             val wasConnected = _connectionState.value
             handshakeComplete = true
@@ -254,6 +271,10 @@ class TerminalSession(
             }
             return
         }
+        handleTerminalOutput(data)
+    }
+
+    private fun handleTerminalOutput(data: String) {
         if (_connectionState.value) {
             synchronized(sessionHistory) {
                 sessionHistory.append(data)
@@ -261,6 +282,9 @@ class TerminalSession(
                 if (sessionHistory.length > 200000) sessionHistory.delete(0, 50000)
             }
             _incomingDataFlow.tryEmit(data)
+            if (traceEnabled && tracedFrames in 1..63) {
+                Log.d("TerminalEcho", "published chars=${data.length} revision=${outputRevision.value}")
+            }
         }
     }
 
