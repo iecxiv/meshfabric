@@ -87,7 +87,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
                     Icon(Icons.Default.FilterAlt,
                         stringResource(if(onlyOnline) R.string.device_filter_show_all else R.string.device_filter_show_online),
                         Modifier.size(20.dp),tint=if(onlyOnline) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                    if(onlyOnline) Surface(Modifier.size(5.dp).align(Alignment.TopEnd),shape=CircleShape,color=OnlineGreen) { }
                 }
             }
             ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
