@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import iecxiv.meshfabric.R
 import iecxiv.meshfabric.data.remote.TerminalConnectionStatus
 import iecxiv.meshfabric.data.remote.TerminalSession
+import iecxiv.meshfabric.ui.management.FabricDialog
 import java.text.DateFormat
 import java.util.Date
 
@@ -43,6 +44,7 @@ internal fun TerminalSessionPopup(
     val locale = LocalConfiguration.current.locales[0]
     val dates = remember(locale) { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, locale) }
     val connecting = attempt == ManualReconnectState.CONNECTING
+    val actions = terminalPopupActions(status, showingHistory, connecting)
     val summary = stringResource(when {
         showingHistory -> R.string.terminal_previous_history
         connecting -> R.string.status_connecting
@@ -66,17 +68,36 @@ internal fun TerminalSessionPopup(
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpanded(false) }, modifier = Modifier.width(320.dp).heightIn(max = 420.dp)) {
+            Text(stringResource(R.string.terminal_session_popup_title), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleSmall)
+            if (actions.visible) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.terminal_reconnect_manual)) },
+                    enabled = actions.reconnectEnabled,
+                    onClick = {
+                        onExpanded(false)
+                        // Reconnect always targets the current record, never an archive.
+                        // The coordinator refuses another connection if it is already live.
+                        onCurrent()
+                        onReconnect()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.terminal_return_current)) },
+                    enabled = actions.returnEnabled,
+                    onClick = { onExpanded(false); onCurrent() }
+                )
+                if (actions.cancelVisible) DropdownMenuItem(
+                    text = { Text(stringResource(R.string.terminal_recovery_cancel)) },
+                    onClick = { onExpanded(false); onCancel() }
+                )
+                HorizontalDivider()
+            }
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(stringResource(R.string.terminal_session_popup_title), style = MaterialTheme.typography.titleSmall)
                 if (details != null) Text(stringResource(details), style = MaterialTheme.typography.bodySmall)
                 if (!showingHistory && status == TerminalConnectionStatus.DISCONNECTED && (attempt == ManualReconnectState.FAILED || attempt == ManualReconnectState.TIMED_OUT))
                     Text(stringResource(R.string.terminal_reconnect_failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 if (truncated) Text(stringResource(R.string.terminal_retained_truncated), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
-            if (connecting) DropdownMenuItem(text = { Text(stringResource(R.string.terminal_recovery_cancel)) }, onClick = { onExpanded(false); onCancel() })
-            else if (!showingHistory && status == TerminalConnectionStatus.DISCONNECTED)
-                DropdownMenuItem(text = { Text(stringResource(R.string.terminal_reconnect_manual)) }, onClick = { onExpanded(false); onReconnect() })
-            if (showingHistory) DropdownMenuItem(text = { Text(stringResource(R.string.terminal_return_current)) }, onClick = { onExpanded(false); onCurrent() })
             HorizontalDivider()
             Text(stringResource(R.string.terminal_previous_history), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
             if (history.isEmpty()) Text(stringResource(R.string.terminal_history_empty), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
@@ -100,12 +121,19 @@ internal fun TerminalSessionPopup(
     if (deletionIds.isNotEmpty()) {
         val single = history.firstOrNull { it.localSessionId in deletionIds }
         val label = single?.let { dates.format(Date(it.openedAt)) }.orEmpty()
-        AlertDialog(
-            onDismissRequest = onDismissDelete,
-            title = { Text(stringResource(R.string.terminal_history_delete_title)) },
-            text = { Text(if (deletionIds.size == 1) stringResource(R.string.terminal_history_delete_one_warning, label) else stringResource(R.string.terminal_history_delete_many_warning, deletionIds.size)) },
-            confirmButton = { TextButton(onClick = { val snapshot = deletionIds.toSet(); onDismissDelete(); onDelete(snapshot) }) { Text(stringResource(R.string.terminal_history_delete_action), color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = onDismissDelete) { Text(stringResource(R.string.terminal_recovery_cancel)) } }
-        )
+        FabricDialog(
+            title = stringResource(R.string.terminal_history_delete_title),
+            onDismiss = onDismissDelete,
+            confirm = stringResource(R.string.terminal_history_delete_action),
+            cancel = stringResource(R.string.terminal_recovery_cancel),
+            dangerous = true,
+            onConfirm = {
+                val snapshot = deletionIds.toSet()
+                onDismissDelete()
+                onDelete(snapshot)
+            }
+        ) {
+            Text(if (deletionIds.size == 1) stringResource(R.string.terminal_history_delete_one_warning, label) else stringResource(R.string.terminal_history_delete_many_warning, deletionIds.size))
+        }
     }
 }
