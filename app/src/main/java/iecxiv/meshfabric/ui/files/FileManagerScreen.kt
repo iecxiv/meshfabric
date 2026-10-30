@@ -353,8 +353,8 @@ fun FileManagerScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Ir a Ruta")
                     }
-                    if (windowsFiles) IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Storage, contentDescription = stringResource(R.string.files_drives), tint = if (driveSelector) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Storage, contentDescription = stringResource(if (windowsFiles) R.string.files_drives else R.string.files_root_shortcut_label), tint = if (if (windowsFiles) driveSelector else currentPath == "/") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(
                         onClick = { viewModel.refresh(nodeId) },
