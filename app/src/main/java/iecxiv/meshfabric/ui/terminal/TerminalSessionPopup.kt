@@ -39,7 +39,8 @@ internal fun TerminalSessionPopup(
     onSelect: (String) -> Unit,
     onRequestDelete: (Set<String>) -> Unit,
     onDismissDelete: () -> Unit,
-    onDelete: (Set<String>) -> Unit
+    onDelete: (Set<String>) -> Unit,
+    showBar: Boolean = true
 ) {
     val locale = LocalConfiguration.current.locales[0]
     val dates = remember(locale) { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, locale) }
@@ -59,8 +60,8 @@ internal fun TerminalSessionPopup(
         status == TerminalConnectionStatus.CONNECTED && history.isNotEmpty() -> R.string.terminal_new_session_connected
         else -> null
     }
-    Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)) {
-        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+    Box(if (showBar) Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp) else Modifier.fillMaxWidth()) {
+        if (showBar) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.terminal_session_popup_summary, summary, history.size), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                 if (truncated) Icon(Icons.Default.Warning, contentDescription = stringResource(R.string.terminal_retained_truncated), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)

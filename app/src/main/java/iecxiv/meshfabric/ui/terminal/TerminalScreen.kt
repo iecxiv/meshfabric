@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AssistChip
@@ -92,11 +93,19 @@ fun TerminalScreen(
     val attempts by viewModel.manualReconnect.state.collectAsState()
     val allHistory by viewModel.manualReconnect.history.collectAsState()
     val currentSession = remember(nodeId, viewModel, revision) { viewModel.terminalClient.getSession(viewModel.meshClient, nodeId) }
+    val disconnectIncident by currentSession.unexpectedDisconnectEvents.collectAsState()
+    var autoHistoryBar by androidx.compose.runtime.saveable.rememberSaveable(currentSession.localSessionId) { mutableStateOf(false) }
     val history = allHistory[currentSession.cleanNodeId].orEmpty()
     var historyId by remember(nodeId) { mutableStateOf<String?>(null) }
     var showHistoryMenu by remember(nodeId) { mutableStateOf(false) }
     var historiesToDelete by remember(nodeId) { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(currentSession) { historyId = null }
+    LaunchedEffect(currentSession, disconnectIncident) {
+        if (viewModel.historyPanelGate.consume(currentSession.localSessionId, disconnectIncident)) {
+            autoHistoryBar = true
+            showHistoryMenu = false
+        }
+    }
     val selectedSession = history.firstOrNull { it.localSessionId == historyId } ?: currentSession
     val showingHistory = selectedSession !== currentSession
     val reconnectState = attempts[currentSession.cleanNodeId] ?: ManualReconnectState.IDLE
@@ -234,17 +243,24 @@ fun TerminalScreen(
                 actions = {
                     TextButton(
                         onClick = { changeFontSize(-1) },
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.size(36.dp),
                         contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
                         Text("A-", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                     TextButton(
                         onClick = { changeFontSize(1) },
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.size(36.dp),
                         contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
                         Text("A+", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                    IconButton(
+                        onClick = { showHistoryMenu = !showHistoryMenu },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = stringResource(R.string.terminal_history_header),
+                            tint = if (showHistoryMenu || showingHistory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(
                         onClick = { keyboardRequest++ },
@@ -254,7 +270,7 @@ fun TerminalScreen(
                         Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.terminal_keyboard_toggle))
                     }
                     Box {
-                        IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null) {
+                        IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null, modifier = Modifier.size(36.dp)) {
                             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.terminal_tools))
                         }
                         DropdownMenu(expanded = showTerminalMenu, onDismissRequest = { showTerminalMenu = false }) {
@@ -306,6 +322,7 @@ fun TerminalScreen(
                 .background(Color(0xFF0D1117))
         ) {
             TerminalSessionPopup(
+                showBar = terminalHistoryBarVisible(autoHistoryBar, showingHistory, reconnecting),
                 status = connectionStatus,
                 attempt = reconnectState,
                 history = history,

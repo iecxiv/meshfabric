@@ -50,6 +50,8 @@ class TerminalSession(
 
     @Volatile var activeSocket: WebSocket? = null
     @Volatile var isUserDisconnect = false
+    private val unexpectedDisconnects = MutableStateFlow(0L)
+    val unexpectedDisconnectEvents: StateFlow<Long> = unexpectedDisconnects.asStateFlow()
     var hasPrintedDisconnectMessage = false
     var reconnectJob: Job? = null
     var activeTunnelId = Random.nextInt(100000, 999999).toString()
@@ -114,6 +116,7 @@ class TerminalSession(
     }
 
     private fun emitDisconnectBanner() {
+        unexpectedDisconnects.value++
         // Status belongs to the UI, never to the terminal stream or interpreter.
         hasPrintedDisconnectMessage = true
         onStateChanged?.invoke()

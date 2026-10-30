@@ -13,6 +13,7 @@ class TerminalViewModel(
     val terminalClient: TerminalRelayClient
 ) : ViewModel() {
 
+    internal val historyPanelGate = TerminalHistoryPanelGate()
     internal val manualReconnect = TerminalManualReconnect(meshClient, terminalClient, viewModelScope)
 
     private val renderers = RetainedTerminalStore<String, TerminalRenderSession>(
@@ -36,7 +37,7 @@ class TerminalViewModel(
         renderer.releaseParent(parent)
         renderers.trim()
     }
-    fun clearRendering() { manualReconnect.clear(); renderers.clear() }
+    fun clearRendering() { manualReconnect.clear(); renderers.clear(); historyPanelGate.clear() }
     internal fun resetRenderer(expected: TerminalRenderSession): Boolean =
         renderers.removeIf(expected.session.localSessionId, expected)
 
