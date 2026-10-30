@@ -2,7 +2,15 @@
 
 MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and an activity view without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
-This README describes the implementation in the `dev` branch, currently configured as version `1.1.3` with version code `1`. Do not assume that every change described here is already present in `main` or in a published release APK. Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
+This README describes the implementation in the `dev` branch, currently configured as version `1.1.4` with version code `1`. Do not assume that every change described here is already present in `main` or in a published release APK. Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
+
+## Version 1.1.4 (dev)
+
+- Manual terminal reconnection with a separate candidate connection, cancellation, and a total 30-second deadline. Failed attempts leave the previous history intact.
+- A persistent disconnected/read-only notice outside the terminal output, with input, paste, remote keys, and keyboard requests blocked while disconnected.
+- Successful reconnection opens a new local session record and keeps previous history separately available in read-only mode. No automatic command replay or guarantee of remote-process continuity.
+- Reconnection labels and messages use Android string resources, with English default resources and explicit English and Spanish translations.
+- Automatic terminal reconnection and advanced visual-state restoration remain out of scope.
 
 ## Current features
 
@@ -74,21 +82,30 @@ Each preview permits one dispatch attempt, without automatic retries. An accepte
 - Expand with the downward chevron; collapse with the same icon inverted.
 - Additional rows provide arrows, Home/End, Insert/Delete, PgUp/PgDn, Ctrl shortcuts, and a Ctrl+A through Ctrl+Z picker.
 - Keys use the restored filled, small-corner style. Their visible height is compact at normal font scale, while minimum interaction space is retained; larger font settings can increase height to avoid clipping.
-- Arrow symbols use one consistently sized vector icon rotated by direction. Enter and the latest-output symbol remain enlarged; End uses the same typography as Home in version 1.1.3.
+- Arrow symbols use one consistently sized vector icon rotated by direction. Enter and the latest-output symbol remain enlarged; End uses the same typography as Home, as introduced in version 1.1.3.
 - Cursor keys honor xterm's application-cursor mode. Backspace retains byte 8, and Enter sends CR.
 - PgUp/PgDn/Home/End are remote keys. The separate latest-output control scrolls the local normal-buffer history to the bottom without sending keys to the remote host. It is unavailable in the alternate buffer.
 - Touch scrolling over rendered text is routed to the native viewport on coarse-pointer devices in the normal buffer when mouse reporting is inactive. The existing alternate-buffer and mouse-reporting behavior is retained.
 
 While touch-scroll pass-through is active, direct canvas selection and canvas link taps are not preserved. Use the Select and copy dialog for text selection. No universal behavior across all full-screen terminal applications or IMEs is claimed.
 
+#### Disconnection and manual reconnection
+
+- A network change, tunnel failure, or the terminal screen's disconnect action closes the transport without clearing the current history or deliberately resetting the retained view's scroll position. The disconnect action now keeps the terminal screen open.
+- A persistent interface notice states that the terminal is disconnected and its history is retained. It is not injected into the remote output. Scrolling and copying remain available; typing, paste, remote keys, and keyboard requests are blocked.
+- Reconnect allows one candidate attempt per device, with cancellation and a total 30-second deadline covering control-channel readiness and terminal negotiation. Opening a WebSocket alone does not count as a successful terminal connection.
+- Failure, timeout, or cancellation closes the candidate and leaves the previous session record and output intact. There are no automatic terminal retries and no queued commands to resend.
+- After successful negotiation, a new independent terminal session becomes current. Previous history remains accessible through a read-only history picker; its output journal and callbacks are not reused by the new session. A clear-screen sequence from the new session cannot clear the previous history.
+- Reconnection does not establish that the original remote process survived or resumed. Shells and full-screen applications such as nano are not guaranteed to continue. Recreate view is a different action and does not reconnect the transport.
+
 #### History, renderer retention, and recovery
 
-- Disconnected terminal sessions retain output for consultation and can show a disconnect banner after a network change or tunnel failure.
-- Optional persistence of terminal buffers across app restarts is available.
-- Retained renderers preserve local state across navigation while they remain cached. Retention is bounded; an evicted renderer may be recreated from the available output journal, not from a full VT snapshot.
+- Previous-session records are retained in memory for the terminal ViewModel lifetime. This change does not add archive persistence across app restarts. Existing optional persistence of the current terminal buffer remains separate and controlled by the existing setting.
+- Retained renderers preserve local state across navigation while they remain cached. The existing cache retains up to four renderers, without evicting attached views. An evicted renderer may be recreated from the available output journal, not from a full VT snapshot.
+- Truncated retained history is identified explicitly. Rebuilding an initial disconnected view may read from the oldest output still available; this is best-effort history replay, not restoration of missing output or complete terminal visual state.
+- Live output delivery keeps strict gap detection, including its initial read. Continuing from an evicted or invalidated cursor does not silently skip missing output.
 - Renderer loss and foreground parser-acknowledgement timeouts have an explicit, confirmed Recreate view action. Recreating a view does not restart the remote shell and may require full-screen applications to redraw.
-- Lost output continuity cannot be repaired by replaying an already-truncated journal; the UI requests a new terminal session in that case.
-- Explicitly closing or restarting a terminal session clears its previous buffer. Retained history does not prove that a tunnel is connected or that the original remote process has resumed. Process death does not preserve the WebView.
+- The terminal screen's disconnect action preserves history; explicit session reset/removal paths can still clear buffers. Retained history does not prove that a tunnel is connected or that the original remote process has resumed. Process death does not preserve the WebView.
 
 Implementation notes:
 
@@ -100,6 +117,7 @@ Implementation notes:
 - [Touch scrolling](docs/terminal-touch-scroll.md)
 - [Renderer retention](docs/terminal-renderer-retention.md)
 - [ACK watchdog and view recovery](docs/terminal-ack-recovery.md)
+- [Manual reconnection and retained history](docs/terminal-manual-reconnect.md)
 
 ### File manager and text editor
 
@@ -139,7 +157,7 @@ A request being sent or accepted is not the same as an action being executed. Me
 
 - Material 3 interface with system, light, and dark theme modes.
 - Custom app display name and icon, plus a setting to hide the settings icon.
-- English and Spanish Android resource files are provided, including the new terminal controls.
+- English and Spanish Android resource files are provided, including the terminal controls. All nine new manual-reconnection labels and messages are string resources in `values`, `values-en`, and `values-es`; the reused Cancel action is also translated.
 - Localization is not complete: some native management, activity, desktop, and feedback messages remain hard-coded in Spanish. Resource-key coverage is not proof that every visible phrase has been externalized or translated.
 
 The current localization inventory and its limitations are documented in [docs/i18n](docs/i18n/README.md).
@@ -154,7 +172,7 @@ The current `dev` configuration declares:
 
 | Setting | Value |
 | --- | --- |
-| App version name | `1.1.3` |
+| App version name | `1.1.4` |
 | App version code | `1` |
 | Minimum SDK | `26` |
 | Compile SDK | `35` |
@@ -210,7 +228,7 @@ Build and run Android instrumentation tests with a connected device or running e
 ./gradlew :app:assembleDebugAndroidTest :app:connectedDebugAndroidTest
 ```
 
-Verification includes key mapping/modifier state, Compose input dispatch and key-bar checks, bundled-xterm echo/copy/paste behavior, terminal focus/IME handling, and touchscreen scrolling. Some feature changes use temporary CI workflows that remove themselves after publishing a verified commit; those workflow files are not permanent entry points.
+Verification includes key mapping/modifier state, Compose input dispatch and key-bar checks, bundled-xterm echo/copy/paste behavior, terminal focus/IME handling, and touchscreen scrolling. Manual reconnection adds unit coverage for attempt ownership, stale completions, and the separation between strict live reads and explicit retained-history replay. These unit tests are not end-to-end socket or Android UI reconnection tests. Some feature changes use CI publication workflows; a workflow commit is not itself the functional change.
 
 Passing automated tests does not establish universal compatibility with Hacker's Keyboard, every physical keyboard, every IME, all Android versions, or all Windows/Linux hosts. Test real typing, shortcuts, locale/accents, composition, repeats, focus changes, reconnection, font scaling, and landscape/keyboard layouts on the intended devices. Check the outcome of the specific CI run rather than assuming a task commit already contains the functional change.
 
@@ -245,7 +263,7 @@ The following items are not presented as completed features:
 - Inventory/activity export.
 - YubiKey integration.
 - Multi-file selection and bulk file operations.
-- Further terminal recovery/reconnection validation without implying that retained output restores the original remote process.
+- Automatic terminal reconnection, advanced terminal-state restoration, and broader reconnection validation. Retained output does not restore or prove continuity of the original remote process.
 - Completion of English/Spanish localization for native management features.
 - Broader real-device desktop keyboard, layout, AltGr, and IME compatibility validation.
 
