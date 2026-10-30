@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -191,6 +193,9 @@ fun TerminalScreen(
         onDispose { renderer.setFocusBlocked(true) }
     }
 
+    val terminalKeyboardVisible = WindowInsets.isImeVisible &&
+        !showCopyDialog && !showPasteDialog && !showCommandDialog && !showRecoveryDialog
+
     fun changeFontSize(delta: Int) { renderer.changeFontSize(delta) }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -271,7 +276,11 @@ fun TerminalScreen(
                         Icon(
                             Icons.Default.Keyboard,
                             contentDescription = stringResource(R.string.terminal_keyboard_toggle),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (inputEnabled) 1f else 0.38f)
+                            tint = when {
+                                terminalKeyboardVisible -> Color(0xFF2196F3)
+                                inputEnabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            }
                         )
                     }
                     Box {
