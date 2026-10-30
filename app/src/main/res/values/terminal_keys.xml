@@ -21,8 +21,8 @@
     <string name="terminal_key_delete">Del</string>
     <string name="terminal_key_pageup">PgUp</string>
     <string name="terminal_key_pagedown">PgDn</string>
-    <string name="terminal_keys_more_glyph">⋯</string>
-    <string name="terminal_keys_less_glyph">−</string>
+    <string name="terminal_keys_more_glyph">∨</string>
+    <string name="terminal_keys_less_glyph">∧</string>
     <string name="terminal_keys_more">More keys</string>
     <string name="terminal_keys_less">Fewer keys</string>
     <string name="terminal_ctrl_more_label">Ctrl…</string>

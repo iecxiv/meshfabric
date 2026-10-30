@@ -72,4 +72,17 @@ class TerminalKeyBarTest {
             .assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
     }
 
+    @Test fun expanderUsesTheSameInvertedChevron() {
+        compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+        compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true)
+            .assertWidthIsEqualTo(24.dp).assertHeightIsEqualTo(24.dp)
+        compose.onNodeWithContentDescription(context.getString(R.string.terminal_keys_more)).performClick()
+        compose.onNodeWithTag("terminal-chevron-180", useUnmergedTree = true)
+            .assertWidthIsEqualTo(24.dp).assertHeightIsEqualTo(24.dp)
+        compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription(context.getString(R.string.terminal_keys_less)).performClick()
+        compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("terminal-chevron-180", useUnmergedTree = true).assertDoesNotExist()
+    }
+
 }

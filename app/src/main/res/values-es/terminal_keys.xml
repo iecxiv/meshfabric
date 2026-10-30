@@ -21,8 +21,8 @@
     <string name="terminal_key_delete">Supr</string>
     <string name="terminal_key_pageup">RePág</string>
     <string name="terminal_key_pagedown">AvPág</string>
-    <string name="terminal_keys_more_glyph">⋯</string>
-    <string name="terminal_keys_less_glyph">−</string>
+    <string name="terminal_keys_more_glyph">∨</string>
+    <string name="terminal_keys_less_glyph">∧</string>
     <string name="terminal_keys_more">Más teclas</string>
     <string name="terminal_keys_less">Menos teclas</string>
     <string name="terminal_ctrl_more_label">Ctrl…</string>

@@ -13,6 +13,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -40,7 +41,8 @@ private val navigationKeys = listOf(
 @Composable
 private fun BarButton(
     label: String, description: String, enabled: Boolean,
-    largeLabel: Boolean = false, arrowRotation: Float? = null, onClick: () -> Unit
+    largeLabel: Boolean = false, arrowRotation: Float? = null,
+    chevronRotation: Float? = null, onClick: () -> Unit
 ) {
     val keyHeight = maxOf(36.dp, with(LocalDensity.current) { 24.sp.toDp() } + 8.dp)
     val labelStyle = if (largeLabel) MaterialTheme.typography.labelLarge.copy(
@@ -54,7 +56,10 @@ private fun BarButton(
         modifier = Modifier.semantics { contentDescription = description }
             .minimumInteractiveComponentSize().height(keyHeight).widthIn(min = 48.dp),
         label = {
-            if (arrowRotation != null) Icon(
+            if (chevronRotation != null) Icon(
+                Icons.Default.KeyboardArrowDown, contentDescription = null,
+                modifier = Modifier.size(24.dp).rotate(chevronRotation).testTag("terminal-chevron-${chevronRotation.toInt()}")
+            ) else if (arrowRotation != null) Icon(
                 Icons.Default.ArrowUpward, contentDescription = null,
                 modifier = Modifier.size(24.dp).rotate(arrowRotation).testTag("terminal-arrow-${arrowRotation.toInt()}")
             ) else Text(label, maxLines = 1, style = labelStyle)
@@ -94,7 +99,8 @@ internal fun TerminalKeyBar(
             }
             BarButton(
                 stringResource(if (expanded) R.string.terminal_keys_less_glyph else R.string.terminal_keys_more_glyph),
-                stringResource(if (expanded) R.string.terminal_keys_less else R.string.terminal_keys_more), true
+                stringResource(if (expanded) R.string.terminal_keys_less else R.string.terminal_keys_more), true,
+                chevronRotation = if (expanded) 180f else 0f
             ) { expanded = !expanded; ctrlMenu = false }
         }
         if (expanded) {
