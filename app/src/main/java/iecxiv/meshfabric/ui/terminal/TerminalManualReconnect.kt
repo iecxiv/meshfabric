@@ -34,8 +34,7 @@ internal class TerminalManualReconnect(
     val revision: StateFlow<Long> = versions.asStateFlow()
     private val states = MutableStateFlow<Map<String, ManualReconnectState>>(emptyMap())
     val state: StateFlow<Map<String, ManualReconnectState>> = states.asStateFlow()
-    private val records = MutableStateFlow<Map<String, List<TerminalSession>>>(emptyMap())
-    val history: StateFlow<Map<String, List<TerminalSession>>> = records.asStateFlow()
+    val history: StateFlow<Map<String, List<TerminalSession>>> = client.archivedHistory
     private fun key(node: String) = node.removePrefix("node//").removePrefix("node/").trim()
     private fun publish(key: String, value: ManualReconnectState) { states.value = states.value + (key to value) }
 
@@ -63,7 +62,7 @@ internal class TerminalManualReconnect(
                     check(client.promoteSession(old, candidate))
                     promoted = true
                     gate.finish(key, token)
-                    records.value = records.value + (key to (records.value[key].orEmpty() + old))
+                    client.archiveHistory(old)
                     versions.value++
                     publish(key, ManualReconnectState.CONNECTED_NEW)
                 }
@@ -94,20 +93,11 @@ internal class TerminalManualReconnect(
         entry.second.cancel()
         publish(key, ManualReconnectState.CANCELLED)
     }
-    fun removeHistory(node: String, requested: Set<String>): List<TerminalSession> {
-        val key = key(node)
-        val previous = records.value[key].orEmpty()
-        val current = client.getSession(mesh, node)
-        val allowed = terminalHistoryDeletionIds(requested, previous.map { it.localSessionId }.toSet(), current.localSessionId)
-        val removed = previous.filter { it.localSessionId in allowed && !it.isConnected() }
-        val removedIds = removed.map { it.localSessionId }.toSet()
-        if (removedIds.isNotEmpty()) records.value = records.value + (key to previous.filterNot { it.localSessionId in removedIds })
-        return removed
-    }
+    fun removeHistory(node: String, requested: Set<String>): List<TerminalSession> = client.removeHistory(node, requested)
+    fun cancelPending() { jobs.keys.toList().forEach { cancel(it) } }
 
     fun clear() {
         jobs.keys.toList().forEach { cancel(it) }
-        records.value = emptyMap()
         states.value = emptyMap()
     }
 }

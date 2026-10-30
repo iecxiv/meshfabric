@@ -85,6 +85,8 @@ class TerminalViewModel(
         // Do not delete the current session's persisted buffer when removing an archive.
     }
 
+    fun cancelPendingReconnections() { manualReconnect.cancelPending() }
+
     fun stopSession(nodeId: String) {
         manualReconnect.cancel(nodeId)
         val current = terminalClient.getSession(meshClient, nodeId)

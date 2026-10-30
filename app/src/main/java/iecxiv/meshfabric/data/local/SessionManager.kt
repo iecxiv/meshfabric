@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 class SessionManager(context: Context) {
+    private val terminalHistoryRoot = File(context.noBackupFilesDir, "terminal_history")
+    private val terminalLegacyRoot = File(context.filesDir, "terminal_buffers")
 
     private val prefs: SharedPreferences = try {
         val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
@@ -144,6 +146,12 @@ class SessionManager(context: Context) {
             .apply()
     }
 
+    internal fun terminalHistoryAccount(): String? {
+        val server = prefs.getString(KEY_SERVER_URL, "").orEmpty().trim().trimEnd('/')
+        val user = prefs.getString(KEY_USERNAME, "").orEmpty().trim()
+        return if (server.isBlank() || user.isBlank()) null else "$server\u0000$user"
+    }
+
     fun getSession(): SessionData? {
         val isRemembered = prefs.getBoolean(KEY_IS_REMEMBERED, false)
         if (!isRemembered) return null
@@ -165,11 +173,13 @@ class SessionManager(context: Context) {
     }
 
     fun clearSession() {
+        val keepTerminalBuffers = isSaveTerminalBuffersEnabled()
         val currentAppName = _appNameFlow.value
         val currentIconPath = _customIconPathFlow.value
         val currentTheme = _themeModeFlow.value
 
         prefs.edit().clear().apply()
+        prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, keepTerminalBuffers).apply()
 
         // Preserve app settings when clearing user session
         prefs.edit()
@@ -254,6 +264,10 @@ class SessionManager(context: Context) {
     fun saveTerminalBuffersSetting(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, enabled).apply()
         _saveTerminalBuffersFlow.value = enabled
+        if (!enabled) {
+            iecxiv.meshfabric.data.remote.TerminalHistoryDiskStore.purge(terminalHistoryRoot)
+            terminalLegacyRoot.deleteRecursively()
+        }
     }
 
     fun isSaveTerminalBuffersEnabled(): Boolean {
