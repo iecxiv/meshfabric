@@ -1,0 +1,69 @@
+name: Validate and publish desktop rotation click fix
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-desktop-rotation-click.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-desktop-rotation-click-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Refresh gesture capture when desktop geometry changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          path = Path('app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt')
+          expected = 'f4955717d3ad984bc8fd37483979f56a3a623c02'
+          if subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() != expected:
+              raise RuntimeError('Desktop source changed; review before applying')
+          source = path.read_text()
+          old = '.pointerInput(nodeId, selectedMode) {'
+          new = '.pointerInput(nodeId, selectedMode, containerWidth, containerHeight, drawWidth, drawHeight) {'
+          if source.count(old) != 1:
+              raise RuntimeError('Expected exactly one desktop gesture handler')
+          path.write_text(source.replace(old, new, 1))
+          PY
+      - name: Existing unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-rotation-click-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish only if dev is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt
+          git commit -m 'fix: refresh desktop gesture geometry after rotation'
+          git push origin HEAD:dev
