@@ -15,6 +15,40 @@ import iecxiv.meshfabric.MainActivity
 import iecxiv.meshfabric.R
 
 class KeepAliveService : Service() {
+    private val statusHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var statusNotification: Notification? = null
+    private val statusUpdater = object : Runnable {
+        override fun run() {
+            if (!isServiceRunning) return
+            val previous = statusNotification
+            val icon = currentStatusIcon()
+            if (previous != null && previous.smallIcon?.resId != icon) {
+                val updated = Notification.Builder.recoverBuilder(this@KeepAliveService, previous)
+                    .setSmallIcon(icon).setOnlyAlertOnce(true).build()
+                getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, updated)
+                statusNotification = updated
+            }
+            statusHandler.postDelayed(this, 1000L)
+        }
+    }
+
+    private fun currentStatusIcon(): Int {
+        return try {
+            val manager = getSystemService(NotificationManager::class.java) ?: return R.drawable.ic_stat_remote
+            val active = manager.activeNotifications.map { it.notification }.filter { n ->
+                n.channelId == "file_downloads" &&
+                    (n.extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 ||
+                        n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false))
+            }
+            val icons = active.mapNotNull { it.smallIcon }.filter { it.type == android.graphics.drawable.Icon.TYPE_RESOURCE }.map { it.resId }
+            when {
+                android.R.drawable.stat_sys_download in icons -> android.R.drawable.stat_sys_download
+                android.R.drawable.stat_sys_upload in icons -> android.R.drawable.stat_sys_upload
+                else -> R.drawable.ic_stat_remote
+            }
+        } catch (_: Exception) { R.drawable.ic_stat_remote }
+    }
+
 
     companion object {
         const val CHANNEL_ID = "mesh_keep_alive_channel"
@@ -84,6 +118,8 @@ class KeepAliveService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            statusHandler.removeCallbacks(statusUpdater)
+            statusNotification = null
             isServiceRunning = false
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -94,6 +130,7 @@ class KeepAliveService : Service() {
         val hasDisconnectedBuffer = intent?.getBooleanExtra(EXTRA_HAS_DISCONNECTED_BUFFER, false) ?: false
         val notification = createNotification(hasActiveConnected, hasDisconnectedBuffer, intent?.getBooleanExtra(EXTRA_HAS_RECOVERABLE_DESKTOP, false) ?: false)
 
+        statusNotification = notification
         if (isServiceRunning) {
             val notificationManager = getSystemService(NotificationManager::class.java)
             notificationManager?.notify(NOTIFICATION_ID, notification)
@@ -122,11 +159,15 @@ class KeepAliveService : Service() {
             isServiceRunning = true
         }
 
+        statusHandler.removeCallbacks(statusUpdater)
+        statusHandler.postDelayed(statusUpdater, 1000L)
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        statusHandler.removeCallbacks(statusUpdater)
+        statusNotification = null
         isServiceRunning = false
         onTaskRemovedListener?.invoke()
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -135,6 +176,8 @@ class KeepAliveService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        statusHandler.removeCallbacks(statusUpdater)
+        statusNotification = null
         isServiceRunning = false
     }
 
@@ -187,7 +230,10 @@ class KeepAliveService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_remote)
+            .setSmallIcon(currentStatusIcon())
+            .setGroup("meshfabric_sessions_and_transfers")
+            .setGroupSummary(true)
+            .setOnlyAlertOnce(true)
             .setContentTitle(titleText)
             .setContentText(contentText)
             .setContentIntent(returnPendingIntent)

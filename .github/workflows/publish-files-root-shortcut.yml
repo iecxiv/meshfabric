@@ -1,0 +1,80 @@
+name: Validate and publish universal files root shortcut
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-files-root-shortcut.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-files-root-shortcut-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Show root shortcut for all file sessions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt')
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != '5d6aea562809513265718888ae5cf40b27624a00':
+              raise RuntimeError('FileManagerScreen base changed; review patch')
+          s = p.read_text()
+          replacements = [
+              ('if (windowsFiles) IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {', 'IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {'),
+              ('contentDescription = stringResource(R.string.files_drives), tint = if (driveSelector)', 'contentDescription = stringResource(if (windowsFiles) R.string.files_drives else R.string.files_root_shortcut_label), tint = if (if (windowsFiles) driveSelector else currentPath == "/")')
+          ]
+          for old, new in replacements:
+              if s.count(old) != 1:
+                  raise RuntimeError('Root button anchor is not unique: ' + repr(old))
+              s = s.replace(old, new, 1)
+          resources = Path('app/src/main/res')
+          for folder in resources.glob('values*'):
+              for xml in folder.glob('*.xml'):
+                  if 'name="files_root_shortcut_label"' in xml.read_text():
+                      raise RuntimeError('Root shortcut resource already exists; review patch')
+          p.write_text(s)
+          for folder, label in [('values', 'Go to root folder'), ('values-en', 'Go to root folder'), ('values-es', 'Ir a la carpeta raíz')]:
+              target = resources / folder / 'files_root_shortcut.xml'
+              if target.exists():
+                  raise RuntimeError('Refusing to overwrite ' + str(target))
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <string name="files_root_shortcut_label">' + label + '</string>\n</resources>\n')
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: files-root-shortcut-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated change only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt app/src/main/res/values/files_root_shortcut.xml app/src/main/res/values-en/files_root_shortcut.xml app/src/main/res/values-es/files_root_shortcut.xml
+          git commit -m 'feat: show root folder shortcut for non-Windows file sessions'
+          git push origin HEAD:dev

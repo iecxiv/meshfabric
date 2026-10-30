@@ -1,0 +1,84 @@
+name: Validate and publish files diagnostics
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-files-diagnostics.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-files-diagnostics-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add diagnostic logging without changing navigation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt')
+          expected = '13814057e9e73f98e0b15259fb05e4cc1d4f242d'
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != expected:
+              raise RuntimeError('FileRelayClient base changed; review before applying diagnostics')
+          s = p.read_text()
+          def change(old, new):
+              global s
+              if s.count(old) != 1:
+                  raise RuntimeError('Diagnostic anchor is not unique: ' + repr(old))
+              s = s.replace(old, new, 1)
+          change('    private fun retireSocket() {', '''    private fun retireSocket() {
+                  val caller = Throwable().stackTrace.getOrNull(1)
+                  val pending = navigation.pending
+                  Log.d("MeshFilesDiag", "retire epoch=$socketEpoch caller=${caller?.methodName}:${caller?.lineNumber} connected=${_connectionState.value} control=${meshClient.connectionState.value} pending=${pending?.id} listingAgeMs=${if (pending != null) nowMs() - listingStarted else -1L} failures=$failures")''')
+          change('        if (webSocket?.send(req.toString()) != true) retireSocket()', '''        val queued = webSocket?.send(req.toString()) == true
+                  Log.d("MeshFilesDiag", "ls epoch=$socketEpoch reqid=${request.id} path=${req.get(\"path\")} windows=${windowsFileSystem()} queued=$queued")
+                  if (!queued) retireSocket()''')
+          change('            webSocket.send("5")', '''            val protocolQueued = webSocket.send("5")
+                      Log.d("MeshFilesDiag", "protocol=5 epoch=$socketEpoch queued=$protocolQueued")''')
+          change('                            _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"', '''                            Log.w("MeshFilesDiag", "listing-timeout epoch=$socketEpoch reqid=${navigation.pending?.id} elapsedMs=${nowMs() - listingStarted}")
+                                      _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"''')
+          for method in ['onClosing', 'onClosed']:
+              old = '            override fun ' + method + '(webSocket: WebSocket, code: Int, reason: String) {\n                synchronized(this@FileSession) {\n                    if (!current(webSocket, epoch)) { webSocket.cancel(); return }'
+              new = old + '\n                    Log.d("MeshFilesDiag", "' + method + ' epoch=$epoch code=$code reasonLength=${reason.length}")'
+              change(old, new)
+          change('                Log.w("MeshFiles", "Files transport failed (${t.javaClass.simpleName})")', '''                Log.w("MeshFiles", "Files transport failed (${t.javaClass.simpleName})")
+                          Log.w("MeshFilesDiag", "failure epoch=$epoch type=${t.javaClass.simpleName} causeType=${t.cause?.javaClass?.simpleName} http=${response?.code}")''')
+          p.write_text(s)
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: files-diagnostics-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated diagnostic code
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+          git commit -m 'chore: log files listing sends and transport retirement diagnostics'
+          git push origin HEAD:dev

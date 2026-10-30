@@ -1,0 +1,93 @@
+name: Validate and publish binary files listing
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-files-binary-listing.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-files-binary-listing-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Change only listing frame type and add regression test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt')
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != '4d2edb89c83947b5277067f57f28644a679c1a71':
+              raise RuntimeError('FileRelayClient base changed; review patch')
+          s = p.read_text()
+          old = '        val queued = webSocket?.send(req.toString()) == true'
+          if s.count(old) != 1 or s.count('import okio.ByteString\n') != 1:
+              raise RuntimeError('Listing or import anchor is not unique')
+          s = s.replace('import okio.ByteString\n', 'import okio.ByteString\nimport okio.ByteString.Companion.encodeUtf8\n', 1)
+          s = s.replace(old, '        val queued = webSocket?.send(req.toString().encodeUtf8()) == true', 1)
+          if s.count('val protocolQueued = webSocket.send("5")') != 1:
+              raise RuntimeError('Protocol handshake changed; review patch')
+          p.write_text(s)
+          t = Path('app/src/test/java/iecxiv/meshfabric/data/remote/WindowsMultiDriveListingTest.kt')
+          if t.exists():
+              raise RuntimeError('Refusing to overwrite regression test')
+          t.write_text(r'''package iecxiv.meshfabric.data.remote
+
+          import com.google.gson.JsonParser
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class WindowsMultiDriveListingTest {
+              @Test fun capturedRootReplyWithoutActionPreservesAllFourDrives() {
+                  val json = JsonParser.parseString("""{"path":"","reqid":1,"dir":[{"n":"C:\\","t":1},{"n":"D:\\","t":1},{"n":"F:\\","t":1},{"n":"X:\\","t":1}]}""").asJsonObject
+                  assertFalse(json.has("action"))
+                  val drives = WindowsDriveSupport.rootListing(json, true)!!
+                  assertEquals(listOf("C:/", "D:/", "F:/", "X:/"), drives.map { it.path })
+                  assertTrue(drives.all { it.item().isDir })
+                  assertEquals("", WindowsDriveSupport.wire("/", true))
+                  for (drive in drives) {
+                      assertEquals("/", WindowsDriveSupport.parent(drive.path, true))
+                      assertEquals(drive.path, WindowsDriveSupport.wire(drive.path, true))
+                  }
+                  assertNull(WindowsDriveSupport.rootListing(json, false))
+              }
+          }
+          ''')
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and test APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: files-binary-listing-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated fix only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt app/src/test/java/iecxiv/meshfabric/data/remote/WindowsMultiDriveListingTest.kt
+          git commit -m 'fix: send files listing requests as binary UTF-8 frames'
+          git push origin HEAD:dev

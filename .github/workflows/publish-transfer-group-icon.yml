@@ -1,0 +1,119 @@
+name: Validate and publish transfer-aware group icon
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-transfer-group-icon.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-transfer-group-icon-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Control summary icon while preserving transfer notifications
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          root = Path('app/src/main/java/iecxiv/meshfabric')
+          p = root / 'service/KeepAliveService.kt'
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != '3cb7fc48e3d5d7ee2069245efd76581b18556de8':
+              raise RuntimeError('KeepAliveService changed; review patch')
+          s = p.read_text()
+          def change(old, new):
+              global s
+              if s.count(old) != 1:
+                  raise RuntimeError('Non-unique service anchor: ' + repr(old))
+              s = s.replace(old, new, 1)
+          change('class KeepAliveService : Service() {', '''class KeepAliveService : Service() {
+              private val statusHandler = android.os.Handler(android.os.Looper.getMainLooper())
+              private var statusNotification: Notification? = null
+              private val statusUpdater = object : Runnable {
+                  override fun run() {
+                      if (!isServiceRunning) return
+                      val previous = statusNotification
+                      val icon = currentStatusIcon()
+                      if (previous != null && previous.smallIcon?.resId != icon) {
+                          val updated = Notification.Builder.recoverBuilder(this@KeepAliveService, previous)
+                              .setSmallIcon(icon).setOnlyAlertOnce(true).build()
+                          getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, updated)
+                          statusNotification = updated
+                      }
+                      statusHandler.postDelayed(this, 1000L)
+                  }
+              }
+
+              private fun currentStatusIcon(): Int {
+                  return try {
+                      val manager = getSystemService(NotificationManager::class.java) ?: return R.drawable.ic_stat_remote
+                      val active = manager.activeNotifications.map { it.notification }.filter { n ->
+                          n.channelId == "file_downloads" &&
+                              (n.extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 ||
+                                  n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false))
+                      }
+                      val icons = active.mapNotNull { it.smallIcon }.filter { it.type == android.graphics.drawable.Icon.TYPE_RESOURCE }.map { it.resId }
+                      when {
+                          android.R.drawable.stat_sys_download in icons -> android.R.drawable.stat_sys_download
+                          android.R.drawable.stat_sys_upload in icons -> android.R.drawable.stat_sys_upload
+                          else -> R.drawable.ic_stat_remote
+                      }
+                  } catch (_: Exception) { R.drawable.ic_stat_remote }
+              }
+          ''')
+          change('        if (isServiceRunning) {\n            val notificationManager', '        statusNotification = notification\n        if (isServiceRunning) {\n            val notificationManager')
+          change('        return START_STICKY', '        statusHandler.removeCallbacks(statusUpdater)\n        statusHandler.postDelayed(statusUpdater, 1000L)\n        return START_STICKY')
+          change('        if (intent?.action == ACTION_STOP) {', '        if (intent?.action == ACTION_STOP) {\n            statusHandler.removeCallbacks(statusUpdater)\n            statusNotification = null')
+          change('        super.onTaskRemoved(rootIntent)', '        super.onTaskRemoved(rootIntent)\n        statusHandler.removeCallbacks(statusUpdater)\n        statusNotification = null')
+          change('        super.onDestroy()', '        super.onDestroy()\n        statusHandler.removeCallbacks(statusUpdater)\n        statusNotification = null')
+          change('            .setSmallIcon(R.drawable.ic_stat_remote)', '            .setSmallIcon(currentStatusIcon())\n            .setGroup("meshfabric_sessions_and_transfers")\n            .setGroupSummary(true)\n            .setOnlyAlertOnce(true)')
+          p.write_text(s)
+          p = root / 'data/remote/FileRelayClient.kt'
+          s = p.read_text()
+          old = 'val builder = NotificationCompat.Builder(context, "file_downloads")'
+          if s.count(old) != 4 or '.setGroup(' in s:
+              raise RuntimeError('Transfer notification builders changed; review grouping')
+          for icon in ['stat_sys_download', 'stat_sys_upload']:
+              if '.setSmallIcon(android.R.drawable.' + icon + ')' not in s:
+                  raise RuntimeError('Active transfer icon changed')
+          s = s.replace(old, old + '\n                .setGroup("meshfabric_sessions_and_transfers")')
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transfer-group-icon-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated change
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/service/KeepAliveService.kt app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+          git commit -m 'fix: show active transfer arrow in explicit notification group summary'
+          git push origin HEAD:dev

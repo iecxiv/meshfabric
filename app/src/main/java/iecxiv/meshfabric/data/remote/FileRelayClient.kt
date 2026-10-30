@@ -42,6 +42,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.encodeUtf8
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -209,6 +210,13 @@ class FileSession(
     @Volatile var isUserDisconnect = true
     @Volatile private var irrecoverable = false
     private val navigation = FileNavigationState()
+    private val driveState = MutableStateFlow<List<WindowsDriveEntry>>(emptyList())
+    internal val windowsDrives: StateFlow<List<WindowsDriveEntry>> = driveState.asStateFlow()
+    internal fun windowsFileSystem(): Boolean = driveState.value.isNotEmpty() || meshClient.groupedDevices.value.any { (_, nodes) ->
+        nodes.any { it.id.removePrefix("node//").removePrefix("node/").trim() == cleanNodeId && it.osdesc?.contains("Windows", ignoreCase = true) == true }
+    }
+    internal fun driveStatus(message: String) { _statusMessage.value = message }
+
     private var socketEpoch = 0L
     private var attemptStarted = 0L
     private var listingStarted = 0L
@@ -351,6 +359,7 @@ class FileSession(
                         if (!meshClient.connectionState.value && webSocket != null) retireSocket()
                         if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
                         if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
+                            Log.w("MeshFilesDiag", "listing-timeout epoch=$socketEpoch reqid=${navigation.pending?.id} elapsedMs=${nowMs() - listingStarted}")
                             _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"
                             retireSocket()
                         }
@@ -375,6 +384,9 @@ class FileSession(
     }
 
     private fun retireSocket() {
+        val caller = Throwable().stackTrace.getOrNull(1)
+        val pending = navigation.pending
+        Log.d("MeshFilesDiag", "retire epoch=$socketEpoch caller=${caller?.methodName}:${caller?.lineNumber} connected=${_connectionState.value} control=${meshClient.connectionState.value} pending=${pending?.id} listingAgeMs=${if (pending != null) nowMs() - listingStarted else -1L} failures=$failures")
         socketEpoch++
         initialListingJob?.cancel()
         initialListingJob = null
@@ -405,11 +417,13 @@ class FileSession(
         val request = navigation.next() ?: return
         val req = JsonObject().apply {
             addProperty("action", "ls")
-            addProperty("path", request.path)
+            addProperty("path", WindowsDriveSupport.wire(request.path, windowsFileSystem()))
             addProperty("reqid", request.id)
         }
         listingStarted = nowMs()
-        if (webSocket?.send(req.toString()) != true) retireSocket()
+        val queued = webSocket?.send(req.toString().encodeUtf8()) == true
+        Log.d("MeshFilesDiag", "ls epoch=$socketEpoch reqid=${request.id} path=${req.get("path")} windows=${windowsFileSystem()} queued=$queued")
+        if (!queued) retireSocket()
     }
 
     private fun openSocket() {
@@ -546,6 +560,7 @@ class FileSession(
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                    Log.d("MeshFilesDiag", "onClosing epoch=$epoch code=$code reasonLength=${reason.length}")
                 retireSocket()
                 }
             }
@@ -553,6 +568,7 @@ class FileSession(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                    Log.d("MeshFilesDiag", "onClosed epoch=$epoch code=$code reasonLength=${reason.length}")
                 retireSocket()
                 }
             }
@@ -561,6 +577,7 @@ class FileSession(
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
                 Log.w("MeshFiles", "Files transport failed (${t.javaClass.simpleName})")
+                Log.w("MeshFilesDiag", "failure epoch=$epoch type=${t.javaClass.simpleName} causeType=${t.cause?.javaClass?.simpleName} http=${response?.code}")
                 retireSocket()
                 }
             }
@@ -575,7 +592,8 @@ class FileSession(
             _connectionState.value = true
             failures = 0
             onStateChanged?.invoke()
-            webSocket.send("5")
+            val protocolQueued = webSocket.send("5")
+            Log.d("MeshFilesDiag", "protocol=5 epoch=$socketEpoch queued=$protocolQueued")
             val epoch = socketEpoch
             initialListingJob = scope.launch {
                 delay(200L)
@@ -679,15 +697,27 @@ class FileSession(
         }
     }
 
+    private fun acceptWindowsDrives(json: JsonObject): Boolean {
+        val drives = WindowsDriveSupport.rootListing(json, windowsFileSystem()) ?: return false
+        val accepted = navigation.accept(json.get("reqid")?.asString, "/", true)
+        pumpListing()
+        if (accepted == null) return true
+        driveState.value = drives
+        _currentPath.value = "/"
+        _fileList.value = drives.map { it.item() }
+        return true
+    }
+
     private fun handleJsonMessage(text: String) {
         try {
             val json = gson.fromJson(text, JsonObject::class.java) ?: return
+            if (acceptWindowsDrives(json)) return
             val action = json.get("action")?.asString ?: ""
             val isDirectoryListing = action == "ls" || action == "dir" ||
                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
 
             if (isDirectoryListing) {
-                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }
+                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }?.let { if (windowsFileSystem()) WindowsDriveSupport.directory(it) else it }
                 var path = responsePath ?: navigation.pending?.path ?: return
 
                 val recursiveTarget = recursiveCopyTargetDir
@@ -738,7 +768,7 @@ class FileSession(
                     if (!hasListing) _statusMessage.value = "No se pudo listar la ruta solicitada; se conserva la ubicación anterior"
                     return
                 }
-                path = acceptedPath
+                path = if (windowsFileSystem()) WindowsDriveSupport.directory(acceptedPath) else acceptedPath
                 _currentPath.value = path
 
                 val items = mutableListOf<FileItem>()
@@ -1367,6 +1397,7 @@ class FileSession(
             )
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
+                .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle("Descargando $fileName")
                 .setContentText("${formatSize(received)} / ${formatSize(total)} ($progressPercent%)")
@@ -1416,6 +1447,7 @@ class FileSession(
             )
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
+                .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setContentTitle("Subiendo $fileName")
                 .setContentText("${formatSize(sent)} / ${formatSize(total)} ($progressPercent%)")
@@ -1443,7 +1475,8 @@ class FileSession(
             val notificationId = filePath.hashCode()
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
-                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setGroup("meshfabric_sessions_and_transfers")
+                .setSmallIcon(R.drawable.ic_stat_remote)
                 .setContentTitle("Descarga completada")
                 .setContentText("$fileName (${formatSize(total)}) guardado en Descargas")
                 .setProgress(0, 0, false)
@@ -1465,7 +1498,8 @@ class FileSession(
             val notificationId = filePath.hashCode()
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
-                .setSmallIcon(android.R.drawable.stat_sys_upload_done)
+                .setGroup("meshfabric_sessions_and_transfers")
+                .setSmallIcon(R.drawable.ic_stat_remote)
                 .setContentTitle("Subida completada")
                 .setContentText("$fileName (${formatSize(total)}) subido con éxito")
                 .setProgress(0, 0, false)
@@ -1697,7 +1731,7 @@ class FileSession(
     @Synchronized
     fun listDirectory(path: String) {
         if (isUserDisconnect) return
-        navigation.request(path)
+        navigation.request(if (windowsFileSystem()) WindowsDriveSupport.directory(path) else path)
         startRecovery()
         pumpListing()
     }
@@ -3024,6 +3058,10 @@ class FileSession(
 }
 
 class FileRelayClient {
+    internal fun getWindowsDrives(mesh: MeshCentralClient, node: String): StateFlow<List<WindowsDriveEntry>> = getSession(mesh, node).windowsDrives
+    internal fun isWindowsFiles(mesh: MeshCentralClient, node: String): Boolean = getSession(mesh, node).windowsFileSystem()
+    internal fun reportDriveStatus(mesh: MeshCentralClient, node: String, message: String) { getSession(mesh, node).driveStatus(message) }
+
 
     companion object {
         var activeInstance: FileRelayClient? = null
