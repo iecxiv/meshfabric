@@ -1,0 +1,131 @@
+name: Validate and publish device disconnect menu
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-device-disconnect-menu.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-device-disconnect-menu-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add reactive per-device disconnect action
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          root = Path('app/src/main/java/iecxiv/meshfabric')
+          expected = {'ui/devices/DeviceListViewModel.kt':'408d39d3261dae494b63ba730930c49ee277117b', 'ui/management/MeshFabricHome.kt':'3d522e9c99796ac51a47058176f9c0186bbf6f24'}
+          for path, sha in expected.items():
+              if subprocess.check_output(['git', 'hash-object', str(root/path)], text=True).strip() != sha:
+                  raise RuntimeError('Base changed: ' + path)
+          def replace(path, old, new):
+              s = path.read_text()
+              if s.count(old) != 1:
+                  raise RuntimeError('Non-unique anchor: ' + repr(old))
+              path.write_text(s.replace(old, new, 1))
+          p = root/'ui/devices/DeviceListViewModel.kt'
+          replace(p, '    fun closeAllActiveSessions() {', '''    fun closeDeviceActiveSessions(nodeId: String) {
+                  if (isDesktopActive(nodeId)) desktopClient.disconnectSession(nodeId)
+                  if (isTerminalActive(nodeId)) terminalClient.disconnectSession(nodeId)
+                  if (isFilesActive(nodeId)) fileClient.disconnectSession(nodeId)
+                  refreshActiveSessions()
+              }
+
+              fun closeAllActiveSessions() {''')
+          p = root/'ui/management/MeshFabricHome.kt'
+          replace(p, '    val state by management.state.collectAsState()', '''    val state by management.state.collectAsState()
+              val desktopSessions by viewModel.desktopSessionsStatus.collectAsState()
+              val terminalSessions by viewModel.terminalSessionsStatus.collectAsState()
+              val fileSessions by viewModel.fileSessionsStatus.collectAsState()''')
+          replace(p, '                DeviceActionMenu(node,state.ready,onRead=', '''                val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
+                          val hasActiveSessions = iecxiv.meshfabric.ui.devices.hasDeviceConnectedSession(
+                              desktopSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                              terminalSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                              fileSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE)
+                          DeviceActionMenu(node,state.ready,hasActiveSessions,
+                              onDisconnectSessions={ viewModel.closeDeviceActiveSessions(node.id) },onRead=''')
+          replace(p, '@Composable private fun DeviceActionMenu(node:MeshNode,ready:Boolean,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {', '@Composable private fun DeviceActionMenu(node:MeshNode,ready:Boolean,hasActiveSessions:Boolean,onDisconnectSessions:()->Unit,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {')
+          replace(p, '            MenuEntry("Leer notas",Icons.Default.Description,ready) { expanded=false; onRead() }', '''            if (hasActiveSessions) {
+                          MenuEntry(androidx.compose.ui.res.stringResource(iecxiv.meshfabric.R.string.device_disconnect_active_sessions), Icons.Default.LinkOff, true, true) {
+                              expanded=false
+                              onDisconnectSessions()
+                          }
+                          HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                      }
+                      MenuEntry("Leer notas",Icons.Default.Description,ready) { expanded=false; onRead() }''')
+          def create(path, text):
+              if path.exists():
+                  raise RuntimeError('Refusing to overwrite ' + str(path))
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(text)
+          create(root/'ui/devices/DeviceConnectedSessionPolicy.kt', '''package iecxiv.meshfabric.ui.devices
+
+          import iecxiv.meshfabric.data.model.SessionStatus
+
+          internal fun hasDeviceConnectedSession(desktop: SessionStatus, terminal: SessionStatus, files: SessionStatus): Boolean =
+              desktop == SessionStatus.CONNECTED || terminal == SessionStatus.CONNECTED || files == SessionStatus.CONNECTED
+          ''')
+          create(Path('app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceConnectedSessionPolicyTest.kt'), '''package iecxiv.meshfabric.ui.devices
+
+          import iecxiv.meshfabric.data.model.SessionStatus
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class DeviceConnectedSessionPolicyTest {
+              @Test fun onlyConnectedSessionsExposeDisconnectAction() {
+                  val states = SessionStatus.values()
+                  for (desktop in states) for (terminal in states) for (files in states) {
+                      val expected = listOf(desktop, terminal, files).any { it == SessionStatus.CONNECTED }
+                      assertEquals(expected, hasDeviceConnectedSession(desktop, terminal, files))
+                  }
+              }
+          }
+          ''')
+          resources = Path('app/src/main/res')
+          for xml in resources.glob('values*/*.xml'):
+              if 'name="device_disconnect_active_sessions"' in xml.read_text():
+                  raise RuntimeError('Disconnect menu resource already exists')
+          for folder, label in [('values', 'Desconectar sesiones activas'), ('values-es', 'Desconectar sesiones activas'), ('values-en', 'Disconnect active sessions')]:
+              create(resources/folder/'device_disconnect_menu.xml', '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <string name="device_disconnect_active_sessions">' + label + '</string>\n</resources>\n')
+          PY
+          git diff --check
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-disconnect-menu-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated menu action
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceConnectedSessionPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricHome.kt app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceConnectedSessionPolicyTest.kt app/src/main/res/values/device_disconnect_menu.xml app/src/main/res/values-en/device_disconnect_menu.xml app/src/main/res/values-es/device_disconnect_menu.xml
+          git commit -m 'feat: disconnect active device sessions from first card menu entry'
+          git push origin HEAD:dev
