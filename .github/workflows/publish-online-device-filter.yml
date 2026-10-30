@@ -1,0 +1,102 @@
+name: Online devices header filter
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/publish-online-device-filter.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: online-device-filter
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed UI patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt')
+          assert subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() == 'f2da10ac83b056822b30b96af6d4f91029292db6', 'Device screen changed; review required'
+          s = p.read_text()
+          old = '    val groups by viewModel.groupedDevices.collectAsState()'
+          new = '''    val allGroups by viewModel.groupedDevices.collectAsState()
+              var onlyOnline by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+              val groups = remember(allGroups, onlyOnline) {
+                  if (!onlyOnline) allGroups else allGroups.mapNotNull { (group, nodes) ->
+                      nodes.filter { it.isOnline }.takeIf { it.isNotEmpty() }?.let { group to it }
+                  }
+              }'''
+          new = '\n'.join(line[10:] if i > 0 else line for i, line in enumerate(new.splitlines()))
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          old = '            ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }'
+          new = old + '''
+                      IconToggleButton(checked=onlyOnline,onCheckedChange={ onlyOnline=it },modifier=Modifier.size(38.dp)) {
+                          Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
+                              Icon(Icons.Default.FilterAlt,
+                                  stringResource(if(onlyOnline) R.string.device_filter_show_all else R.string.device_filter_show_online),
+                                  Modifier.size(20.dp),tint=if(onlyOnline) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                              if(onlyOnline) Surface(Modifier.size(5.dp).align(Alignment.TopEnd),shape=CircleShape,color=OnlineGreen) { }
+                          }
+                      }'''
+          lines = new.splitlines()
+          new = lines[0] + '\n' + '\n'.join(line[10:] for line in lines[1:])
+          assert s.count(old) == 1
+          s = s.replace(old, new, 1)
+          p.write_text(s)
+          import xml.etree.ElementTree as ET
+          for folder, online, all_devices in [
+              ('values', 'Mostrar solo equipos conectados', 'Mostrar todos los equipos'),
+              ('values-es', 'Mostrar solo equipos conectados', 'Mostrar todos los equipos'),
+              ('values-en', 'Show only online devices', 'Show all devices')]:
+              root = Path('app/src/main/res') / folder
+              for xml in root.glob('*.xml'):
+                  assert 'name="device_filter_show_online"' not in xml.read_text()
+                  assert 'name="device_filter_show_all"' not in xml.read_text()
+              dest = root / 'device_online_filter.xml'
+              assert not dest.exists()
+              root.mkdir(parents=True, exist_ok=True)
+              resources = ET.Element('resources')
+              ET.SubElement(resources, 'string', name='device_filter_show_online').text = online
+              ET.SubElement(resources, 'string', name='device_filter_show_all').text = all_devices
+              ET.ElementTree(resources).write(dest, encoding='utf-8', xml_declaration=True)
+              with dest.open('a') as out: out.write('\n')
+          PY
+          git diff --check
+      - name: Compile and test
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Publish verified filter
+        run: |
+          git add app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt app/src/main/res/values/device_online_filter.xml app/src/main/res/values-es/device_online_filter.xml app/src/main/res/values-en/device_online_filter.xml
+          git rm .github/workflows/publish-online-device-filter.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: toggle online devices filter in devices header'
+          git push origin HEAD:dev
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: online-device-filter-verification
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+          if-no-files-found: ignore
