@@ -120,7 +120,7 @@ jobs:
                               IconButton(
                                   onClick = { viewModel.refresh(nodeId) },""")
           s=p.read_text()
-          pattern=r'items\(\s*(?:items\s*=\s*)?filteredList\s*(?:,\s*key\s*=\s*\{[^}]*\})?\s*\)\s*\{\s*item\s*->'
+          pattern=r'items\(\s*(?:items\s*=\s*)?filteredList\b[\s\S]*?\)\s*\{\s*item\s*->'
           matches=list(re.finditer(pattern,s))
           if len(matches)!=1: raise RuntimeError('Review file-list item lambda before integrating drive row')
           m=matches[0]
