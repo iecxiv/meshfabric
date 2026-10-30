@@ -1,0 +1,100 @@
+name: Validate and publish terminal IME rotation refresh
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-terminal-ime-rotation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-terminal-ime-rotation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Refresh input only after orientation layout
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt')
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != 'be3505f9e8f1de469336e892d14fc3c7f952edf5':
+              raise RuntimeError('Terminal renderer base changed; review patch')
+          s = p.read_text()
+          old = '    private val webView = object : WebView(wrapper) {'
+          if s.count(old) != 1 or s.count('import androidx.core.view.doOnNextLayout') != 0:
+              raise RuntimeError('Renderer anchor changed')
+          s = s.replace('import android.annotation.SuppressLint', 'import androidx.core.view.doOnNextLayout\nimport android.annotation.SuppressLint', 1)
+          new = '''    private val webView = object : WebView(wrapper) {
+                  private var imeOrientation = resources.configuration.orientation
+                  private var imeConfigurationVersion = 0L
+
+                  override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+                      val orientationChanged = imeOrientation != newConfig.orientation
+                      imeOrientation = newConfig.orientation
+                      val wasVisible = androidx.core.view.ViewCompat.getRootWindowInsets(this)
+                          ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+                      super.onConfigurationChanged(newConfig)
+                      if (!orientationChanged) return
+                      val version = ++imeConfigurationVersion
+                      val attachment = lease.current
+                      doOnNextLayout {
+                          post {
+                              if (version != imeConfigurationVersion || isDestroyed || !isAttached ||
+                                  attachment == null || lease.current != attachment) return@post
+                              if (ready) fitView()
+                              val stillVisible = androidx.core.view.ViewCompat.getRootWindowInsets(this)
+                                  ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+                              if (!wasVisible || !stillVisible || !focusAllowed() ||
+                                  !hasFocus() || !hasWindowFocus()) return@post
+                              val manager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                              manager.restartInput(this)
+                              android.util.Log.d("MeshTerminalIme", "Input refreshed after rotation: orientation=${resources.configuration.orientation} width=$width height=$height")
+                          }
+                      }
+                      requestLayout()
+                  }
+          '''
+          s = s.replace(old, new, 1)
+          for flag in ['IME_FLAG_NO_EXTRACT_UI', 'IME_FLAG_NO_FULLSCREEN', 'IME_FLAG_NO_PERSONALIZED_LEARNING']:
+              if flag not in s:
+                  raise RuntimeError('Existing IME flag lost')
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-ime-rotation-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated adjustment
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt
+          git commit -m 'fix: refresh terminal input connection after orientation layout'
+          git push origin HEAD:dev
