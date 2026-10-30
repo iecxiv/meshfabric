@@ -1,0 +1,77 @@
+name: Validate and publish notification status icon fix
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-notification-status-icon.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-notification-status-icon-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Unify small icons without changing notification behavior
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, re
+          root = Path('app/src/main/java/iecxiv/meshfabric')
+          p = root / 'data/remote/FileRelayClient.kt'
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != '548e473a85c3414b46f5ce1ab67972fa56e72307':
+              raise RuntimeError('FileRelayClient base changed; review patch')
+          keepalive = (root / 'service/KeepAliveService.kt').read_text()
+          if '.setSmallIcon(R.drawable.ic_stat_remote)' not in keepalive:
+              raise RuntimeError('Keepalive icon changed; review patch')
+          s = p.read_text()
+          pattern = r'\.setSmallIcon\(\s*(?:android\.)?R\.(?:drawable|mipmap)\.[A-Za-z0-9_]+\s*\)'
+          matches = list(re.finditer(pattern, s))
+          if not 1 <= len(matches) <= 20:
+              raise RuntimeError('Unexpected small-icon call count')
+          updated = re.sub(pattern, '.setSmallIcon(R.drawable.ic_stat_remote)', s)
+          if updated == s or len(re.findall(r'\.setSmallIcon\(', updated)) != len(matches):
+              raise RuntimeError('Unreviewed small-icon expression or no change')
+          for m in matches:
+              print('Unifying notification icon:', m.group(0))
+          p.write_text(updated)
+          assert all(m.group(0) == '.setSmallIcon(R.drawable.ic_stat_remote)' for m in re.finditer(pattern, updated))
+          PY
+          git diff --check
+          git diff --stat
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-status-icon-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated icon change
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+          git commit -m 'fix: use consistent monochrome status icon for file notifications'
+          git push origin HEAD:dev
