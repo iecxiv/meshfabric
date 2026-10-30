@@ -358,6 +358,7 @@ class FileSession(
                         if (!meshClient.connectionState.value && webSocket != null) retireSocket()
                         if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
                         if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
+                            Log.w("MeshFilesDiag", "listing-timeout epoch=$socketEpoch reqid=${navigation.pending?.id} elapsedMs=${nowMs() - listingStarted}")
                             _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"
                             retireSocket()
                         }
@@ -382,6 +383,9 @@ class FileSession(
     }
 
     private fun retireSocket() {
+        val caller = Throwable().stackTrace.getOrNull(1)
+        val pending = navigation.pending
+        Log.d("MeshFilesDiag", "retire epoch=$socketEpoch caller=${caller?.methodName}:${caller?.lineNumber} connected=${_connectionState.value} control=${meshClient.connectionState.value} pending=${pending?.id} listingAgeMs=${if (pending != null) nowMs() - listingStarted else -1L} failures=$failures")
         socketEpoch++
         initialListingJob?.cancel()
         initialListingJob = null
@@ -416,7 +420,9 @@ class FileSession(
             addProperty("reqid", request.id)
         }
         listingStarted = nowMs()
-        if (webSocket?.send(req.toString()) != true) retireSocket()
+        val queued = webSocket?.send(req.toString()) == true
+        Log.d("MeshFilesDiag", "ls epoch=$socketEpoch reqid=${request.id} path=${req.get("path")} windows=${windowsFileSystem()} queued=$queued")
+        if (!queued) retireSocket()
     }
 
     private fun openSocket() {
@@ -553,6 +559,7 @@ class FileSession(
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                    Log.d("MeshFilesDiag", "onClosing epoch=$epoch code=$code reasonLength=${reason.length}")
                 retireSocket()
                 }
             }
@@ -560,6 +567,7 @@ class FileSession(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
+                    Log.d("MeshFilesDiag", "onClosed epoch=$epoch code=$code reasonLength=${reason.length}")
                 retireSocket()
                 }
             }
@@ -568,6 +576,7 @@ class FileSession(
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
                 Log.w("MeshFiles", "Files transport failed (${t.javaClass.simpleName})")
+                Log.w("MeshFilesDiag", "failure epoch=$epoch type=${t.javaClass.simpleName} causeType=${t.cause?.javaClass?.simpleName} http=${response?.code}")
                 retireSocket()
                 }
             }
@@ -582,7 +591,8 @@ class FileSession(
             _connectionState.value = true
             failures = 0
             onStateChanged?.invoke()
-            webSocket.send("5")
+            val protocolQueued = webSocket.send("5")
+            Log.d("MeshFilesDiag", "protocol=5 epoch=$socketEpoch queued=$protocolQueued")
             val epoch = socketEpoch
             initialListingJob = scope.launch {
                 delay(200L)
