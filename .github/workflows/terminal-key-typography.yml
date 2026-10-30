@@ -1,0 +1,209 @@
+name: Verify compact terminal keys and uniform arrows
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/terminal-key-typography.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-key-typography
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify reviewed base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/terminal-improve
+          git merge-base --is-ancestor 2b2b72637bc4ccac36344cc5b2f676613578497c HEAD
+          git diff --exit-code 2b2b72637bc4ccac36344cc5b2f676613578497c HEAD -- . ':(exclude).github/workflows/terminal-key-typography.yml'
+      - name: Apply visual changes and tests only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt'
+          t = 'app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt'
+          imports = '''import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.ArrowUpward
+          import androidx.compose.ui.draw.rotate
+          import androidx.compose.ui.platform.LocalDensity
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.sp
+          '''
+          old = '''private fun BarButton(label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+              FilterChip(
+                  selected = true,
+                  onClick = onClick,
+                  enabled = enabled,
+                  shape = MaterialTheme.shapes.small,
+                  modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).semantics { contentDescription = description },
+                  label = { Text(label, maxLines = 1) }
+              )
+          }'''
+          new = r'''private fun BarButton(
+              label: String, description: String, enabled: Boolean,
+              largeLabel: Boolean = false, arrowRotation: Float? = null, onClick: () -> Unit
+          ) {
+              val keyHeight = maxOf(36.dp, with(LocalDensity.current) { 24.sp.toDp() } + 8.dp)
+              val labelStyle = if (largeLabel) MaterialTheme.typography.labelLarge.copy(
+                  fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold
+              ) else MaterialTheme.typography.labelLarge
+              FilterChip(
+                  selected = true,
+                  onClick = onClick,
+                  enabled = enabled,
+                  shape = MaterialTheme.shapes.small,
+                  modifier = Modifier.semantics { contentDescription = description }
+                      .minimumInteractiveComponentSize().height(keyHeight).widthIn(min = 48.dp),
+                  label = {
+                      if (arrowRotation != null) Icon(
+                          Icons.Default.ArrowUpward, contentDescription = null,
+                          modifier = Modifier.size(24.dp).rotate(arrowRotation).testTag("terminal-arrow-${arrowRotation.toInt()}")
+                      ) else Text(label, maxLines = 1, style = labelStyle)
+                  }
+              )
+          }'''
+          old_key = '    BarButton(stringResource(key.label), stringResource(key.description), enabled) { onKey(key.id) }'
+          new_key = '''    val arrow = when (key.id) {
+                  "up" -> 0f
+                  "right" -> 90f
+                  "down" -> 180f
+                  "left" -> 270f
+                  else -> null
+              }
+              BarButton(
+                  stringResource(key.label), stringResource(key.description), enabled,
+                  largeLabel = key.id == "enter" || key.id == "end", arrowRotation = arrow,
+                  onClick = { onKey(key.id) }
+              )'''
+          added_tests = r'''    @Test fun arrowSizesAndLargeLabelsAreConsistent() {
+                  compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+                  fun assertLargeText(resource: Int) {
+                      val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                      compose.onNodeWithText(context.getString(resource), useUnmergedTree = true)
+                          .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
+                      assertEquals(20.sp, layouts.single().layoutInput.style.fontSize)
+                      assertFalse(layouts.single().didOverflowHeight)
+                  }
+                  assertLargeText(R.string.terminal_key_enter_glyph)
+                  compose.onNodeWithContentDescription(context.getString(R.string.terminal_keys_more)).performClick()
+                  for (rotation in listOf(0, 90, 180, 270)) {
+                      compose.onNodeWithTag("terminal-arrow-$rotation", useUnmergedTree = true)
+                          .assertWidthIsEqualTo(24.dp).assertHeightIsEqualTo(24.dp)
+                  }
+                  assertLargeText(R.string.terminal_key_end)
+                  assertLargeText(R.string.terminal_latest_glyph)
+              }
+
+              @Test fun increasedFontScaleKeepsLabelsUnclipped() {
+                  compose.setContent {
+                      val density = androidx.compose.ui.platform.LocalDensity.current
+                      androidx.compose.runtime.CompositionLocalProvider(
+                          androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f)
+                      ) { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+                  }
+                  val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                  compose.onNodeWithText(context.getString(R.string.terminal_key_enter_glyph), useUnmergedTree = true)
+                      .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
+                  assertFalse(layouts.single().didOverflowHeight)
+                  compose.onNodeWithContentDescription(context.getString(R.string.terminal_key_enter))
+                      .assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
+              }
+          '''
+          edits = {
+              p: [
+                  ('import iecxiv.meshfabric.R\n', imports + 'import iecxiv.meshfabric.R\n'),
+                  (old, new),
+                  (old_key, new_key),
+                  ('BarButton(stringResource(R.string.terminal_latest_glyph), stringResource(R.string.terminal_latest), historyEnabled, onLatest)', 'BarButton(stringResource(R.string.terminal_latest_glyph), stringResource(R.string.terminal_latest), historyEnabled, largeLabel = true, onClick = onLatest)')
+              ],
+              t: [
+                  ('import androidx.compose.ui.unit.dp\n', 'import androidx.compose.ui.unit.dp\nimport androidx.compose.ui.unit.sp\n'),
+                  ('\n}\n', '\n' + added_tests + '\n}\n')
+              ]
+          }
+          config = Path('app/build.gradle.kts').read_text(encoding='utf-8')
+          if config.count('versionName = "1.1.2"') != 1 or config.count('versionCode = 1' + chr(10)) != 1:
+              raise RuntimeError('Version must remain 1.1.2 / code 1')
+          prepared = {}
+          for name, replacements in edits.items():
+              source = Path(name).read_text(encoding='utf-8')
+              for old, new in replacements:
+                  if source.count(old) != 1:
+                      raise RuntimeError('Reviewed anchor mismatch: ' + name)
+                  source = source.replace(old, new, 1)
+              prepared[name] = source
+          for content in prepared.values():
+              content.encode('utf-8')
+          for name, content in prepared.items():
+              Path(name).write_text(content, encoding='utf-8')
+          PY
+          git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing JavaScript tests
+        run: |
+          node app/src/test/js/terminal-keys.test.js
+          node app/src/test/js/terminal-runtime.test.js
+          node app/src/test/js/terminal-selection.test.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Typography size and existing interaction regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell settings put secure show_ime_with_hard_keyboard 1
+            bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.terminal.TerminalEchoWebViewTest,iecxiv.meshfabric.ui.terminal.TerminalFocusWebViewTest,iecxiv.meshfabric.ui.terminal.TerminalKeyBarTest --no-daemon --stacktrace
+      - name: Publish verified visual adjustment
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/terminal-improve | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          rm .github/workflows/terminal-key-typography.yml
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt .github/workflows/terminal-key-typography.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style: compact terminal keys and unify navigation symbols'
+          git push origin HEAD:refs/heads/terminal-improve
+      - name: Upload reports and debug APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-key-typography-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
