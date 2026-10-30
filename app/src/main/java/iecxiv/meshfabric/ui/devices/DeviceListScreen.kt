@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -57,7 +56,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val keyboard=LocalSoftwareKeyboardController.current
     val focusManager=LocalFocusManager.current
     var showSearch by remember { mutableStateOf(false) }
-    var logout by remember { mutableStateOf(false) }
     var closeSessions by remember { mutableStateOf(false) }
     val expanded=groups.isEmpty() || groups.any { it.first.id !in collapsed }
     val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -69,11 +67,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    if(logout) AlertDialog(onDismissRequest={ logout=false },title={ Text(stringResource(R.string.confirm_logout_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
-        text={ Text(stringResource(R.string.confirm_logout_msg_custom,appName)) },
-        confirmButton={ TextButton(onClick={ logout=false; viewModel.closeAllActiveSessions(); onLogout() }) {
-            Text(stringResource(R.string.logout),color=MaterialTheme.colorScheme.error,fontWeight=FontWeight.Bold)
-        } },dismissButton={ TextButton(onClick={ logout=false }) { Text(stringResource(R.string.cancel)) } })
     if(closeSessions) AlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
         text={ Text(stringResource(R.string.confirm_disconnect_all_msg)) },
         confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all),fontWeight=FontWeight.Bold) } },
@@ -99,7 +92,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 }
                 showSearch=!showSearch
             }
-            ToolIcon(Icons.AutoMirrored.Filled.Logout,stringResource(R.string.logout)) { logout=true }
             ToolIcon(Icons.Default.PowerSettingsNew,stringResource(R.string.close_active_connections)) { closeSessions=true }
         } })
         AnimatedVisibility(showSearch) {
