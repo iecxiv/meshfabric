@@ -11,6 +11,13 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
 
 private data class TerminalBarKey(val id: String, val label: Int, val description: Int = label)
@@ -31,19 +38,43 @@ private val navigationKeys = listOf(
 )
 
 @Composable
-private fun BarButton(label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+private fun BarButton(
+    label: String, description: String, enabled: Boolean,
+    largeLabel: Boolean = false, arrowRotation: Float? = null, onClick: () -> Unit
+) {
+    val keyHeight = maxOf(36.dp, with(LocalDensity.current) { 24.sp.toDp() } + 8.dp)
+    val labelStyle = if (largeLabel) MaterialTheme.typography.labelLarge.copy(
+        fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold
+    ) else MaterialTheme.typography.labelLarge
     FilterChip(
         selected = true,
         onClick = onClick,
         enabled = enabled,
         shape = MaterialTheme.shapes.small,
-        modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).semantics { contentDescription = description },
-        label = { Text(label, maxLines = 1) }
+        modifier = Modifier.semantics { contentDescription = description }
+            .minimumInteractiveComponentSize().height(keyHeight).widthIn(min = 48.dp),
+        label = {
+            if (arrowRotation != null) Icon(
+                Icons.Default.ArrowUpward, contentDescription = null,
+                modifier = Modifier.size(24.dp).rotate(arrowRotation).testTag("terminal-arrow-${arrowRotation.toInt()}")
+            ) else Text(label, maxLines = 1, style = labelStyle)
+        }
     )
 }
 @Composable
 private fun KeyButton(key: TerminalBarKey, enabled: Boolean, onKey: (String) -> Unit) {
-    BarButton(stringResource(key.label), stringResource(key.description), enabled) { onKey(key.id) }
+    val arrow = when (key.id) {
+        "up" -> 0f
+        "right" -> 90f
+        "down" -> 180f
+        "left" -> 270f
+        else -> null
+    }
+    BarButton(
+        stringResource(key.label), stringResource(key.description), enabled,
+        largeLabel = key.id == "enter" || key.id == "end", arrowRotation = arrow,
+        onClick = { onKey(key.id) }
+    )
 }
 
 @Composable
@@ -86,7 +117,7 @@ internal fun TerminalKeyBar(
                         BarButton(label, label, enabled) { onKey("ctrl-" + letter.lowercaseChar()) }
                     }
                 }
-                BarButton(stringResource(R.string.terminal_latest_glyph), stringResource(R.string.terminal_latest), historyEnabled, onLatest)
+                BarButton(stringResource(R.string.terminal_latest_glyph), stringResource(R.string.terminal_latest), historyEnabled, largeLabel = true, onClick = onLatest)
             }
         }
     }
