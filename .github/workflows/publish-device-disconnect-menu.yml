@@ -103,7 +103,7 @@ jobs:
           for xml in resources.glob('values*/*.xml'):
               if 'name="device_disconnect_active_sessions"' in xml.read_text():
                   raise RuntimeError('Disconnect menu resource already exists')
-          for folder, label in [('values', 'Desconectar sesiones activas'), ('values-es', 'Desconectar sesiones activas'), ('values-en', 'Disconnect active sessions')]:
+          for folder, label in [('values', 'Desconectar'), ('values-es', 'Desconectar'), ('values-en', 'Disconnect')]:
               create(resources/folder/'device_disconnect_menu.xml', '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <string name="device_disconnect_active_sessions">' + label + '</string>\n</resources>\n')
           PY
           git diff --check
