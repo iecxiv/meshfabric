@@ -1,0 +1,9 @@
+# Focus and keyboard only
+
+The top keyboard icon now explicitly shows/hides the terminal IME; the command editor remains available as a fourth tools-menu item. No terminal focus or IME request is issued by HTML readiness or WebView reattachment. Tapping the terminal retains existing xterm behavior. After closing menus/dialogs, restore terminal focus once without reopening the IME. Overlay windows block app-originated terminal focus requests, not paste transport.
+
+Focus requests are generation-tagged and consumed once. Window focus, attachment, readiness, resumed state and renderer health are checked again before asynchronous IME work. Blocking, backgrounding, window-focus loss, detach and destruction cancel stale requests. A request issued while another window is closing waits for window focus; there are no delayed polling/retry loops or automatic show-on-resume. Soft-keyboard visibility uses window insets, not a remembered toggle flag. No SHOW_FORCED.
+
+The native WebView InputConnection is preserved; only EditorInfo flags request no fullscreen/extract UI and no personalized learning. Providers may ignore flags. No text/key remapping, input echo, clipboard reads or input forwarding changes. No changes to scroll CSS, special-key layout, resize algorithm, versionName 1.1.1 or versionCode 1.
+
+CI adds seven JVM request-gate tests and a native renderer/WebView test covering initial no-auto-focus/IME, focus restore, real dialog window handoff, explicit show/hide, hidden IME after font update/resume, blocked/background/detached rejection and EditorInfo flags. Existing echo/copy/paste and touchscreen regressions also run. Device checks remain necessary for real copy/paste/command dialogs, Back dismissal, rotation, different IMEs, hardware keyboard, accents/emoji/composition and perceived layout. This does not claim universal IME compatibility.

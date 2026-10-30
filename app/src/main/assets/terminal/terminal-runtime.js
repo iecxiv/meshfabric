@@ -111,7 +111,12 @@
 };
 window.getFontSize = function () { return fontSize; };
   window.clearTerminal = function () { if (term && !failed && !disposed) term.clear(); };
-  window.focusTerminal = function () { if (term && !failed && !disposed) term.focus(); };
+  window.focusTerminal = function () {
+    if (!term || failed || disposed) return false;
+    term.focus();
+    return true;
+  };
+  window.blurTerminal = function () { if (term && !failed && !disposed) term.blur(); };
   function requestResize() {
     if (!resize || disposed || failed) return;
     try { resize.request(); } catch (error) { fail(error); }
