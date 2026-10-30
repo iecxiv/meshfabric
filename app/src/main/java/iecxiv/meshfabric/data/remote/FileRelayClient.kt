@@ -1483,7 +1483,7 @@ class FileSession(
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
                 .setGroup("meshfabric_sessions_and_transfers")
-                .setSmallIcon(R.drawable.ic_stat_remote)
+                .setSmallIcon(R.drawable.ic_stat_transfer_success)
                 .setContentTitle("Descarga completada")
                 .setContentText("$fileName (${formatSize(total)}) guardado en Descargas")
                 .setProgress(0, 0, false)
@@ -1518,7 +1518,7 @@ class FileSession(
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
                 .setGroup("meshfabric_sessions_and_transfers")
-                .setSmallIcon(R.drawable.ic_stat_remote)
+                .setSmallIcon(R.drawable.ic_stat_transfer_success)
                 .setContentTitle("Subida completada")
                 .setContentText("$fileName (${formatSize(total)}) subido con éxito")
                 .setProgress(0, 0, false)
