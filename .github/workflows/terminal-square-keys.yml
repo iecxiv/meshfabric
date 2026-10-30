@@ -1,0 +1,124 @@
+name: Verify square terminal keys and version 1.1.2
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/terminal-square-keys.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-square-keys
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify reviewed base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/terminal-improve
+          git merge-base --is-ancestor 5aac0c72a9c92d354a228aa4ad5557787fe88930 HEAD
+          git diff --exit-code 5aac0c72a9c92d354a228aa4ad5557787fe88930 HEAD -- . ':(exclude).github/workflows/terminal-square-keys.yml'
+      - name: Apply style and version changes only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle = Path('app/build.gradle.kts')
+          keys = Path('app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt')
+          config = gradle.read_text(encoding='utf-8')
+          source = keys.read_text(encoding='utf-8')
+          old_version = 'versionName = "1.1.1"'
+          new_version = 'versionName = "1.1.2"'
+          if config.count(old_version) != 1 or config.count('versionCode = 1' + chr(10)) != 1:
+              raise RuntimeError('Unexpected version configuration')
+          old_style = '''    OutlinedButton(onClick = onClick, enabled = enabled,
+                  modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).semantics { contentDescription = description },
+                  contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+              ) { Text(label, maxLines = 1) }'''
+          new_style = '''    FilterChip(
+                  selected = true,
+                  onClick = onClick,
+                  enabled = enabled,
+                  shape = MaterialTheme.shapes.small,
+                  modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).semantics { contentDescription = description },
+                  label = { Text(label, maxLines = 1) }
+              )'''
+          if source.count(old_style) != 1:
+              raise RuntimeError('Reviewed key style anchor mismatch')
+          updated_config = config.replace(old_version, new_version, 1)
+          updated_source = source.replace(old_style, new_style, 1)
+          if updated_config.count('versionCode = 1' + chr(10)) != 1:
+              raise RuntimeError('versionCode must remain 1')
+          if updated_source.replace(new_style, old_style, 1) != source:
+              raise RuntimeError('Unexpected key logic change')
+          updated_config.encode('utf-8')
+          updated_source.encode('utf-8')
+          gradle.write_text(updated_config, encoding='utf-8')
+          keys.write_text(updated_source, encoding='utf-8')
+          PY
+          git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing key and JavaScript tests
+        run: |
+          node app/src/test/js/terminal-keys.test.js
+          node app/src/test/js/terminal-runtime.test.js
+          node app/src/test/js/terminal-selection.test.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Existing key bar focus and scroll regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell settings put secure show_ime_with_hard_keyboard 1
+            bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.terminal.TerminalEchoWebViewTest,iecxiv.meshfabric.ui.terminal.TerminalFocusWebViewTest,iecxiv.meshfabric.ui.terminal.TerminalKeyBarTest --no-daemon --stacktrace
+      - name: Publish verified style and version
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/terminal-improve | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          rm .github/workflows/terminal-square-keys.yml
+          git add -- app/build.gradle.kts app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt .github/workflows/terminal-square-keys.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style: restore square terminal keys and set version 1.1.2'
+          git push origin HEAD:refs/heads/terminal-improve
+      - name: Upload reports and version 1.1.2 APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-square-keys-1.1.2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
