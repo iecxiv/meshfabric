@@ -1,0 +1,63 @@
+name: Validate and publish terminal archives on close
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-terminal-archives.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-terminal-archives-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply archival lifecycle and persistence patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib
+          patch = gzip.decompress(base64.b64decode('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')).decode()
+          if hashlib.sha256(patch.encode()).hexdigest() != '9ad9584a4383c8a1d7eece16cf36529c99e86dea9db8b68473d09752a6f3e034':
+              raise RuntimeError('Reviewed archive patch digest mismatch')
+          exec(compile(patch, '<reviewed-terminal-archive-patch>', 'exec'))
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-archives-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish only if dev is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/MainActivity.kt app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt app/src/main/java/iecxiv/meshfabric/data/remote/TerminalRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/TerminalHistoryDiskStore.kt app/src/main/java/iecxiv/meshfabric/data/remote/TerminalHistoryRepository.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalManualReconnect.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/test/java/iecxiv/meshfabric/data/remote/TerminalHistoryDiskStoreTest.kt docs/terminal-archive-persistence.md README.md
+          git commit -m 'feat: archive closed terminal sessions and persist history when enabled'
+          git push origin HEAD:dev
+

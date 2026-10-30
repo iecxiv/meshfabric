@@ -13,6 +13,7 @@ class TerminalViewModel(
     val terminalClient: TerminalRelayClient
 ) : ViewModel() {
 
+    internal val historyPanelGate = TerminalHistoryPanelGate()
     internal val manualReconnect = TerminalManualReconnect(meshClient, terminalClient, viewModelScope)
 
     private val renderers = RetainedTerminalStore<String, TerminalRenderSession>(
@@ -36,7 +37,7 @@ class TerminalViewModel(
         renderer.releaseParent(parent)
         renderers.trim()
     }
-    fun clearRendering() { manualReconnect.clear(); renderers.clear() }
+    fun clearRendering() { manualReconnect.clear(); renderers.clear(); historyPanelGate.clear() }
     internal fun resetRenderer(expected: TerminalRenderSession): Boolean =
         renderers.removeIf(expected.session.localSessionId, expected)
 
@@ -75,10 +76,22 @@ class TerminalViewModel(
         terminalClient.sendResize(nodeId, cols, rows)
     }
 
+    internal fun deleteTerminalHistories(nodeId: String, ids: Set<String>) {
+        manualReconnect.removeHistory(nodeId, ids).forEach { archived ->
+            renderers.remove(archived.localSessionId)
+            archived.clearHistory()
+        }
+        // Archive buffer files are keyed by device, not by local record ID.
+        // Do not delete the current session's persisted buffer when removing an archive.
+    }
+
+    fun cancelPendingReconnections() { manualReconnect.cancelPending() }
+
     fun stopSession(nodeId: String) {
         manualReconnect.cancel(nodeId)
-        terminalClient.getSession(meshClient, nodeId).disconnectKeepingHistory()
-        terminalClient.updateSessionsStatus()
+        val current = terminalClient.getSession(meshClient, nodeId)
+        renderers.remove(current.localSessionId)
+        terminalClient.disconnectSession(nodeId)
     }
 
     override fun onCleared() {

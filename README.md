@@ -100,7 +100,7 @@ While touch-scroll pass-through is active, direct canvas selection and canvas li
 
 #### History, renderer retention, and recovery
 
-- Previous-session records are retained in memory for the terminal ViewModel lifetime. This change does not add archive persistence across app restarts. Existing optional persistence of the current terminal buffer remains separate and controlled by the existing setting.
+- Closing a terminal archives its output without leaving a current-session highlight. Archives remain in memory; when Save terminal buffers is enabled, closed records and active-output checkpoints are persisted and restored as read-only histories. Disabling the setting removes saved history files. See [Terminal archive persistence](docs/terminal-archive-persistence.md) for lifecycle, migration, and recovery limits.
 - Retained renderers preserve local state across navigation while they remain cached. The existing cache retains up to four renderers, without evicting attached views. An evicted renderer may be recreated from the available output journal, not from a full VT snapshot.
 - Truncated retained history is identified explicitly. Rebuilding an initial disconnected view may read from the oldest output still available; this is best-effort history replay, not restoration of missing output or complete terminal visual state.
 - Live output delivery keeps strict gap detection, including its initial read. Continuing from an evicted or invalidated cursor does not silently skip missing output.

@@ -1,0 +1,168 @@
+name: Validate and publish terminal history header
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-terminal-history-header.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-terminal-history-header-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add history header and unexpected-disconnect presentation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import xml.etree.ElementTree as ET
+          base = Path('app/src/main/java/iecxiv/meshfabric')
+          expected = {
+              'ui/terminal/TerminalScreen.kt':'69bec95a0488da1784fd66a1965c2dff2c494ee7',
+              'ui/terminal/TerminalSessionPopup.kt':'b206cba50d9885b69a0abb5782729066e99f689f',
+              'ui/terminal/TerminalViewModel.kt':'784926248e95e3fd3f1a378ad0002c8536dd5338',
+              'data/remote/TerminalRelayClient.kt':'0cccc2ed75ee55e0f26f70889073040e797dcedc'
+          }
+          for name, sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)], text=True).strip() != sha:
+                  raise RuntimeError('Base changed: '+name)
+          def replace(path, old, new, count=1):
+              p = Path(path)
+              source = p.read_text()
+              if source.count(old) != count:
+                  raise RuntimeError('Unexpected patch anchor: '+str(path)+': '+repr(old))
+              p.write_text(source.replace(old, new))
+          def create(path, content):
+              p = Path(path)
+              if p.exists():
+                  raise RuntimeError('Refusing to overwrite '+str(path))
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_text(content)
+
+          relay = base/'data/remote/TerminalRelayClient.kt'
+          replace(relay, '    var hasPrintedDisconnectMessage = false', '    private val unexpectedDisconnects = MutableStateFlow(0L)\n    val unexpectedDisconnectEvents: StateFlow<Long> = unexpectedDisconnects.asStateFlow()\n    var hasPrintedDisconnectMessage = false')
+          replace(relay, '        // Status belongs to the UI, never to the terminal stream or interpreter.', '        unexpectedDisconnects.value++\n        // Status belongs to the UI, never to the terminal stream or interpreter.')
+
+          create(base/'ui/terminal/TerminalHistoryPanel.kt', """package iecxiv.meshfabric.ui.terminal
+
+          /** One automatic presentation per established-session disconnect incident. */
+          internal class TerminalHistoryPanelGate {
+              private val handled = mutableMapOf<String, Long>()
+              @Synchronized fun consume(recordId: String, incident: Long): Boolean {
+                  if (incident <= 0L || incident <= (handled[recordId] ?: 0L)) return false
+                  handled[recordId] = incident
+                  return true
+              }
+              @Synchronized fun clear() { handled.clear() }
+          }
+
+          internal fun terminalHistoryBarVisible(unexpectedDisconnect: Boolean, showingHistory: Boolean, reconnecting: Boolean): Boolean =
+              unexpectedDisconnect || showingHistory || reconnecting
+          """)
+          vm = base/'ui/terminal/TerminalViewModel.kt'
+          replace(vm, '    internal val manualReconnect =', '    internal val historyPanelGate = TerminalHistoryPanelGate()\n    internal val manualReconnect =')
+          replace(vm, '    fun clearRendering() { manualReconnect.clear(); renderers.clear() }', '    fun clearRendering() { manualReconnect.clear(); renderers.clear(); historyPanelGate.clear() }')
+
+          screen = base/'ui/terminal/TerminalScreen.kt'
+          replace(screen, 'import androidx.compose.material.icons.filled.Keyboard', 'import androidx.compose.material.icons.filled.History\nimport androidx.compose.material.icons.filled.Keyboard')
+          replace(screen, '    val history = allHistory[currentSession.cleanNodeId].orEmpty()', '    val disconnectIncident by currentSession.unexpectedDisconnectEvents.collectAsState()\n    var autoHistoryBar by androidx.compose.runtime.saveable.rememberSaveable(currentSession.localSessionId) { mutableStateOf(false) }\n    val history = allHistory[currentSession.cleanNodeId].orEmpty()')
+          replace(screen, '    LaunchedEffect(currentSession) { historyId = null }', '    LaunchedEffect(currentSession) { historyId = null }\n    LaunchedEffect(currentSession, disconnectIncident) {\n        if (viewModel.historyPanelGate.consume(currentSession.localSessionId, disconnectIncident)) {\n            autoHistoryBar = true\n            showHistoryMenu = false\n        }\n    }')
+          replace(screen, 'modifier = Modifier.height(36.dp),\n                        contentPadding = PaddingValues(horizontal = 4.dp)', 'modifier = Modifier.size(36.dp),\n                        contentPadding = PaddingValues(horizontal = 4.dp)', count=2)
+          replace(screen, '                    IconButton(\n                        onClick = { keyboardRequest++ },', '                    IconButton(\n                        onClick = { showHistoryMenu = !showHistoryMenu },\n                        modifier = Modifier.size(36.dp)\n                    ) {\n                        Icon(Icons.Default.History, contentDescription = stringResource(R.string.terminal_history_header),\n                            tint = if (showHistoryMenu || showingHistory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)\n                    }\n                    IconButton(\n                        onClick = { keyboardRequest++ },')
+          replace(screen, 'IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null)', 'IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null, modifier = Modifier.size(36.dp))')
+          replace(screen, '            TerminalSessionPopup(\n                status = connectionStatus,', '            TerminalSessionPopup(\n                showBar = terminalHistoryBarVisible(autoHistoryBar, showingHistory, reconnecting),\n                status = connectionStatus,')
+
+          popup = base/'ui/terminal/TerminalSessionPopup.kt'
+          replace(popup, '    onDelete: (Set<String>) -> Unit\n)', '    onDelete: (Set<String>) -> Unit,\n    showBar: Boolean = true\n)')
+          replace(popup, '    Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)) {', '    Box(if (showBar) Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp) else Modifier.fillMaxWidth()) {')
+          replace(popup, '        Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {', '        if (showBar) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {')
+
+          for folder, label in [('values','Terminal history'),('values-en','Terminal history'),('values-es','Historial de terminal')]:
+              xml = '<resources>\n    <string name="terminal_history_header">'+label+'</string>\n</resources>\n'
+              ET.fromstring(xml)
+              create(Path('app/src/main/res')/folder/'terminal_history_header.xml', xml)
+
+          create('app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalHistoryPanelTest.kt', """package iecxiv.meshfabric.ui.terminal
+
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class TerminalHistoryPanelTest {
+              @Test fun initialOrRestoredRecordDoesNotAutoOpen() {
+                  assertFalse(TerminalHistoryPanelGate().consume("record", 0))
+                  assertFalse(terminalHistoryBarVisible(false, false, false))
+              }
+              @Test fun incidentOpensOnlyOnceAcrossScreenVisits() {
+                  val gate = TerminalHistoryPanelGate()
+                  assertTrue(gate.consume("record", 1))
+                  assertFalse(gate.consume("record", 1))
+                  assertFalse(gate.consume("record", 0))
+              }
+              @Test fun laterIncidentCanOpenAgain() {
+                  val gate = TerminalHistoryPanelGate()
+                  assertTrue(gate.consume("record", 1))
+                  assertTrue(gate.consume("record", 2))
+                  assertFalse(gate.consume("record", 1))
+              }
+              @Test fun sessionsHaveIndependentIncidentOwnership() {
+                  val gate = TerminalHistoryPanelGate()
+                  assertTrue(gate.consume("first", 1))
+                  assertTrue(gate.consume("second", 1))
+                  assertFalse(gate.consume("first", 1))
+              }
+              @Test fun cleanupResetsIncidentOwnership() {
+                  val gate = TerminalHistoryPanelGate()
+                  assertTrue(gate.consume("record", 1))
+                  gate.clear()
+                  assertTrue(gate.consume("record", 1))
+              }
+              @Test fun manualHistoryAndReconnectKeepPrimaryActionVisible() {
+                  assertTrue(terminalHistoryBarVisible(false, true, false))
+                  assertTrue(terminalHistoryBarVisible(false, false, true))
+                  assertTrue(terminalHistoryBarVisible(true, false, false))
+              }
+          }
+          """)
+          # Transport negotiation, resize and explicit-close behavior are unchanged.
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-history-header-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish only if dev is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/TerminalRelayClient.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalHistoryPanel.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalSessionPopup.kt app/src/main/res/values/terminal_history_header.xml app/src/main/res/values-en/terminal_history_header.xml app/src/main/res/values-es/terminal_history_header.xml app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalHistoryPanelTest.kt
+          git commit -m 'feat: add compact terminal history header and unexpected-disconnect panel'
+          git push origin HEAD:dev

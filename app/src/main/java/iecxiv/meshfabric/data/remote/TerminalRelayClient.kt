@@ -33,11 +33,11 @@ enum class TerminalConnectionStatus {
 class TerminalSession(
     val nodeId: String,
     val meshClient: MeshCentralClient,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    val localSessionId: String = java.util.UUID.randomUUID().toString(),
+    val openedAt: Long = System.currentTimeMillis()
 ) {
     val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/").trim()
-    val localSessionId = java.util.UUID.randomUUID().toString()
-    val openedAt = System.currentTimeMillis()
     @Volatile var disconnectedAt: Long? = null
         private set
     @Volatile private var hasStarted = false
@@ -50,6 +50,8 @@ class TerminalSession(
 
     @Volatile var activeSocket: WebSocket? = null
     @Volatile var isUserDisconnect = false
+    private val unexpectedDisconnects = MutableStateFlow(0L)
+    val unexpectedDisconnectEvents: StateFlow<Long> = unexpectedDisconnects.asStateFlow()
     var hasPrintedDisconnectMessage = false
     var reconnectJob: Job? = null
     var activeTunnelId = Random.nextInt(100000, 999999).toString()
@@ -70,6 +72,21 @@ class TerminalSession(
 
     fun isConnected(): Boolean = _connectionState.value && activeSocket != null
     fun getFullHistory(): String = synchronized(sessionHistory) { sessionHistory.toString() }
+    internal fun historyRecord(): TerminalHistoryRecord = synchronized(sessionHistory) {
+        TerminalHistoryRecord(localSessionId, cleanNodeId, openedAt, disconnectedAt, sessionHistory.toString(), truncated.value, lastCols.coerceAtLeast(5), lastRows.coerceAtLeast(2))
+    }
+    internal fun restoreHistoryRecord(record: TerminalHistoryRecord) {
+        check(activeSocket == null)
+        synchronized(sessionHistory) {
+            sessionHistory.clear(); sessionHistory.append(record.text)
+            outputJournal.clear(); outputJournal.append(record.text)
+        }
+        hasStarted = true; isUserDisconnect = false
+        disconnectedAt = record.disconnectedAt; truncated.value = record.truncated
+        lastCols = record.cols; lastRows = record.rows
+        _connectionState.value = false
+        _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
+    }
     fun clearHistory() { synchronized(sessionHistory) { sessionHistory.clear(); outputJournal.clear() } }
 
     private fun getBufferFile(context: Context): File {
@@ -114,6 +131,7 @@ class TerminalSession(
     }
 
     private fun emitDisconnectBanner() {
+        unexpectedDisconnects.value++
         // Status belongs to the UI, never to the terminal stream or interpreter.
         hasPrintedDisconnectMessage = true
         onStateChanged?.invoke()
@@ -295,6 +313,7 @@ class TerminalSession(
                 }
             }
             _incomingDataFlow.tryEmit(data)
+            onOutputChanged?.invoke()
             if (traceEnabled && tracedFrames in 1..63) {
                 Log.d("TerminalEcho", "published chars=${data.length} revision=${outputRevision.value}")
             }
@@ -355,6 +374,7 @@ class TerminalSession(
     }
 
     var onStateChanged: (() -> Unit)? = null
+    internal var onOutputChanged: (() -> Unit)? = null
     fun updateState(connected: Boolean) {
         if (!connected && disconnectedAt == null) disconnectedAt = System.currentTimeMillis()
         _connectionState.value = connected
@@ -379,6 +399,12 @@ class TerminalRelayClient {
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val sessions = ConcurrentHashMap<String, TerminalSession>()
+    private val terminalHistory = TerminalHistoryRepository(scope) { sessions.values.toList() }
+    val archivedHistory: StateFlow<Map<String, List<TerminalSession>>> = terminalHistory.records
+    fun configureHistory(context: Context, mesh: MeshCentralClient, settings: iecxiv.meshfabric.data.local.SessionManager) { terminalHistory.configure(context, mesh, settings) }
+    fun checkpointHistory() { terminalHistory.checkpointAll() }
+    internal fun archiveHistory(session: TerminalSession) { terminalHistory.archive(session) }
+    internal fun removeHistory(nodeId: String, requested: Set<String>): List<TerminalSession> = terminalHistory.remove(cleanKey(nodeId), requested)
 
     private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
     val activeNodesFlow: StateFlow<Set<String>> = _activeNodes.asStateFlow()
@@ -387,46 +413,15 @@ class TerminalRelayClient {
     val terminalSessionsStatusFlow: StateFlow<Map<String, iecxiv.meshfabric.data.model.SessionStatus>> = _sessionsStatus.asStateFlow()
 
     fun initBuffersFromDisk(context: Context, meshClient: MeshCentralClient, isEnabled: Boolean = true) {
-        try {
-            val dir = File(context.filesDir, "terminal_buffers")
-            if (!isEnabled) {
-                if (dir.exists()) {
-                    dir.deleteRecursively()
-                }
-                return
-            }
-            if (dir.exists() && dir.isDirectory) {
-                val files = dir.listFiles() ?: return
-                for (f in files) {
-                    if (f.name.startsWith("buffer_") && f.name.endsWith(".txt") && f.length() > 0) {
-                        val key = f.name.removePrefix("buffer_").removeSuffix(".txt")
-                        val session = getSession(meshClient, key)
-                        session.loadBufferFromDisk(context)
-                    }
-                }
-                updateSessionsStatus()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        if (!isEnabled) terminalHistory.purgeDisk()
+        terminalHistory.ensureLoaded()
+        updateSessionsStatus()
     }
 
     fun saveAllBuffersAndClose(context: Context, isEnabled: Boolean = true) {
-        val dir = File(context.filesDir, "terminal_buffers")
-        for (session in sessions.values) {
-            if (!session.isUserDisconnect) {
-                if (isEnabled) {
-                    session.saveBufferToDisk(context)
-                } else {
-                    session.deleteBufferFromDisk(context)
-                }
-                session.closeSocketOnly()
-                session.updateState(false)
-            }
-        }
-        if (!isEnabled && dir.exists()) {
-            dir.deleteRecursively()
-        }
+        if (!isEnabled) terminalHistory.purgeDisk()
+        sessions.keys.toList().forEach { disconnectSession(it) }
+        terminalHistory.checkpointAll()
         updateSessionsStatus()
     }
 
@@ -457,10 +452,13 @@ class TerminalRelayClient {
 
     @Synchronized
     fun getSession(meshClient: MeshCentralClient, nodeId: String): TerminalSession {
+        terminalHistory.ensureLoaded()
         val key = cleanKey(nodeId)
         return sessions.getOrPut(key) {
             TerminalSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
+                terminalHistory.register(sess)
                 sess.onStateChanged = { updateSessionsStatus() }
+                sess.onOutputChanged = { terminalHistory.scheduleCheckpoint(sess) }
             }
         }
     }
@@ -470,7 +468,9 @@ class TerminalRelayClient {
         val key = expected.cleanNodeId
         if (sessions[key] !== expected || expected.isConnected() || !candidate.isConnected() ||
             candidate.cleanNodeId != key) return false
+        terminalHistory.register(candidate)
         candidate.onStateChanged = { updateSessionsStatus() }
+        candidate.onOutputChanged = { terminalHistory.scheduleCheckpoint(candidate) }
         sessions[key] = candidate
         updateSessionsStatus()
         return true
@@ -509,8 +509,7 @@ class TerminalRelayClient {
 
     fun restartSession(meshClient: MeshCentralClient, nodeId: String) {
         val key = cleanKey(nodeId)
-        val session = sessions.remove(key)
-        session?.disconnect()
+        disconnectSession(key)
 
         val newSession = getSession(meshClient, nodeId)
         newSession.isUserDisconnect = false
@@ -561,18 +560,18 @@ class TerminalRelayClient {
         sessions[cleanKey(nodeId)]?.sendResize(cols, rows)
     }
 
+    @Synchronized
     fun disconnectSession(nodeId: String) {
-        val key = cleanKey(nodeId)
-        val session = sessions.remove(key)
-        session?.disconnect()
+        val session = sessions.remove(cleanKey(nodeId))
+        if (session != null) {
+            session.disconnectKeepingHistory()
+            terminalHistory.archive(session)
+        }
         updateSessionsStatus()
     }
 
     fun disconnectAll() {
-        for (session in sessions.values) {
-            session.disconnect()
-        }
-        sessions.clear()
+        sessions.keys.toList().forEach { disconnectSession(it) }
         updateSessionsStatus()
     }
 }

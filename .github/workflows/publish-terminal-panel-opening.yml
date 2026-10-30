@@ -1,0 +1,124 @@
+name: Validate exact terminal history panel opening
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-terminal-panel-opening.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-terminal-panel-opening-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Integrate unified panel and exact opening rules
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import textwrap
+          original = subprocess.check_output(['git','show','69da96af60ed21dc15d262b7311feca353d27881:.github/workflows/publish-terminal-unified-panel.yml'], text=True)
+          body = original.split("          python3 - <<'PY'\n",1)[1].split('          PY\n',1)[0]
+          exec(compile(textwrap.dedent(body), '<reviewed-unified-panel-base>', 'exec'))
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/terminal')
+          def change(path, old, new):
+              p=Path(path); source=p.read_text()
+              if source.count(old)!=1: raise RuntimeError('Unexpected opening-state anchor: '+repr(old))
+              p.write_text(source.replace(old,new,1))
+          change(base/'TerminalScreen.kt',
+              'onClick = { showHistoryPanel = !showHistoryPanel; if (!showHistoryPanel) showHistoryMenu = false },',
+              'onClick = { val next = terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(showHistoryPanel, showHistoryMenu)); showHistoryPanel = next.visible; showHistoryMenu = next.expanded },')
+          change(base/'TerminalScreen.kt',
+              '            showHistoryPanel = true\n            showHistoryMenu = false',
+              '            val next = terminalHistoryUnexpectedDisconnect()\n            showHistoryPanel = next.visible\n            showHistoryMenu = next.expanded')
+          policy = """package iecxiv.meshfabric.ui.terminal
+
+          internal data class TerminalHistoryPanelPresentation(val visible: Boolean, val expanded: Boolean)
+
+          /** Header: hidden -> expanded, visible -> hidden. It never owns a separate menu. */
+          internal fun terminalHistoryHeaderClick(current: TerminalHistoryPanelPresentation): TerminalHistoryPanelPresentation =
+              TerminalHistoryPanelPresentation(visible = !current.visible, expanded = !current.visible)
+
+          /** A new involuntary disconnect always presents only the panel header. */
+          internal fun terminalHistoryUnexpectedDisconnect(): TerminalHistoryPanelPresentation =
+              TerminalHistoryPanelPresentation(visible = true, expanded = false)
+          """
+          tests = """package iecxiv.meshfabric.ui.terminal
+
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class TerminalHistoryPanelPresentationTest {
+              @Test fun headerOpensHiddenPanelExpanded() {
+                  assertEquals(TerminalHistoryPanelPresentation(true, true), terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(false, false)))
+              }
+              @Test fun headerHidesExpandedPanel() {
+                  assertEquals(TerminalHistoryPanelPresentation(false, false), terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(true, true)))
+              }
+              @Test fun headerHidesAutomaticallyShownCollapsedPanel() {
+                  assertEquals(TerminalHistoryPanelPresentation(false, false), terminalHistoryHeaderClick(terminalHistoryUnexpectedDisconnect()))
+              }
+              @Test fun reopeningAfterHideIsExpanded() {
+                  val hidden = terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(true, false))
+                  assertEquals(TerminalHistoryPanelPresentation(true, true), terminalHistoryHeaderClick(hidden))
+              }
+              @Test fun unexpectedDisconnectShowsCollapsedPanel() {
+                  assertEquals(TerminalHistoryPanelPresentation(true, false), terminalHistoryUnexpectedDisconnect())
+              }
+              @Test fun staleExpansionCannotPreventExpandedManualOpening() {
+                  assertEquals(TerminalHistoryPanelPresentation(true, true), terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(false, true)))
+              }
+          }
+          """
+          for path, content in [(base/'TerminalHistoryPanelPresentation.kt',policy),(Path('app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalHistoryPanelPresentationTest.kt'),tests)]:
+              if path.exists(): raise RuntimeError('Presentation helper already exists')
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(content)
+          ui=(base/'TerminalSessionPopup.kt').read_text()
+          if 'DropdownMenu(' in ui or 'Modifier.width(320.dp)' in ui or ui.count('Surface(')!=1:
+              raise RuntimeError('Panel must share one full-width themed surface')
+          body=ui.split('            if (expanded) {',1)[1].split('    if (deletionIds.isNotEmpty())',1)[0]
+          if 'terminal_reconnect_manual' in body or 'terminal_return_current' in body:
+              raise RuntimeError('Primary actions must not be duplicated in expanded content')
+          PY
+      - name: Unit tests and compile app and instrumentation tests
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+      - name: Upload validation reports and APKs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-panel-opening-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish only if dev is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalSessionPopup.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalHistoryPanelPresentation.kt app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalHistoryPanelPresentationTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalHistoryPanelUiTest.kt
+          git commit -m 'fix: open terminal history expanded manually and collapsed on disconnect'
+          git push origin HEAD:dev

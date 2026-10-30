@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
         meshClient = MeshCentralClient()
         desktopClient = DesktopRelayClient()
         terminalClient = TerminalRelayClient()
+        terminalClient.configureHistory(applicationContext, meshClient, sessionManager)
         fileClient = FileRelayClient()
 
         loginViewModel = LoginViewModel(application, meshClient, sessionManager)
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
         terminalClient.initBuffersFromDisk(applicationContext, meshClient, isSaveBuffersEnabled)
 
         KeepAliveService.onTaskRemovedListener = {
+            terminalViewModel.cancelPendingReconnections()
             val isSaveBuffersEnabledOnExit = sessionManager.isSaveTerminalBuffersEnabled()
             meshClient.disconnect()
             terminalClient.saveAllBuffersAndClose(applicationContext, isSaveBuffersEnabledOnExit)
@@ -158,6 +160,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        terminalClient.checkpointHistory()
         val totalActiveSessions = terminalClient.getSessionCount() +
                 desktopClient.getSessionCount() +
                 fileClient.getSessionCount()

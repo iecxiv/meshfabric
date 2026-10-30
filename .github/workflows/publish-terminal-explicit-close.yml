@@ -1,0 +1,89 @@
+name: Validate and publish explicit terminal close
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-terminal-explicit-close.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-terminal-explicit-close-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore explicit close and normal device state
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import xml.etree.ElementTree as ET
+          base = Path('app/src/main/java/iecxiv/meshfabric/ui/terminal')
+          expected = {'TerminalScreen.kt':'2ccd8b89e30bb36b8e90adbce997f629630ce4d8','TerminalViewModel.kt':'0c4c1b600be94441f83fc4d14ac5ba2e887bc983'}
+          for name, sha in expected.items():
+              if subprocess.check_output(['git', 'hash-object', str(base/name)], text=True).strip() != sha:
+                  raise RuntimeError('Terminal base changed: '+name)
+          relay = Path('app/src/main/java/iecxiv/meshfabric/data/remote/TerminalRelayClient.kt')
+          if subprocess.check_output(['git', 'hash-object', str(relay)], text=True).strip() != '0cccc2ed75ee55e0f26f70889073040e797dcedc':
+              raise RuntimeError('Terminal registry changed; recheck explicit close semantics')
+          def replace_once(path, old, new):
+              p = Path(path)
+              source = p.read_text()
+              if source.count(old) != 1:
+                  raise RuntimeError('Unexpected patch anchor: '+str(path))
+              p.write_text(source.replace(old, new, 1))
+          replace_once(base/'TerminalViewModel.kt',
+              '        manualReconnect.cancel(nodeId)\n        terminalClient.getSession(meshClient, nodeId).disconnectKeepingHistory()\n        terminalClient.updateSessionsStatus()',
+              '        manualReconnect.cancel(nodeId)\n        val current = terminalClient.getSession(meshClient, nodeId)\n        renderers.remove(current.localSessionId)\n        terminalClient.disconnectSession(nodeId)')
+          replace_once(base/'TerminalScreen.kt',
+              'if (!showingHistory) viewModel.stopSession(nodeId)',
+              'viewModel.stopSession(nodeId)\n                            onBack()')
+          replace_once(base/'TerminalScreen.kt', 'contentDescription = "Desconectar Terminal"', 'contentDescription = stringResource(R.string.terminal_close_action)')
+          for folder, label in [('values', 'Close terminal'), ('values-en', 'Close terminal'), ('values-es', 'Cerrar terminal')]:
+              target = Path('app/src/main/res')/folder/'terminal_close.xml'
+              if target.exists():
+                  raise RuntimeError('Close resource already exists; review before applying')
+              xml = '<resources>\n    <string name="terminal_close_action">'+label+'</string>\n</resources>\n'
+              ET.fromstring(xml)
+              target.write_text(xml)
+          # No change to network-loss retention, the Back button, archived histories or device styling.
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-explicit-close-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish only if dev is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/main/res/values/terminal_close.xml app/src/main/res/values-en/terminal_close.xml app/src/main/res/values-es/terminal_close.xml
+          git commit -m 'fix: explicitly close terminal session and reset device highlight'
+          git push origin HEAD:dev

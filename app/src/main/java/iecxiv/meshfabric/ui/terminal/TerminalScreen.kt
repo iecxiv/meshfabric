@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AssistChip
@@ -92,10 +93,20 @@ fun TerminalScreen(
     val attempts by viewModel.manualReconnect.state.collectAsState()
     val allHistory by viewModel.manualReconnect.history.collectAsState()
     val currentSession = remember(nodeId, viewModel, revision) { viewModel.terminalClient.getSession(viewModel.meshClient, nodeId) }
+    val disconnectIncident by currentSession.unexpectedDisconnectEvents.collectAsState()
+    var showHistoryPanel by androidx.compose.runtime.saveable.rememberSaveable(currentSession.localSessionId) { mutableStateOf(false) }
     val history = allHistory[currentSession.cleanNodeId].orEmpty()
     var historyId by remember(nodeId) { mutableStateOf<String?>(null) }
     var showHistoryMenu by remember(nodeId) { mutableStateOf(false) }
+    var historiesToDelete by remember(nodeId) { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(currentSession) { historyId = null }
+    LaunchedEffect(currentSession, disconnectIncident) {
+        if (viewModel.historyPanelGate.consume(currentSession.localSessionId, disconnectIncident)) {
+            val next = terminalHistoryUnexpectedDisconnect()
+            showHistoryPanel = next.visible
+            showHistoryMenu = next.expanded
+        }
+    }
     val selectedSession = history.firstOrNull { it.localSessionId == historyId } ?: currentSession
     val showingHistory = selectedSession !== currentSession
     val reconnectState = attempts[currentSession.cleanNodeId] ?: ManualReconnectState.IDLE
@@ -167,7 +178,7 @@ fun TerminalScreen(
     var keyMenuOpen by remember(renderer) { mutableStateOf(false) }
     var keyboardRequest by remember(renderer) { mutableStateOf(0) }
     var previousOverlay by remember(renderer) { mutableStateOf(false) }
-    val inputOverlay = showTerminalMenu || showCopyDialog || showPasteDialog || showCommandDialog || showRecoveryDialog || keyMenuOpen || showHistoryMenu
+    val inputOverlay = showTerminalMenu || showCopyDialog || showPasteDialog || showCommandDialog || showRecoveryDialog || keyMenuOpen || showHistoryMenu || historiesToDelete.isNotEmpty()
     LaunchedEffect(renderer, inputOverlay, inputEnabled) {
         renderer.setFocusBlocked(inputOverlay || !inputEnabled)
         if (inputEnabled && !inputOverlay && previousOverlay) renderer.requestTerminalFocus(false)
@@ -233,17 +244,24 @@ fun TerminalScreen(
                 actions = {
                     TextButton(
                         onClick = { changeFontSize(-1) },
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.size(36.dp),
                         contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
                         Text("A-", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                     TextButton(
                         onClick = { changeFontSize(1) },
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.size(36.dp),
                         contentPadding = PaddingValues(horizontal = 4.dp)
                     ) {
                         Text("A+", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    }
+                    IconButton(
+                        onClick = { val next = terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(showHistoryPanel, showHistoryMenu)); showHistoryPanel = next.visible; showHistoryMenu = next.expanded },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.History, contentDescription = stringResource(R.string.terminal_history_header),
+                            tint = if (showHistoryPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(
                         onClick = { keyboardRequest++ },
@@ -253,7 +271,7 @@ fun TerminalScreen(
                         Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.terminal_keyboard_toggle))
                     }
                     Box {
-                        IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null) {
+                        IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null, modifier = Modifier.size(36.dp)) {
                             Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.terminal_tools))
                         }
                         DropdownMenu(expanded = showTerminalMenu, onDismissRequest = { showTerminalMenu = false }) {
@@ -280,13 +298,14 @@ fun TerminalScreen(
                     }
                     IconButton(
                         onClick = {
-                            if (!showingHistory) viewModel.stopSession(nodeId)
+                            viewModel.stopSession(nodeId)
+                            onBack()
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Desconectar Terminal",
+                            contentDescription = stringResource(R.string.terminal_close_action),
                             tint = Color.Red
                         )
                     }
@@ -303,43 +322,27 @@ fun TerminalScreen(
                 .padding(innerPadding)
                 .background(Color(0xFF0D1117))
         ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-                when {
-                    showingHistory -> Text(stringResource(R.string.terminal_history_readonly))
-                    reconnecting -> Text(stringResource(R.string.terminal_reconnect_pending))
-                    connectionStatus == TerminalConnectionStatus.DISCONNECTED -> {
-                        Text(stringResource(R.string.terminal_disconnected_retained))
-                        if (reconnectState == ManualReconnectState.FAILED || reconnectState == ManualReconnectState.TIMED_OUT)
-                            Text(stringResource(R.string.terminal_reconnect_failed))
-                    }
-                    connectionStatus == TerminalConnectionStatus.CONNECTED && history.isNotEmpty() ->
-                        Text(stringResource(R.string.terminal_new_session_connected))
+            TerminalSessionPopup(
+                showBar = showHistoryPanel,
+                status = connectionStatus,
+                attempt = reconnectState,
+                history = history,
+                showingHistory = showingHistory,
+                truncated = historyTruncated,
+                expanded = showHistoryMenu,
+                deletionIds = historiesToDelete,
+                onExpanded = { showHistoryMenu = it },
+                onReconnect = { viewModel.manualReconnect.start(nodeId) },
+                onCancel = { viewModel.manualReconnect.cancel(nodeId) },
+                onCurrent = { historyId = null },
+                onSelect = { historyId = it },
+                onRequestDelete = { historiesToDelete = it },
+                onDismissDelete = { historiesToDelete = emptySet() },
+                onDelete = { ids ->
+                    if (historyId?.let { it in ids } == true) historyId = null
+                    viewModel.deleteTerminalHistories(nodeId, ids)
                 }
-                if (historyTruncated) Text(stringResource(R.string.terminal_retained_truncated))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!showingHistory && connectionStatus == TerminalConnectionStatus.DISCONNECTED) {
-                        if (reconnecting) TextButton(onClick = { viewModel.manualReconnect.cancel(nodeId) }) {
-                            Text(stringResource(R.string.terminal_recovery_cancel))
-                        } else TextButton(onClick = { viewModel.manualReconnect.start(nodeId) }) {
-                            Text(stringResource(R.string.terminal_reconnect_manual))
-                        }
-                    }
-                    if (showingHistory) TextButton(onClick = { historyId = null }) {
-                        Text(stringResource(R.string.terminal_return_current))
-                    }
-                    if (history.isNotEmpty()) Box {
-                        TextButton(onClick = { showHistoryMenu = true }) { Text(stringResource(R.string.terminal_previous_history)) }
-                        DropdownMenu(expanded = showHistoryMenu, onDismissRequest = { showHistoryMenu = false }) {
-                            history.asReversed().forEach { archived ->
-                                DropdownMenuItem(
-                                    text = { Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(archived.openedAt))) },
-                                    onClick = { historyId = archived.localSessionId; showHistoryMenu = false }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
