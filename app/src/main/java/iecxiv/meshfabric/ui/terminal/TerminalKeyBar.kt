@@ -32,10 +32,14 @@ private val navigationKeys = listOf(
 
 @Composable
 private fun BarButton(label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
-    OutlinedButton(onClick = onClick, enabled = enabled,
+    FilterChip(
+        selected = true,
+        onClick = onClick,
+        enabled = enabled,
+        shape = MaterialTheme.shapes.small,
         modifier = Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).semantics { contentDescription = description },
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-    ) { Text(label, maxLines = 1) }
+        label = { Text(label, maxLines = 1) }
+    )
 }
 @Composable
 private fun KeyButton(key: TerminalBarKey, enabled: Boolean, onKey: (String) -> Unit) {
