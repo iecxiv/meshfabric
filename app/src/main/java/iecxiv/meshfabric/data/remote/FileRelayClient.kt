@@ -1397,6 +1397,7 @@ class FileSession(
             )
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
+                .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle("Descargando $fileName")
                 .setContentText("${formatSize(received)} / ${formatSize(total)} ($progressPercent%)")
@@ -1446,6 +1447,7 @@ class FileSession(
             )
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
+                .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setContentTitle("Subiendo $fileName")
                 .setContentText("${formatSize(sent)} / ${formatSize(total)} ($progressPercent%)")
@@ -1473,6 +1475,7 @@ class FileSession(
             val notificationId = filePath.hashCode()
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
+                .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(R.drawable.ic_stat_remote)
                 .setContentTitle("Descarga completada")
                 .setContentText("$fileName (${formatSize(total)}) guardado en Descargas")
@@ -1495,6 +1498,7 @@ class FileSession(
             val notificationId = filePath.hashCode()
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
+                .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(R.drawable.ic_stat_remote)
                 .setContentTitle("Subida completada")
                 .setContentText("$fileName (${formatSize(total)}) subido con éxito")
