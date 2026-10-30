@@ -42,6 +42,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.ByteString.Companion.encodeUtf8
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -420,7 +421,7 @@ class FileSession(
             addProperty("reqid", request.id)
         }
         listingStarted = nowMs()
-        val queued = webSocket?.send(req.toString()) == true
+        val queued = webSocket?.send(req.toString().encodeUtf8()) == true
         Log.d("MeshFilesDiag", "ls epoch=$socketEpoch reqid=${request.id} path=${req.get("path")} windows=${windowsFileSystem()} queued=$queued")
         if (!queued) retireSocket()
     }
