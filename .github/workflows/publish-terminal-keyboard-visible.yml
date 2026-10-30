@@ -1,0 +1,79 @@
+name: Validate and publish terminal keyboard visibility indicator
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-terminal-keyboard-visible.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-terminal-keyboard-visible-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Observe actual terminal IME visibility
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt')
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != 'd39d9f7aff09812c49c76b6cee8e27b6fa773ff6':
+              raise RuntimeError('TerminalScreen changed; review patch')
+          s = p.read_text()
+          def change(old, new):
+              global s
+              if s.count(old) != 1:
+                  raise RuntimeError('Keyboard indicator anchor is not unique: ' + repr(old))
+              s = s.replace(old, new, 1)
+          change('import androidx.compose.foundation.layout.imePadding', 'import androidx.compose.foundation.layout.WindowInsets\nimport androidx.compose.foundation.layout.isImeVisible\nimport androidx.compose.foundation.layout.imePadding')
+          change('    fun changeFontSize(delta: Int) { renderer.changeFontSize(delta) }', '''    val terminalKeyboardVisible = WindowInsets.isImeVisible &&
+                  !showCopyDialog && !showPasteDialog && !showCommandDialog && !showRecoveryDialog
+
+              fun changeFontSize(delta: Int) { renderer.changeFontSize(delta) }''')
+          change('tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (inputEnabled) 1f else 0.38f)', '''tint = when {
+                                          terminalKeyboardVisible -> Color(0xFF2196F3)
+                                          inputEnabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                                          else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                      }''')
+          if 'enabled = inputEnabled && !inputOverlay' not in s:
+              raise RuntimeError('Keyboard input guard changed')
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-keyboard-visible-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated indicator
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt
+          git commit -m 'feat: highlight terminal keyboard icon blue while soft keyboard is visible'
+          git push origin HEAD:dev
