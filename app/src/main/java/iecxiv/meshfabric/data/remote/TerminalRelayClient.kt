@@ -36,6 +36,13 @@ class TerminalSession(
     private val scope: CoroutineScope
 ) {
     val cleanNodeId = nodeId.removePrefix("node//").removePrefix("node/").trim()
+    val localSessionId = java.util.UUID.randomUUID().toString()
+    val openedAt = System.currentTimeMillis()
+    @Volatile var disconnectedAt: Long? = null
+        private set
+    @Volatile private var hasStarted = false
+    private val truncated = MutableStateFlow(false)
+    val historyTruncated: StateFlow<Boolean> = truncated.asStateFlow()
     val fullNodeId = "node//$cleanNodeId"
     private val generation = SocketGeneration()
     private var handshakeComplete = false
@@ -52,7 +59,8 @@ class TerminalSession(
     private val sessionHistory = StringBuilder()
     private val outputJournal = TerminalOutputJournal()
     val outputRevision: StateFlow<Long> = outputJournal.revision
-    fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice = outputJournal.read(cursor)
+    fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice =
+        if (!connectionState.value && cursor == null) outputJournal.readHistory(null) else outputJournal.read(cursor)
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
     private val _connectionStatus = MutableStateFlow(TerminalConnectionStatus.CONNECTING)
@@ -90,6 +98,7 @@ class TerminalSession(
                     outputJournal.clear()
                     outputJournal.append(content)
                 }
+                hasStarted = true
                 hasPrintedDisconnectMessage = true
                 _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
                 true
@@ -104,22 +113,18 @@ class TerminalSession(
         } catch (e: Exception) { e.printStackTrace() }
     }
 
-    private fun getDisconnectMessage(): String {
-        return try {
-            iecxiv.meshfabric.MeshFabricApp.instance.getString(iecxiv.meshfabric.R.string.terminal_session_disconnected)
-        } catch (_: Exception) {
-            "[--sesion desconectada, cambio de red / tunel cerrado--]"
-        }
+    private fun emitDisconnectBanner() {
+        // Status belongs to the UI, never to the terminal stream or interpreter.
+        hasPrintedDisconnectMessage = true
+        onStateChanged?.invoke()
     }
 
-    private fun emitDisconnectBanner() {
-        if (isUserDisconnect || hasPrintedDisconnectMessage) return
-        hasPrintedDisconnectMessage = true
-        val disconnectBanner = "\r\n\u001b[38;5;130m${getDisconnectMessage()}\u001b[0m\r\n"
-        synchronized(sessionHistory) { sessionHistory.append(disconnectBanner); outputJournal.append(disconnectBanner) }
-        _incomingDataFlow.tryEmit(disconnectBanner)
-        saveBufferToDisk(iecxiv.meshfabric.MeshFabricApp.instance)
-        onStateChanged?.invoke()
+    fun disconnectKeepingHistory() {
+        generation.locked {
+            reconnectJob?.cancel()
+            reconnectJob = null
+            closeSocketOnly()
+        }
     }
 
     private fun resizeForSocket(epoch: Long, socket: WebSocket, cols: Int, rows: Int, force: Boolean = false) {
@@ -140,6 +145,8 @@ class TerminalSession(
                 if (_connectionState.value) resizeForSocket(generation.current(), existing, lastCols, lastRows)
                 return
             }
+            if (hasStarted) return
+            hasStarted = true
             if (!_connectionState.value && getFullHistory().isNotEmpty() && !isUserDisconnect) {
                 _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
                 return
@@ -279,7 +286,13 @@ class TerminalSession(
             synchronized(sessionHistory) {
                 sessionHistory.append(data)
                 outputJournal.append(data)
-                if (sessionHistory.length > 200000) sessionHistory.delete(0, 50000)
+                if (sessionHistory.length > 200000) {
+                    var remove = sessionHistory.length - 200000
+                    if (remove < sessionHistory.length && Character.isHighSurrogate(sessionHistory[remove - 1]) &&
+                        Character.isLowSurrogate(sessionHistory[remove])) remove++
+                    sessionHistory.delete(0, remove)
+                    truncated.value = true
+                }
             }
             _incomingDataFlow.tryEmit(data)
             if (traceEnabled && tracedFrames in 1..63) {
@@ -343,6 +356,7 @@ class TerminalSession(
 
     var onStateChanged: (() -> Unit)? = null
     fun updateState(connected: Boolean) {
+        if (!connected && disconnectedAt == null) disconnectedAt = System.currentTimeMillis()
         _connectionState.value = connected
         _connectionStatus.value = if (connected) TerminalConnectionStatus.CONNECTED else TerminalConnectionStatus.DISCONNECTED
         onStateChanged?.invoke()
@@ -449,6 +463,17 @@ class TerminalRelayClient {
                 sess.onStateChanged = { updateSessionsStatus() }
             }
         }
+    }
+
+    @Synchronized
+    fun promoteSession(expected: TerminalSession, candidate: TerminalSession): Boolean {
+        val key = expected.cleanNodeId
+        if (sessions[key] !== expected || expected.isConnected() || !candidate.isConnected() ||
+            candidate.cleanNodeId != key) return false
+        candidate.onStateChanged = { updateSessionsStatus() }
+        sessions[key] = candidate
+        updateSessionsStatus()
+        return true
     }
 
     fun isConnectedToNode(nodeId: String): Boolean {
