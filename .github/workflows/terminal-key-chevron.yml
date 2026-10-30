@@ -1,0 +1,142 @@
+name: Verify terminal expand and collapse chevrons
+on:
+  push:
+    branches: [terminal-improve]
+    paths: [.github/workflows/terminal-key-chevron.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-key-chevron
+  cancel-in-progress: false
+jobs:
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify reviewed base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/terminal-improve
+          git merge-base --is-ancestor c0f04d2bfccb5bd9cf05507adb056f097ec64c70 HEAD
+          git diff --exit-code c0f04d2bfccb5bd9cf05507adb056f097ec64c70 HEAD -- . ':(exclude).github/workflows/terminal-key-chevron.yml'
+      - name: Apply selector-only changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p = 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt'
+          t = 'app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt'
+          chevron = r'''            if (chevronRotation != null) Icon(
+                          Icons.Default.KeyboardArrowDown, contentDescription = null,
+                          modifier = Modifier.size(24.dp).rotate(chevronRotation).testTag("terminal-chevron-${chevronRotation.toInt()}")
+                      ) else if (arrowRotation != null) Icon('''
+          test = '''    @Test fun expanderUsesTheSameInvertedChevron() {
+                  compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true)
+                      .assertWidthIsEqualTo(24.dp).assertHeightIsEqualTo(24.dp)
+                  compose.onNodeWithContentDescription(context.getString(R.string.terminal_keys_more)).performClick()
+                  compose.onNodeWithTag("terminal-chevron-180", useUnmergedTree = true)
+                      .assertWidthIsEqualTo(24.dp).assertHeightIsEqualTo(24.dp)
+                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()
+                  compose.onNodeWithContentDescription(context.getString(R.string.terminal_keys_less)).performClick()
+                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertExists()
+                  compose.onNodeWithTag("terminal-chevron-180", useUnmergedTree = true).assertDoesNotExist()
+              }
+          '''
+          edits = {
+              p: [
+                  ('import androidx.compose.material.icons.filled.ArrowUpward\n', 'import androidx.compose.material.icons.filled.ArrowUpward\nimport androidx.compose.material.icons.filled.KeyboardArrowDown\n'),
+                  ('    largeLabel: Boolean = false, arrowRotation: Float? = null, onClick: () -> Unit\n', '    largeLabel: Boolean = false, arrowRotation: Float? = null,\n    chevronRotation: Float? = null, onClick: () -> Unit\n'),
+                  ('            if (arrowRotation != null) Icon(', chevron),
+                  ('                stringResource(if (expanded) R.string.terminal_keys_less else R.string.terminal_keys_more), true\n', '                stringResource(if (expanded) R.string.terminal_keys_less else R.string.terminal_keys_more), true,\n                chevronRotation = if (expanded) 180f else 0f\n')
+              ],
+              t: [('\n}\n', '\n' + test + '\n}\n')]
+          }
+          for directory in ('values', 'values-en', 'values-es'):
+              edits['app/src/main/res/' + directory + '/terminal_keys.xml'] = [
+                  ('<string name="terminal_keys_more_glyph">⋯</string>', '<string name="terminal_keys_more_glyph">∨</string>'),
+                  ('<string name="terminal_keys_less_glyph">−</string>', '<string name="terminal_keys_less_glyph">∧</string>')
+              ]
+          config = Path('app/build.gradle.kts').read_text(encoding='utf-8')
+          if config.count('versionName = "1.1.2"') != 1 or config.count('versionCode = 1' + chr(10)) != 1:
+              raise RuntimeError('Version must remain 1.1.2 / code 1')
+          prepared = {}
+          for name, replacements in edits.items():
+              source = Path(name).read_text(encoding='utf-8')
+              for old, new in replacements:
+                  if source.count(old) != 1:
+                      raise RuntimeError('Reviewed anchor mismatch: ' + name)
+                  source = source.replace(old, new, 1)
+              source.encode('utf-8')
+              if name.endswith('.xml'):
+                  ET.fromstring(source)
+              prepared[name] = source
+          for name, content in prepared.items():
+              Path(name).write_text(content, encoding='utf-8')
+          PY
+          git diff --check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Existing JavaScript tests
+        run: |
+          node app/src/test/js/terminal-keys.test.js
+          node app/src/test/js/terminal-runtime.test.js
+          node app/src/test/js/terminal-selection.test.js
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Selector and existing interaction regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            adb shell settings put secure show_ime_with_hard_keyboard 1
+            bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.terminal.TerminalEchoWebViewTest,iecxiv.meshfabric.ui.terminal.TerminalFocusWebViewTest,iecxiv.meshfabric.ui.terminal.TerminalKeyBarTest --no-daemon --stacktrace
+      - name: Publish verified selector adjustment
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/terminal-improve | cut -f1)
+          test "$remote_head" = "$GITHUB_SHA"
+          rm .github/workflows/terminal-key-chevron.yml
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt app/src/main/res/values/terminal_keys.xml app/src/main/res/values-en/terminal_keys.xml app/src/main/res/values-es/terminal_keys.xml .github/workflows/terminal-key-chevron.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style: use matching chevrons for terminal key expansion'
+          git push origin HEAD:refs/heads/terminal-improve
+      - name: Upload reports and debug APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-key-chevron-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
