@@ -86,8 +86,9 @@ class TerminalViewModel(
 
     fun stopSession(nodeId: String) {
         manualReconnect.cancel(nodeId)
-        terminalClient.getSession(meshClient, nodeId).disconnectKeepingHistory()
-        terminalClient.updateSessionsStatus()
+        val current = terminalClient.getSession(meshClient, nodeId)
+        renderers.remove(current.localSessionId)
+        terminalClient.disconnectSession(nodeId)
     }
 
     override fun onCleared() {

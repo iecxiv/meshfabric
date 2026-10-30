@@ -281,13 +281,14 @@ fun TerminalScreen(
                     }
                     IconButton(
                         onClick = {
-                            if (!showingHistory) viewModel.stopSession(nodeId)
+                            viewModel.stopSession(nodeId)
+                            onBack()
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Desconectar Terminal",
+                            contentDescription = stringResource(R.string.terminal_close_action),
                             tint = Color.Red
                         )
                     }
