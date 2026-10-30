@@ -44,7 +44,6 @@ jobs:
                       nodes.filter { it.isOnline }.takeIf { it.isNotEmpty() }?.let { group to it }
                   }
               }'''
-          new = '\n'.join(line[10:] if i > 0 else line for i, line in enumerate(new.splitlines()))
           assert s.count(old) == 1
           s = s.replace(old, new, 1)
           old = '            ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }'
@@ -57,10 +56,11 @@ jobs:
                               if(onlyOnline) Surface(Modifier.size(5.dp).align(Alignment.TopEnd),shape=CircleShape,color=OnlineGreen) { }
                           }
                       }'''
-          lines = new.splitlines()
-          new = lines[0] + '\n' + '\n'.join(line[10:] for line in lines[1:])
           assert s.count(old) == 1
           s = s.replace(old, new, 1)
+          assert '    var onlyOnline by ' in s
+          assert '    val groups = remember(allGroups, onlyOnline)' in s
+          assert 'IconToggleButton(checked=onlyOnline' in s
           p.write_text(s)
           import xml.etree.ElementTree as ET
           for folder, online, all_devices in [
