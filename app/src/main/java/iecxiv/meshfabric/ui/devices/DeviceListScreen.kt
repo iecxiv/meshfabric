@@ -38,7 +38,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun DeviceListScreen(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
-    val groups by viewModel.groupedDevices.collectAsState()
+    val allGroups by viewModel.groupedDevices.collectAsState()
+    var onlyOnline by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val groups = remember(allGroups, onlyOnline) {
+        if (!onlyOnline) allGroups else allGroups.mapNotNull { (group, nodes) ->
+            nodes.filter { it.isOnline }.takeIf { it.isNotEmpty() }?.let { group to it }
+        }
+    }
     val connection by viewModel.connectionStatus.collectAsState()
     val search by viewModel.searchQuery.collectAsState()
     val collapsed by viewModel.collapsedGroups.collectAsState()
@@ -76,6 +82,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
             ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
+            IconToggleButton(checked=onlyOnline,onCheckedChange={ onlyOnline=it },modifier=Modifier.size(38.dp)) {
+                Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
+                    Icon(Icons.Default.FilterAlt,
+                        stringResource(if(onlyOnline) R.string.device_filter_show_all else R.string.device_filter_show_online),
+                        Modifier.size(20.dp),tint=if(onlyOnline) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                    if(onlyOnline) Surface(Modifier.size(5.dp).align(Alignment.TopEnd),shape=CircleShape,color=OnlineGreen) { }
+                }
+            }
             ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                 stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
             ToolIcon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search)) {
