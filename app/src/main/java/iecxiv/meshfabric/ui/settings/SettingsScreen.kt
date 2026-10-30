@@ -488,10 +488,10 @@ fun SettingsScreen(
 
             if (onLogout != null) {
                 Card(
-                    modifier = Modifier.fillMaxWidth().clickable { showLogout = true },
+                    modifier = Modifier.align(Alignment.CenterHorizontally).clickable { showLogout = true },
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.logout), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.error)

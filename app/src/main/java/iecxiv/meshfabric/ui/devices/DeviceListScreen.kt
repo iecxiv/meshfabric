@@ -38,7 +38,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 @Composable fun DeviceListScreen(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
     val allGroups by viewModel.groupedDevices.collectAsState()
-    var onlyOnline by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val fallbackOnlineFilter = remember { MutableStateFlow(false) }
+    val onlyOnline by (viewModel.sessionManager?.onlyOnlineDevicesFlow ?: fallbackOnlineFilter).collectAsState()
     val groups = remember(allGroups, onlyOnline) {
         if (!onlyOnline) allGroups else allGroups.mapNotNull { (group, nodes) ->
             nodes.filter { it.isOnline }.takeIf { it.isNotEmpty() }?.let { group to it }
@@ -75,7 +76,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
             ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
-            IconToggleButton(checked=onlyOnline,onCheckedChange={ onlyOnline=it },modifier=Modifier.size(38.dp)) {
+            IconToggleButton(checked=onlyOnline,onCheckedChange={ enabled ->
+                val manager = viewModel.sessionManager
+                if (manager != null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value = enabled
+            },modifier=Modifier.size(38.dp)) {
                 Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
                     Icon(Icons.Default.FilterAlt,
                         stringResource(if(onlyOnline) R.string.device_filter_show_all else R.string.device_filter_show_online),
