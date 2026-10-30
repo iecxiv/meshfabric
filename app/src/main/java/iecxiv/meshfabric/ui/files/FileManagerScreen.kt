@@ -69,6 +69,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Unarchive
 import androidx.compose.material.icons.filled.Upload
@@ -148,6 +149,10 @@ fun FileManagerScreen(
     val context = LocalContext.current
     val isConnected by viewModel.isConnected(nodeId).collectAsState()
     val currentPath by viewModel.currentPath(nodeId).collectAsState()
+    val driveEntries by viewModel.drives(nodeId).collectAsState()
+    val windowsFiles = viewModel.isWindowsFiles(nodeId)
+    val driveSelector = windowsFiles && iecxiv.meshfabric.data.remote.WindowsDriveSupport.selector(currentPath)
+
     val fileList by viewModel.fileList(nodeId).collectAsState()
     val statusMessage by viewModel.statusMessage(nodeId).collectAsState()
     val clipboardItem by viewModel.clipboardItem(nodeId).collectAsState()
@@ -348,6 +353,9 @@ fun FileManagerScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Ir a Ruta")
                     }
+                    if (windowsFiles) IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {
+                        Icon(Icons.Default.Storage, contentDescription = stringResource(R.string.files_drives), tint = if (driveSelector) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     IconButton(
                         onClick = { viewModel.refresh(nodeId) },
                         modifier = Modifier.size(36.dp)
@@ -459,6 +467,7 @@ fun FileManagerScreen(
                                     ) {
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.new_folder)) },
+                                            enabled = !driveSelector,
                                             leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
@@ -467,6 +476,7 @@ fun FileManagerScreen(
                                         )
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.new_text_file)) },
+                                            enabled = !driveSelector,
                                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
@@ -475,6 +485,7 @@ fun FileManagerScreen(
                                         )
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.upload_file)) },
+                                            enabled = !driveSelector,
                                             leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
@@ -670,6 +681,7 @@ fun FileManagerScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.upload_file)) },
+                                            enabled = !driveSelector,
                                     leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
                                     onClick = {
                                         fabMenuExpanded = false
@@ -817,6 +829,12 @@ fun FileManagerScreen(
                             items = filteredList,
                             key = { item -> "${item.path}_${item.isDir}_${item.name}" }
                         ) { item ->
+                            val drive = if (driveSelector) driveEntries.firstOrNull { it.path == item.path } else null
+                            if (drive != null) {
+                                WindowsDriveRow(drive) { viewModel.openDirectory(nodeId, drive.path) }
+                                return@items
+                            }
+
                             var menuExpanded by remember { mutableStateOf(false) }
 
                             Card(

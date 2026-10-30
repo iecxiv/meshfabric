@@ -209,6 +209,13 @@ class FileSession(
     @Volatile var isUserDisconnect = true
     @Volatile private var irrecoverable = false
     private val navigation = FileNavigationState()
+    private val driveState = MutableStateFlow<List<WindowsDriveEntry>>(emptyList())
+    internal val windowsDrives: StateFlow<List<WindowsDriveEntry>> = driveState.asStateFlow()
+    internal fun windowsFileSystem(): Boolean = driveState.value.isNotEmpty() || meshClient.groupedDevices.value.any { (_, nodes) ->
+        nodes.any { it.id.removePrefix("node//").removePrefix("node/").trim() == cleanNodeId && it.osdesc?.contains("Windows", ignoreCase = true) == true }
+    }
+    internal fun driveStatus(message: String) { _statusMessage.value = message }
+
     private var socketEpoch = 0L
     private var attemptStarted = 0L
     private var listingStarted = 0L
@@ -405,7 +412,7 @@ class FileSession(
         val request = navigation.next() ?: return
         val req = JsonObject().apply {
             addProperty("action", "ls")
-            addProperty("path", request.path)
+            addProperty("path", WindowsDriveSupport.wire(request.path, windowsFileSystem()))
             addProperty("reqid", request.id)
         }
         listingStarted = nowMs()
@@ -679,15 +686,27 @@ class FileSession(
         }
     }
 
+    private fun acceptWindowsDrives(json: JsonObject): Boolean {
+        val drives = WindowsDriveSupport.rootListing(json, windowsFileSystem()) ?: return false
+        val accepted = navigation.accept(json.get("reqid")?.asString, "/", true)
+        pumpListing()
+        if (accepted == null) return true
+        driveState.value = drives
+        _currentPath.value = "/"
+        _fileList.value = drives.map { it.item() }
+        return true
+    }
+
     private fun handleJsonMessage(text: String) {
         try {
             val json = gson.fromJson(text, JsonObject::class.java) ?: return
+            if (acceptWindowsDrives(json)) return
             val action = json.get("action")?.asString ?: ""
             val isDirectoryListing = action == "ls" || action == "dir" ||
                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
 
             if (isDirectoryListing) {
-                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }
+                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }?.let { if (windowsFileSystem()) WindowsDriveSupport.directory(it) else it }
                 var path = responsePath ?: navigation.pending?.path ?: return
 
                 val recursiveTarget = recursiveCopyTargetDir
@@ -738,7 +757,7 @@ class FileSession(
                     if (!hasListing) _statusMessage.value = "No se pudo listar la ruta solicitada; se conserva la ubicación anterior"
                     return
                 }
-                path = acceptedPath
+                path = if (windowsFileSystem()) WindowsDriveSupport.directory(acceptedPath) else acceptedPath
                 _currentPath.value = path
 
                 val items = mutableListOf<FileItem>()
@@ -1697,7 +1716,7 @@ class FileSession(
     @Synchronized
     fun listDirectory(path: String) {
         if (isUserDisconnect) return
-        navigation.request(path)
+        navigation.request(if (windowsFileSystem()) WindowsDriveSupport.directory(path) else path)
         startRecovery()
         pumpListing()
     }
@@ -3024,6 +3043,10 @@ class FileSession(
 }
 
 class FileRelayClient {
+    internal fun getWindowsDrives(mesh: MeshCentralClient, node: String): StateFlow<List<WindowsDriveEntry>> = getSession(mesh, node).windowsDrives
+    internal fun isWindowsFiles(mesh: MeshCentralClient, node: String): Boolean = getSession(mesh, node).windowsFileSystem()
+    internal fun reportDriveStatus(mesh: MeshCentralClient, node: String, message: String) { getSession(mesh, node).driveStatus(message) }
+
 
     companion object {
         var activeInstance: FileRelayClient? = null
