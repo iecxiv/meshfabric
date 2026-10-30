@@ -1,0 +1,70 @@
+name: Validate and publish explicit desktop soft keyboard
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-desktop-explicit-keyboard.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-desktop-explicit-keyboard-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Gate editable input behind explicit keyboard state
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p = Path('app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt')
+          if subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() != 'bd478d88554a3ed45fd3a03891e1a4526c8a7c2d':
+              raise RuntimeError('RemoteDesktopScreen changed; review patch')
+          s = p.read_text()
+          old = '            BasicTextField(\n                enabled = desktopKeyboardActive,\n                value = softKeyboardTextFieldValue,'
+          new = '            BasicTextField(\n                enabled = desktopKeyboardActive,\n                readOnly = !isSoftKeyboardOpen,\n                value = softKeyboardTextFieldValue,'
+          if s.count(old) != 1:
+              raise RuntimeError('Desktop keyboard field anchor is not unique')
+          s = s.replace(old, new, 1)
+          for guard in ['showKeyboardOnFocus = false', '.desktopKeyEvents(desktopKeyboard)', 'var isSoftKeyboardOpen by remember { mutableStateOf(false) }']:
+              if guard not in s:
+                  raise RuntimeError('Existing keyboard guard changed: ' + guard)
+          p.write_text(s)
+          PY
+          git diff --check
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-explicit-keyboard-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish validated change
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt
+          git commit -m 'fix: keep desktop text input read-only until soft keyboard is requested'
+          git push origin HEAD:dev
