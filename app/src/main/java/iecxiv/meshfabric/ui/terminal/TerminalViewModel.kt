@@ -75,6 +75,15 @@ class TerminalViewModel(
         terminalClient.sendResize(nodeId, cols, rows)
     }
 
+    internal fun deleteTerminalHistories(nodeId: String, ids: Set<String>) {
+        manualReconnect.removeHistory(nodeId, ids).forEach { archived ->
+            renderers.remove(archived.localSessionId)
+            archived.clearHistory()
+        }
+        // Archive buffer files are keyed by device, not by local record ID.
+        // Do not delete the current session's persisted buffer when removing an archive.
+    }
+
     fun stopSession(nodeId: String) {
         manualReconnect.cancel(nodeId)
         terminalClient.getSession(meshClient, nodeId).disconnectKeepingHistory()

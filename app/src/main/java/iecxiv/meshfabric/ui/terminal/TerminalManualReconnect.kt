@@ -94,6 +94,17 @@ internal class TerminalManualReconnect(
         entry.second.cancel()
         publish(key, ManualReconnectState.CANCELLED)
     }
+    fun removeHistory(node: String, requested: Set<String>): List<TerminalSession> {
+        val key = key(node)
+        val previous = records.value[key].orEmpty()
+        val current = client.getSession(mesh, node)
+        val allowed = terminalHistoryDeletionIds(requested, previous.map { it.localSessionId }.toSet(), current.localSessionId)
+        val removed = previous.filter { it.localSessionId in allowed && !it.isConnected() }
+        val removedIds = removed.map { it.localSessionId }.toSet()
+        if (removedIds.isNotEmpty()) records.value = records.value + (key to previous.filterNot { it.localSessionId in removedIds })
+        return removed
+    }
+
     fun clear() {
         jobs.keys.toList().forEach { cancel(it) }
         records.value = emptyMap()
