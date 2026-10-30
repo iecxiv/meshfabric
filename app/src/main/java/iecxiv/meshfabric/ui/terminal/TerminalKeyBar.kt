@@ -77,7 +77,7 @@ private fun KeyButton(key: TerminalBarKey, enabled: Boolean, onKey: (String) -> 
     }
     BarButton(
         stringResource(key.label), stringResource(key.description), enabled,
-        largeLabel = key.id == "enter" || key.id == "end", arrowRotation = arrow,
+        largeLabel = key.id == "enter", arrowRotation = arrow,
         onClick = { onKey(key.id) }
     )
 }

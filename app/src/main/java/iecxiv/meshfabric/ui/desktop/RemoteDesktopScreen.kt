@@ -145,6 +145,18 @@ fun RemoteDesktopScreen(
 
     val isImeVisible = WindowInsets.isImeVisible
 
+    val desktopKeyboard = remember(nodeId, viewModel) {
+        DesktopKeyboardRouter { key, down -> viewModel.sendDesktopKeyEvent(nodeId, key, down) }
+    }
+    val desktopLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
+    val desktopKeyboardActive = isConnected && !showKeyboardDialog && !showClipboardDialog && !showSettingsDialog &&
+        desktopLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    LaunchedEffect(desktopKeyboard, desktopKeyboardActive) {
+        desktopKeyboard.setActive(desktopKeyboardActive)
+        if (desktopKeyboardActive) focusRequester.requestFocus()
+    }
+    DisposableEffect(desktopKeyboard) { onDispose { desktopKeyboard.setActive(false) } }
+
     LaunchedEffect(isImeVisible) {
         if (!isImeVisible && isSoftKeyboardOpen) {
             isSoftKeyboardOpen = false
@@ -269,6 +281,7 @@ fun RemoteDesktopScreen(
             contentAlignment = Alignment.Center
         ) {
             BasicTextField(
+                enabled = desktopKeyboardActive,
                 value = softKeyboardTextFieldValue,
                 onValueChange = { newValue ->
                     val oldText = softKeyboardTextFieldValue.text
@@ -292,9 +305,11 @@ fun RemoteDesktopScreen(
                 modifier = Modifier
                     .size(1.dp)
                     .alpha(0.01f)
+                    .desktopKeyEvents(desktopKeyboard)
                     .focusRequester(focusRequester),
                 keyboardOptions = KeyboardOptions(
                     imeAction = ImeAction.Send,
+                    showKeyboardOnFocus = false,
                     autoCorrectEnabled = false
                 ),
                 keyboardActions = KeyboardActions(

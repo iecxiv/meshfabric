@@ -53,7 +53,18 @@ class TerminalKeyBarTest {
             compose.onNodeWithTag("terminal-arrow-$rotation", useUnmergedTree = true)
                 .assertWidthIsEqualTo(24.dp).assertHeightIsEqualTo(24.dp)
         }
-        assertLargeText(R.string.terminal_key_end)
+        val homeLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        val endLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        compose.onNodeWithText(context.getString(R.string.terminal_key_home), useUnmergedTree = true)
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(homeLayouts) }
+        compose.onNodeWithText(context.getString(R.string.terminal_key_end), useUnmergedTree = true)
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(endLayouts) }
+        val homeStyle = homeLayouts.single().layoutInput.style
+        val endStyle = endLayouts.single().layoutInput.style
+        assertEquals(homeStyle.fontSize, endStyle.fontSize)
+        assertEquals(homeStyle.lineHeight, endStyle.lineHeight)
+        assertEquals(homeStyle.fontWeight, endStyle.fontWeight)
+        assertFalse(endLayouts.single().didOverflowHeight)
         assertLargeText(R.string.terminal_latest_glyph)
     }
 

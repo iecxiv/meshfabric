@@ -165,6 +165,11 @@ class RemoteDesktopViewModel(
         desktopClient.sendUnicodeText(nodeId, text)
     }
 
+    fun sendDesktopKeyEvent(nodeId: String, keyCode: Int, isDown: Boolean) {
+        if (keyCode !in 1..255) return
+        desktopClient.getSession(meshClient, nodeId).sendKeyEvent(keyCode, isDown)
+    }
+
     fun sendSingleKey(nodeId: String, keyCode: Int) {
         desktopClient.sendSingleKey(nodeId, keyCode)
     }
