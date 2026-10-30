@@ -344,7 +344,7 @@ fun RemoteDesktopScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(nodeId, selectedMode) {
+                            .pointerInput(nodeId, selectedMode, containerWidth, containerHeight, drawWidth, drawHeight) {
                                 if (showClipboardDialog || showKeyboardDialog || showSettingsDialog) return@pointerInput
                                 val touchSlop = viewConfiguration.touchSlop
                                 awaitEachGesture {
