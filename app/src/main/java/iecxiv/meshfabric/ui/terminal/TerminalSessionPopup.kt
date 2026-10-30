@@ -22,7 +22,7 @@ import iecxiv.meshfabric.ui.management.FabricDialog
 import java.text.DateFormat
 import java.util.Date
 
-/** The anchor remains visible; actions and explanatory text live in the popup. */
+/** Primary actions remain accessible without expanding the history menu. */
 @Composable
 internal fun TerminalSessionPopup(
     status: TerminalConnectionStatus,
@@ -61,10 +61,29 @@ internal fun TerminalSessionPopup(
     }
     Box(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp)) {
         Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-            TextButton(onClick = { onExpanded(!expanded) }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.terminal_session_popup_summary, summary, history.size), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                 if (truncated) Icon(Icons.Default.Warning, contentDescription = stringResource(R.string.terminal_retained_truncated), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
-                Icon(Icons.Default.ExpandMore, contentDescription = stringResource(R.string.terminal_session_popup_title))
+                when {
+                    connecting -> TextButton(
+                        onClick = { onExpanded(false); onCancel() },
+                        modifier = Modifier.widthIn(max = 200.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) { Text(stringResource(R.string.terminal_recovery_cancel), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
+                    showingHistory -> TextButton(
+                        onClick = { onExpanded(false); onCurrent() },
+                        modifier = Modifier.widthIn(max = 200.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) { Text(stringResource(R.string.terminal_return_current), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
+                    status == TerminalConnectionStatus.DISCONNECTED -> TextButton(
+                        onClick = { onExpanded(false); onCurrent(); onReconnect() },
+                        modifier = Modifier.widthIn(max = 200.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                    ) { Text(stringResource(R.string.terminal_reconnect_manual), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
+                }
+                IconButton(onClick = { onExpanded(!expanded) }) {
+                    Icon(Icons.Default.ExpandMore, contentDescription = stringResource(R.string.terminal_session_popup_title))
+                }
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpanded(false) }, modifier = Modifier.width(320.dp).heightIn(max = 420.dp)) {
