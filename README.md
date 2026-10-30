@@ -2,12 +2,21 @@
 
 MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and an activity view without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
-This README describes the implementation in the `dev` branch, currently configured as version `1.1.4` with version code `1`. Do not assume that every change described here is already present in `main` or in a published release APK. Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
+This README describes the implementation in the `dev` branch, currently configured as version `1.1.5` with version code `1`. Do not assume that every change described here is already present in `main` or in a published release APK. Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
 
-## Version 1.1.4 (dev)
+## Version 1.1.5 (dev)
+
+- Compact terminal header with a History button between A+ and the keyboard icon. The button opens the history panel expanded or hides it, and its color reflects panel visibility.
+- An involuntary terminal disconnection shows the panel collapsed. Its own arrow expands or collapses the history list within the same full-width themed surface. Reconnect, Return to current terminal, and Cancel remain primary header actions rather than duplicate list entries.
+- Closing a terminal archives its output, removes the current-session highlight, and returns to Devices. Previous histories can be deleted individually or together with confirmation using the app's standard dialog.
+- Save terminal buffers controls archive persistence and active-output checkpoints. Task removal archives current terminal records; restart restores saved records as read-only histories, not current sessions or automatic reconnections.
+- Tapping the keep-alive notification returns to the app through an explicit immutable activity PendingIntent, without task-clearing flags.
+- Desktop gesture capture now refreshes when viewport or fitted-image dimensions change, addressing stale click geometry after rotation with zoom. Device verification of the reported rotation issue remains required.
+
+## Version 1.1.4
 
 - Manual terminal reconnection with a separate candidate connection, cancellation, and a total 30-second deadline. Failed attempts leave the previous history intact.
-- A persistent disconnected/read-only notice outside the terminal output, with input, paste, remote keys, and keyboard requests blocked while disconnected.
+- A disconnected/read-only notice outside the terminal output, with input, paste, remote keys, and keyboard requests blocked while disconnected.
 - Successful reconnection opens a new local session record and keeps previous history separately available in read-only mode. No automatic command replay or guarantee of remote-process continuity.
 - Reconnection labels and messages use Android string resources, with English default resources and explicit English and Spanish translations.
 - Automatic terminal reconnection and advanced visual-state restoration remain out of scope.
@@ -29,6 +38,7 @@ This README describes the implementation in the `dev` branch, currently configur
 - Configurable quality, scale, frame rate, and encoding settings.
 - Clipboard controls and optional clipboard synchronization, subject to remote-session and server restrictions.
 - Settings for mouse-button swapping, wheel direction, remote keyboard mapping, and locking on disconnect.
+- Gesture capture is renewed when viewport or fitted-image dimensions change, so the handler no longer retains pre-rotation geometry. The rotation fix does not change zoom, pan sensitivity, or image decoding; test clicks, long presses, and scroll after rotating on the intended device.
 
 #### Software and physical keyboard input
 
@@ -51,6 +61,15 @@ See [Desktop keyboard input](docs/desktop-keyboard-input.md).
 - App-originated terminal focus requests are blocked while menus or dialogs own input. Closing them restores terminal focus without automatically reopening the keyboard.
 - Stale focus requests are cancelled across window-focus loss, backgrounding, detachment, and destruction.
 - Editor flags request that compatible IMEs avoid fullscreen/extract editing and personalized learning. IMEs may ignore these requests.
+
+#### History panel
+
+- The History icon sits between A+ and the keyboard icon. Terminal header controls use compact 36 dp layouts.
+- Pressing History with the panel hidden shows it expanded; pressing it while visible hides the entire panel. The icon is colored only while the panel is visible and does not own a separate dropdown.
+- An involuntary disconnection of an established terminal connection shows the panel collapsed, once per incident. Restoring saved history or explicitly closing with X does not trigger this automatic presentation.
+- The panel's own arrow expands or collapses its contents. Header and contents share one full-width surface, background, and rounded border.
+- Reconnect, Return to current terminal, or Cancel appear in the panel header according to state, without duplicate entries in the expanded list.
+- Previous histories can be opened read-only and deleted individually or together. Deletion requires confirmation through the standard app dialog and excludes the current session.
 
 #### Selection and copying
 
@@ -91,21 +110,25 @@ While touch-scroll pass-through is active, direct canvas selection and canvas li
 
 #### Disconnection and manual reconnection
 
-- A network change, tunnel failure, or the terminal screen's disconnect action closes the transport without clearing the current history or deliberately resetting the retained view's scroll position. The disconnect action now keeps the terminal screen open.
-- A persistent interface notice states that the terminal is disconnected and its history is retained. It is not injected into the remote output. Scrolling and copying remain available; typing, paste, remote keys, and keyboard requests are blocked.
+- A network change or tunnel failure closes the transport without clearing current history or deliberately resetting the retained view's scroll position. The view stays available for reading and copying.
+- The history panel reports disconnected/read-only state outside the remote output. Typing, paste, remote keys, and keyboard requests remain blocked while disconnected, even if the panel is manually hidden.
 - Reconnect allows one candidate attempt per device, with cancellation and a total 30-second deadline covering control-channel readiness and terminal negotiation. Opening a WebSocket alone does not count as a successful terminal connection.
 - Failure, timeout, or cancellation closes the candidate and leaves the previous session record and output intact. There are no automatic terminal retries and no queued commands to resend.
-- After successful negotiation, a new independent terminal session becomes current. Previous history remains accessible through a read-only history picker; its output journal and callbacks are not reused by the new session. A clear-screen sequence from the new session cannot clear the previous history.
+- After successful negotiation, a new independent terminal session becomes current. Previous history remains separately available; its output journal and callbacks are not reused by the new session. A clear-screen sequence from the new session cannot clear previous history.
+- The red X explicitly closes and archives the current terminal, cancels pending reconnection, and returns to Devices. The device's Terminal button returns to its normal unstarted appearance. Back navigation alone does not explicitly close the session.
 - Reconnection does not establish that the original remote process survived or resumed. Shells and full-screen applications such as nano are not guaranteed to continue. Recreate view is a different action and does not reconnect the transport.
 
 #### History, renderer retention, and recovery
 
-- Closing a terminal archives its output without leaving a current-session highlight. Archives remain in memory; when Save terminal buffers is enabled, closed records and active-output checkpoints are persisted and restored as read-only histories. Disabling the setting removes saved history files. See [Terminal archive persistence](docs/terminal-archive-persistence.md) for lifecycle, migration, and recovery limits.
+- Closing a terminal, including closing all current sessions, archives its record without leaving a current-session highlight. Archives are separate from the current-session registry.
+- With Save terminal buffers enabled, closed records and active-output checkpoints are persisted per server/account and restored as read-only histories. Output checkpoints are throttled to approximately one second, with additional saving on activity stop and archival through the recent-task-removal callback. Abrupt termination can still lose output not yet written.
+- With the setting disabled, archives remain in memory only. Disabling it removes saved archive and legacy buffer files. Deleting an archive also deletes its saved file so it does not reappear after restart.
+- See [Terminal archive persistence](docs/terminal-archive-persistence.md) for storage, account separation, legacy migration, and recovery limits. Persisted output does not recreate a live terminal connection.
 - Retained renderers preserve local state across navigation while they remain cached. The existing cache retains up to four renderers, without evicting attached views. An evicted renderer may be recreated from the available output journal, not from a full VT snapshot.
 - Truncated retained history is identified explicitly. Rebuilding an initial disconnected view may read from the oldest output still available; this is best-effort history replay, not restoration of missing output or complete terminal visual state.
 - Live output delivery keeps strict gap detection, including its initial read. Continuing from an evicted or invalidated cursor does not silently skip missing output.
 - Renderer loss and foreground parser-acknowledgement timeouts have an explicit, confirmed Recreate view action. Recreating a view does not restart the remote shell and may require full-screen applications to redraw.
-- The terminal screen's disconnect action preserves history; explicit session reset/removal paths can still clear buffers. Retained history does not prove that a tunnel is connected or that the original remote process has resumed. Process death does not preserve the WebView.
+- Retained history does not prove that a tunnel is connected or that the original remote process has resumed. Process death does not preserve the WebView.
 
 Implementation notes:
 
@@ -118,6 +141,7 @@ Implementation notes:
 - [Renderer retention](docs/terminal-renderer-retention.md)
 - [ACK watchdog and view recovery](docs/terminal-ack-recovery.md)
 - [Manual reconnection and retained history](docs/terminal-manual-reconnect.md)
+- [Archive persistence](docs/terminal-archive-persistence.md)
 
 ### File manager and text editor
 
@@ -153,11 +177,17 @@ A request being sent or accepted is not the same as an action being executed. Me
 - Inspect request identifiers, actor information, timestamps, and result details when available.
 - The current activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.
 
+### Background sessions and notification
+
+- A keep-alive foreground-service notification is used while the app is in the background with sessions that need it.
+- Tapping the notification requests a return to MainActivity through an explicit immutable activity PendingIntent. It does not use task-clearing flags or explicitly request a terminal disconnect/restart.
+- Returning to the foreground follows the app's existing lifecycle behavior. A dead process still requires normal app startup; the notification does not guarantee recovery of an earlier live remote session.
+
 ### Appearance and language resources
 
 - Material 3 interface with system, light, and dark theme modes.
 - Custom app display name and icon, plus a setting to hide the settings icon.
-- English and Spanish Android resource files are provided, including the terminal controls. All nine new manual-reconnection labels and messages are string resources in `values`, `values-en`, and `values-es`; the reused Cancel action is also translated.
+- English and Spanish Android resource files are provided, including terminal reconnection, history-panel, deletion, close, and history-header controls.
 - Localization is not complete: some native management, activity, desktop, and feedback messages remain hard-coded in Spanish. Resource-key coverage is not proof that every visible phrase has been externalized or translated.
 
 The current localization inventory and its limitations are documented in [docs/i18n](docs/i18n/README.md).
@@ -172,7 +202,7 @@ The current `dev` configuration declares:
 
 | Setting | Value |
 | --- | --- |
-| App version name | `1.1.4` |
+| App version name | `1.1.5` |
 | App version code | `1` |
 | Minimum SDK | `26` |
 | Compile SDK | `35` |
@@ -228,9 +258,13 @@ Build and run Android instrumentation tests with a connected device or running e
 ./gradlew :app:assembleDebugAndroidTest :app:connectedDebugAndroidTest
 ```
 
-Verification includes key mapping/modifier state, Compose input dispatch and key-bar checks, bundled-xterm echo/copy/paste behavior, terminal focus/IME handling, and touchscreen scrolling. Manual reconnection adds unit coverage for attempt ownership, stale completions, and the separation between strict live reads and explicit retained-history replay. These unit tests are not end-to-end socket or Android UI reconnection tests. Some feature changes use CI publication workflows; a workflow commit is not itself the functional change.
+Verification includes key mapping/modifier state, Compose input dispatch and key-bar checks, bundled-xterm echo/copy/paste behavior, terminal focus/IME handling, and touchscreen scrolling. Unit coverage also includes terminal attempt ownership, stale completions, strict live reads versus explicit history replay, panel-opening policy, and archive storage behavior.
 
-Passing automated tests does not establish universal compatibility with Hacker's Keyboard, every physical keyboard, every IME, all Android versions, or all Windows/Linux hosts. Test real typing, shortcuts, locale/accents, composition, repeats, focus changes, reconnection, font scaling, and landscape/keyboard layouts on the intended devices. Check the outcome of the specific CI run rather than assuming a task commit already contains the functional change.
+History-panel instrumentation tests cover hidden content, duplicate primary-action labels, and expansion through the panel arrow. Compiling these tests does not mean they were executed on a device. Existing JVM tests and a successful debug build do not by themselves verify the reported zoom/rotation click issue or the notification tap behavior on a physical device.
+
+Some feature changes use CI publication workflows; a workflow commit is not itself the functional change. Check that the functional commit was published and inspect the outcome of its specific validation run.
+
+Passing automated tests does not establish universal compatibility with Hacker's Keyboard, every physical keyboard, every IME, all Android versions, or all Windows/Linux hosts. Test real typing, shortcuts, locale/accents, composition, repeats, focus changes, reconnection, font scaling, and landscape/keyboard layouts on the intended devices.
 
 ## Technology
 
@@ -244,7 +278,7 @@ Passing automated tests does not establish universal compatibility with Hacker's
 
 - Remembered session data includes the server URL, username, and authentication cookie. The session persistence code does not save the login password.
 - Session preferences use `EncryptedSharedPreferences` with an Android KeyStore-backed master key when available. The current implementation falls back to ordinary app-private `SharedPreferences` if encrypted initialization fails; do not assume that remembered session data is always encrypted.
-- Saved terminal buffers are text files in app-internal storage and are not encrypted by the buffer implementation. They may contain sensitive command output; buffer persistence can be disabled in settings.
+- Saved terminal output is not encrypted. Archive records use JSON files in app-private no-backup storage, separated by hashed server/account keys. Disabling Save terminal buffers removes saved archives and legacy buffer files; history can remain in memory for the current execution. See [Terminal archive persistence](docs/terminal-archive-persistence.md).
 - Terminal copying marks clipboard content as sensitive to suppress supported Android clipboard previews. This is not clipboard encryption or a guarantee against other authorized readers.
 - Treat clipboard data, retained output, and diagnostic logs as potentially sensitive. Do not assume that every diagnostic path has been audited for content disclosure.
 - The option to ignore SSL certificate errors weakens certificate verification. Prefer a trusted server certificate and leave this option disabled outside controlled environments.
@@ -265,7 +299,7 @@ The following items are not presented as completed features:
 - Multi-file selection and bulk file operations.
 - Automatic terminal reconnection, advanced terminal-state restoration, and broader reconnection validation. Retained output does not restore or prove continuity of the original remote process.
 - Completion of English/Spanish localization for native management features.
-- Broader real-device desktop keyboard, layout, AltGr, and IME compatibility validation.
+- Broader real-device desktop keyboard, layout, AltGr, IME, rotation/zoom, and notification-navigation validation.
 
 ## License
 
