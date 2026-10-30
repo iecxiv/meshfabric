@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="device_disconnect_active_sessions">Desconectar sesiones activas</string>
+    <string name="device_disconnect_active_sessions">Desconectar</string>
 </resources>
