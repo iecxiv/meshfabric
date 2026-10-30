@@ -1,0 +1,163 @@
+name: Validate and publish Windows file drives
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-windows-file-drives.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-windows-file-drives-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Integrate Windows drive selector and navigation
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, re
+          root=Path('app/src/main/java/iecxiv/meshfabric')
+          expected={'data/remote/FileRelayClient.kt':'d66d6cdcddf40f500bb644bde30caf9ae63fbd24','ui/files/FileManagerScreen.kt':'b6b0ef8b166dbc7c0c6445991f019eb861aaa35b','ui/files/FileManagerViewModel.kt':'8a5d3105bd89de6e9c1de984ad8982bb995b55f7','data/remote/FileNavigationState.kt':'f1ab3c61b73ba3c1949de1b6dd1957b3571bd876'}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(root/name)],text=True).strip()!=sha: raise RuntimeError('Base changed: '+name)
+          def change(path,old,new):
+              p=Path(path); s=p.read_text()
+              if s.count(old)!=1: raise RuntimeError('Unexpected anchor in '+str(path)+': '+repr(old))
+              p.write_text(s.replace(old,new,1))
+          def create(path,text):
+              p=Path(path)
+              if p.exists(): raise RuntimeError('Refusing to overwrite '+str(path))
+              p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text)
+          p=root/'data/remote/FileRelayClient.kt'
+          change(p,'    private val navigation = FileNavigationState()',"""    private val navigation = FileNavigationState()
+              private val driveState = MutableStateFlow<List<WindowsDriveEntry>>(emptyList())
+              internal val windowsDrives: StateFlow<List<WindowsDriveEntry>> = driveState.asStateFlow()
+              internal fun windowsFileSystem(): Boolean = driveState.value.isNotEmpty() || meshClient.groupedDevices.value.any { (_, nodes) ->
+                  nodes.any { it.id.removePrefix("node//").removePrefix("node/").trim() == cleanNodeId && it.osdesc?.contains("Windows", ignoreCase = true) == true }
+              }
+              internal fun driveStatus(message: String) { _statusMessage.value = message }
+          """)
+          change(p,'            addProperty("path", request.path)','            addProperty("path", WindowsDriveSupport.wire(request.path, windowsFileSystem()))')
+          change(p,'        navigation.request(path)','        navigation.request(if (windowsFileSystem()) WindowsDriveSupport.directory(path) else path)')
+          change(p,'                path = acceptedPath','                path = if (windowsFileSystem()) WindowsDriveSupport.directory(acceptedPath) else acceptedPath')
+          change(p,'                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }','                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }?.let { if (windowsFileSystem()) WindowsDriveSupport.directory(it) else it }')
+          change(p,'    private fun handleJsonMessage(text: String) {',"""    private fun acceptWindowsDrives(json: JsonObject): Boolean {
+                  val drives = WindowsDriveSupport.rootListing(json, windowsFileSystem()) ?: return false
+                  val accepted = navigation.accept(json.get("reqid")?.asString, "/", true)
+                  pumpListing()
+                  if (accepted == null) return true
+                  driveState.value = drives
+                  _currentPath.value = "/"
+                  _fileList.value = drives.map { it.item() }
+                  return true
+              }
+
+              private fun handleJsonMessage(text: String) {""")
+          change(p,'    private fun handleJsonMessage(text: String) {\n        try {\n            val json = gson.fromJson(text, JsonObject::class.java) ?: return','    private fun handleJsonMessage(text: String) {\n        try {\n            val json = gson.fromJson(text, JsonObject::class.java) ?: return\n            if (acceptWindowsDrives(json)) return')
+          change(p,'class FileRelayClient {',"""class FileRelayClient {
+              internal fun getWindowsDrives(mesh: MeshCentralClient, node: String): StateFlow<List<WindowsDriveEntry>> = getSession(mesh, node).windowsDrives
+              internal fun isWindowsFiles(mesh: MeshCentralClient, node: String): Boolean = getSession(mesh, node).windowsFileSystem()
+              internal fun reportDriveStatus(mesh: MeshCentralClient, node: String, message: String) { getSession(mesh, node).driveStatus(message) }
+          """)
+          p=root/'ui/files/FileManagerViewModel.kt'
+          change(p,'    fun startSession(nodeId: String) {',"""    internal fun drives(nodeId: String) = fileClient.getWindowsDrives(meshClient, nodeId)
+              internal fun isWindowsFiles(nodeId: String) = fileClient.isWindowsFiles(meshClient, nodeId)
+              private fun roots(nodeId: String) = drives(nodeId).value.map { it.path }
+              private fun allowLocation(nodeId: String): Boolean {
+                  if (!isWindowsFiles(nodeId) || !iecxiv.meshfabric.data.remote.WindowsDriveSupport.selector(currentPath(nodeId).value)) return true
+                  fileClient.reportDriveStatus(meshClient, nodeId, iecxiv.meshfabric.MeshFabricApp.instance.getString(iecxiv.meshfabric.R.string.files_choose_drive))
+                  return false
+              }
+              private fun allowItem(nodeId: String, item: FileItem): Boolean {
+                  if (!isWindowsFiles(nodeId) || !iecxiv.meshfabric.data.remote.WindowsDriveSupport.protectedRoot(item.path, roots(nodeId))) return true
+                  fileClient.reportDriveStatus(meshClient, nodeId, iecxiv.meshfabric.MeshFabricApp.instance.getString(iecxiv.meshfabric.R.string.files_drive_navigation_only))
+                  return false
+              }
+
+              fun startSession(nodeId: String) {""")
+          s=p.read_text();a=s.index('    fun navigateUp(nodeId: String) {');b=s.index('    fun createFolder(',a)
+          s=s[:a]+"""    fun navigateUp(nodeId: String) {
+                  fileClient.listDirectory(nodeId, iecxiv.meshfabric.data.remote.WindowsDriveSupport.parent(currentPath(nodeId).value, isWindowsFiles(nodeId), roots(nodeId)))
+              }
+
+          """+s[b:]
+          for name in ['createFolder','createFile','uploadRawFile','uploadUri','pasteItem']:
+              pattern=r'(    fun '+name+r'\([^{}]*?\)\s*\{\n)'
+              s,n=re.subn(pattern,lambda m:m[0]+'        if (!allowLocation(nodeId)) return\n',s,count=1)
+              if n!=1: raise RuntimeError('Missing write-location guard: '+name)
+          for name in ['downloadFileToDownloads','readFileContent','copyItem','cutItem','compressZip','decompressZip','openOnRemoteDevice','deleteItem','renameItem']:
+              pattern=r'(    fun '+name+r'\([^{}]*?\)\s*\{\n)'
+              s,n=re.subn(pattern,lambda m:m[0]+'        if (!allowItem(nodeId, item)) return\n',s,count=1)
+              if n!=1: raise RuntimeError('Missing drive-item guard: '+name)
+          p.write_text(s)
+          p=root/'ui/files/FileManagerScreen.kt'
+          change(p,'import androidx.compose.material.icons.filled.Search','import androidx.compose.material.icons.filled.Storage\nimport androidx.compose.material.icons.filled.Search')
+          change(p,'    val currentPath by viewModel.currentPath(nodeId).collectAsState()',"""    val currentPath by viewModel.currentPath(nodeId).collectAsState()
+              val driveEntries by viewModel.drives(nodeId).collectAsState()
+              val windowsFiles = viewModel.isWindowsFiles(nodeId)
+              val driveSelector = windowsFiles && iecxiv.meshfabric.data.remote.WindowsDriveSupport.selector(currentPath)
+          """)
+          change(p,'                    IconButton(\n                        onClick = { viewModel.refresh(nodeId) },',"""                    if (windowsFiles) IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {
+                                  Icon(Icons.Default.Storage, contentDescription = stringResource(R.string.files_drives), tint = if (driveSelector) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                              }
+                              IconButton(
+                                  onClick = { viewModel.refresh(nodeId) },""")
+          s=p.read_text()
+          pattern=r'items\(\s*(?:items\s*=\s*)?filteredList\s*(?:,\s*key\s*=\s*\{[^}]*\})?\s*\)\s*\{\s*item\s*->'
+          matches=list(re.finditer(pattern,s))
+          if len(matches)!=1: raise RuntimeError('Review file-list item lambda before integrating drive row')
+          m=matches[0]
+          s=s[:m.end()]+"""
+                                      val drive = if (driveSelector) driveEntries.firstOrNull { it.path == item.path } else null
+                                      if (drive != null) {
+                                          WindowsDriveRow(drive) { viewModel.openDirectory(nodeId, drive.path) }
+                                          return@items
+                                      }
+          """+s[m.end():]
+          for key in ['new_folder','new_text_file','upload_file']:
+              old='text = { Text(stringResource(R.string.'+key+')) },'
+              count=s.count(old)
+              if count<1 or count>4: raise RuntimeError('Review creation-menu entries: '+key)
+              s=s.replace(old,old+'\n                                            enabled = !driveSelector,')
+          p.write_text(s)
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-file-drives-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish functional commit only if dev is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/WindowsDriveSupport.kt app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt app/src/main/java/iecxiv/meshfabric/ui/files/WindowsDriveRow.kt app/src/main/res/values/files_drives.xml app/src/main/res/values-en/files_drives.xml app/src/main/res/values-es/files_drives.xml app/src/test/java/iecxiv/meshfabric/data/remote/WindowsDriveSupportTest.kt docs/windows-file-drives.md
+          git commit -m 'feat: show Windows drives in file manager and navigate volume roots'
+          git push origin HEAD:dev

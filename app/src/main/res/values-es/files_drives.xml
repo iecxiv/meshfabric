@@ -1,0 +1,7 @@
+<resources>
+    <string name="files_drives">Unidades</string>
+    <string name="files_choose_drive">Selecciona una unidad antes de crear, subir o pegar archivos.</string>
+    <string name="files_drive_navigation_only">Las unidades son accesos de navegación y no se pueden modificar aquí.</string>
+    <string name="files_drive_capacity">Capacidad: %1$s</string>
+    <string name="files_drive_free_total">%1$s libres de %2$s</string>
+</resources>

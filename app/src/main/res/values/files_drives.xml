@@ -1,0 +1,7 @@
+<resources>
+    <string name="files_drives">Drives</string>
+    <string name="files_choose_drive">Choose a drive before creating, uploading or pasting files.</string>
+    <string name="files_drive_navigation_only">Drive entries are navigation targets and cannot be modified here.</string>
+    <string name="files_drive_capacity">Capacity: %1$s</string>
+    <string name="files_drive_free_total">%1$s free of %2$s</string>
+</resources>
