@@ -1397,7 +1397,7 @@ class FileSession(
             )
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
-                .setSmallIcon(R.drawable.ic_stat_remote)
+                .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setContentTitle("Descargando $fileName")
                 .setContentText("${formatSize(received)} / ${formatSize(total)} ($progressPercent%)")
                 .setProgress(100, progressPercent, total <= 0)
@@ -1446,7 +1446,7 @@ class FileSession(
             )
 
             val builder = NotificationCompat.Builder(context, "file_downloads")
-                .setSmallIcon(R.drawable.ic_stat_remote)
+                .setSmallIcon(android.R.drawable.stat_sys_upload)
                 .setContentTitle("Subiendo $fileName")
                 .setContentText("${formatSize(sent)} / ${formatSize(total)} ($progressPercent%)")
                 .setProgress(100, progressPercent, total <= 0)
