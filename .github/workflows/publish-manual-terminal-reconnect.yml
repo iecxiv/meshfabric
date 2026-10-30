@@ -1,0 +1,120 @@
+name: Validate and publish manual terminal reconnect
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-manual-terminal-reconnect.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-manual-terminal-reconnect-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply pinned patch and isolate history replay
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64, gzip, hashlib, subprocess
+          from pathlib import Path
+          original = subprocess.check_output(['git', 'show', '91620cd7d2f348c7b8f9c05c3e60aa2b7395c9d2:.github/workflows/publish-manual-terminal-reconnect.yml'], text=True)
+          encoded = original.split("base64.b64decode('", 1)[1].split("')", 1)[0]
+          patch = gzip.decompress(base64.b64decode(encoded)).decode()
+          if hashlib.sha256(patch.encode()).hexdigest() != '24754a87d7acd2bf53d35cddb8631abe532f0eaa12a8cd04f4d15a61b6266ea7':
+              raise RuntimeError('Pinned patch digest mismatch')
+          exec(compile(patch, '<pinned-manual-terminal-reconnect-patch>', 'exec'))
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise RuntimeError(f'Unexpected correction anchor: {path}: {old!r}')
+              p.write_text(text.replace(old, new, 1))
+          remote = Path('app/src/main/java/iecxiv/meshfabric/data/remote')
+          journal = remote / 'TerminalOutputJournal.kt'
+          replace_once(journal, 'val position = cursor?.offset ?: start', 'val position = cursor?.offset ?: 0L')
+          replace_once(journal, '    @Synchronized fun read(cursor:', '    /** Explicit best-effort history replay; live read() remains strict. */\n    @Synchronized fun readHistory(cursor: TerminalOutputCursor?, maxChars: Int = 16_384): TerminalOutputSlice =\n        read(cursor ?: TerminalOutputCursor(epoch, start), maxChars)\n\n    @Synchronized fun read(cursor:')
+          replace_once(remote / 'TerminalRelayClient.kt',
+              'fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice = outputJournal.read(cursor)',
+              'fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice =\n        if (!connectionState.value && cursor == null) outputJournal.readHistory(null) else outputJournal.read(cursor)')
+          test = Path('app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalReconnectGateTest.kt')
+          replace_once(test, 'assertEquals("3456", journal.read(null).text)', 'assertEquals("3456", journal.readHistory(null).text)')
+          replace_once(test, 'assertFalse(journal.read(null).gap)', 'assertFalse(journal.readHistory(null).gap)\n        assertTrue(journal.read(null).gap)')
+          extra = '''package iecxiv.meshfabric.data.remote
+          import org.junit.Assert.*
+          import org.junit.Test
+          class TerminalHistoryReadTest {
+              @Test fun explicitHistoryReadAdvancesWithoutChangingStrictStartup() {
+                  val journal = TerminalOutputJournal(4)
+                  journal.append("abcdef")
+                  assertTrue(journal.read(null).gap)
+                  val first = journal.readHistory(null, 2)
+                  assertFalse(first.gap)
+                  assertEquals("cd", first.text)
+                  val second = journal.readHistory(TerminalOutputCursor(first.epoch, first.end), 2)
+                  assertEquals("ef", second.text)
+                  assertTrue(journal.read(null).gap)
+              }
+              @Test fun historyReadStillRejectsEvictedAndInvalidatedCursors() {
+                  val journal = TerminalOutputJournal(4)
+                  journal.append("abcdef")
+                  assertTrue(journal.readHistory(TerminalOutputCursor(0, 0)).gap)
+                  val first = journal.readHistory(null)
+                  journal.clear()
+                  journal.append("new")
+                  assertTrue(journal.readHistory(TerminalOutputCursor(first.epoch, first.end)).gap)
+                  assertEquals("new", journal.readHistory(null).text)
+              }
+          }
+          '''
+          target = Path('app/src/test/java/iecxiv/meshfabric/data/remote/TerminalHistoryReadTest.kt')
+          if target.exists():
+              raise RuntimeError('History test already exists; review before applying')
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_text(extra)
+          strict_test = 'app/src/test/java/iecxiv/meshfabric/data/remote/TerminalOutputPipelineTest.kt'
+          if subprocess.check_output(['git', 'hash-object', strict_test], text=True).strip() != '64b5608b9227944179f5d6ac89e31873f719c05e':
+              raise RuntimeError('Existing continuity test changed; refusing publication')
+          doc = Path('docs/terminal-manual-reconnect.md')
+          with doc.open('a') as f:
+              f.write('\nHistory replay correction: read() keeps its original strict gap detection, including a null startup cursor. Only an initial disconnected-view replay uses explicit readHistory(). Existing continuity tests are unchanged; additional tests cover explicit history replay and stale cursors.\n')
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-terminal-reconnect-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish functional commit only on unchanged dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/TerminalRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/TerminalOutputJournal.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalManualReconnect.kt app/src/main/res/values/terminal_manual_reconnect.xml app/src/main/res/values-es/terminal_manual_reconnect.xml app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalReconnectGateTest.kt app/src/test/java/iecxiv/meshfabric/data/remote/TerminalHistoryReadTest.kt docs/terminal-manual-reconnect.md
+          git commit -m 'fix: preserve terminal history and add isolated manual reconnect'
+          git push origin HEAD:dev

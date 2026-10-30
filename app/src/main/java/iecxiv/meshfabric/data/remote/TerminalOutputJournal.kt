@@ -36,6 +36,10 @@ internal class TerminalOutputJournal(private val capacity: Int = 1_048_576) {
         changed.value++
     }
 
+    /** Explicit best-effort history replay; live read() remains strict. */
+    @Synchronized fun readHistory(cursor: TerminalOutputCursor?, maxChars: Int = 16_384): TerminalOutputSlice =
+        read(cursor ?: TerminalOutputCursor(epoch, start), maxChars)
+
     @Synchronized fun read(cursor: TerminalOutputCursor?, maxChars: Int = 16_384): TerminalOutputSlice {
         require(maxChars >= 2)
         val position = cursor?.offset ?: 0L

@@ -13,13 +13,18 @@ class TerminalViewModel(
     val terminalClient: TerminalRelayClient
 ) : ViewModel() {
 
+    internal val manualReconnect = TerminalManualReconnect(meshClient, terminalClient, viewModelScope)
+
     private val renderers = RetainedTerminalStore<String, TerminalRenderSession>(
         limit = 4, attached = { it.isAttached }, dispose = { it.destroy() }
     )
 
     internal fun renderTerminal(context: android.content.Context, nodeId: String): TerminalRenderSession {
         val session = terminalClient.getSession(meshClient, nodeId)
-        return renderers.acquire(session.cleanNodeId, { it.session === session && !it.isDestroyed }) {
+        return renderSession(context, session)
+    }
+    internal fun renderSession(context: android.content.Context, session: iecxiv.meshfabric.data.remote.TerminalSession): TerminalRenderSession {
+        return renderers.acquire(session.localSessionId, { it.session === session && !it.isDestroyed }) {
             TerminalRenderSession(context.applicationContext, session, viewModelScope)
         }
     }
@@ -31,9 +36,9 @@ class TerminalViewModel(
         renderer.releaseParent(parent)
         renderers.trim()
     }
-    fun clearRendering() { renderers.clear() }
+    fun clearRendering() { manualReconnect.clear(); renderers.clear() }
     internal fun resetRenderer(expected: TerminalRenderSession): Boolean =
-        renderers.removeIf(expected.session.cleanNodeId, expected)
+        renderers.removeIf(expected.session.localSessionId, expected)
 
     fun isConnected(nodeId: String): StateFlow<Boolean> {
         return terminalClient.getSession(meshClient, nodeId).connectionState
@@ -71,8 +76,9 @@ class TerminalViewModel(
     }
 
     fun stopSession(nodeId: String) {
-        renderers.remove(terminalClient.getSession(meshClient, nodeId).cleanNodeId)
-        terminalClient.disconnectSession(nodeId)
+        manualReconnect.cancel(nodeId)
+        terminalClient.getSession(meshClient, nodeId).disconnectKeepingHistory()
+        terminalClient.updateSessionsStatus()
     }
 
     override fun onCleared() {

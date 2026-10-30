@@ -1,0 +1,11 @@
+<resources>
+    <string name="terminal_history_readonly">Historial anterior — solo lectura.</string>
+    <string name="terminal_reconnect_pending">Reconectando… Entrada deshabilitada.</string>
+    <string name="terminal_disconnected_retained">Desconectada — historial conservado. No se puede enviar entrada.</string>
+    <string name="terminal_reconnect_failed">La conexión ha fallado o ha agotado el plazo. El historial permanece intacto.</string>
+    <string name="terminal_new_session_connected">Nueva sesión conectada. El historial anterior permanece disponible.</string>
+    <string name="terminal_retained_truncated">Se conserva únicamente el historial más reciente.</string>
+    <string name="terminal_reconnect_manual">Reconectar</string>
+    <string name="terminal_return_current">Volver a la terminal actual</string>
+    <string name="terminal_previous_history">Historial anterior</string>
+</resources>

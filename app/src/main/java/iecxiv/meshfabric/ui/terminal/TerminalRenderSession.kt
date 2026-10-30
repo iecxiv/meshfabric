@@ -50,6 +50,7 @@ internal class TerminalRenderSession(
             else post { applyPendingFocus() }
         }
         override fun onCreateInputConnection(info: android.view.inputmethod.EditorInfo): android.view.inputmethod.InputConnection? {
+            if (!session.connectionState.value) return null
             val connection = super.onCreateInputConnection(info)
             info.imeOptions = info.imeOptions or android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or
                 android.view.inputmethod.EditorInfo.IME_FLAG_NO_FULLSCREEN or
@@ -57,6 +58,7 @@ internal class TerminalRenderSession(
             return connection
         }
     }
+    private var connectionJob: Job? = null
     private var outputJob: Job? = null
     private val watchdogScope = scope
     private val ackWatchdog = TerminalAckWatchdog()
@@ -97,6 +99,14 @@ internal class TerminalRenderSession(
         outputJob = scope.launch {
             session.outputRevision.collect {
                 if (session.isUserDisconnect) destroy() else pump()
+            }
+        }
+        connectionJob = scope.launch {
+            session.connectionState.collect { connected ->
+                if (!isDestroyed) {
+                    if (ready) webView.evaluateJavascript("window.setTerminalInputEnabled($connected);", null)
+                    if (!connected) { focusRequests.cancel(); hideIme() }
+                }
             }
         }
         webView.loadUrl("file:///android_asset/terminal/terminal.html")
@@ -213,7 +223,7 @@ internal class TerminalRenderSession(
         if (ready) webView.evaluateJavascript("window.setFontSize($fontSize);", null)
     }
     private fun focusAllowed(): Boolean = !isDestroyed && ready && isAttached && resumed &&
-        !focusBlocked && failure.value == null
+        !focusBlocked && failure.value == null && session.connectionState.value
 
     private fun hideIme() {
         val token = webView.windowToken ?: return
@@ -313,6 +323,8 @@ internal class TerminalRenderSession(
         ackJob?.cancel()
         ackJob = null
         ready = false
+        connectionJob?.cancel()
+        connectionJob = null
         outputJob?.cancel()
         outputJob = null
         readyGate.invalidate()
@@ -338,6 +350,7 @@ internal class TerminalRenderSession(
             webView.post {
                 if (!isDestroyed && readyGate.accept(page)) {
                     ready = true
+                    webView.evaluateJavascript("window.setTerminalInputEnabled(${session.connectionState.value});", null)
                     delivery.attach(page)
                     webView.evaluateJavascript("window.setFontSize($fontSize);", null)
                     pump()

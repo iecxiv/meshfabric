@@ -1,0 +1,11 @@
+<resources>
+    <string name="terminal_history_readonly">Previous history — read only.</string>
+    <string name="terminal_reconnect_pending">Reconnecting… Input disabled.</string>
+    <string name="terminal_disconnected_retained">Disconnected — history retained. Input disabled.</string>
+    <string name="terminal_reconnect_failed">Connection failed or timed out. History is unchanged.</string>
+    <string name="terminal_new_session_connected">New session connected. Previous history remains available.</string>
+    <string name="terminal_retained_truncated">Only the most recent history is retained.</string>
+    <string name="terminal_reconnect_manual">Reconnect</string>
+    <string name="terminal_return_current">Return to current terminal</string>
+    <string name="terminal_previous_history">Previous history</string>
+</resources>

@@ -88,13 +88,27 @@ fun TerminalScreen(
     viewModel: TerminalViewModel,
     onBack: () -> Unit
 ) {
-    val connectionStatus by viewModel.connectionStatus(nodeId).collectAsState()
+    val revision by viewModel.manualReconnect.revision.collectAsState()
+    val attempts by viewModel.manualReconnect.state.collectAsState()
+    val allHistory by viewModel.manualReconnect.history.collectAsState()
+    val currentSession = remember(nodeId, viewModel, revision) { viewModel.terminalClient.getSession(viewModel.meshClient, nodeId) }
+    val history = allHistory[currentSession.cleanNodeId].orEmpty()
+    var historyId by remember(nodeId) { mutableStateOf<String?>(null) }
+    var showHistoryMenu by remember(nodeId) { mutableStateOf(false) }
+    LaunchedEffect(currentSession) { historyId = null }
+    val selectedSession = history.firstOrNull { it.localSessionId == historyId } ?: currentSession
+    val showingHistory = selectedSession !== currentSession
+    val reconnectState = attempts[currentSession.cleanNodeId] ?: ManualReconnectState.IDLE
+    val reconnecting = reconnectState == ManualReconnectState.CONNECTING
+    val connectionStatus by selectedSession.connectionStatus.collectAsState()
+    val historyTruncated by selectedSession.historyTruncated.collectAsState()
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     var rendererVersion by remember(nodeId) { mutableStateOf(0) }
-    val renderer = remember(nodeId, viewModel, rendererVersion) { viewModel.renderTerminal(context, nodeId) }
+    val renderer = remember(selectedSession, viewModel, rendererVersion) { viewModel.renderSession(context, selectedSession) }
     var showRecoveryDialog by remember(renderer) { mutableStateOf(false) }
     val rendererError by renderer.error.collectAsState()
+    val inputEnabled = !showingHistory && !reconnecting && rendererError == null && connectionStatus == TerminalConnectionStatus.CONNECTED
     var showTerminalMenu by remember(renderer) { mutableStateOf(false) }
     var showCopyDialog by remember(renderer) { mutableStateOf(false) }
     var copySnapshot by remember(renderer) { mutableStateOf<TerminalCopySnapshot?>(null) }
@@ -134,23 +148,33 @@ fun TerminalScreen(
         }
     }
     var attachmentToken by remember(renderer) { mutableStateOf<Long?>(null) }
-    var showCommandDialog by remember { mutableStateOf(false) }
-    var commandInput by remember { mutableStateOf("") }
-    var selectedCtrlChar by remember { mutableStateOf('C') }
-    var showCtrlDropdown by remember { mutableStateOf(false) }
+    var showCommandDialog by remember(renderer) { mutableStateOf(false) }
+    var commandInput by remember(renderer) { mutableStateOf("") }
+    var selectedCtrlChar by remember(renderer) { mutableStateOf('C') }
+    var showCtrlDropdown by remember(renderer) { mutableStateOf(false) }
     val ctrlLetters = remember { ('A'..'Z').toList() }
+    LaunchedEffect(renderer, connectionStatus) {
+        if (connectionStatus != TerminalConnectionStatus.CONNECTED) {
+            showPasteDialog = false
+            pasteDraft = null
+            pasteAttempted = false
+            pasteBusy = false
+            showCommandDialog = false
+            commandInput = ""
+        }
+    }
 
     var keyMenuOpen by remember(renderer) { mutableStateOf(false) }
     var keyboardRequest by remember(renderer) { mutableStateOf(0) }
     var previousOverlay by remember(renderer) { mutableStateOf(false) }
-    val inputOverlay = showTerminalMenu || showCopyDialog || showPasteDialog || showCommandDialog || showRecoveryDialog || keyMenuOpen
-    LaunchedEffect(renderer, inputOverlay) {
-        renderer.setFocusBlocked(inputOverlay)
-        if (!inputOverlay && previousOverlay) renderer.requestTerminalFocus(false)
+    val inputOverlay = showTerminalMenu || showCopyDialog || showPasteDialog || showCommandDialog || showRecoveryDialog || keyMenuOpen || showHistoryMenu
+    LaunchedEffect(renderer, inputOverlay, inputEnabled) {
+        renderer.setFocusBlocked(inputOverlay || !inputEnabled)
+        if (inputEnabled && !inputOverlay && previousOverlay) renderer.requestTerminalFocus(false)
         previousOverlay = inputOverlay
     }
     LaunchedEffect(renderer, keyboardRequest) {
-        if (keyboardRequest > 0 && !inputOverlay) renderer.toggleKeyboard()
+        if (keyboardRequest > 0 && inputEnabled && !inputOverlay) renderer.toggleKeyboard()
     }
     DisposableEffect(renderer) {
         onDispose { renderer.setFocusBlocked(true) }
@@ -223,7 +247,7 @@ fun TerminalScreen(
                     }
                     IconButton(
                         onClick = { keyboardRequest++ },
-                        enabled = rendererError == null && connectionStatus == TerminalConnectionStatus.CONNECTED && !inputOverlay,
+                        enabled = inputEnabled && !inputOverlay,
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.terminal_keyboard_toggle))
@@ -239,24 +263,24 @@ fun TerminalScreen(
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.terminal_paste_title)) },
-                                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
+                                enabled = inputEnabled,
                                 onClick = { openPaste(false) }
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.terminal_paste_edit_title)) },
-                                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
+                                enabled = inputEnabled,
                                 onClick = { openPaste(true) }
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.send_command)) },
+                                enabled = inputEnabled,
                                 onClick = { showTerminalMenu = false; showCommandDialog = true }
                             )
                         }
                     }
                     IconButton(
                         onClick = {
-                            viewModel.stopSession(nodeId)
-                            onBack()
+                            if (!showingHistory) viewModel.stopSession(nodeId)
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
@@ -279,6 +303,43 @@ fun TerminalScreen(
                 .padding(innerPadding)
                 .background(Color(0xFF0D1117))
         ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+                when {
+                    showingHistory -> Text(stringResource(R.string.terminal_history_readonly))
+                    reconnecting -> Text(stringResource(R.string.terminal_reconnect_pending))
+                    connectionStatus == TerminalConnectionStatus.DISCONNECTED -> {
+                        Text(stringResource(R.string.terminal_disconnected_retained))
+                        if (reconnectState == ManualReconnectState.FAILED || reconnectState == ManualReconnectState.TIMED_OUT)
+                            Text(stringResource(R.string.terminal_reconnect_failed))
+                    }
+                    connectionStatus == TerminalConnectionStatus.CONNECTED && history.isNotEmpty() ->
+                        Text(stringResource(R.string.terminal_new_session_connected))
+                }
+                if (historyTruncated) Text(stringResource(R.string.terminal_retained_truncated))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (!showingHistory && connectionStatus == TerminalConnectionStatus.DISCONNECTED) {
+                        if (reconnecting) TextButton(onClick = { viewModel.manualReconnect.cancel(nodeId) }) {
+                            Text(stringResource(R.string.terminal_recovery_cancel))
+                        } else TextButton(onClick = { viewModel.manualReconnect.start(nodeId) }) {
+                            Text(stringResource(R.string.terminal_reconnect_manual))
+                        }
+                    }
+                    if (showingHistory) TextButton(onClick = { historyId = null }) {
+                        Text(stringResource(R.string.terminal_return_current))
+                    }
+                    if (history.isNotEmpty()) Box {
+                        TextButton(onClick = { showHistoryMenu = true }) { Text(stringResource(R.string.terminal_previous_history)) }
+                        DropdownMenu(expanded = showHistoryMenu, onDismissRequest = { showHistoryMenu = false }) {
+                            history.asReversed().forEach { archived ->
+                                DropdownMenuItem(
+                                    text = { Text(java.text.DateFormat.getDateTimeInstance().format(java.util.Date(archived.openedAt))) },
+                                    onClick = { historyId = archived.localSessionId; showHistoryMenu = false }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -318,7 +379,7 @@ fun TerminalScreen(
             ) {
                 key(renderer) {
                     TerminalKeyBar(
-                        enabled = rendererError == null && connectionStatus == TerminalConnectionStatus.CONNECTED,
+                        enabled = inputEnabled,
                         historyEnabled = rendererError == null,
                         onKey = { renderer.sendSpecialKey(it) },
                         onLatest = { renderer.scrollToLatest() },
@@ -355,7 +416,7 @@ fun TerminalScreen(
         if (showPasteDialog) {
             TerminalPasteDialog(
                 text = pasteDraft?.text, issue = pasteDraft?.issue,
-                enabled = connectionStatus == TerminalConnectionStatus.CONNECTED && rendererError == null,
+                enabled = inputEnabled,
                 attempted = pasteAttempted, busy = pasteBusy, result = pasteResult,
                 editing = pasteEditing,
                 onEdit = { value -> if (!pasteAttempted) pasteDraft = editTerminalPaste(pasteDraft, value) },
@@ -471,7 +532,7 @@ fun TerminalScreen(
 
                             Button(
                                 onClick = {
-                                    viewModel.sendControlKey(nodeId, selectedCtrlChar)
+                                    renderer.session.sendControlKey(selectedCtrlChar)
                                     Toast.makeText(context, "Enviado Ctrl + $selectedCtrlChar", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier
@@ -493,22 +554,22 @@ fun TerminalScreen(
                         ) {
                             FilterChip(
                                 selected = true,
-                                onClick = { viewModel.sendInput(nodeId, "\t") },
+                                onClick = { renderer.session.sendInput("\t") },
                                 label = { Text("Tab ⇥", fontSize = 11.sp) }
                             )
                             FilterChip(
                                 selected = true,
-                                onClick = { viewModel.sendInput(nodeId, "\u001b") },
+                                onClick = { renderer.session.sendInput("\u001b") },
                                 label = { Text("Esc", fontSize = 11.sp) }
                             )
                             FilterChip(
                                 selected = true,
-                                onClick = { viewModel.sendInput(nodeId, "\u001b[A") },
+                                onClick = { renderer.session.sendInput("\u001b[A") },
                                 label = { Text(stringResource(R.string.up_arrow), fontSize = 11.sp) }
                             )
                             FilterChip(
                                 selected = true,
-                                onClick = { viewModel.sendInput(nodeId, "\u001b[B") },
+                                onClick = { renderer.session.sendInput("\u001b[B") },
                                 label = { Text(stringResource(R.string.down_arrow), fontSize = 11.sp) }
                             )
                             FilterChip(
@@ -538,7 +599,7 @@ fun TerminalScreen(
                             Button(
                                 onClick = {
                                     if (commandInput.isNotEmpty()) {
-                                        viewModel.sendInput(nodeId, commandInput + "\r")
+                                        renderer.session.sendInput(commandInput + "\r")
                                         commandInput = ""
                                     }
                                     showCommandDialog = false
