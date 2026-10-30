@@ -94,7 +94,7 @@ fun TerminalScreen(
     val allHistory by viewModel.manualReconnect.history.collectAsState()
     val currentSession = remember(nodeId, viewModel, revision) { viewModel.terminalClient.getSession(viewModel.meshClient, nodeId) }
     val disconnectIncident by currentSession.unexpectedDisconnectEvents.collectAsState()
-    var autoHistoryBar by androidx.compose.runtime.saveable.rememberSaveable(currentSession.localSessionId) { mutableStateOf(false) }
+    var showHistoryPanel by androidx.compose.runtime.saveable.rememberSaveable(currentSession.localSessionId) { mutableStateOf(false) }
     val history = allHistory[currentSession.cleanNodeId].orEmpty()
     var historyId by remember(nodeId) { mutableStateOf<String?>(null) }
     var showHistoryMenu by remember(nodeId) { mutableStateOf(false) }
@@ -102,8 +102,9 @@ fun TerminalScreen(
     LaunchedEffect(currentSession) { historyId = null }
     LaunchedEffect(currentSession, disconnectIncident) {
         if (viewModel.historyPanelGate.consume(currentSession.localSessionId, disconnectIncident)) {
-            autoHistoryBar = true
-            showHistoryMenu = false
+            val next = terminalHistoryUnexpectedDisconnect()
+            showHistoryPanel = next.visible
+            showHistoryMenu = next.expanded
         }
     }
     val selectedSession = history.firstOrNull { it.localSessionId == historyId } ?: currentSession
@@ -256,11 +257,11 @@ fun TerminalScreen(
                         Text("A+", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                     IconButton(
-                        onClick = { showHistoryMenu = !showHistoryMenu },
+                        onClick = { val next = terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(showHistoryPanel, showHistoryMenu)); showHistoryPanel = next.visible; showHistoryMenu = next.expanded },
                         modifier = Modifier.size(36.dp)
                     ) {
                         Icon(Icons.Default.History, contentDescription = stringResource(R.string.terminal_history_header),
-                            tint = if (showHistoryMenu || showingHistory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            tint = if (showHistoryPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(
                         onClick = { keyboardRequest++ },
@@ -322,7 +323,7 @@ fun TerminalScreen(
                 .background(Color(0xFF0D1117))
         ) {
             TerminalSessionPopup(
-                showBar = terminalHistoryBarVisible(autoHistoryBar, showingHistory, reconnecting),
+                showBar = showHistoryPanel,
                 status = connectionStatus,
                 attempt = reconnectState,
                 history = history,

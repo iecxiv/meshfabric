@@ -1,9 +1,12 @@
 package iecxiv.meshfabric.ui.terminal
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -22,7 +25,7 @@ import iecxiv.meshfabric.ui.management.FabricDialog
 import java.text.DateFormat
 import java.util.Date
 
-/** Primary actions remain accessible without expanding the history menu. */
+/** One themed, full-width panel; primary actions appear only in its header. */
 @Composable
 internal fun TerminalSessionPopup(
     status: TerminalConnectionStatus,
@@ -45,7 +48,6 @@ internal fun TerminalSessionPopup(
     val locale = LocalConfiguration.current.locales[0]
     val dates = remember(locale) { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT, locale) }
     val connecting = attempt == ManualReconnectState.CONNECTING
-    val actions = terminalPopupActions(status, showingHistory, connecting)
     val summary = stringResource(when {
         showingHistory -> R.string.terminal_previous_history
         connecting -> R.string.status_connecting
@@ -60,81 +62,67 @@ internal fun TerminalSessionPopup(
         status == TerminalConnectionStatus.CONNECTED && history.isNotEmpty() -> R.string.terminal_new_session_connected
         else -> null
     }
-    Box(if (showBar) Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp) else Modifier.fillMaxWidth()) {
-        if (showBar) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
+    if (showBar) Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 2.dp
+    ) {
+        Column(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.terminal_session_popup_summary, summary, history.size), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                 if (truncated) Icon(Icons.Default.Warning, contentDescription = stringResource(R.string.terminal_retained_truncated), modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
-                when {
-                    connecting -> TextButton(
-                        onClick = { onExpanded(false); onCancel() },
-                        modifier = Modifier.widthIn(max = 200.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) { Text(stringResource(R.string.terminal_recovery_cancel), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
-                    showingHistory -> TextButton(
-                        onClick = { onExpanded(false); onCurrent() },
-                        modifier = Modifier.widthIn(max = 200.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) { Text(stringResource(R.string.terminal_return_current), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
-                    status == TerminalConnectionStatus.DISCONNECTED -> TextButton(
-                        onClick = { onExpanded(false); onCurrent(); onReconnect() },
-                        modifier = Modifier.widthIn(max = 200.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) { Text(stringResource(R.string.terminal_reconnect_manual), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
+                val primaryLabel = when {
+                    connecting -> R.string.terminal_recovery_cancel
+                    showingHistory -> R.string.terminal_return_current
+                    status == TerminalConnectionStatus.DISCONNECTED -> R.string.terminal_reconnect_manual
+                    else -> null
                 }
-                IconButton(onClick = { onExpanded(!expanded) }) {
-                    Icon(Icons.Default.ExpandMore, contentDescription = stringResource(R.string.terminal_session_popup_title))
-                }
-            }
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { onExpanded(false) }, modifier = Modifier.width(320.dp).heightIn(max = 420.dp)) {
-            Text(stringResource(R.string.terminal_session_popup_title), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleSmall)
-            if (actions.visible) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.terminal_reconnect_manual)) },
-                    enabled = actions.reconnectEnabled,
+                if (primaryLabel != null) TextButton(
                     onClick = {
                         onExpanded(false)
-                        // Reconnect always targets the current record, never an archive.
-                        // The coordinator refuses another connection if it is already live.
-                        onCurrent()
-                        onReconnect()
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(R.string.terminal_return_current)) },
-                    enabled = actions.returnEnabled,
-                    onClick = { onExpanded(false); onCurrent() }
-                )
-                if (actions.cancelVisible) DropdownMenuItem(
-                    text = { Text(stringResource(R.string.terminal_recovery_cancel)) },
-                    onClick = { onExpanded(false); onCancel() }
-                )
-                HorizontalDivider()
-            }
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (details != null) Text(stringResource(details), style = MaterialTheme.typography.bodySmall)
-                if (!showingHistory && status == TerminalConnectionStatus.DISCONNECTED && (attempt == ManualReconnectState.FAILED || attempt == ManualReconnectState.TIMED_OUT))
-                    Text(stringResource(R.string.terminal_reconnect_failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                if (truncated) Text(stringResource(R.string.terminal_retained_truncated), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            }
-            HorizontalDivider()
-            Text(stringResource(R.string.terminal_previous_history), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.labelMedium)
-            if (history.isEmpty()) Text(stringResource(R.string.terminal_history_empty), modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall)
-            history.asReversed().forEach { archived ->
-                val label = dates.format(Date(archived.openedAt))
-                Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { onExpanded(false); onSelect(archived.localSessionId) }, modifier = Modifier.weight(1f)) {
-                        Text(label, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
-                    }
-                    IconButton(onClick = { onExpanded(false); onRequestDelete(setOf(archived.localSessionId)) }) {
-                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.terminal_history_delete_description, label), tint = MaterialTheme.colorScheme.error)
-                    }
+                        when {
+                            connecting -> onCancel()
+                            showingHistory -> onCurrent()
+                            else -> { onCurrent(); onReconnect() }
+                        }
+                    },
+                    modifier = Modifier.widthIn(max = 200.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) { Text(stringResource(primaryLabel), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge) }
+                IconButton(onClick = { onExpanded(!expanded) }) {
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = stringResource(R.string.terminal_session_popup_title))
                 }
             }
-            if (history.isNotEmpty()) {
+            if (expanded) {
                 HorizontalDivider()
-                DropdownMenuItem(text = { Text(stringResource(R.string.terminal_history_delete_all), color = MaterialTheme.colorScheme.error) }, onClick = { onExpanded(false); onRequestDelete(history.map { it.localSessionId }.toSet()) })
+                Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (details != null) Text(stringResource(details), style = MaterialTheme.typography.bodySmall)
+                        if (!showingHistory && status == TerminalConnectionStatus.DISCONNECTED && (attempt == ManualReconnectState.FAILED || attempt == ManualReconnectState.TIMED_OUT))
+                            Text(stringResource(R.string.terminal_reconnect_failed), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        if (truncated) Text(stringResource(R.string.terminal_retained_truncated), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text(stringResource(R.string.terminal_previous_history), style = MaterialTheme.typography.labelLarge)
+                        if (history.isEmpty()) Text(stringResource(R.string.terminal_history_empty), style = MaterialTheme.typography.bodySmall)
+                    }
+                    history.asReversed().forEach { archived ->
+                        val label = dates.format(Date(archived.openedAt))
+                        Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { onExpanded(false); onSelect(archived.localSessionId) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) {
+                                Text(label, modifier = Modifier.fillMaxWidth(), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                            }
+                            IconButton(onClick = { onExpanded(false); onRequestDelete(setOf(archived.localSessionId)) }) {
+                                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.terminal_history_delete_description, label), tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                    if (history.isNotEmpty()) {
+                        HorizontalDivider()
+                        TextButton(onClick = { onExpanded(false); onRequestDelete(history.map { it.localSessionId }.toSet()) }, modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)) {
+                            Text(stringResource(R.string.terminal_history_delete_all), modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
             }
         }
     }
