@@ -41,7 +41,22 @@ internal class TerminalRenderSession(
     private val lease = TerminalAttachmentLease()
     private val failure = MutableStateFlow<TerminalRendererError?>(null)
     val error: StateFlow<TerminalRendererError?> = failure.asStateFlow()
-    private val webView = WebView(wrapper)
+    private val focusRequests = TerminalFocusRequests()
+    private var focusBlocked = false
+    private val webView = object : WebView(wrapper) {
+        override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+            super.onWindowFocusChanged(hasWindowFocus)
+            if (!hasWindowFocus) focusRequests.cancel()
+            else post { applyPendingFocus() }
+        }
+        override fun onCreateInputConnection(info: android.view.inputmethod.EditorInfo): android.view.inputmethod.InputConnection? {
+            val connection = super.onCreateInputConnection(info)
+            info.imeOptions = info.imeOptions or android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_FULLSCREEN or
+                android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            return connection
+        }
+    }
     private var outputJob: Job? = null
     private val watchdogScope = scope
     private val ackWatchdog = TerminalAckWatchdog()
@@ -93,17 +108,20 @@ internal class TerminalRenderSession(
     fun bindVisibility(): Long {
         val token = visibility.attach()
         resumed = false
+        focusRequests.cancel()
         updateAckActivity()
         return token
     }
     fun setResumed(token: Long, value: Boolean) {
         if (isDestroyed || visibility.current != token) return
         resumed = value
+        if (!value) focusRequests.cancel()
         updateAckActivity()
     }
     fun unbindVisibility(token: Long) {
         if (!visibility.release(token)) return
         resumed = false
+        focusRequests.cancel()
         updateAckActivity()
     }
     private fun updateAckActivity() {
@@ -132,12 +150,16 @@ internal class TerminalRenderSession(
         parent.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         webView.onResume()
         updateAckActivity()
-        if (ready) fitAndFocus()
+        if (ready) fitView()
         return token
     }
     fun detach(token: Long) {
         checkMainThread()
         if (!lease.release(token)) return
+        focusRequests.cancel()
+        if (webView.hasFocus()) hideIme()
+        webView.clearFocus()
+        if (!isDestroyed && ready) webView.evaluateJavascript("window.blurTerminal();", null)
         updateAckActivity()
         (webView.parent as? ViewGroup)?.removeView(webView)
         if (!isDestroyed) webView.onPause()
@@ -190,10 +212,75 @@ internal class TerminalRenderSession(
         fontSize = (fontSize + delta).coerceIn(8, 20)
         if (ready) webView.evaluateJavascript("window.setFontSize($fontSize);", null)
     }
-    private fun fitAndFocus() {
+    private fun focusAllowed(): Boolean = !isDestroyed && ready && isAttached && resumed &&
+        !focusBlocked && failure.value == null
+
+    private fun hideIme() {
+        val token = webView.windowToken ?: return
+        val manager = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+        manager.hideSoftInputFromWindow(token, 0)
+    }
+    fun setFocusBlocked(value: Boolean) {
+        checkMainThread()
+        if (isDestroyed || focusBlocked == value) return
+        focusBlocked = value
+        if (value) {
+            focusRequests.cancel()
+            if (isAttached && resumed) {
+                hideIme()
+                webView.clearFocus()
+                if (ready) webView.evaluateJavascript("window.blurTerminal();", null)
+            }
+        }
+    }
+    fun requestTerminalFocus(showKeyboard: Boolean): Boolean {
+        checkMainThread()
+        if (!focusAllowed()) { focusRequests.cancel(); return false }
+        focusRequests.request(showKeyboard)
+        applyPendingFocus()
+        return true
+    }
+    private fun applyPendingFocus() {
+        if (!focusAllowed() || !webView.hasWindowFocus()) return
+        val ticket = focusRequests.take() ?: return
+        if (!webView.requestFocus()) return
+        webView.evaluateJavascript("window.focusTerminal();") { result ->
+            if (result != "true") return@evaluateJavascript
+            webView.post {
+                if (!focusRequests.isCurrent(ticket) || !focusAllowed() || !webView.hasWindowFocus()) return@post
+                if (ticket.showKeyboard) {
+                    val manager = appContext.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    manager.showSoftInput(webView, 0)
+                } else hideIme()
+            }
+        }
+    }
+    fun sendSpecialKey(id: String) {
+        checkMainThread()
+        if (isDestroyed || !ready || !isAttached || !resumed || failure.value != null || !session.connectionState.value) return
+        webView.evaluateJavascript("window.sendTerminalKey(${gson.toJson(id)});", null)
+    }
+    fun scrollToLatest() {
+        checkMainThread()
+        if (isDestroyed || !ready || !isAttached || !resumed || failure.value != null) return
+        webView.evaluateJavascript("window.scrollTerminalToLatest();") { result ->
+            if (result == "false" && !isDestroyed && isAttached && resumed) android.widget.Toast.makeText(
+                appContext, iecxiv.meshfabric.R.string.terminal_history_unavailable, android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    fun toggleKeyboard() {
+        checkMainThread()
+        if (!focusAllowed()) return
+        val visible = androidx.core.view.ViewCompat.getRootWindowInsets(webView)
+            ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+        if (visible) { focusRequests.cancel(); hideIme() }
+        else requestTerminalFocus(true)
+    }
+    private fun fitView() {
         if (isDestroyed || !isAttached || failure.value != null) return
-        webView.requestFocus()
-        webView.evaluateJavascript("window.fitTerminal(); window.focusTerminal();", null)
+        webView.evaluateJavascript("window.fitTerminal();", null)
     }
     private fun stopOutput() {
         if (isDestroyed || failure.value != null) return
@@ -218,6 +305,8 @@ internal class TerminalRenderSession(
     fun destroy() {
         checkMainThread()
         if (isDestroyed) return
+        focusRequests.cancel()
+        if (isAttached && webView.hasFocus()) hideIme()
         isDestroyed = true
         visibility.invalidate()
         ackWatchdog.reset()
@@ -252,7 +341,7 @@ internal class TerminalRenderSession(
                     delivery.attach(page)
                     webView.evaluateJavascript("window.setFontSize($fontSize);", null)
                     pump()
-                    fitAndFocus()
+                    fitView()
                 }
             }
         }

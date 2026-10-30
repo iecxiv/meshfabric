@@ -110,8 +110,25 @@
   return true;
 };
 window.getFontSize = function () { return fontSize; };
+  window.sendTerminalKey = function (name) {
+    if (!term || !readySent || failed || disposed || !window.MeshTerminalKeys || typeof term.input !== 'function') return false;
+    var data = window.MeshTerminalKeys.encode(name, !!(term.modes && term.modes.applicationCursorKeysMode));
+    if (data === null) return false;
+    term.input(data, true);
+    return true;
+  };
+  window.scrollTerminalToLatest = function () {
+    if (!term || !readySent || failed || disposed || term.buffer.active.type !== 'normal') return false;
+    term.scrollToBottom();
+    return true;
+  };
   window.clearTerminal = function () { if (term && !failed && !disposed) term.clear(); };
-  window.focusTerminal = function () { if (term && !failed && !disposed) term.focus(); };
+  window.focusTerminal = function () {
+    if (!term || failed || disposed) return false;
+    term.focus();
+    return true;
+  };
+  window.blurTerminal = function () { if (term && !failed && !disposed) term.blur(); };
   function requestResize() {
     if (!resize || disposed || failed) return;
     try { resize.request(); } catch (error) { fail(error); }

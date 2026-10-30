@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="terminal_key_esc">Esc</string>
+    <string name="terminal_key_tab">Tab</string>
+    <string name="terminal_key_ctrl_c">Ctrl+C</string>
+    <string name="terminal_key_enter_glyph">↵</string>
+    <string name="terminal_key_enter">Intro</string>
+    <string name="terminal_key_backspace_glyph">⌫</string>
+    <string name="terminal_key_backspace">Retroceso</string>
+    <string name="terminal_key_left_glyph">←</string>
+    <string name="terminal_key_left">Flecha izquierda</string>
+    <string name="terminal_key_down_glyph">↓</string>
+    <string name="terminal_key_down">Flecha abajo</string>
+    <string name="terminal_key_up_glyph">↑</string>
+    <string name="terminal_key_up">Flecha arriba</string>
+    <string name="terminal_key_right_glyph">→</string>
+    <string name="terminal_key_right">Flecha derecha</string>
+    <string name="terminal_key_home">Inicio</string>
+    <string name="terminal_key_end">Fin</string>
+    <string name="terminal_key_insert">Ins</string>
+    <string name="terminal_key_delete">Supr</string>
+    <string name="terminal_key_pageup">RePág</string>
+    <string name="terminal_key_pagedown">AvPág</string>
+    <string name="terminal_keys_more_glyph">∨</string>
+    <string name="terminal_keys_less_glyph">∧</string>
+    <string name="terminal_keys_more">Más teclas</string>
+    <string name="terminal_keys_less">Menos teclas</string>
+    <string name="terminal_ctrl_more_label">Ctrl…</string>
+    <string name="terminal_ctrl_more">Elegir un atajo Ctrl</string>
+    <string name="terminal_ctrl_shortcut">Ctrl+%1$s</string>
+    <string name="terminal_latest_glyph">⇣</string>
+    <string name="terminal_latest">Última salida, sin enviar teclas</string>
+    <string name="terminal_history_unavailable">El historial no está disponible en esta pantalla de la aplicación remota.</string>
+</resources>

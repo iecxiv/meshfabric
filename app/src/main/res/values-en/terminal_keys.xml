@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="terminal_key_esc">Esc</string>
+    <string name="terminal_key_tab">Tab</string>
+    <string name="terminal_key_ctrl_c">Ctrl+C</string>
+    <string name="terminal_key_enter_glyph">↵</string>
+    <string name="terminal_key_enter">Enter</string>
+    <string name="terminal_key_backspace_glyph">⌫</string>
+    <string name="terminal_key_backspace">Backspace</string>
+    <string name="terminal_key_left_glyph">←</string>
+    <string name="terminal_key_left">Left arrow</string>
+    <string name="terminal_key_down_glyph">↓</string>
+    <string name="terminal_key_down">Down arrow</string>
+    <string name="terminal_key_up_glyph">↑</string>
+    <string name="terminal_key_up">Up arrow</string>
+    <string name="terminal_key_right_glyph">→</string>
+    <string name="terminal_key_right">Right arrow</string>
+    <string name="terminal_key_home">Home</string>
+    <string name="terminal_key_end">End</string>
+    <string name="terminal_key_insert">Ins</string>
+    <string name="terminal_key_delete">Del</string>
+    <string name="terminal_key_pageup">PgUp</string>
+    <string name="terminal_key_pagedown">PgDn</string>
+    <string name="terminal_keys_more_glyph">∨</string>
+    <string name="terminal_keys_less_glyph">∧</string>
+    <string name="terminal_keys_more">More keys</string>
+    <string name="terminal_keys_less">Fewer keys</string>
+    <string name="terminal_ctrl_more_label">Ctrl…</string>
+    <string name="terminal_ctrl_more">Choose a Ctrl shortcut</string>
+    <string name="terminal_ctrl_shortcut">Ctrl+%1$s</string>
+    <string name="terminal_latest_glyph">⇣</string>
+    <string name="terminal_latest">Latest output, without sending keys</string>
+    <string name="terminal_history_unavailable">History is unavailable in this remote application screen.</string>
+</resources>

@@ -140,6 +140,22 @@ fun TerminalScreen(
     var showCtrlDropdown by remember { mutableStateOf(false) }
     val ctrlLetters = remember { ('A'..'Z').toList() }
 
+    var keyMenuOpen by remember(renderer) { mutableStateOf(false) }
+    var keyboardRequest by remember(renderer) { mutableStateOf(0) }
+    var previousOverlay by remember(renderer) { mutableStateOf(false) }
+    val inputOverlay = showTerminalMenu || showCopyDialog || showPasteDialog || showCommandDialog || showRecoveryDialog || keyMenuOpen
+    LaunchedEffect(renderer, inputOverlay) {
+        renderer.setFocusBlocked(inputOverlay)
+        if (!inputOverlay && previousOverlay) renderer.requestTerminalFocus(false)
+        previousOverlay = inputOverlay
+    }
+    LaunchedEffect(renderer, keyboardRequest) {
+        if (keyboardRequest > 0 && !inputOverlay) renderer.toggleKeyboard()
+    }
+    DisposableEffect(renderer) {
+        onDispose { renderer.setFocusBlocked(true) }
+    }
+
     fun changeFontSize(delta: Int) { renderer.changeFontSize(delta) }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -206,10 +222,11 @@ fun TerminalScreen(
                         Text("A+", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
                     IconButton(
-                        onClick = { showCommandDialog = true },
+                        onClick = { keyboardRequest++ },
+                        enabled = rendererError == null && connectionStatus == TerminalConnectionStatus.CONNECTED && !inputOverlay,
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Keyboard, contentDescription = "Enviar Comando")
+                        Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.terminal_keyboard_toggle))
                     }
                     Box {
                         IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null) {
@@ -229,6 +246,10 @@ fun TerminalScreen(
                                 text = { Text(stringResource(R.string.terminal_paste_edit_title)) },
                                 enabled = connectionStatus == TerminalConnectionStatus.CONNECTED,
                                 onClick = { openPaste(true) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.send_command)) },
+                                onClick = { showTerminalMenu = false; showCommandDialog = true }
                             )
                         }
                     }
@@ -291,98 +312,21 @@ fun TerminalScreen(
             }
 
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .imePadding(),
+                modifier = Modifier.fillMaxWidth().imePadding(),
                 color = MaterialTheme.colorScheme.surface,
                 shadowElevation = 4.dp
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\r") },
-                        label = { Text("Enter ↵", fontWeight = FontWeight.Bold) }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\b") },
-                        label = { Text(stringResource(R.string.backspace_key)) }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\t") },
-                        label = { Text("Tab") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendControlKey(nodeId, 'C') },
-                        label = { Text("Ctrl+C") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendControlKey(nodeId, 'Z') },
-                        label = { Text("Ctrl+Z") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendControlKey(nodeId, 'X') },
-                        label = { Text("Ctrl+X") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendControlKey(nodeId, 'O') },
-                        label = { Text("Ctrl+O") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendControlKey(nodeId, 'W') },
-                        label = { Text("Ctrl+W") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\u001b") },
-                        label = { Text("Esc") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\u001b[A") },
-                        label = { Text("↑") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\u001b[B") },
-                        label = { Text("↓") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\u001b[D") },
-                        label = { Text("←") }
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    FilterChip(
-                        selected = true,
-                        onClick = { viewModel.sendInput(nodeId, "\u001b[C") },
-                        label = { Text("→") }
+                key(renderer) {
+                    TerminalKeyBar(
+                        enabled = rendererError == null && connectionStatus == TerminalConnectionStatus.CONNECTED,
+                        historyEnabled = rendererError == null,
+                        onKey = { renderer.sendSpecialKey(it) },
+                        onLatest = { renderer.scrollToLatest() },
+                        onPopup = { keyMenuOpen = it }
                     )
                 }
             }
+
         }
 
         if (showRecoveryDialog) {
