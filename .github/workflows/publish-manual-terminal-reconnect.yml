@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -27,13 +28,72 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Apply reviewed patch with base guards
+      - name: Apply pinned patch and isolate history replay
         shell: bash
         run: |
           python3 - <<'PY'
-          import base64, gzip
-          patch = gzip.decompress(base64.b64decode('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')).decode()
-          exec(compile(patch, '<reviewed-manual-terminal-reconnect-patch>', 'exec'))
+          import base64, gzip, hashlib, subprocess
+          from pathlib import Path
+          original = subprocess.check_output(['git', 'show', '91620cd7d2f348c7b8f9c05c3e60aa2b7395c9d2:.github/workflows/publish-manual-terminal-reconnect.yml'], text=True)
+          encoded = original.split("base64.b64decode('", 1)[1].split("')", 1)[0]
+          patch = gzip.decompress(base64.b64decode(encoded)).decode()
+          if hashlib.sha256(patch.encode()).hexdigest() != '24754a87d7acd2bf53d35cddb8631abe532f0eaa12a8cd04f4d15a61b6266ea7':
+              raise RuntimeError('Pinned patch digest mismatch')
+          exec(compile(patch, '<pinned-manual-terminal-reconnect-patch>', 'exec'))
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise RuntimeError(f'Unexpected correction anchor: {path}: {old!r}')
+              p.write_text(text.replace(old, new, 1))
+          remote = Path('app/src/main/java/iecxiv/meshfabric/data/remote')
+          journal = remote / 'TerminalOutputJournal.kt'
+          replace_once(journal, 'val position = cursor?.offset ?: start', 'val position = cursor?.offset ?: 0L')
+          replace_once(journal, '    @Synchronized fun read(cursor:', '    /** Explicit best-effort history replay; live read() remains strict. */\n    @Synchronized fun readHistory(cursor: TerminalOutputCursor?, maxChars: Int = 16_384): TerminalOutputSlice =\n        read(cursor ?: TerminalOutputCursor(epoch, start), maxChars)\n\n    @Synchronized fun read(cursor:')
+          replace_once(remote / 'TerminalRelayClient.kt',
+              'fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice = outputJournal.read(cursor)',
+              'fun readOutput(cursor: TerminalOutputCursor?): TerminalOutputSlice =\n        if (!connectionState.value && cursor == null) outputJournal.readHistory(null) else outputJournal.read(cursor)')
+          test = Path('app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalReconnectGateTest.kt')
+          replace_once(test, 'assertEquals("3456", journal.read(null).text)', 'assertEquals("3456", journal.readHistory(null).text)')
+          replace_once(test, 'assertFalse(journal.read(null).gap)', 'assertFalse(journal.readHistory(null).gap)\n        assertTrue(journal.read(null).gap)')
+          extra = '''package iecxiv.meshfabric.data.remote
+          import org.junit.Assert.*
+          import org.junit.Test
+          class TerminalHistoryReadTest {
+              @Test fun explicitHistoryReadAdvancesWithoutChangingStrictStartup() {
+                  val journal = TerminalOutputJournal(4)
+                  journal.append("abcdef")
+                  assertTrue(journal.read(null).gap)
+                  val first = journal.readHistory(null, 2)
+                  assertFalse(first.gap)
+                  assertEquals("cd", first.text)
+                  val second = journal.readHistory(TerminalOutputCursor(first.epoch, first.end), 2)
+                  assertEquals("ef", second.text)
+                  assertTrue(journal.read(null).gap)
+              }
+              @Test fun historyReadStillRejectsEvictedAndInvalidatedCursors() {
+                  val journal = TerminalOutputJournal(4)
+                  journal.append("abcdef")
+                  assertTrue(journal.readHistory(TerminalOutputCursor(0, 0)).gap)
+                  val first = journal.readHistory(null)
+                  journal.clear()
+                  journal.append("new")
+                  assertTrue(journal.readHistory(TerminalOutputCursor(first.epoch, first.end)).gap)
+                  assertEquals("new", journal.readHistory(null).text)
+              }
+          }
+          '''
+          target = Path('app/src/test/java/iecxiv/meshfabric/data/remote/TerminalHistoryReadTest.kt')
+          if target.exists():
+              raise RuntimeError('History test already exists; review before applying')
+          target.parent.mkdir(parents=True, exist_ok=True)
+          target.write_text(extra)
+          strict_test = 'app/src/test/java/iecxiv/meshfabric/data/remote/TerminalOutputPipelineTest.kt'
+          if subprocess.check_output(['git', 'hash-object', strict_test], text=True).strip() != '64b5608b9227944179f5d6ac89e31873f719c05e':
+              raise RuntimeError('Existing continuity test changed; refusing publication')
+          doc = Path('docs/terminal-manual-reconnect.md')
+          with doc.open('a') as f:
+              f.write('\nHistory replay correction: read() keeps its original strict gap detection, including a null startup cursor. Only an initial disconnected-view replay uses explicit readHistory(). Existing continuity tests are unchanged; additional tests cover explicit history replay and stale cursors.\n')
           PY
       - name: Unit tests and debug build
         run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
@@ -55,6 +115,6 @@ jobs:
           test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/src/main/java/iecxiv/meshfabric/data/remote/TerminalRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/TerminalOutputJournal.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalManualReconnect.kt app/src/main/res/values/terminal_manual_reconnect.xml app/src/main/res/values-es/terminal_manual_reconnect.xml app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalReconnectGateTest.kt docs/terminal-manual-reconnect.md
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/TerminalRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/TerminalOutputJournal.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalRenderSession.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalManualReconnect.kt app/src/main/res/values/terminal_manual_reconnect.xml app/src/main/res/values-es/terminal_manual_reconnect.xml app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalReconnectGateTest.kt app/src/test/java/iecxiv/meshfabric/data/remote/TerminalHistoryReadTest.kt docs/terminal-manual-reconnect.md
           git commit -m 'fix: preserve terminal history and add isolated manual reconnect'
           git push origin HEAD:dev
