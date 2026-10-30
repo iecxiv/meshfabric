@@ -1,0 +1,124 @@
+name: Validate and publish compact terminal history popup
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/publish-terminal-history-popup.yml
+permissions:
+  contents: write
+concurrency:
+  group: publish-terminal-history-popup-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Integrate compact popup and archive deletion
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base = Path('app/src/main/java/iecxiv/meshfabric/ui/terminal')
+          expected = {'TerminalScreen.kt':'eabd976d1989f67f9ca5dbeb9b560e719501592e','TerminalViewModel.kt':'68c617f087c492c6fd7fe362135628072471ca53','TerminalManualReconnect.kt':'c2782b1025aba0b2fc2d065ad1d419032d872637'}
+          for name, sha in expected.items():
+              if subprocess.check_output(['git', 'hash-object', str(base/name)], text=True).strip() != sha:
+                  raise RuntimeError('Terminal base changed: '+name)
+          def replace_once(path, old, new):
+              p = Path(path)
+              source = p.read_text()
+              if source.count(old) != 1:
+                  raise RuntimeError('Unexpected patch anchor: '+str(path))
+              p.write_text(source.replace(old, new, 1))
+          remove = """    fun removeHistory(node: String, requested: Set<String>): List<TerminalSession> {
+                  val key = key(node)
+                  val previous = records.value[key].orEmpty()
+                  val current = client.getSession(mesh, node)
+                  val allowed = terminalHistoryDeletionIds(requested, previous.map { it.localSessionId }.toSet(), current.localSessionId)
+                  val removed = previous.filter { it.localSessionId in allowed && !it.isConnected() }
+                  val removedIds = removed.map { it.localSessionId }.toSet()
+                  if (removedIds.isNotEmpty()) records.value = records.value + (key to previous.filterNot { it.localSessionId in removedIds })
+                  return removed
+              }
+
+          """
+          replace_once(base/'TerminalManualReconnect.kt', '    fun clear() {', remove+'    fun clear() {')
+          release = """    internal fun deleteTerminalHistories(nodeId: String, ids: Set<String>) {
+                  manualReconnect.removeHistory(nodeId, ids).forEach { archived ->
+                      renderers.remove(archived.localSessionId)
+                      archived.clearHistory()
+                  }
+                  // Archive buffer files are keyed by device, not by local record ID.
+                  // Do not delete the current session's persisted buffer when removing an archive.
+              }
+
+          """
+          replace_once(base/'TerminalViewModel.kt', '    fun stopSession(nodeId: String) {', release+'    fun stopSession(nodeId: String) {')
+          p = base/'TerminalScreen.kt'
+          replace_once(p, '    var showHistoryMenu by remember(nodeId) { mutableStateOf(false) }', '    var showHistoryMenu by remember(nodeId) { mutableStateOf(false) }\n    var historiesToDelete by remember(nodeId) { mutableStateOf<Set<String>>(emptySet()) }')
+          replace_once(p, ' || keyMenuOpen || showHistoryMenu', ' || keyMenuOpen || showHistoryMenu || historiesToDelete.isNotEmpty()')
+          source=p.read_text()
+          start=source.index('            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {')
+          end=source.index('            Box(\n                modifier = Modifier\n                    .weight(1f)',start)
+          replacement="""            TerminalSessionPopup(
+                          status = connectionStatus,
+                          attempt = reconnectState,
+                          history = history,
+                          showingHistory = showingHistory,
+                          truncated = historyTruncated,
+                          expanded = showHistoryMenu,
+                          deletionIds = historiesToDelete,
+                          onExpanded = { showHistoryMenu = it },
+                          onReconnect = { viewModel.manualReconnect.start(nodeId) },
+                          onCancel = { viewModel.manualReconnect.cancel(nodeId) },
+                          onCurrent = { historyId = null },
+                          onSelect = { historyId = it },
+                          onRequestDelete = { historiesToDelete = it },
+                          onDismissDelete = { historiesToDelete = emptySet() },
+                          onDelete = { ids ->
+                              if (historyId?.let { it in ids } == true) historyId = null
+                              viewModel.deleteTerminalHistories(nodeId, ids)
+                          }
+                      )
+          """
+          p.write_text(source[:start]+replacement+source[end:])
+          # The rest of the screen, transport protocol, resize and version stay unchanged.
+          PY
+      - name: Unit tests and debug build
+        run: bash ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
+      - name: Upload validation reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-history-popup-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+      - name: Publish integration only if dev is unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to overwrite newer work"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalManualReconnect.kt
+          git commit -m 'feat: integrate compact terminal popup and confirmed history deletion'
+          git push origin HEAD:dev

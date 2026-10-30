@@ -1,0 +1,11 @@
+<resources>
+    <string name="terminal_session_popup_title">Sesión e historial</string>
+    <string name="terminal_session_popup_summary">%1$s · Historial (%2$d)</string>
+    <string name="terminal_history_empty">No hay historiales anteriores.</string>
+    <string name="terminal_history_delete_description">Eliminar el historial del %1$s</string>
+    <string name="terminal_history_delete_all">Eliminar todos los historiales</string>
+    <string name="terminal_history_delete_title">¿Eliminar el historial de terminal?</string>
+    <string name="terminal_history_delete_one_warning">¿Eliminar el historial abierto el %1$s? No se puede deshacer. La sesión actual de terminal no se verá afectada.</string>
+    <string name="terminal_history_delete_many_warning">¿Eliminar los %1$d historiales seleccionados? No se puede deshacer. La sesión actual de terminal no se verá afectada.</string>
+    <string name="terminal_history_delete_action">Eliminar</string>
+</resources>

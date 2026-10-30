@@ -1,0 +1,11 @@
+<resources>
+    <string name="terminal_session_popup_title">Session and history</string>
+    <string name="terminal_session_popup_summary">%1$s · History (%2$d)</string>
+    <string name="terminal_history_empty">No previous histories.</string>
+    <string name="terminal_history_delete_description">Delete history from %1$s</string>
+    <string name="terminal_history_delete_all">Delete all histories</string>
+    <string name="terminal_history_delete_title">Delete terminal history?</string>
+    <string name="terminal_history_delete_one_warning">Delete the history opened on %1$s? This cannot be undone. The current terminal session will not be affected.</string>
+    <string name="terminal_history_delete_many_warning">Delete the %1$d selected histories? This cannot be undone. The current terminal session will not be affected.</string>
+    <string name="terminal_history_delete_action">Delete</string>
+</resources>
