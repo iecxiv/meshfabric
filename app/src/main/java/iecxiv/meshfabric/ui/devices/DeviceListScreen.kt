@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,7 +37,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun DeviceListScreen(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
-    val groups by viewModel.groupedDevices.collectAsState()
+    val allGroups by viewModel.groupedDevices.collectAsState()
+    val fallbackOnlineFilter = remember { MutableStateFlow(false) }
+    val onlyOnline by (viewModel.sessionManager?.onlyOnlineDevicesFlow ?: fallbackOnlineFilter).collectAsState()
+    val groups = remember(allGroups, onlyOnline) {
+        if (!onlyOnline) allGroups else allGroups.mapNotNull { (group, nodes) ->
+            nodes.filter { it.isOnline }.takeIf { it.isNotEmpty() }?.let { group to it }
+        }
+    }
     val connection by viewModel.connectionStatus.collectAsState()
     val search by viewModel.searchQuery.collectAsState()
     val collapsed by viewModel.collapsedGroups.collectAsState()
@@ -51,7 +57,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val keyboard=LocalSoftwareKeyboardController.current
     val focusManager=LocalFocusManager.current
     var showSearch by remember { mutableStateOf(false) }
-    var logout by remember { mutableStateOf(false) }
     var closeSessions by remember { mutableStateOf(false) }
     val expanded=groups.isEmpty() || groups.any { it.first.id !in collapsed }
     val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -63,11 +68,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    if(logout) AlertDialog(onDismissRequest={ logout=false },title={ Text(stringResource(R.string.confirm_logout_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
-        text={ Text(stringResource(R.string.confirm_logout_msg_custom,appName)) },
-        confirmButton={ TextButton(onClick={ logout=false; viewModel.closeAllActiveSessions(); onLogout() }) {
-            Text(stringResource(R.string.logout),color=MaterialTheme.colorScheme.error,fontWeight=FontWeight.Bold)
-        } },dismissButton={ TextButton(onClick={ logout=false }) { Text(stringResource(R.string.cancel)) } })
     if(closeSessions) AlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
         text={ Text(stringResource(R.string.confirm_disconnect_all_msg)) },
         confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all),fontWeight=FontWeight.Bold) } },
@@ -76,6 +76,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
             ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
+            IconToggleButton(checked=onlyOnline,onCheckedChange={ enabled ->
+                val manager = viewModel.sessionManager
+                if (manager != null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value = enabled
+            },modifier=Modifier.size(38.dp)) {
+                Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
+                    Icon(Icons.Default.FilterAlt,
+                        stringResource(if(onlyOnline) R.string.device_filter_show_all else R.string.device_filter_show_online),
+                        Modifier.size(20.dp),tint=if(onlyOnline) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+                }
+            }
             ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                 stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
             ToolIcon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search)) {
@@ -86,7 +96,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 }
                 showSearch=!showSearch
             }
-            ToolIcon(Icons.AutoMirrored.Filled.Logout,stringResource(R.string.logout)) { logout=true }
             ToolIcon(Icons.Default.PowerSettingsNew,stringResource(R.string.close_active_connections)) { closeSessions=true }
         } })
         AnimatedVisibility(showSearch) {

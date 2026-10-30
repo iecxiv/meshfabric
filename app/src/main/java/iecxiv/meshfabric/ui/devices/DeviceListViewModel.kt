@@ -131,6 +131,13 @@ class DeviceListViewModel(
     fun isTerminalActive(nodeId: String): Boolean = terminalClient.isConnectedToNode(nodeId)
     fun isFilesActive(nodeId: String): Boolean = fileClient.isConnectedToNode(nodeId)
 
+    fun closeDeviceActiveSessions(nodeId: String) {
+        if (isDesktopActive(nodeId)) desktopClient.disconnectSession(nodeId)
+        if (isTerminalActive(nodeId)) terminalClient.disconnectSession(nodeId)
+        if (isFilesActive(nodeId)) fileClient.disconnectSession(nodeId)
+        refreshActiveSessions()
+    }
+
     fun closeAllActiveSessions() {
         desktopClient.disconnectAll()
         terminalClient.disconnectAll()

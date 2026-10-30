@@ -118,7 +118,17 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
         composable("settings") { entry->
             val back:()->Unit={ navController.backOnceFrom(entry,recoveryRoute()) }
             BackHandler(onBack=back)
-            SettingsScreen(viewModel=settingsViewModel,onBack=back)
+            SettingsScreen(viewModel=settingsViewModel,onBack=back,
+                onLogout=if(recoveryRoute()=="devices") ({
+                    if(navController.acceptsNavigationFrom(entry)) {
+                        deviceListViewModel.closeAllActiveSessions()
+                        terminalViewModel.clearRendering()
+                        loginViewModel.logout()
+                        navController.navigateOnceFrom(entry,"login") {
+                            popUpTo(navController.graph.id) { inclusive=false }
+                        }
+                    }
+                }) else null)
         }
         listOf("desktop","terminal","files").forEach { screen->
             composable(route="$screen/{nodeId}/{nodeName}",arguments=listOf(

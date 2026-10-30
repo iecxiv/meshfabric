@@ -79,6 +79,14 @@ class SessionManager(context: Context) {
     )
     val hideSettingsIconFlow: StateFlow<Boolean> = _hideSettingsIconFlow.asStateFlow()
 
+    private val _onlyOnlineDevicesFlow = MutableStateFlow(prefs.getBoolean("only_online_devices", false))
+    val onlyOnlineDevicesFlow: StateFlow<Boolean> = _onlyOnlineDevicesFlow.asStateFlow()
+
+    fun saveOnlyOnlineDevices(enabled: Boolean) {
+        prefs.edit().putBoolean("only_online_devices", enabled).apply()
+        _onlyOnlineDevicesFlow.value = enabled
+    }
+
     private fun getSavedThemeMode(): AppThemeMode {
         val savedName = prefs.getString(KEY_THEME_MODE, AppThemeMode.SYSTEM.name)
         return try {
@@ -174,12 +182,14 @@ class SessionManager(context: Context) {
 
     fun clearSession() {
         val keepTerminalBuffers = isSaveTerminalBuffersEnabled()
+        val keepOnlineFilter = _onlyOnlineDevicesFlow.value
         val currentAppName = _appNameFlow.value
         val currentIconPath = _customIconPathFlow.value
         val currentTheme = _themeModeFlow.value
 
         prefs.edit().clear().apply()
-        prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, keepTerminalBuffers).apply()
+        prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, keepTerminalBuffers)
+            .putBoolean("only_online_devices", keepOnlineFilter).apply()
 
         // Preserve app settings when clearing user session
         prefs.edit()

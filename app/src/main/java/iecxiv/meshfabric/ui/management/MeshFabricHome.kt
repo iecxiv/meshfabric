@@ -208,6 +208,9 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     } }
     val management=androidx.lifecycle.viewmodel.compose.viewModel<Management>(factory=factory)
     val state by management.state.collectAsState()
+    val desktopSessions by viewModel.desktopSessionsStatus.collectAsState()
+    val terminalSessions by viewModel.terminalSessionsStatus.collectAsState()
+    val fileSessions by viewModel.fileSessionsStatus.collectAsState()
     val groups by viewModel.meshClient.groupedDevices.collectAsState()
     val connected by viewModel.isConnected.collectAsState()
     val nodes=groups.flatMap { it.second }.distinctBy { it.id }
@@ -221,7 +224,13 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },bottomBar={ CompactBottomNavigation(page) { page=it } }) { padding->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
-                DeviceActionMenu(node,state.ready,onRead={ management.openNotes(node,false) },onEdit={ management.openNotes(node,true) },
+                val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
+                val hasActiveSessions = iecxiv.meshfabric.ui.devices.hasDeviceConnectedSession(
+                    desktopSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                    terminalSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                    fileSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE)
+                DeviceActionMenu(node,state.ready,hasActiveSessions,
+                    onDisconnectSessions={ viewModel.closeDeviceActiveSessions(node.id) },onRead={ management.openNotes(node,false) },onEdit={ management.openNotes(node,true) },
                     onSelect={ op->operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
             }) {
                 DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
@@ -287,7 +296,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         }
     } }
 }
-@Composable private fun DeviceActionMenu(node:MeshNode,ready:Boolean,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {
+@Composable private fun DeviceActionMenu(node:MeshNode,ready:Boolean,hasActiveSessions:Boolean,onDisconnectSessions:()->Unit,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {
     var expanded by remember(node.id) { mutableStateOf(false) }
     val configuration=LocalConfiguration.current
     val density=LocalDensity.current
@@ -323,6 +332,13 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         DropdownMenu(expanded=expanded,onDismissRequest={ expanded=false },modifier=Modifier.heightIn(max=menuMaxHeight),
             shape=MaterialTheme.shapes.medium,containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
             tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+            if (hasActiveSessions) {
+                MenuEntry(androidx.compose.ui.res.stringResource(iecxiv.meshfabric.R.string.device_disconnect_active_sessions), Icons.Default.LinkOff, true, true) {
+                    expanded=false
+                    onDisconnectSessions()
+                }
+                HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+            }
             MenuEntry("Leer notas",Icons.Default.Description,ready) { expanded=false; onRead() }
             MenuEntry("Guardar notas",Icons.Default.Edit,ready) { expanded=false; onEdit() }
             if(regularActions.isNotEmpty()) {

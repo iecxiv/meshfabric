@@ -282,6 +282,7 @@ fun RemoteDesktopScreen(
         ) {
             BasicTextField(
                 enabled = desktopKeyboardActive,
+                readOnly = !isSoftKeyboardOpen,
                 value = softKeyboardTextFieldValue,
                 onValueChange = { newValue ->
                     val oldText = softKeyboardTextFieldValue.text

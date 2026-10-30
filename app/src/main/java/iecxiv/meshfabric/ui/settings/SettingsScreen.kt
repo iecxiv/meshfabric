@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Home
@@ -73,7 +74,8 @@ import iecxiv.meshfabric.ui.theme.AppThemeMode
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onLogout: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -83,6 +85,19 @@ fun SettingsScreen(
     val themeMode by viewModel.themeMode.collectAsState()
     val hideSettingsIcon by viewModel.hideSettingsIcon.collectAsState()
     val saveTerminalBuffers by viewModel.saveTerminalBuffers.collectAsState()
+
+    var showLogout by remember { mutableStateOf(false) }
+    if (showLogout && onLogout != null) androidx.compose.material3.AlertDialog(
+        onDismissRequest = { showLogout = false },
+        title = { Text(stringResource(R.string.confirm_logout_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+        text = { Text(stringResource(R.string.confirm_logout_msg_custom, currentAppName)) },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { showLogout = false; onLogout() }) {
+            Text(stringResource(R.string.logout), color = MaterialTheme.colorScheme.error)
+        } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { showLogout = false }) {
+            Text(stringResource(R.string.cancel))
+        } }
+    )
 
     var editedName by remember(currentAppName) { mutableStateOf(currentAppName) }
 
@@ -467,6 +482,19 @@ fun SettingsScreen(
                             checked = saveTerminalBuffers,
                             onCheckedChange = { viewModel.setSaveTerminalBuffers(it) }
                         )
+                    }
+                }
+            }
+
+            if (onLogout != null) {
+                Card(
+                    modifier = Modifier.align(Alignment.CenterHorizontally).clickable { showLogout = true },
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.logout), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }

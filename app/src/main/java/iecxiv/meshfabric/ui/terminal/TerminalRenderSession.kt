@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.terminal
 
+import androidx.core.view.doOnNextLayout
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.MutableContextWrapper
@@ -44,6 +45,35 @@ internal class TerminalRenderSession(
     private val focusRequests = TerminalFocusRequests()
     private var focusBlocked = false
     private val webView = object : WebView(wrapper) {
+        private var imeOrientation = resources.configuration.orientation
+        private var imeConfigurationVersion = 0L
+
+        override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+            val orientationChanged = imeOrientation != newConfig.orientation
+            imeOrientation = newConfig.orientation
+            val wasVisible = androidx.core.view.ViewCompat.getRootWindowInsets(this)
+                ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+            super.onConfigurationChanged(newConfig)
+            if (!orientationChanged) return
+            val version = ++imeConfigurationVersion
+            val attachment = lease.current
+            doOnNextLayout {
+                post {
+                    if (version != imeConfigurationVersion || isDestroyed || !isAttached ||
+                        attachment == null || lease.current != attachment) return@post
+                    if (ready) fitView()
+                    val stillVisible = androidx.core.view.ViewCompat.getRootWindowInsets(this)
+                        ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true
+                    if (!wasVisible || !stillVisible || !focusAllowed() ||
+                        !hasFocus() || !hasWindowFocus()) return@post
+                    val manager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    manager.restartInput(this)
+                    android.util.Log.d("MeshTerminalIme", "Input refreshed after rotation: orientation=${resources.configuration.orientation} width=$width height=$height")
+                }
+            }
+            requestLayout()
+        }
+
         override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
             super.onWindowFocusChanged(hasWindowFocus)
             if (!hasWindowFocus) focusRequests.cancel()

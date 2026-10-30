@@ -35,15 +35,27 @@ class KeepAliveService : Service() {
     private fun currentStatusIcon(): Int {
         return try {
             val manager = getSystemService(NotificationManager::class.java) ?: return R.drawable.ic_stat_remote
-            val active = manager.activeNotifications.map { it.notification }.filter { n ->
+            val transfers = manager.activeNotifications.map { it.notification }.filter { n ->
                 n.channelId == "file_downloads" &&
-                    (n.extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 ||
-                        n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false))
+                    n.group == "meshfabric_sessions_and_transfers" &&
+                    (n.flags and Notification.FLAG_GROUP_SUMMARY) == 0
+            }
+            val active = transfers.filter { n ->
+                n.extras.getInt(Notification.EXTRA_PROGRESS_MAX, 0) > 0 ||
+                    n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false) ||
+                    (n.flags and Notification.FLAG_ONGOING_EVENT) != 0
             }
             val icons = active.mapNotNull { it.smallIcon }.filter { it.type == android.graphics.drawable.Icon.TYPE_RESOURCE }.map { it.resId }
+            val allCompleted = transfers.isNotEmpty() && active.isEmpty() && transfers.all { n ->
+                when (n.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()) {
+                    "Descarga completada", "Subida completada" -> true
+                    else -> false
+                }
+            }
             when {
                 android.R.drawable.stat_sys_download in icons -> android.R.drawable.stat_sys_download
                 android.R.drawable.stat_sys_upload in icons -> android.R.drawable.stat_sys_upload
+                allCompleted -> R.drawable.ic_stat_transfer_success
                 else -> R.drawable.ic_stat_remote
             }
         } catch (_: Exception) { R.drawable.ic_stat_remote }
