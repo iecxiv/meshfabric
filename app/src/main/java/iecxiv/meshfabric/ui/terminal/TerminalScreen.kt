@@ -268,7 +268,11 @@ fun TerminalScreen(
                         enabled = inputEnabled && !inputOverlay,
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.terminal_keyboard_toggle))
+                        Icon(
+                            Icons.Default.Keyboard,
+                            contentDescription = stringResource(R.string.terminal_keyboard_toggle),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (inputEnabled) 1f else 0.38f)
+                        )
                     }
                     Box {
                         IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null, modifier = Modifier.size(36.dp)) {
