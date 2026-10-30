@@ -255,6 +255,21 @@ internal class TerminalRenderSession(
             }
         }
     }
+    fun sendSpecialKey(id: String) {
+        checkMainThread()
+        if (isDestroyed || !ready || !isAttached || !resumed || failure.value != null || !session.connectionState.value) return
+        webView.evaluateJavascript("window.sendTerminalKey(${gson.toJson(id)});", null)
+    }
+    fun scrollToLatest() {
+        checkMainThread()
+        if (isDestroyed || !ready || !isAttached || !resumed || failure.value != null) return
+        webView.evaluateJavascript("window.scrollTerminalToLatest();") { result ->
+            if (result == "false" && !isDestroyed && isAttached && resumed) android.widget.Toast.makeText(
+                appContext, iecxiv.meshfabric.R.string.terminal_history_unavailable, android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     fun toggleKeyboard() {
         checkMainThread()
         if (!focusAllowed()) return

@@ -51,6 +51,8 @@ class TerminalEchoWebViewTest {
     @Test fun binaryFramesRenderTwoCsAndTwoOnes() { verify("cc11", true) }
     @Test fun textFramesRenderTwoCsAndTwoOnes() { verify("cc11", false) }
 
+    @Test fun specialKeysAndLocalHistory() { verify("ready", true, controls = true) }
+
     @Test fun pasteSingleLineAddsNoEnter() { verify("ready", true, paste = "ac1b") }
     @Test fun pasteNormalizesCrLf() { verify("ready", true, paste = "one\r\ntwo") }
     @Test fun pasteBracketedMultiline() { verify("ready", true, paste = "one\ntwo\n", bracketed = true) }
@@ -64,7 +66,7 @@ class TerminalEchoWebViewTest {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun verify(expected: String, binary: Boolean, displayed: String = expected, paste: String? = null, bracketed: Boolean = false, pasteAccepted: Boolean = true) {
+    private fun verify(expected: String, binary: Boolean, displayed: String = expected, paste: String? = null, bracketed: Boolean = false, pasteAccepted: Boolean = true, controls: Boolean = false) {
         val bridge = EchoBridge()
         val errors = ConcurrentLinkedQueue<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -140,6 +142,43 @@ class TerminalEchoWebViewTest {
             val captured = gson.fromJson(copyJson, com.google.gson.JsonObject::class.java)
             assertEquals(displayed, captured.get("text").asString)
             assertFalse(captured.get("truncated").asBoolean)
+            if (controls) {
+                fun evaluate(script: String): String {
+                    val latch = CountDownLatch(1)
+                    var result = ""
+                    scenario.onActivity { webView!!.evaluateJavascript(script) { result = it; latch.countDown() } }
+                    assertTrue(latch.await(10, TimeUnit.SECONDS))
+                    return result
+                }
+                fun write(token: String, data: String) {
+                    assertEquals("true", evaluate("window.writeTerminalBatch(${gson.toJson(token)},${gson.toJson(data)});"))
+                    assertEquals(token, bridge.acknowledgements.poll(10, TimeUnit.SECONDS))
+                }
+                fun key(name: String, expectedKey: String) {
+                    assertEquals("true", evaluate("window.sendTerminalKey(${gson.toJson(name)});"))
+                    assertEquals(expectedKey, bridge.inputs.poll(10, TimeUnit.SECONDS))
+                    assertNull(bridge.inputs.poll(50, TimeUnit.MILLISECONDS))
+                }
+                val esc = 27.toChar().toString()
+                mapOf("enter" to 13, "backspace" to 8, "tab" to 9, "esc" to 27).forEach { (name, code) -> key(name, code.toChar().toString()) }
+                ('a'..'z').forEach { key("ctrl-" + it, (it.code - 96).toChar().toString()) }
+                mapOf("insert" to "2", "delete" to "3", "pageup" to "5", "pagedown" to "6").forEach { (name, number) -> key(name, esc + "[" + number + "~") }
+                val cursor = mapOf("up" to "A", "down" to "B", "right" to "C", "left" to "D", "home" to "H", "end" to "F")
+                cursor.forEach { (name, suffix) -> key(name, esc + "[" + suffix) }
+                write("cursor-on", esc + "[?1h")
+                cursor.forEach { (name, suffix) -> key(name, esc + "O" + suffix) }
+                write("cursor-off", esc + "[?1l")
+                assertEquals("false", evaluate("window.sendTerminalKey('__proto__');"))
+                assertNull(bridge.inputs.poll(100, TimeUnit.MILLISECONDS))
+                write("history-rows", (0..399).joinToString(13.toChar().toString() + 10.toChar()) { "row$it" })
+                assertEquals("true", evaluate("window.__echoTerm.scrollToTop(); window.__echoTerm.buffer.active.viewportY < window.__echoTerm.buffer.active.baseY;"))
+                assertEquals("true", evaluate("window.scrollTerminalToLatest(); window.__echoTerm.buffer.active.viewportY === window.__echoTerm.buffer.active.baseY;"))
+                assertNull("Local history must not send input", bridge.inputs.poll(100, TimeUnit.MILLISECONDS))
+                write("history-alt", esc + "[?1049h")
+                assertEquals("false", evaluate("window.scrollTerminalToLatest();"))
+                assertNull(bridge.inputs.poll(100, TimeUnit.MILLISECONDS))
+                write("history-normal", esc + "[?1049l")
+            }
             if (paste != null) {
                 if (bracketed) {
                     scenario.onActivity {
@@ -274,7 +313,7 @@ class TerminalEchoWebViewTest {
               return instance;
             };
           </script>
-          <script src="xterm-fit.js"></script><script src="terminal-resize.js"></script><script src="terminal-selection.js"></script>
+          <script src="xterm-fit.js"></script><script src="terminal-resize.js"></script><script src="terminal-selection.js"></script><script src="terminal-keys.js"></script>
           </head><body><div id="terminal-container"></div><div id="terminal-error" hidden></div>
           <script src="terminal-runtime.js"></script></body></html>"""
     }
