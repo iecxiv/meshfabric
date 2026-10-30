@@ -2,26 +2,9 @@
 
 MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and an activity view without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
-This README describes the implementation in the `dev` branch, currently configured as version `1.1.5` with version code `1`. Do not assume that every change described here is already present in `main` or in a published release APK. Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
+Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
 
-## Version 1.1.5 (dev)
-
-- Compact terminal header with a History button between A+ and the keyboard icon. The button opens the history panel expanded or hides it, and its color reflects panel visibility.
-- An involuntary terminal disconnection shows the panel collapsed. Its own arrow expands or collapses the history list within the same full-width themed surface. Reconnect, Return to current terminal, and Cancel remain primary header actions rather than duplicate list entries.
-- Closing a terminal archives its output, removes the current-session highlight, and returns to Devices. Previous histories can be deleted individually or together with confirmation using the app's standard dialog.
-- Save terminal buffers controls archive persistence and active-output checkpoints. Task removal archives current terminal records; restart restores saved records as read-only histories, not current sessions or automatic reconnections.
-- Tapping the keep-alive notification returns to the app through an explicit immutable activity PendingIntent, without task-clearing flags.
-- Desktop gesture capture now refreshes when viewport or fitted-image dimensions change, addressing stale click geometry after rotation with zoom. Device verification of the reported rotation issue remains required.
-
-## Version 1.1.4
-
-- Manual terminal reconnection with a separate candidate connection, cancellation, and a total 30-second deadline. Failed attempts leave the previous history intact.
-- A disconnected/read-only notice outside the terminal output, with input, paste, remote keys, and keyboard requests blocked while disconnected.
-- Successful reconnection opens a new local session record and keeps previous history separately available in read-only mode. No automatic command replay or guarantee of remote-process continuity.
-- Reconnection labels and messages use Android string resources, with English default resources and explicit English and Spanish translations.
-- Automatic terminal reconnection and advanced visual-state restoration remain out of scope.
-
-## Current features
+## Features
 
 ### Devices and navigation
 
@@ -38,17 +21,17 @@ This README describes the implementation in the `dev` branch, currently configur
 - Configurable quality, scale, frame rate, and encoding settings.
 - Clipboard controls and optional clipboard synchronization, subject to remote-session and server restrictions.
 - Settings for mouse-button swapping, wheel direction, remote keyboard mapping, and locking on disconnect.
-- Gesture capture is renewed when viewport or fitted-image dimensions change, so the handler no longer retains pre-rotation geometry. The rotation fix does not change zoom, pan sensitivity, or image decoding; test clicks, long presses, and scroll after rotating on the intended device.
+- Gesture capture is renewed when viewport or fitted-image dimensions change, so the handler no longer retains pre-rotation geometry. Test clicks, long presses, and scroll after rotating on the intended device.
 
 #### Software and physical keyboard input
 
-`dev` adds native Android key-down/key-up routing for software keyboards that emit key events and for physical keyboards. The mapping includes arrows, navigation, Tab, Enter, Escape, Backspace/Delete, Insert, Home/End, PageUp/PageDown, F1-F12, letters, digits, keypad keys, OEM punctuation, and modifiers when Android delivers them to the app.
+Native Android key-down/key-up routing supports software keyboards that emit key events and physical keyboards. The mapping includes arrows, navigation, Tab, Enter, Escape, Backspace/Delete, Insert, Home/End, PageUp/PageDown, F1-F12, letters, digits, keypad keys, OEM punctuation, and modifiers when Android delivers them to the app.
 
 - Mapped events are consumed before the hidden text field handles them, preventing those events from also becoming local caret movement or duplicate text edits.
 - Hardware input capture does not require opening the on-screen keyboard.
 - Repeated key-down events and balanced modifier handling are supported.
 - Input capture is suspended while desktop dialogs are open or the screen is inactive. Tracked keys are released best-effort when focus or input ownership is lost, without replaying them into another session.
-- The existing IME text callbacks and Unicode transport remain separate and have not been redesigned by this change.
+- IME text callbacks and Unicode transport remain separate from key-event routing.
 
 This targets problems such as arrows from Hacker's Keyboard not reaching the remote desktop, but universal keyboard compatibility is not claimed. Automated tests simulate soft-keyboard-flagged events; they do not run the actual Hacker's Keyboard APK. Physical-device and remote-host verification is still required. Android-reserved keys, remote layouts, AltGr, lock/keypad state, sided modifiers, IME composition, mixed toolbar input, games/raw scan-code input, and secure OS shortcuts have limitations. A release sent after a transport has already failed cannot guarantee that the remote OS receives it.
 
@@ -100,11 +83,11 @@ Each preview permits one dispatch attempt, without automatic retries. An accepte
 - Compact default row: Esc, Tab, Ctrl+C, Enter, and Backspace.
 - Expand with the downward chevron; collapse with the same icon inverted.
 - Additional rows provide arrows, Home/End, Insert/Delete, PgUp/PgDn, Ctrl shortcuts, and a Ctrl+A through Ctrl+Z picker.
-- Keys use the restored filled, small-corner style. Their visible height is compact at normal font scale, while minimum interaction space is retained; larger font settings can increase height to avoid clipping.
-- Arrow symbols use one consistently sized vector icon rotated by direction. Enter and the latest-output symbol remain enlarged; End uses the same typography as Home, as introduced in version 1.1.3.
+- Keys use a filled, small-corner style. Their visible height is compact at normal font scale, while minimum interaction space is retained; larger font settings can increase height to avoid clipping.
+- Arrow symbols use one consistently sized vector icon rotated by direction. Enter and the latest-output symbol remain enlarged; End uses the same typography as Home.
 - Cursor keys honor xterm's application-cursor mode. Backspace retains byte 8, and Enter sends CR.
 - PgUp/PgDn/Home/End are remote keys. The separate latest-output control scrolls the local normal-buffer history to the bottom without sending keys to the remote host. It is unavailable in the alternate buffer.
-- Touch scrolling over rendered text is routed to the native viewport on coarse-pointer devices in the normal buffer when mouse reporting is inactive. The existing alternate-buffer and mouse-reporting behavior is retained.
+- Touch scrolling over rendered text is routed to the native viewport on coarse-pointer devices in the normal buffer when mouse reporting is inactive. Alternate-buffer and mouse-reporting behavior is retained.
 
 While touch-scroll pass-through is active, direct canvas selection and canvas link taps are not preserved. Use the Select and copy dialog for text selection. No universal behavior across all full-screen terminal applications or IMEs is claimed.
 
@@ -124,7 +107,7 @@ While touch-scroll pass-through is active, direct canvas selection and canvas li
 - With Save terminal buffers enabled, closed records and active-output checkpoints are persisted per server/account and restored as read-only histories. Output checkpoints are throttled to approximately one second, with additional saving on activity stop and archival through the recent-task-removal callback. Abrupt termination can still lose output not yet written.
 - With the setting disabled, archives remain in memory only. Disabling it removes saved archive and legacy buffer files. Deleting an archive also deletes its saved file so it does not reappear after restart.
 - See [Terminal archive persistence](docs/terminal-archive-persistence.md) for storage, account separation, legacy migration, and recovery limits. Persisted output does not recreate a live terminal connection.
-- Retained renderers preserve local state across navigation while they remain cached. The existing cache retains up to four renderers, without evicting attached views. An evicted renderer may be recreated from the available output journal, not from a full VT snapshot.
+- Retained renderers preserve local state across navigation while they remain cached. The cache retains up to four renderers, without evicting attached views. An evicted renderer may be recreated from the available output journal, not from a full VT snapshot.
 - Truncated retained history is identified explicitly. Rebuilding an initial disconnected view may read from the oldest output still available; this is best-effort history replay, not restoration of missing output or complete terminal visual state.
 - Live output delivery keeps strict gap detection, including its initial read. Continuing from an evicted or invalidated cursor does not silently skip missing output.
 - Renderer loss and foreground parser-acknowledgement timeouts have an explicit, confirmed Recreate view action. Recreating a view does not restart the remote shell and may require full-screen applications to redraw.
@@ -175,13 +158,13 @@ A request being sent or accepted is not the same as an action being executed. Me
 - View recent local action requests, server events, errors, and available command output.
 - Search activity and filter by category or device, with entries grouped by date.
 - Inspect request identifiers, actor information, timestamps, and result details when available.
-- The current activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.
+- The activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.
 
 ### Background sessions and notification
 
 - A keep-alive foreground-service notification is used while the app is in the background with sessions that need it.
 - Tapping the notification requests a return to MainActivity through an explicit immutable activity PendingIntent. It does not use task-clearing flags or explicitly request a terminal disconnect/restart.
-- Returning to the foreground follows the app's existing lifecycle behavior. A dead process still requires normal app startup; the notification does not guarantee recovery of an earlier live remote session.
+- Returning to the foreground follows the app's lifecycle behavior. A dead process still requires normal app startup; the notification does not guarantee recovery of an earlier live remote session.
 
 ### Appearance and language resources
 
@@ -190,38 +173,36 @@ A request being sent or accepted is not the same as an action being executed. Me
 - English and Spanish Android resource files are provided, including terminal reconnection, history-panel, deletion, close, and history-header controls.
 - Localization is not complete: some native management, activity, desktop, and feedback messages remain hard-coded in Spanish. Resource-key coverage is not proof that every visible phrase has been externalized or translated.
 
-The current localization inventory and its limitations are documented in [docs/i18n](docs/i18n/README.md).
+The localization inventory and its limitations are documented in [docs/i18n](docs/i18n/README.md).
 
-## Requirements and version
+## Requirements
 
 - A reachable MeshCentral server and a valid account.
 - Devices/agents that expose the requested remote functionality and the necessary server-side permissions.
 - Android 8.0 or newer (API 26 minimum).
 
-The current `dev` configuration declares:
+Build configuration:
 
 | Setting | Value |
 | --- | --- |
-| App version name | `1.1.5` |
-| App version code | `1` |
 | Minimum SDK | `26` |
 | Compile SDK | `35` |
 | Target SDK | `35` |
 | Java source/target compatibility | `17` |
 
-These values come from `app/build.gradle.kts`. A configured version is not a claim that a corresponding release APK or tag has been published.
+The build configuration is defined in `app/build.gradle.kts`.
 
 ## Build from source
 
-1. Clone the development branch:
+1. Clone the repository:
 
    ```bash
-   git clone --branch dev https://github.com/iecxiv/meshfabric.git
+   git clone https://github.com/iecxiv/meshfabric.git
    cd meshfabric
    ```
 
-2. Open the project in an Android Studio version compatible with the Android Gradle Plugin and Gradle wrapper configured in this repository. Install Android SDK Platform 35 and let Gradle synchronize the project.
-3. Select a Gradle JDK compatible with the configured build tooling. Recent verification tasks use JDK 21; Java source/target compatibility remains 17. These are separate settings.
+2. Open the project in an Android Studio installation compatible with the Android Gradle Plugin and Gradle wrapper configured in this repository. Install Android SDK Platform 35 and let Gradle synchronize the project.
+3. Select a Gradle JDK compatible with the configured build tooling. Verification tasks use JDK 21; Java source/target compatibility remains 17. These are separate settings.
 4. Build and run on an Android device or emulator using API 26 or newer.
 
 To build a debug APK from the repository root:
@@ -234,7 +215,7 @@ To build a debug APK from the repository root:
 .\gradlew.bat :app:assembleDebug
 ```
 
-The generated debug APK is placed under `app/build/outputs/apk/debug/` after a successful build. Build-tool versions are defined in `gradle/libs.versions.toml` and `gradle/wrapper/gradle-wrapper.properties`.
+The generated debug APK is placed under `app/build/outputs/apk/debug/` after a successful build. Build tooling is defined in `gradle/libs.versions.toml` and `gradle/wrapper/gradle-wrapper.properties`.
 
 ## Verification
 
@@ -260,11 +241,11 @@ Build and run Android instrumentation tests with a connected device or running e
 
 Verification includes key mapping/modifier state, Compose input dispatch and key-bar checks, bundled-xterm echo/copy/paste behavior, terminal focus/IME handling, and touchscreen scrolling. Unit coverage also includes terminal attempt ownership, stale completions, strict live reads versus explicit history replay, panel-opening policy, and archive storage behavior.
 
-History-panel instrumentation tests cover hidden content, duplicate primary-action labels, and expansion through the panel arrow. Compiling these tests does not mean they were executed on a device. Existing JVM tests and a successful debug build do not by themselves verify the reported zoom/rotation click issue or the notification tap behavior on a physical device.
+History-panel instrumentation tests cover hidden content, duplicate primary-action labels, and expansion through the panel arrow. Compiling these tests does not mean they were executed on a device. JVM tests and a successful debug build do not by themselves verify zoom/rotation click alignment or notification tap behavior on a physical device.
 
-Some feature changes use CI publication workflows; a workflow commit is not itself the functional change. Check that the functional commit was published and inspect the outcome of its specific validation run.
+Some feature changes use CI publication workflows; a workflow commit is not itself the functional change. Check that the functional commit was published and inspect the outcome of its validation run.
 
-Passing automated tests does not establish universal compatibility with Hacker's Keyboard, every physical keyboard, every IME, all Android versions, or all Windows/Linux hosts. Test real typing, shortcuts, locale/accents, composition, repeats, focus changes, reconnection, font scaling, and landscape/keyboard layouts on the intended devices.
+Passing automated tests does not establish universal compatibility with Hacker's Keyboard, every physical keyboard, every IME, all Android environments, or all Windows/Linux hosts. Test real typing, shortcuts, locale/accents, composition, repeats, focus changes, reconnection, font scaling, and landscape/keyboard layouts on the intended devices.
 
 ## Technology
 
@@ -277,7 +258,7 @@ Passing automated tests does not establish universal compatibility with Hacker's
 ## Security and operational notes
 
 - Remembered session data includes the server URL, username, and authentication cookie. The session persistence code does not save the login password.
-- Session preferences use `EncryptedSharedPreferences` with an Android KeyStore-backed master key when available. The current implementation falls back to ordinary app-private `SharedPreferences` if encrypted initialization fails; do not assume that remembered session data is always encrypted.
+- Session preferences use `EncryptedSharedPreferences` with an Android KeyStore-backed master key when available. The implementation falls back to ordinary app-private `SharedPreferences` if encrypted initialization fails; do not assume that remembered session data is always encrypted.
 - Saved terminal output is not encrypted. Archive records use JSON files in app-private no-backup storage, separated by hashed server/account keys. Disabling Save terminal buffers removes saved archives and legacy buffer files; history can remain in memory for the current execution. See [Terminal archive persistence](docs/terminal-archive-persistence.md).
 - Terminal copying marks clipboard content as sensitive to suppress supported Android clipboard previews. This is not clipboard encryption or a guarantee against other authorized readers.
 - Treat clipboard data, retained output, and diagnostic logs as potentially sensitive. Do not assume that every diagnostic path has been audited for content disclosure.
