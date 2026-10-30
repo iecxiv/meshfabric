@@ -155,6 +155,7 @@ class ActiveDownloadSession(
     val context: Context
 ) {
     internal val networkAttempt = DownloadNetworkAttempt()
+    @Volatile internal var localUri: Uri? = null
     @Volatile internal var completed = false
 }
 
@@ -931,7 +932,8 @@ class FileSession(
         }
     }
 
-    private fun createDownloadOutputStream(context: Context, fileName: String): OutputStream {
+    private fun createDownloadOutputStream(context: Context, fileName: String, session: ActiveDownloadSession): OutputStream {
+        session.localUri = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 val resolver = context.contentResolver
@@ -943,7 +945,11 @@ class FileSession(
                 val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
                 if (uri != null) {
                     val os = resolver.openOutputStream(uri)
-                    if (os != null) return os
+                    if (os != null) {
+                        session.localUri = uri
+                        return os
+                    }
+                    resolver.delete(uri, null, null)
                 }
             } catch (e: Exception) {
                 Log.e("MeshFilesDownload", "ContentResolver download insert failed, falling back: ${e.localizedMessage}")
@@ -956,7 +962,8 @@ class FileSession(
             downloadsDir.mkdirs()
         }
         val destFile = File(downloadsDir, fileName)
-        return FileOutputStream(destFile)
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".downloadfiles", destFile)
+        return FileOutputStream(destFile).also { session.localUri = uri }
     }
 
     private fun getMimeType(fileName: String): String {
@@ -1051,7 +1058,7 @@ class FileSession(
                     var httpResponse: Response? = null
                     var activeHttpCall: okhttp3.Call? = null
                     try {
-                        val outputStream = createDownloadOutputStream(context, targetName)
+                        val outputStream = createDownloadOutputStream(context, targetName, session)
                         session.outputStream = outputStream
                         val client = OkHttpHelper.createDownloadClient(meshClient.ignoreSsl)
                         fun executeOnCurrentNetwork(request: Request): Response {
@@ -1145,7 +1152,7 @@ class FileSession(
                                         }
                                     }
 
-                                    showDownloadCompleteNotification(context, targetName, item.path, receivedBytes)
+                                    showDownloadCompleteNotification(context, targetName, item.path, receivedBytes, session.localUri)
                                     withContext(Dispatchers.Main) {
                                         Toast.makeText(
                                             context,
@@ -1188,7 +1195,7 @@ class FileSession(
                     if (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
                         if (!ensureConnected()) throw java.io.IOException("Files relay unavailable for isolated download")
                         Log.d("MeshFilesDownload", "stage=WS_ISOLATED_START epoch=$attemptEpoch")
-                        val output = createDownloadOutputStream(context, targetName)
+                        val output = createDownloadOutputStream(context, targetName, session)
                         session.outputStream = output
                         session.receivedBytes = 0L
                         try {
@@ -1467,7 +1474,7 @@ class FileSession(
         }
     }
 
-    private fun showDownloadCompleteNotification(context: Context, fileName: String, filePath: String, total: Long) {
+    private fun showDownloadCompleteNotification(context: Context, fileName: String, filePath: String, total: Long, localUri: Uri?) {
         try {
             ensureNotificationChannel(context)
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -1484,6 +1491,18 @@ class FileSession(
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .setAutoCancel(true)
 
+  if (localUri != null) {
+      val openIntent = Intent(Intent.ACTION_VIEW).apply {
+          setDataAndType(localUri, getMimeType(fileName))
+          clipData = android.content.ClipData.newRawUri(fileName, localUri)
+          addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      val openPendingIntent = PendingIntent.getActivity(
+          context, notificationId, openIntent,
+          PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+      builder.setContentIntent(openPendingIntent)
+  }
             notificationManager.notify(notificationId, builder.build())
         } catch (e: Exception) {
             Log.e("MeshFilesDownload", "Error showing completion notification: ${e.localizedMessage}", e)
@@ -1539,7 +1558,7 @@ class FileSession(
             }
 
             if (ctx != null) {
-                showDownloadCompleteNotification(ctx, fileName, key, totalSize)
+                showDownloadCompleteNotification(ctx, fileName, key, totalSize, session.localUri)
                 scope.launch(Dispatchers.Main) {
                     Toast.makeText(
                         ctx,
