@@ -89,7 +89,7 @@ fun SettingsScreen(
     var showLogout by remember { mutableStateOf(false) }
     if (showLogout && onLogout != null) androidx.compose.material3.AlertDialog(
         onDismissRequest = { showLogout = false },
-        title = { Text(stringResource(R.string.confirm_logout_title), fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.confirm_logout_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
         text = { Text(stringResource(R.string.confirm_logout_msg_custom, currentAppName)) },
         confirmButton = { androidx.compose.material3.TextButton(onClick = { showLogout = false; onLogout() }) {
             Text(stringResource(R.string.logout), color = MaterialTheme.colorScheme.error)
