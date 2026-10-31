@@ -135,7 +135,7 @@ class MainActivity : ComponentActivity() {
             val taskDesc = ActivityManager.TaskDescription(appName, bitmap)
             setTaskDescription(taskDesc)
         } catch (e: Exception) {
-            e.printStackTrace()
+            run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MainActivity", "MainActivity.kt:138", e); Unit }
         }
     }
 

@@ -22,7 +22,7 @@ class MeshFabricApp : Application() {
 
     private fun scheduleNetworkChange(reason:String) {
         // Android delivers callbacks serially; coalesce a handover's adjacent events.
-        Log.d("MeshNetwork","SCHEDULE reason=$reason")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshNetwork", "MeshFabricApp.kt:25 SCHEDULE reason=") { "SCHEDULE reason=$reason" }
         networkHandler.removeCallbacks(dispatchNetworkChange)
         networkHandler.postDelayed(dispatchNetworkChange,250L)
     }
@@ -49,24 +49,24 @@ class MeshFabricApp : Application() {
             cm.registerDefaultNetworkCallback(object:ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network:Network) {
                     val changed=tracker.available(network)
-                    Log.d("MeshNetwork","AVAILABLE network=${network.hashCode()} changed=$changed")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshNetwork", "MeshFabricApp.kt:52 AVAILABLE network=") { "AVAILABLE network=${network.hashCode()} changed=$changed" }
                     if(changed) scheduleNetworkChange("available")
                 }
                 override fun onLost(network:Network) {
                     val changed=tracker.lost(network)
-                    Log.d("MeshNetwork","LOST network=${network.hashCode()} changed=$changed")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshNetwork", "MeshFabricApp.kt:57 LOST network=") { "LOST network=${network.hashCode()} changed=$changed" }
                     if(changed) scheduleNetworkChange("lost")
                 }
                 override fun onCapabilitiesChanged(network:Network,networkCapabilities:NetworkCapabilities) {
                     val transports=transportSignature(networkCapabilities)
                     val changed=tracker.capabilitiesChanged(network,transports)
                     // Do not log capabilities themselves: they may contain identifying data.
-                    Log.d("MeshNetwork","CAPABILITIES network=${network.hashCode()} transports=${transports.sorted()} changed=$changed")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshNetwork", "MeshFabricApp.kt:64 CAPABILITIES network=") { "CAPABILITIES network=${network.hashCode()} transports=${transports.sorted()} changed=$changed" }
                     if(changed) scheduleNetworkChange("transports")
                 }
             })
         } catch(e:Exception) {
-            Log.e("MeshFabricApp","Failed to register default network callback",e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFabricApp", "MeshFabricApp.kt:69 Failed to register default network callback", e)
         }
     }
 
@@ -76,7 +76,7 @@ class MeshFabricApp : Application() {
         var onNetworkChangedListener:(()->Unit)?=null
         fun onNetworkChanged() {
             val listener=onNetworkChangedListener
-            Log.d("MeshNetwork","DISPATCH listenerAttached=${listener!=null}")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshNetwork", "MeshFabricApp.kt:79 DISPATCH listenerAttached=") { "DISPATCH listenerAttached=${listener!=null}" }
             listener?.invoke()
         }
     }

@@ -466,11 +466,13 @@ fun RemoteDesktopScreen(
                                             android.graphics.RectF(0f, 0f, size.width, size.height),
                                             null
                                         )
-                                        drawDiagnostics[0]++
+                                        if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) {
+drawDiagnostics[0]++
                                         val diagnosticNow = android.os.SystemClock.elapsedRealtime()
                                         if (diagnosticNow - drawDiagnostics[1] >= 1000L) {
                                             drawDiagnostics[1] = diagnosticNow
-                                            android.util.Log.d("MeshDesktopDraw", "draws=${drawDiagnostics[0]} version=$currentFrameVersion bitmap=${bitmap.width}x${bitmap.height}")
+                                            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDesktopDraw", "RemoteDesktopScreen.kt:473 draws=") { "draws=${drawDiagnostics[0]} version=$currentFrameVersion bitmap=${bitmap.width}x${bitmap.height}" }
+                                        }
                                         }
                                     }
                                 }
@@ -825,7 +827,7 @@ fun RemoteDesktopScreen(
                         ) {
                             OutlinedButton(
                                 onClick = {
-                                    android.util.Log.d("DesktopScreen", "Pegar de Android clicked")
+                                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:828 Pegar de Android clicked") { "Pegar de Android clicked" }
                                     val clip = clipboardManager.getText()?.text ?: ""
                                     if (clip.isNotEmpty()) {
                                         sendClipboardInput = clip
@@ -843,7 +845,7 @@ fun RemoteDesktopScreen(
                             }
                             Button(
                                 onClick = {
-                                    android.util.Log.d("DesktopScreen", "Enviar al Remoto clicked, input='$sendClipboardInput'")
+                                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:846 Enviar al Remoto clicked, input='") { "Enviar al Remoto clicked, input='$sendClipboardInput'" }
                                     if (sendClipboardInput.isNotEmpty()) {
                                         viewModel.sendClipboardText(nodeId, sendClipboardInput)
                                         Toast.makeText(context, "Enviado al portapapeles remoto", Toast.LENGTH_SHORT).show()
@@ -881,7 +883,7 @@ fun RemoteDesktopScreen(
                         ) {
                             OutlinedButton(
                                 onClick = {
-                                    android.util.Log.d("DesktopScreen", "Solicitar del Remoto clicked")
+                                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:884 Solicitar del Remoto clicked") { "Solicitar del Remoto clicked" }
                                     viewModel.requestRemoteClipboard(nodeId)
                                     Toast.makeText(context, "Solicitando del remoto...", Toast.LENGTH_SHORT).show()
                                 },
@@ -894,7 +896,7 @@ fun RemoteDesktopScreen(
                             }
                             Button(
                                 onClick = {
-                                    android.util.Log.d("DesktopScreen", "Copiar a Android clicked, text='$remoteClipboardText'")
+                                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:897 Copiar a Android clicked, text='") { "Copiar a Android clicked, text='$remoteClipboardText'" }
                                     if (remoteClipboardText.isNotEmpty()) {
                                         clipboardManager.setText(AnnotatedString(remoteClipboardText))
                                         Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()

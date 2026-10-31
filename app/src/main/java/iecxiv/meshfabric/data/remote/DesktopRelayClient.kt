@@ -92,10 +92,11 @@ class DesktopSession(
     private var diagLastLog = 0L
 
     private fun logFrameDiagnostics(stage: String, force: Boolean = false) {
+        if (!iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) return
         val now = nowMs()
         if (!force && now - diagLastLog < 1000L) return
         diagLastLog = now
-        Log.d("MeshDesktopDiag", "epoch=$epoch stage=$stage connected=${_connectionState.value} visible=$visible rx=$diagPackets bytes=$diagBytes lastCmd=$diagLastCmd images=$diagImagePackets jumbo=$diagJumboPackets decoded=$diagDecoded decodeFailed=$diagDecodeFailures published=$diagPublished version=${_frameVersion.value}")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDesktopDiag", "DesktopRelayClient.kt:98 epoch=") { "epoch=$epoch stage=$stage connected=${_connectionState.value} visible=$visible rx=$diagPackets bytes=$diagBytes lastCmd=$diagLastCmd images=$diagImagePackets jumbo=$diagJumboPackets decoded=$diagDecoded decodeFailed=$diagDecodeFailures published=$diagPublished version=${_frameVersion.value}" }
     }
 
     private val _settings = MutableStateFlow(DesktopSettings())
@@ -217,7 +218,7 @@ class DesktopSession(
                             if (!meshClient.connectionState.value) {
                                 if (webSocket != null) retireSocket()
                             } else if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) {
-                                Log.w("DesktopSession", "Desktop handshake timed out for $cleanNodeId")
+                                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("DesktopSession", "DesktopRelayClient.kt:220 Desktop handshake timed out for")
                                 retireSocket()
                             }
                             if (meshClient.connectionState.value && webSocket == null && nowMs() >= retryAt) openSocket()
@@ -309,8 +310,8 @@ class DesktopSession(
                 override fun onMessage(socket: WebSocket, bytes: ByteString) {
                     synchronized(this@DesktopSession) {
                         if (current(socket, generation)) {
-                            diagPackets++
-                            diagBytes += bytes.size
+                            run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagPackets++ }; Unit }
+                            if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagBytes += bytes.size }
                             handleBinaryFrame(bytes.toByteArray())
                             logFrameDiagnostics("receive", diagPackets <= 3L)
                         }
@@ -333,14 +334,14 @@ class DesktopSession(
                 override fun onFailure(socket: WebSocket, t: Throwable, response: Response?) {
                     synchronized(this@DesktopSession) {
                         if (current(socket, generation)) {
-                            Log.w("DesktopSession", "Desktop transport failed for $cleanNodeId (${t.javaClass.simpleName})")
+                            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("DesktopSession", "DesktopRelayClient.kt:336 Desktop transport failed for")
                             retireSocket()
                         }
                     }
                 }
             })
         } catch (e: Exception) {
-            Log.w("DesktopSession", "Cannot open desktop transport for $cleanNodeId (${e.javaClass.simpleName})")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("DesktopSession", "DesktopRelayClient.kt:343 Cannot open desktop transport for")
             retireSocket()
         }
     }
@@ -356,7 +357,7 @@ class DesktopSession(
     fun updateRemoteClipboard(text: String) {
         val cleaned = text.replace("\u0000", "").trim()
         if (cleaned.isNotEmpty()) {
-            Log.d("DesktopSession", "Updated remote clipboard for $cleanNodeId: '$cleaned'")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:359 Updated remote clipboard for") { "Updated remote clipboard for $cleanNodeId: '$cleaned'" }
             _remoteClipboardText.value = cleaned
             onClipboardReceived?.invoke(cleaned)
         }
@@ -366,7 +367,7 @@ class DesktopSession(
         try {
             val json = com.google.gson.Gson().fromJson(text, com.google.gson.JsonObject::class.java) ?: return
             val type = json.get("type")?.asString ?: json.get("action")?.asString ?: ""
-            Log.d("DesktopSession", "Received JSON control message type: $type for $cleanNodeId")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:369 Received JSON control message type:") { "Received JSON control message type: $type for $cleanNodeId" }
             when (type.lowercase()) {
                 "ping" -> {
                     val pong = com.google.gson.JsonObject().apply {
@@ -388,7 +389,7 @@ class DesktopSession(
                 }
             }
         } catch (e: Exception) {
-            Log.e("DesktopSession", "Error handling JSON control message: ${e.message}")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("DesktopSession", "DesktopRelayClient.kt:391 Error handling JSON control message:")
         }
     }
 
@@ -416,9 +417,9 @@ class DesktopSession(
 
         val cmd = ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
 
-        diagLastCmd = cmd
-        if (cmd == 3) diagImagePackets++
-        if (cmd == 27) diagJumboPackets++
+        if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagLastCmd = cmd }
+        if (cmd == 3) run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagImagePackets++ }; Unit }
+        if (cmd == 27) run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagJumboPackets++ }; Unit }
         when (cmd) {
             7 -> {
                 if (data.size < 8) return
@@ -449,7 +450,7 @@ class DesktopSession(
                     val imgData = data.copyOfRange(offset, data.size)
                     try {
                         val tileBitmap = BitmapFactory.decodeByteArray(imgData, 0, imgData.size)
-                        if (tileBitmap == null) diagDecodeFailures++ else diagDecoded++
+                        if (tileBitmap == null) run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagDecodeFailures++ }; Unit } else run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagDecoded++ }; Unit }
                         if (tileBitmap != null) {
                             val requiredW = max(x + tileBitmap.width, _screenResolution.value.first)
                             val requiredH = max(y + tileBitmap.height, _screenResolution.value.second)
@@ -461,9 +462,9 @@ class DesktopSession(
                             drawTileOnCanvas(tileBitmap, x, y)
                         }
                     } catch (e: Exception) {
-                        diagDecodeFailures++
-                        Log.e("MeshDesktopDiag", "decode-error type=${e.javaClass.simpleName} bytes=${imgData.size}")
-                        Log.e("DesktopSession", "Error decoding tile at $x, $y: ${e.message}")
+                        run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagDecodeFailures++ }; Unit }
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshDesktopDiag", "DesktopRelayClient.kt:465 decode-error type=")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("DesktopSession", "DesktopRelayClient.kt:466 Error decoding tile at")
                     }
                 }
             }
@@ -474,13 +475,13 @@ class DesktopSession(
                     val text = if (textLen > 0) {
                         String(data, 4, textLen, Charsets.UTF_8)
                     } else ""
-                    Log.d("DesktopSession", "Received binary KVM cmd 9 (Clipboard) textLen=$textLen, rawText='$text'")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:477 Received binary KVM cmd 9 (Clipboard) textLen=") { "Received binary KVM cmd 9 (Clipboard) textLen=$textLen, rawText='$text'" }
                     updateRemoteClipboard(text)
                 }
             }
             else -> {
                 if (cmd != 82) { // suppress high frequency WebP tile log
-                    Log.d("DesktopSession", "Received binary KVM cmd=$cmd, size=${data.size}")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:483 Received binary KVM cmd=") { "Received binary KVM cmd=$cmd, size=${data.size}" }
                 }
             }
         }
@@ -502,7 +503,7 @@ class DesktopSession(
             desktopCanvas = canvas
             _desktopBitmap.value = bitmap
         } catch (e: Exception) {
-            e.printStackTrace()
+            run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("DesktopRelayClient", "DesktopRelayClient.kt:505", e); Unit }
         }
     }
 
@@ -512,7 +513,7 @@ class DesktopSession(
         if (canvas != null) {
             canvas.drawBitmap(tile, x.toFloat(), y.toFloat(), paint)
             _frameVersion.value = System.currentTimeMillis()
-            diagPublished++
+            run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagPublished++ }; Unit }
         }
     }
 
@@ -536,7 +537,7 @@ class DesktopSession(
         pkt[8] = 0x00
         pkt[9] = 0x07 // KVM Flags: Bit 1 (0x01) = Clipboard, Bit 2 (0x02) = Audio, Bit 3 (0x04) = Touch
         webSocket?.send(ByteString.of(*pkt))
-        Log.d("DesktopSession", "Sent compression settings with KVM flags 0x07 (Clipboard enabled) for $cleanNodeId")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:539 Sent compression settings with KVM flags 0x07 (Clipboard enabled) for") { "Sent compression settings with KVM flags 0x07 (Clipboard enabled) for $cleanNodeId" }
     }
 
     fun sendMouseEvent(actionButton: Int, x: Int, y: Int) {
@@ -706,7 +707,7 @@ class DesktopSession(
     }
 
     fun sendClipboardText(text: String) {
-        Log.d("DesktopSession", "sendClipboardText called for $cleanNodeId with text '$text'")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:709 sendClipboardText called for") { "sendClipboardText called for $cleanNodeId with text '$text'" }
         if (webSocket != null) {
             val textBytes = text.toByteArray(Charsets.UTF_8)
             val len = 4 + textBytes.size
@@ -717,17 +718,17 @@ class DesktopSession(
             pkt[3] = (len and 0xFF).toByte()
             System.arraycopy(textBytes, 0, pkt, 4, textBytes.size)
             webSocket?.send(ByteString.of(*pkt))
-            Log.d("DesktopSession", "Sent binary clipboard text (cmd 9) to KVM socket for $cleanNodeId: '$text'")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:720 Sent binary clipboard text (cmd 9) to KVM socket for") { "Sent binary clipboard text (cmd 9) to KVM socket for $cleanNodeId: '$text'" }
         }
         meshClient.sendClipboardText(fullNodeId, text)
     }
 
     fun requestRemoteClipboard() {
-        Log.d("DesktopSession", "requestRemoteClipboard called for $cleanNodeId, ws connected=${_connectionState.value}, ws=$webSocket")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:726 requestRemoteClipboard called for") { "requestRemoteClipboard called for $cleanNodeId, ws connected=${_connectionState.value}, ws=$webSocket" }
         if (webSocket != null) {
             val pkt = byteArrayOf(0x00, 0x09, 0x00, 0x04)
             webSocket?.send(ByteString.of(*pkt))
-            Log.d("DesktopSession", "Sent binary getclipboard (cmd 9) to KVM socket for $cleanNodeId")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:730 Sent binary getclipboard (cmd 9) to KVM socket for") { "Sent binary getclipboard (cmd 9) to KVM socket for $cleanNodeId" }
         }
         meshClient.sendClipboardRequest(fullNodeId)
     }

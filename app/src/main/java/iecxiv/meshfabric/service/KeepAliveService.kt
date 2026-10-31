@@ -105,7 +105,7 @@ class KeepAliveService : Service() {
                     context.startService(intent)
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("KeepAliveService", "KeepAliveService.kt:108", e); Unit }
             }
         }
 
@@ -127,7 +127,7 @@ class KeepAliveService : Service() {
             try {
                 context.startService(intent)
             } catch (e: Exception) {
-                e.printStackTrace()
+                run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("KeepAliveService", "KeepAliveService.kt:130", e); Unit }
             }
         }
     }

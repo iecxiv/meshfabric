@@ -499,6 +499,8 @@ fun SettingsScreen(
                 }
             }
 
+            iecxiv.meshfabric.diagnostics.DiagnosticSettings()
+
             // Info Card
             Card(
                 modifier = Modifier.fillMaxWidth(),

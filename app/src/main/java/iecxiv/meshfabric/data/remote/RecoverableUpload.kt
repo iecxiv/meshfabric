@@ -115,7 +115,7 @@ internal class UploadChannel private constructor(
         if (closed || !gate.isCurrent(epoch) || socket?.send(ByteString.of(*UploadWire.encode(data))) != true) throw IOException("Upload data rejected locally")
     }
     private suspend fun receive(action: String, id: String? = null, parent: String? = null): JsonObject {
-        if (action != "uploadack") android.util.Log.d("MeshFilesUpload", "stage=WAIT_RESPONSE expected=$action")
+        if (action != "uploadack") iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesUpload", "RecoverableUpload.kt:118 stage=WAIT_RESPONSE expected=") { "stage=WAIT_RESPONSE expected=$action" }
         val response = withTimeoutOrNull(20_000L) {
             while (true) {
                 if (!gate.isCurrent(epoch)) throw IOException("Upload attempt retired while waiting for response")
@@ -129,10 +129,10 @@ internal class UploadChannel private constructor(
             @Suppress("UNREACHABLE_CODE") error("unreachable")
         }
         if (response == null) {
-            android.util.Log.w("MeshFilesUpload", "stage=RESPONSE_TIMEOUT expected=$action")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "RecoverableUpload.kt:132 stage=RESPONSE_TIMEOUT expected=")
             throw IOException("Upload acknowledgement timed out: $action")
         }
-        if (action != "uploadack") android.util.Log.d("MeshFilesUpload", "stage=RESPONSE_ACCEPTED expected=$action")
+        if (action != "uploadack") iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesUpload", "RecoverableUpload.kt:135 stage=RESPONSE_ACCEPTED expected=") { "stage=RESPONSE_ACCEPTED expected=$action" }
         return response
     }
 
@@ -271,7 +271,7 @@ internal class UploadPublication(val parent: String, val target: String) {
             }
             true
         }
-        if (finished != true) android.util.Log.w("MeshFilesUpload", "stage=CLEANUP_YIELDED_TO_RESTART")
+        if (finished != true) iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "RecoverableUpload.kt:274 stage=CLEANUP_YIELDED_TO_RESTART")
     }
     suspend fun transfer(relay: UploadChannel, source: File, progress: (Long) -> Unit) {
         if (recover(relay)) return

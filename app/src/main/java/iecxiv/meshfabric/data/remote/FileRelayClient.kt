@@ -142,7 +142,7 @@ fun deleteLocalDownloadFileIfExists(context: Context, fileName: String) {
             if (file2.exists()) file2.delete()
         }
     } catch (e: Exception) {
-        Log.e("MeshFilesDownload", "Error deleting local download file $fileName: ${e.localizedMessage}")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:145 Error deleting local download file")
     }
 }
 
@@ -366,13 +366,13 @@ class FileSession(
                         if (!meshClient.connectionState.value && webSocket != null) retireSocket()
                         if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
                         if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
-                            Log.w("MeshFilesDiag", "listing-timeout epoch=$socketEpoch reqid=${navigation.pending?.id} elapsedMs=${nowMs() - listingStarted}")
+                            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDiag", "FileRelayClient.kt:369 listing-timeout epoch=")
                             _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"
                             retireSocket()
                         }
                         if (meshClient.connectionState.value && webSocket == null && nowMs() >= retryAt) {
                             try { openSocket() } catch (e: Exception) {
-                                Log.w("MeshFiles", "Cannot open files transport (${e.javaClass.simpleName})")
+                                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFiles", "FileRelayClient.kt:375 Cannot open files transport (")
                                 if (FileSessionPolicy.configurationFailure(e)) {
                                     irrecoverable = true
                                     recoveryJob?.cancel()
@@ -393,7 +393,7 @@ class FileSession(
     private fun retireSocket() {
         val caller = Throwable().stackTrace.getOrNull(1)
         val pending = navigation.pending
-        Log.d("MeshFilesDiag", "retire epoch=$socketEpoch caller=${caller?.methodName}:${caller?.lineNumber} connected=${_connectionState.value} control=${meshClient.connectionState.value} pending=${pending?.id} listingAgeMs=${if (pending != null) nowMs() - listingStarted else -1L} failures=$failures")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDiag", "FileRelayClient.kt:396 retire epoch=") { "retire epoch=$socketEpoch caller=${caller?.methodName}:${caller?.lineNumber} connected=${_connectionState.value} control=${meshClient.connectionState.value} pending=${pending?.id} listingAgeMs=${if (pending != null) nowMs() - listingStarted else -1L} failures=$failures" }
         socketEpoch++
         initialListingJob?.cancel()
         initialListingJob = null
@@ -429,7 +429,7 @@ class FileSession(
         }
         listingStarted = nowMs()
         val queued = webSocket?.send(FileBrowserTransport.listingPayload(req.toString())) == true
-        Log.d("MeshFilesDiag", "ls epoch=$socketEpoch reqid=${request.id} path=${req.get("path")} windows=${windowsFileSystem()} queued=$queued")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDiag", "FileRelayClient.kt:432 ls epoch=") { "ls epoch=$socketEpoch reqid=${request.id} path=${req.get("path")} windows=${windowsFileSystem()} queued=$queued" }
         if (!queued) retireSocket()
     }
 
@@ -456,8 +456,8 @@ class FileSession(
             FileBrowserTransport.endpoint(encodedNodeId, tunnelId, encodedRelayToken)
         )
 
-        Log.d("MeshFilesDiag", "file-browser-relay browser=1 protocol=5 listing=binary-utf8")
-        Log.d("MeshFiles", "Opening files transport for $cleanNodeId")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDiag", "FileRelayClient.kt:459 file-browser-relay browser=1 protocol=5 listing=binary-utf8") { "file-browser-relay browser=1 protocol=5 listing=binary-utf8" }
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFiles", "FileRelayClient.kt:460 Opening files transport for") { "Opening files transport for $cleanNodeId" }
 
         val requestBuilder = Request.Builder().url(wsUrl)
         if (cookie.isNotBlank()) {
@@ -476,7 +476,7 @@ class FileSession(
             override fun onMessage(webSocket: WebSocket, text: String) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
-                Log.d("MeshFilesRecvRawText", "WS Text: $text")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesRecvRawText", "FileRelayClient.kt:479 WS Text:") { "WS Text: $text" }
                 if (text == "c" || text == "cr") {
                     handleIncomingMessage(webSocket, text)
                     return
@@ -512,13 +512,13 @@ class FileSession(
                 val isJson = isProtocolJsonMessage(textCandidate)
 
                 if (isJson || textCandidate == "c") {
-                    Log.d("MeshFilesRecvJsonBytes", "WS JSON/Control Bytes: $textCandidate")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesRecvJsonBytes", "FileRelayClient.kt:515 WS JSON/Control Bytes:") { "WS JSON/Control Bytes: $textCandidate" }
                     handleIncomingMessage(webSocket, textCandidate)
                     processJsonControlMessage(textCandidate)
                     return
                 }
 
-                Log.d("MeshFilesRecvDataBytes", "WS Data Bytes: ${bytes.size} bytes")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesRecvDataBytes", "FileRelayClient.kt:521 WS Data Bytes:") { "WS Data Bytes: ${bytes.size} bytes" }
                 val byteArray = bytes.toByteArray()
 
                 if (copyingSourcePath != null) {
@@ -539,7 +539,7 @@ class FileSession(
                         }
                         return
                     } catch (e: Exception) {
-                        Log.e("MeshFilesCopy", "Error buffering copy chunk: ${e.localizedMessage}", e)
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:542 Error buffering copy chunk:", e)
                     }
                 } else if (readingFilePath != null) {
                     try {
@@ -557,7 +557,7 @@ class FileSession(
                         }
                         return
                     } catch (e: Exception) {
-                        Log.e("MeshFilesRead", "Error buffering read chunk: ${e.localizedMessage}", e)
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRead", "FileRelayClient.kt:560 Error buffering read chunk:", e)
                     }
                 }
 
@@ -568,7 +568,7 @@ class FileSession(
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
-                    Log.d("MeshFilesDiag", "onClosing epoch=$epoch code=$code reasonLength=${reason.length}")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDiag", "FileRelayClient.kt:571 onClosing epoch=") { "onClosing epoch=$epoch code=$code reasonLength=${reason.length}" }
                 retireSocket()
                 }
             }
@@ -576,7 +576,7 @@ class FileSession(
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
-                    Log.d("MeshFilesDiag", "onClosed epoch=$epoch code=$code reasonLength=${reason.length}")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDiag", "FileRelayClient.kt:579 onClosed epoch=") { "onClosed epoch=$epoch code=$code reasonLength=${reason.length}" }
                 retireSocket()
                 }
             }
@@ -584,8 +584,8 @@ class FileSession(
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 synchronized(this@FileSession) {
                     if (!current(webSocket, epoch)) { webSocket.cancel(); return }
-                Log.w("MeshFiles", "Files transport failed (${t.javaClass.simpleName})")
-                Log.w("MeshFilesDiag", "failure epoch=$epoch type=${t.javaClass.simpleName} causeType=${t.cause?.javaClass?.simpleName} http=${response?.code}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFiles", "FileRelayClient.kt:587 Files transport failed (")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDiag", "FileRelayClient.kt:588 failure epoch=")
                 retireSocket()
                 }
             }
@@ -594,14 +594,14 @@ class FileSession(
     }
 
     private fun handleIncomingMessage(webSocket: WebSocket, text: String) {
-        Log.d("MeshFilesRecv", "Files WS Recv (${text.length} chars): $text")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesRecv", "FileRelayClient.kt:597 Files WS Recv (") { "Files WS Recv (${text.length} chars): $text" }
         if (text == "c" || text == "cr") {
             if (_connectionState.value) return
             _connectionState.value = true
             failures = 0
             onStateChanged?.invoke()
             val protocolQueued = webSocket.send("5")
-            Log.d("MeshFilesDiag", "protocol=5 epoch=$socketEpoch queued=$protocolQueued")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDiag", "FileRelayClient.kt:604 protocol=5 epoch=") { "protocol=5 epoch=$socketEpoch queued=$protocolQueued" }
             val epoch = socketEpoch
             initialListingJob = scope.launch {
                 delay(200L)
@@ -687,7 +687,7 @@ class FileSession(
                         }
                         return
                     } catch (e: Exception) {
-                        Log.e("MeshFilesCopy", "Error writing copy chunk: ${e.localizedMessage}", e)
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:690 Error writing copy chunk:", e)
                     }
                 }
             } else {
@@ -701,7 +701,7 @@ class FileSession(
                 }
             }
         } catch (e: Exception) {
-            Log.e("MeshFiles", "Error parsing control JSON: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFiles", "FileRelayClient.kt:704 Error parsing control JSON:", e)
         }
     }
 
@@ -861,7 +861,7 @@ class FileSession(
                         }
                     }
                 }
-                Log.d("MeshFiles", "Successfully parsed ${sortedItems.size} items for path '$path' on $cleanNodeId")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFiles", "FileRelayClient.kt:864 Successfully parsed") { "Successfully parsed ${sortedItems.size} items for path '$path' on $cleanNodeId" }
             } else if (action == "zip" || action == "dialogmessage" || json.get("subaction")?.asString == "zip" || json.has("zip") || (activeZipSessions.isNotEmpty() && (json.has("current") || json.has("percent") || json.has("progress") || json.has("compressed")))) {
                 handleZipControlMessage(json)
             } else if (action == "download" || action == "read" || action == "readfile") {
@@ -888,7 +888,7 @@ class FileSession(
                 }
             }
         } catch (e: Exception) {
-            Log.e("MeshFiles", "Error parsing JSON: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFiles", "FileRelayClient.kt:891 Error parsing JSON:", e)
         }
     }
 
@@ -897,15 +897,15 @@ class FileSession(
         val pending = activeDownloads.values.toList().filter {
             !it.completed && it.downloadJob?.isActive != false
         }.map { it to it.networkAttempt.current() }
-        Log.d("MeshDownloadToast", "REQUEST source=$source candidates=${pending.size}")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:900 REQUEST source=") { "REQUEST source=$source candidates=${pending.size}" }
         if (pending.isEmpty() || isUserDisconnect) {
-            Log.d("MeshDownloadToast", "DISCARDED source=$source reason=no-pending-work-or-closed")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:902 DISCARDED source=") { "DISCARDED source=$source reason=no-pending-work-or-closed" }
             return
         }
         val appContext = context.applicationContext
         scope.launch(Dispatchers.Main.immediate) {
             if (isUserDisconnect) {
-                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=session-closed")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:908 DISCARDED source=") { "DISCARDED source=$source reason=session-closed" }
                 return@launch
             }
             val eligible = pending.filter { (download, epoch) ->
@@ -913,28 +913,28 @@ class FileSession(
                     download.downloadJob?.isActive != false && download.networkAttempt.isCurrent(epoch)
             }
             if (eligible.isEmpty()) {
-                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=work-cancelled-complete-or-retired")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:916 DISCARDED source=") { "DISCARDED source=$source reason=work-cancelled-complete-or-retired" }
                 return@launch
             }
             val toast = Toast.makeText(appContext,
                 appContext.getString(R.string.unstable_network_reconnecting_download), Toast.LENGTH_SHORT)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 toast.addCallback(object : Toast.Callback() {
-                    override fun onToastShown() { Log.d("MeshDownloadToast", "SHOWN source=$source") }
-                    override fun onToastHidden() { Log.d("MeshDownloadToast", "HIDDEN source=$source") }
+                    override fun onToastShown() { iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:923 SHOWN source=") { "SHOWN source=$source" } }
+                    override fun onToastHidden() { iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:924 HIDDEN source=") { "HIDDEN source=$source" } }
                 })
             }
             val claimed = eligible.filter { (download, epoch) -> download.networkAttempt.takeReconnectNotice(epoch) }
             if (claimed.isEmpty()) {
-                Log.d("MeshDownloadToast", "DISCARDED source=$source reason=duplicate-generation")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:929 DISCARDED source=") { "DISCARDED source=$source reason=duplicate-generation" }
                 return@launch
             }
             try {
                 toast.show()
-                Log.d("MeshDownloadToast", "SHOW_REQUESTED source=$source count=${claimed.size}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshDownloadToast", "FileRelayClient.kt:934 SHOW_REQUESTED source=") { "SHOW_REQUESTED source=$source count=${claimed.size}" }
             } catch (e: Exception) {
                 claimed.forEach { (download, epoch) -> download.networkAttempt.releaseReconnectNotice(epoch) }
-                Log.w("MeshDownloadToast", "SHOW_FAILED source=$source type=${e.javaClass.simpleName}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshDownloadToast", "FileRelayClient.kt:937 SHOW_FAILED source=")
             }
         }
     }
@@ -959,7 +959,7 @@ class FileSession(
                     resolver.delete(uri, null, null)
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesDownload", "ContentResolver download insert failed, falling back: ${e.localizedMessage}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:962 ContentResolver download insert failed, falling back:")
             }
         }
 
@@ -1092,7 +1092,7 @@ class FileSession(
 
                         var response = executeOnCurrentNetwork(reqBuilder.build())
 
-                        Log.d("MeshFilesDownload", "stage=HTTP_STATUS code=${response.code} epoch=$attemptEpoch")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDownload", "FileRelayClient.kt:1095 stage=HTTP_STATUS code=") { "stage=HTTP_STATUS code=${response.code} epoch=$attemptEpoch" }
                         if (!response.isSuccessful) {
                             response.close()
                             if (!session.networkAttempt.isCurrent(attemptEpoch)) {
@@ -1177,14 +1177,14 @@ class FileSession(
                                 }
                             }
                         } else {
-                            Log.w("MeshFilesDownload", "HTTP download endpoint returned status ${response.code}")
+                            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1180 HTTP download endpoint returned status")
                         }
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
                         if (!session.networkAttempt.isCurrent(attemptEpoch)) {
                             throw java.io.IOException("Download network changed; restarting on the current network", e)
                         }
-                        Log.w("MeshFilesDownload", "HTTP download attempt failed: ${e.localizedMessage}")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1187 HTTP download attempt failed:")
                     } finally {
                         httpResponse?.close()
                         activeHttpCall?.let { session.networkAttempt.release(attemptEpoch, it) }
@@ -1201,7 +1201,7 @@ class FileSession(
                     // A dedicated relay owns every binary block of this fallback attempt.
                     if (!downloadSuccess && activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
                         if (!ensureConnected()) throw java.io.IOException("Files relay unavailable for isolated download")
-                        Log.d("MeshFilesDownload", "stage=WS_ISOLATED_START epoch=$attemptEpoch")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDownload", "FileRelayClient.kt:1204 stage=WS_ISOLATED_START epoch=") { "stage=WS_ISOLATED_START epoch=$attemptEpoch" }
                         val output = createDownloadOutputStream(context, targetName, session)
                         session.outputStream = output
                         session.receivedBytes = 0L
@@ -1226,7 +1226,7 @@ class FileSession(
                         if (activeDownloads[item.path] === session && coroutineContext.isActive &&
                             session.networkAttempt.isCurrent(attemptEpoch)) {
                             downloadSuccess = true
-                            Log.d("MeshFilesDownload", "stage=WS_ISOLATED_COMPLETE epoch=$attemptEpoch")
+                            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesDownload", "FileRelayClient.kt:1229 stage=WS_ISOLATED_COMPLETE epoch=") { "stage=WS_ISOLATED_COMPLETE epoch=$attemptEpoch" }
                             finishDownload(item.path)
                             return@launch
                         }
@@ -1239,7 +1239,7 @@ class FileSession(
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     if (activeDownloads.containsKey(item.path) && coroutineContext.isActive) {
-                        Log.w("MeshFilesDownload", "Download interrupted for ${item.path} (${e.localizedMessage}). Deleting incomplete local file and restarting...")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1242 Download interrupted for")
 
                         showDownloadReconnectToast(context)
 
@@ -1290,7 +1290,7 @@ class FileSession(
             val label = if (session?.isMove == true) "Movimiento cancelado" else "Copia cancelada"
             _statusMessage.value = "$label: $name"
         } catch (e: Exception) {
-            Log.e("MeshFilesCopy", "Error canceling copy/move: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:1293 Error canceling copy/move:", e)
         }
     }
 
@@ -1350,7 +1350,7 @@ class FileSession(
                 }
             }
         } catch (e: Exception) {
-            Log.e("MeshFilesDownload", "Error canceling download: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1353 Error canceling download:", e)
         }
     }
 
@@ -1427,7 +1427,7 @@ class FileSession(
 
             notificationManager.notify(notificationId, builder.build())
         } catch (e: Exception) {
-            Log.e("MeshFilesDownload", "Error showing progress notification: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1430 Error showing progress notification:", e)
         }
     }
 
@@ -1477,7 +1477,7 @@ class FileSession(
 
             notificationManager.notify(notificationId, builder.build())
         } catch (e: Exception) {
-            Log.e("MeshFilesUpload", "Error showing upload notification: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1480 Error showing upload notification:", e)
         }
     }
 
@@ -1512,7 +1512,7 @@ class FileSession(
   }
             notificationManager.notify(notificationId, builder.build())
         } catch (e: Exception) {
-            Log.e("MeshFilesDownload", "Error showing completion notification: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1515 Error showing completion notification:", e)
         }
     }
 
@@ -1535,7 +1535,7 @@ class FileSession(
 
             notificationManager.notify(notificationId, builder.build())
         } catch (e: Exception) {
-            Log.e("MeshFilesUpload", "Error showing completion notification: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1538 Error showing completion notification:", e)
         }
     }
 
@@ -1575,7 +1575,7 @@ class FileSession(
                 }
             }
         } catch (e: Exception) {
-            Log.e("MeshFilesDownload", "Error finishing download: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1578 Error finishing download:", e)
         }
     }
 
@@ -1607,7 +1607,7 @@ class FileSession(
             copyingTempFile = File.createTempFile("mesh_copy_", ".tmp", context?.cacheDir)
             copyingFileOutputStream = FileOutputStream(copyingTempFile)
         } catch (e: Exception) {
-            Log.e("MeshFilesCopy", "Error creating copy temp file: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:1610 Error creating copy temp file:", e)
         }
 
         val session = ActiveCopyMoveSession(
@@ -1716,7 +1716,7 @@ class FileSession(
                             }
                         }
                     } catch (e: Exception) {
-                        Log.e("MeshFilesCopy", "Error finishing WS copy: ${e.localizedMessage}", e)
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:1719 Error finishing WS copy:", e)
                     } finally {
                         tempFile.delete()
                     }
@@ -1727,7 +1727,7 @@ class FileSession(
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
             }
         } catch (e: Exception) {
-            Log.e("MeshFilesCopy", "Error finishing copy: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:1730 Error finishing copy:", e)
         }
     }
 
@@ -1749,7 +1749,7 @@ class FileSession(
                 _fileContent.value = Pair(path, textContent)
             }
         } catch (e: Exception) {
-            Log.e("MeshFilesRead", "Error finishing read: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRead", "FileRelayClient.kt:1752 Error finishing read:", e)
             _fileReadingProgress.value = null
         }
     }
@@ -1869,13 +1869,13 @@ class FileSession(
                 locked = true
                 while (coroutineContext.isActive && !isUserDisconnect && activeUploads[target] === session) {
                     if (!ensureConnected()) {
-                        Log.d("MeshFilesUpload", "stage=WAIT_RELAY")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesUpload", "FileRelayClient.kt:1872 stage=WAIT_RELAY") { "stage=WAIT_RELAY" }
                         delay(750L)
                         continue
                     }
                     val epoch = session.networkAttempt.current()
                     try {
-                        Log.d("MeshFilesUpload", "stage=ATTEMPT_START epoch=$epoch")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesUpload", "FileRelayClient.kt:1878 stage=ATTEMPT_START epoch=") { "stage=ATTEMPT_START epoch=$epoch" }
                         session.started = true
                         session.sentBytes = 0L
                         _activeTransfers.update { entries -> entries.map {
@@ -1924,7 +1924,7 @@ class FileSession(
                         } }
                         showUploadCompleteNotification(ctx, name, target, verified.size)
                         _statusMessage.value = "Subida completada: $name"
-                        Log.d("MeshFilesUpload", "stage=VERIFIED_COMPLETE bytes=${verified.size}")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesUpload", "FileRelayClient.kt:1927 stage=VERIFIED_COMPLETE bytes=") { "stage=VERIFIED_COMPLETE bytes=${verified.size}" }
                         delay(1200L)
                         break
                     } catch (e: CancellationException) { throw e }
@@ -1932,14 +1932,14 @@ class FileSession(
                     catch (e: UploadConflict) { _statusMessage.value = e.message; break }
                     catch (e: java.io.IOException) {
                         if (activeUploads[target] !== session || isUserDisconnect) break
-                        Log.w("MeshFilesUpload", "stage=RESTART_FROM_ZERO type=${e.javaClass.simpleName}")
+                        iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1935 stage=RESTART_FROM_ZERO type=")
                         showUploadReconnectToast(ctx, "retry")
                         delay(2000L)
                     }
                 }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
-                Log.e("MeshFilesUpload", "stage=SOURCE_OR_WORKER_FAILED type=${e.javaClass.simpleName}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1942 stage=SOURCE_OR_WORKER_FAILED type=")
                 _statusMessage.value = "No se pudo completar la subida: ${e.javaClass.simpleName}"
             } finally {
                 session.networkAttempt.invalidate()
@@ -1955,9 +1955,9 @@ class FileSession(
                                     }
                                     true
                                 }
-                                if (cleaned != true) Log.w("MeshFilesUpload", "stage=OWNED_REMOTE_CLEANUP_PENDING")
+                                if (cleaned != true) iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1958 stage=OWNED_REMOTE_CLEANUP_PENDING")
                             } catch (e: Exception) {
-                                Log.w("MeshFilesUpload", "stage=OWNED_REMOTE_CLEANUP_PENDING type=${e.javaClass.simpleName}")
+                                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1960 stage=OWNED_REMOTE_CLEANUP_PENDING type=")
                             }
                         }
                     }
@@ -1991,10 +1991,10 @@ class FileSession(
             if (claimed.isEmpty()) return@launch
             try {
                 Toast.makeText(ctx, ctx.getString(R.string.unstable_network_reconnecting_upload), Toast.LENGTH_SHORT).show()
-                Log.d("MeshUploadToast", "SHOW_REQUESTED source=$source count=${claimed.size}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshUploadToast", "FileRelayClient.kt:1994 SHOW_REQUESTED source=") { "SHOW_REQUESTED source=$source count=${claimed.size}" }
             } catch (e: Exception) {
                 claimed.forEach { (session, epoch) -> session.networkAttempt.releaseReconnectNotice(epoch) }
-                Log.w("MeshUploadToast", "SHOW_FAILED source=$source type=${e.javaClass.simpleName}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshUploadToast", "FileRelayClient.kt:1997 SHOW_FAILED source=")
             }
         }
     }
@@ -2013,7 +2013,7 @@ class FileSession(
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesUpload", "Error querying filename from uri: ${e.localizedMessage}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:2016 Error querying filename from uri:")
             }
         }
         if (result == null) {
@@ -2040,7 +2040,7 @@ class FileSession(
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesUpload", "Error querying size from uri: ${e.localizedMessage}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:2043 Error querying size from uri:")
             }
         }
         if (size <= 0L) {
@@ -2153,7 +2153,7 @@ class FileSession(
                     return@launch
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesRead", "Error in HTTP read: ${e.localizedMessage}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRead", "FileRelayClient.kt:2156 Error in HTTP read:", e)
             }
 
             // WS readfile fallback
@@ -2176,7 +2176,7 @@ class FileSession(
                 }
                 webSocket?.send(readReq.toString())
             } catch (e: Exception) {
-                Log.e("MeshFilesRead", "Error in WS readfile fallback: ${e.localizedMessage}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRead", "FileRelayClient.kt:2179 Error in WS readfile fallback:", e)
                 _fileReadingProgress.value = null
                 _statusMessage.value = "Error al leer archivo (${item.name})"
             }
@@ -2407,7 +2407,7 @@ class FileSession(
                     }
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesPaste", "Error al solicitar copiar/mover ${source.path}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesPaste", "FileRelayClient.kt:2410 Error al solicitar copiar/mover", e)
                 _statusMessage.value = "No se pudo pegar: ${e.localizedMessage}"
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != source.path }
             }
@@ -2503,7 +2503,7 @@ class FileSession(
                     httpSuccess = tempFile.length() > 0 || source.size == 0L
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesCopy", "HTTP copy fetch error: ${e.localizedMessage}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:2506 HTTP copy fetch error:", e)
             }
 
             if (httpSuccess && tempFile != null && tempFile.exists() && activeCopyMoveSessions.containsKey(destPath)) {
@@ -2551,7 +2551,7 @@ class FileSession(
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("MeshFilesCopy", "Error uploading copied temp file: ${e.localizedMessage}", e)
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:2554 Error uploading copied temp file:", e)
                     activeCopyMoveSessions.remove(destPath)
                     _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
                 } finally {
@@ -2591,7 +2591,7 @@ class FileSession(
                 }
                 webSocket?.send(readReq.toString())
             } catch (e: Exception) {
-                Log.e("MeshFilesCopy", "WS copy fetch error: ${e.localizedMessage}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:2594 WS copy fetch error:", e)
                 _statusMessage.value = "Error al copiar: ${e.localizedMessage}"
                 activeCopyMoveSessions.remove(destPath)
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
@@ -2686,7 +2686,7 @@ class FileSession(
                     delay(500)
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesZip", "Error sending zip request: ${e.localizedMessage}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesZip", "FileRelayClient.kt:2689 Error sending zip request:", e)
             }
         }
         zipSession.job = job
@@ -2800,7 +2800,7 @@ class FileSession(
             }
             _statusMessage.value = "Compresión cancelada: $name"
         } catch (e: Exception) {
-            Log.e("MeshFilesZip", "Error canceling zip compression: ${e.localizedMessage}", e)
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesZip", "FileRelayClient.kt:2803 Error canceling zip compression:", e)
         }
     }
 
@@ -2917,7 +2917,7 @@ class FileSession(
                     listDirectory(_currentPath.value)
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesDelete", "No se pudo solicitar el borrado de ${item.path}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDelete", "FileRelayClient.kt:2920 No se pudo solicitar el borrado de", e)
                 _statusMessage.value = "Error al eliminar: ${e.localizedMessage}"
             }
         }
@@ -2958,7 +2958,7 @@ class FileSession(
                     listDirectory(_currentPath.value)
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesUpload", "Error deleting remote file $fullPath: ${e.localizedMessage}", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:2961 Error deleting remote file", e)
             }
         }
     }
@@ -3017,7 +3017,7 @@ class FileSession(
                     listDirectory(_currentPath.value)
                 }
             } catch (e: Exception) {
-                Log.e("MeshFilesRename", "Error al renombrar ${item.path} a $newName", e)
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRename", "FileRelayClient.kt:3020 Error al renombrar", e)
                 _statusMessage.value = "Error al renombrar: ${e.localizedMessage}"
             }
         }
