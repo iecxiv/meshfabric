@@ -44,7 +44,7 @@ jobs:
               }
 
           ''' + anchor, 1)
-          pattern = r'items\(\s*filteredList\s*,\s*key\s*=\s*\{[^\n]*?\}\s*\)\s*\{\s*(\w+)\s*->'
+          pattern = r'items\(\s*items\s*=\s*filteredList\s*,\s*key\s*=\s*\{[^\n]*?\}\s*\)\s*\{\s*(\w+)\s*->'
           matches = list(re.finditer(pattern,s))
           assert len(matches) == 1, 'Unexpected file list layout; review required'
           m = matches[0]
