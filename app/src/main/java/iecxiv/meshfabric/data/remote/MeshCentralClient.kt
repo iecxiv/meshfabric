@@ -188,7 +188,7 @@ class MeshCentralClient {
             controlConnecting=false
             _connectionState.value=false
             _connectionStatus.value=ConnectionStatus.CONNECTING
-            Log.e("MeshCentralClient","Cannot start control connection (${it.javaClass.simpleName})")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:191 Cannot start control connection (")
         })
     @Volatile var isUserLogout: Boolean = false
 
@@ -277,7 +277,7 @@ class MeshCentralClient {
                         retireControlSocket(epoch,socket)
                     }
                     override fun onFailure(socket:WebSocket,t:Throwable,response:Response?) {
-                        if(retireControlSocket(epoch,socket)) Log.e("MeshCentralClient","Control socket failed (${t.javaClass.simpleName})")
+                        if(retireControlSocket(epoch,socket)) iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:280 Control socket failed (")
                     }
                 })
                 val socket=webSocket!!
@@ -297,7 +297,7 @@ class MeshCentralClient {
                 webSocket=null
                 _connectionState.value=false
                 _connectionStatus.value=ConnectionStatus.DISCONNECTED
-                Log.e("MeshCentralClient","Invalid control connection configuration")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:300 Invalid control connection configuration")
             }
         }
     }
@@ -355,7 +355,7 @@ class MeshCentralClient {
         }
         webSocket?.send(msg2.toString())
 
-        Log.d("MeshCentralClient", "Sent PTY termsize to control socket: cols=$cols, rows=$rows")
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshCentralClient", "MeshCentralClient.kt:358 Sent PTY termsize to control socket: cols=") { "Sent PTY termsize to control socket: cols=$cols, rows=$rows" }
     }
 
     private fun handleControlMessage(text: String) {
@@ -500,7 +500,7 @@ class MeshCentralClient {
                         val conn = eventObj.get("conn")?.asInt ?: 1
                         val nodeId = eventObj.get("nodeid")?.asString ?: eventObj.get("node")?.asString ?: ""
                         if (nodeId.isNotEmpty() || eventAction.contains("node", ignoreCase = true)) {
-                            Log.d("MeshCentralClient", "Node event received: $eventAction for $nodeId")
+                            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshCentralClient", "MeshCentralClient.kt:503 Node event received:") { "Node event received: $eventAction for $nodeId" }
                             if (nodeId.isNotEmpty()) {
                                 val existing = nodesMap[nodeId] ?: nodesMap["node//$nodeId"]
                                 if (existing != null) {
@@ -570,7 +570,7 @@ class MeshCentralClient {
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:573", e); Unit }
         }
     }
 
@@ -680,9 +680,9 @@ class MeshCentralClient {
             webSocket?.send(msg2.toString())
             webSocket?.send(msg3.toString())
             webSocket?.send(msg4.toString())
-            Log.d("MeshCentralClient", "Sent getclip requests via control socket to $fullNodeId")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshCentralClient", "MeshCentralClient.kt:683 Sent getclip requests via control socket to") { "Sent getclip requests via control socket to $fullNodeId" }
         } catch (e: Exception) {
-            Log.e("MeshCentralClient", "Error sending getclip request: ${e.message}")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:685 Error sending getclip request:")
         }
     }
 
@@ -716,9 +716,9 @@ class MeshCentralClient {
             webSocket?.send(msg2.toString())
             webSocket?.send(msg3.toString())
             webSocket?.send(msg4.toString())
-            Log.d("MeshCentralClient", "Sent setclip text via control socket to $fullNodeId: '$text'")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshCentralClient", "MeshCentralClient.kt:719 Sent setclip text via control socket to") { "Sent setclip text via control socket to $fullNodeId: '$text'" }
         } catch (e: Exception) {
-            Log.e("MeshCentralClient", "Error sending setclip text: ${e.message}")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:721 Error sending setclip text:")
         }
     }
 

@@ -68,7 +68,7 @@ internal class TerminalRenderSession(
                         !hasFocus() || !hasWindowFocus()) return@post
                     val manager = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
                     manager.restartInput(this)
-                    android.util.Log.d("MeshTerminalIme", "Input refreshed after rotation: orientation=${resources.configuration.orientation} width=$width height=$height")
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshTerminalIme", "TerminalRenderSession.kt:71 Input refreshed after rotation: orientation=") { "Input refreshed after rotation: orientation=${resources.configuration.orientation} width=$width height=$height" }
                 }
             }
             requestLayout()

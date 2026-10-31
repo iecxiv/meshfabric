@@ -53,7 +53,7 @@ internal fun NavHostController.backOnceFrom(source:NavBackStackEntry,fallback:St
     if(previousBackStackEntry==null) {
         if(currentDestination?.route==fallback) return false
     } else if(popBackStack() && currentDestination!=null) return true
-    Log.w("MeshNavigation","Recovering a destination without a usable parent")
+    iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshNavigation", "NavGraph.kt:56 Recovering a destination without a usable parent")
     navigate(fallback) {
         popUpTo(graph.id) { inclusive=false }
         launchSingleTop=true

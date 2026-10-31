@@ -1,0 +1,2 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources><string name="diagnostic_switch_title">Advanced diagnostics</string><string name="diagnostic_switch_description">Logs technical metadata for troubleshooting. Turns off when the app process restarts. Excludes file contents, clipboard contents and credentials.</string></resources>

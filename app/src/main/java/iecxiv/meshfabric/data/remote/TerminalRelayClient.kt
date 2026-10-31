@@ -101,7 +101,7 @@ class TerminalSession(
             synchronized(sessionHistory) {
                 if (sessionHistory.isNotEmpty()) file.writeText(sessionHistory.toString())
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) { run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("TerminalRelayClient", "TerminalRelayClient.kt:104", e); Unit } }
     }
 
     fun loadBufferFromDisk(context: Context): Boolean {
@@ -120,14 +120,14 @@ class TerminalSession(
                 _connectionStatus.value = TerminalConnectionStatus.DISCONNECTED
                 true
             } else false
-        } catch (e: Exception) { e.printStackTrace(); false }
+        } catch (e: Exception) { run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("TerminalRelayClient", "TerminalRelayClient.kt:123", e); Unit }; false }
     }
 
     fun deleteBufferFromDisk(context: Context) {
         try {
             val file = getBufferFile(context)
             if (file.exists()) file.delete()
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) { run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("TerminalRelayClient", "TerminalRelayClient.kt:130", e); Unit } }
     }
 
     private fun emitDisconnectBanner() {
@@ -228,7 +228,7 @@ class TerminalSession(
                     }
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                         if (retireSocket(epoch, webSocket)) {
-                            Log.e("TerminalSession", "Terminal socket failed (${t.javaClass.simpleName})")
+                            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("TerminalSession", "TerminalRelayClient.kt:231 Terminal socket failed (")
                         }
                     }
                 })
@@ -244,7 +244,7 @@ class TerminalSession(
                 }
             } catch (_: IllegalArgumentException) {
                 closeSocketOnly()
-                Log.e("TerminalSession", "Invalid terminal connection configuration")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("TerminalSession", "TerminalRelayClient.kt:247 Invalid terminal connection configuration")
             }
         }
     }
@@ -271,7 +271,7 @@ class TerminalSession(
     private fun traceTerminalFrame(kind: String, size: Int) {
         if (traceEnabled && tracedFrames < 64) {
             tracedFrames++
-            Log.d("TerminalEcho", "rx=$tracedFrames kind=$kind size=$size connected=${_connectionState.value} handshake=$handshakeComplete")
+            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "TerminalEcho", "TerminalRelayClient.kt:274 rx=") { "rx=$tracedFrames kind=$kind size=$size connected=${_connectionState.value} handshake=$handshakeComplete" }
         }
     }
 
@@ -315,7 +315,7 @@ class TerminalSession(
             _incomingDataFlow.tryEmit(data)
             onOutputChanged?.invoke()
             if (traceEnabled && tracedFrames in 1..63) {
-                Log.d("TerminalEcho", "published chars=${data.length} revision=${outputRevision.value}")
+                iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "TerminalEcho", "TerminalRelayClient.kt:318 published chars=") { "published chars=${data.length} revision=${outputRevision.value}" }
             }
         }
     }

@@ -118,7 +118,7 @@ class SessionManager(context: Context) {
             _customIconPathFlow.value = path
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            run { iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("SessionManager", "SessionManager.kt:121", e); Unit }
             false
         }
     }
