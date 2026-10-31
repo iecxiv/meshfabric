@@ -158,7 +158,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 }
 @Composable fun DeviceCard(node:MeshNode,desktopStatus:SessionStatus=SessionStatus.NONE,terminalStatus:SessionStatus=SessionStatus.NONE,
     fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit) {
-    val os=node.osdesc.orEmpty()
+    val os=node.osDisplayName.ifEmpty { stringResource(R.string.device_os_unknown) }
     Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
         colors=CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface),
         elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
@@ -167,8 +167,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 Surface(Modifier.size(40.dp),shape=CircleShape,color=(if(node.isOnline) OnlineGreen else OfflineGray).copy(alpha=0.15f)) {
                     Box(contentAlignment=Alignment.Center) {
                         Icon(when {
-                            os.contains("Windows",true)->Icons.Default.DesktopWindows
-                            os.contains("Android",true)->Icons.Default.Android
+                            node.platform==DevicePlatform.WINDOWS->Icons.Default.DesktopWindows
+                            node.platform==DevicePlatform.ANDROID->Icons.Default.Android
                             else->Icons.Default.Computer
                         },null,Modifier.size(24.dp),tint=if(node.isOnline) OnlineGreen else OfflineGray)
                     }
