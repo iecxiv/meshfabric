@@ -1,2 +1,6 @@
 <?xml version='1.0' encoding='utf-8'?>
-<resources><string name="diagnostic_switch_title">Diagnóstico avanzado</string><string name="diagnostic_switch_description">Registra metadatos técnicos para resolver problemas. Se desactiva al reiniciar el proceso de la app. No incluye contenido de archivos, portapapeles ni credenciales.</string></resources>
+<resources>
+    <string name="diagnostic_switch_title">Diagnóstico avanzado</string>
+    <string name="diagnostic_switch_subtitle">Se desactiva al reiniciar el proceso de la app.</string>
+    <string name="diagnostic_switch_description">Registra metadatos técnicos para resolver problemas. No incluye contenido de archivos, portapapeles ni credenciales.</string>
+</resources>

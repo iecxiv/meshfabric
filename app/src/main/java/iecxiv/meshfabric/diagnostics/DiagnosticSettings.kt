@@ -32,17 +32,24 @@ import iecxiv.meshfabric.R
                     tint = MaterialTheme.colorScheme.primary
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.diagnostic_switch_title),
-                    modifier = Modifier.weight(1f).padding(end = 12.dp),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(
+                        text = stringResource(R.string.diagnostic_switch_title),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = stringResource(R.string.diagnostic_switch_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 Switch(
                     checked = active,
                     onCheckedChange = AppDiagnostics::setEnabled,
                     colors = SwitchDefaults.colors(
-                        uncheckedBorderColor = if (darkTheme) Color.White else Color.Unspecified
+                        uncheckedBorderColor = if (darkTheme) Color.White else Color.Unspecified,
+                        uncheckedThumbColor = Color(0xFFBDBDBD)
                     )
                 )
             }
