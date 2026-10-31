@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: dev
+          fetch-depth: 0
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -26,13 +27,17 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Move the existing information card without changing it
+      - name: Move information and preserve diagnostic icon
         run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/settings-base"
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
           p = Path('app/src/main/java/iecxiv/meshfabric/ui/settings/SettingsScreen.kt')
           assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip() == '2cc391d53110c658bf562b1b7d7887770e7f2585', 'Settings changed; review required'
+          d = Path('app/src/main/java/iecxiv/meshfabric/diagnostics/DiagnosticSettings.kt').read_text()
+          assert 'imageVector = Icons.Filled.BugReport' in d
+          assert 'Switch(checked=active, onCheckedChange=AppDiagnostics::setEnabled)' in d
           s = p.read_text()
           start = '            // Info Card\n'
           end = '            // Footer with Version & GitHub Repo Link\n'
@@ -52,8 +57,10 @@ jobs:
           git diff --check
       - name: Build, unit tests and lint
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
-      - name: Publish validated information card move
+      - name: Publish only if validated base is still current
         run: |
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$(cat "$RUNNER_TEMP/settings-base")" || { echo 'dev advanced during validation; refusing to publish stale results'; exit 1; }
           git add app/src/main/java/iecxiv/meshfabric/ui/settings/SettingsScreen.kt
           git rm .github/workflows/move-settings-info-card.yml
           git diff --cached --check
@@ -64,7 +71,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: settings-info-card-verification
+          name: settings-info-and-diagnostics-verification
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/
