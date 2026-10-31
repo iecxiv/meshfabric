@@ -102,7 +102,7 @@ jobs:
           test = Path('app/src/test/java/iecxiv/meshfabric/data/model/DevicePlatformTest.kt')
           assert not test.exists()
           test.parent.mkdir(parents=True,exist_ok=True)
-          test.write_text('''package iecxiv.meshfabric.data.model
+          test.write_text(r'''package iecxiv.meshfabric.data.model
           
           import com.google.gson.Gson
           import org.junit.Assert.*
