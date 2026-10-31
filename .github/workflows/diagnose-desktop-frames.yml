@@ -92,7 +92,6 @@ jobs:
                                                       android.graphics.RectF(0f, 0f, size.width, size.height),
                                                       null
                                                   )'''
-          old = '\n'.join(line[10:] if index > 0 else line for index,line in enumerate(old.splitlines()))
           assert s.count(old) == 1, 'Unexpected bitmap drawing block; review required'
           extra = '''
                                                   drawDiagnostics[0]++
@@ -101,7 +100,6 @@ jobs:
                                                       drawDiagnostics[1] = diagnosticNow
                                                       android.util.Log.d("MeshDesktopDraw", "draws=${drawDiagnostics[0]} version=$currentFrameVersion bitmap=${bitmap.width}x${bitmap.height}")
                                                   }'''
-          extra = '\n'.join(line[10:] if index > 0 else line for index,line in enumerate(extra.splitlines()))
           once(old,old + extra)
           screen.write_text(s)
           PY
