@@ -291,6 +291,12 @@ fun FileManagerScreen(
         onDispose { }
     }
 
+    val filteredRows = remember(fileList, searchQuery) {
+        fileListRows(fileList).filter { row ->
+            searchQuery.isBlank() || row.item.name.contains(searchQuery, ignoreCase = true)
+        }
+    }
+
     val filteredList = remember(fileList, searchQuery) {
         if (searchQuery.isBlank()) {
             fileList
@@ -825,10 +831,8 @@ fun FileManagerScreen(
                             .padding(horizontal = 12.dp, vertical = 4.dp),
                         contentPadding = PaddingValues(bottom = 16.dp)
                     ) {
-                        items(
-                            items = filteredList,
-                            key = { item -> "${item.path}_${item.isDir}_${item.name}" }
-                        ) { item ->
+                        items(filteredRows, key = { it.key }) { fileRow ->
+                        val item = fileRow.item
                             val drive = if (driveSelector) driveEntries.firstOrNull { it.path == item.path } else null
                             if (drive != null) {
                                 WindowsDriveRow(drive) { viewModel.openDirectory(nodeId, drive.path) }
