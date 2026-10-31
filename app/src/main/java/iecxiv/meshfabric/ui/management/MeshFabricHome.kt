@@ -1,6 +1,5 @@
 package iecxiv.meshfabric.ui.management
 
-import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -303,8 +302,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val safeInsets=WindowInsets.safeDrawing
     val verticalInsets=with(density) { (safeInsets.getTop(this)+safeInsets.getBottom(this)).toDp() }
     val availableMenuHeight=(configuration.screenHeightDp.dp-verticalInsets-48.dp).coerceAtLeast(0.dp)
-    val menuMaxHeight=if(configuration.orientation==Configuration.ORIENTATION_LANDSCAPE)
-        minOf(280.dp,availableMenuHeight) else availableMenuHeight
+    val menuMaxHeight=availableMenuHeight
     val agentOnline=node.conn and 1 != 0
     val targets=JSONArray(listOf(node.id))
     val interpreters=commandInterpreters(node.osdesc)
