@@ -22,7 +22,7 @@ class KeepAliveService : Service() {
             if (!isServiceRunning) return
             val previous = statusNotification
             val icon = currentStatusIcon()
-            if (previous != null && previous.smallIcon?.resId != icon) {
+            if (previous != null && smallIconResourceId(previous) != icon) {
                 val updated = Notification.Builder.recoverBuilder(this@KeepAliveService, previous)
                     .setSmallIcon(icon).setOnlyAlertOnce(true).build()
                 getSystemService(NotificationManager::class.java)?.notify(NOTIFICATION_ID, updated)
@@ -30,6 +30,15 @@ class KeepAliveService : Service() {
             }
             statusHandler.postDelayed(this, 1000L)
         }
+    }
+
+    private fun smallIconResourceId(notification: Notification): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val icon = notification.smallIcon ?: return 0
+            return if (icon.type == android.graphics.drawable.Icon.TYPE_RESOURCE) icon.resId else 0
+        }
+        // Resource ID supplied by setSmallIcon(int), available on API 26 and 27.
+        return notification.extras.getInt(Notification.EXTRA_SMALL_ICON, 0)
     }
 
     private fun currentStatusIcon(): Int {
@@ -45,7 +54,7 @@ class KeepAliveService : Service() {
                     n.extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false) ||
                     (n.flags and Notification.FLAG_ONGOING_EVENT) != 0
             }
-            val icons = active.mapNotNull { it.smallIcon }.filter { it.type == android.graphics.drawable.Icon.TYPE_RESOURCE }.map { it.resId }
+            val icons = active.map { smallIconResourceId(it) }.filter { it != 0 }
             val allCompleted = transfers.isNotEmpty() && active.isEmpty() && transfers.all { n ->
                 when (n.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()) {
                     "Descarga completada", "Subida completada" -> true

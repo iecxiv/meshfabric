@@ -17,6 +17,8 @@ import androidx.core.app.NotificationCompat
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.data.model.DevicePlatform
+import iecxiv.meshfabric.data.model.platform
 import iecxiv.meshfabric.data.model.FileItem
 import iecxiv.meshfabric.data.model.SessionStatus
 import iecxiv.meshfabric.data.model.TransferProgress
@@ -216,6 +218,10 @@ class FileSession(
     internal fun windowsFileSystem(): Boolean = driveState.value.isNotEmpty() || meshClient.groupedDevices.value.any { (_, nodes) ->
         nodes.any { it.id.removePrefix("node//").removePrefix("node/").trim() == cleanNodeId && it.osdesc?.contains("Windows", ignoreCase = true) == true }
     }
+    private fun androidFileSystem(): Boolean = meshClient.groupedDevices.value.any { (_, nodes) ->
+        nodes.any { it.id.removePrefix("node//").removePrefix("node/").trim() == cleanNodeId && it.platform == DevicePlatform.ANDROID }
+    }
+
     internal fun driveStatus(message: String) { _statusMessage.value = message }
 
     private var socketEpoch = 0L
@@ -418,11 +424,11 @@ class FileSession(
         val request = navigation.next() ?: return
         val req = JsonObject().apply {
             addProperty("action", "ls")
-            addProperty("path", WindowsDriveSupport.wire(request.path, windowsFileSystem()))
+            addProperty("path", FileListingPaths.wire(request.path, androidFileSystem(), windowsFileSystem()))
             addProperty("reqid", request.id)
         }
         listingStarted = nowMs()
-        val queued = webSocket?.send(req.toString().encodeUtf8()) == true
+        val queued = webSocket?.send(FileBrowserTransport.listingPayload(req.toString())) == true
         Log.d("MeshFilesDiag", "ls epoch=$socketEpoch reqid=${request.id} path=${req.get("path")} windows=${windowsFileSystem()} queued=$queued")
         if (!queued) retireSocket()
     }
@@ -447,9 +453,10 @@ class FileSession(
 
         val wsUrl = OkHttpHelper.toWebSocketUrl(
             serverUrl,
-            "/meshrelay.ashx?p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
+            FileBrowserTransport.endpoint(encodedNodeId, tunnelId, encodedRelayToken)
         )
 
+        Log.d("MeshFilesDiag", "file-browser-relay browser=1 protocol=5 listing=binary-utf8")
         Log.d("MeshFiles", "Opening files transport for $cleanNodeId")
 
         val requestBuilder = Request.Builder().url(wsUrl)
@@ -718,7 +725,7 @@ class FileSession(
                     (json.has("path") && (json.has("dir") || json.has("files") || json.has("list")))
 
             if (isDirectoryListing) {
-                val responsePath = json.get("path")?.asString?.takeIf { it.isNotEmpty() }?.let { if (windowsFileSystem()) WindowsDriveSupport.directory(it) else it }
+                val responsePath = json.get("path")?.takeUnless { it.isJsonNull }?.asString?.takeIf { it.isNotEmpty() || androidFileSystem() }?.let { FileListingPaths.browser(it, androidFileSystem(), windowsFileSystem()) }
                 var path = responsePath ?: navigation.pending?.path ?: return
 
                 val recursiveTarget = recursiveCopyTargetDir
@@ -1750,7 +1757,7 @@ class FileSession(
     @Synchronized
     fun listDirectory(path: String) {
         if (isUserDisconnect) return
-        navigation.request(if (windowsFileSystem()) WindowsDriveSupport.directory(path) else path)
+        navigation.request(FileListingPaths.browser(path, androidFileSystem(), windowsFileSystem()))
         startRecovery()
         pumpListing()
     }
