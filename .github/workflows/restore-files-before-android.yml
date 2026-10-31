@@ -1,0 +1,55 @@
+name: Restore files before Android listing change
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/restore-files-before-android.yml']
+permissions:
+  contents: write
+concurrency:
+  group: restore-files-before-android
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore only the previous file browser implementation
+        run: |
+          test "$(git hash-object app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt)" = '084be203b80566748790f662aaaaf8d66fbe10de'
+          git restore --source=fc9fbb68bd7e0c5838942aa784faac6a472d0b4d^ -- app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+          test "$(git hash-object app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt)" = '0cf333b6b7f995328e9229afbd5846c18dbb5d4b'
+          git rm app/src/main/java/iecxiv/meshfabric/data/remote/FileListingPaths.kt app/src/test/java/iecxiv/meshfabric/data/remote/FileListingPathsTest.kt
+          git diff --check
+      - name: Compile and test
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Publish verified rollback
+        run: |
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+          git rm .github/workflows/restore-files-before-android.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: restore file browser before Android listing regression'
+          git push origin HEAD:dev
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: restored-file-browser-verification
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+          if-no-files-found: ignore
