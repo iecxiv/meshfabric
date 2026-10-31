@@ -7,24 +7,40 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import iecxiv.meshfabric.R
 @Composable internal fun DiagnosticSettings() {
     val active by AppDiagnostics.active.collectAsState()
     Card(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment=Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Filled.BugReport,
-                contentDescription = null,
-                modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f).padding(end=12.dp)) {
-                Text(stringResource(R.string.diagnostic_switch_title), style=MaterialTheme.typography.titleMedium)
-                Text(stringResource(R.string.diagnostic_switch_description), style=MaterialTheme.typography.bodySmall)
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.BugReport,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.diagnostic_switch_title),
+                    modifier = Modifier.weight(1f).padding(end = 12.dp),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+                Switch(checked = active, onCheckedChange = AppDiagnostics::setEnabled)
             }
-            Switch(checked=active, onCheckedChange=AppDiagnostics::setEnabled)
+            Text(
+                text = stringResource(R.string.diagnostic_switch_description),
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }

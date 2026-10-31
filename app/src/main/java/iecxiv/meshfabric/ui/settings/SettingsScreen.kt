@@ -512,6 +512,8 @@ fun SettingsScreen(
                 }
             }
 
+            iecxiv.meshfabric.diagnostics.DiagnosticSettings()
+
             if (onLogout != null) {
                 Card(
                     modifier = Modifier.align(Alignment.CenterHorizontally).clickable { showLogout = true },
@@ -524,8 +526,6 @@ fun SettingsScreen(
                     }
                 }
             }
-
-            iecxiv.meshfabric.diagnostics.DiagnosticSettings()
 
             // Footer with Version & GitHub Repo Link
             Column(
