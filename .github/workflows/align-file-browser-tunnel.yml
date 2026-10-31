@@ -1,0 +1,132 @@
+name: Align file browser relay with web viewer
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/align-file-browser-tunnel.yml']
+permissions:
+  contents: write
+concurrency:
+  group: align-file-browser-tunnel
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Align browser endpoint and preserve binary listing
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          root = Path('app/src/main/java/iecxiv/meshfabric/data/remote')
+          p = root/'FileRelayClient.kt'
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip() == '2587bbebd734aa5b67fd33fef345e51210e95944', 'File relay changed; review required'
+          s = p.read_text()
+          def once(old,new):
+              global s
+              assert s.count(old) == 1, old
+              s = s.replace(old,new,1)
+          once('    private val listingTextFallback = ListingTextFallback()\n','')
+          once('                        retryWindowsListingAsText()\n','')
+          a = s.index('    private fun retryWindowsListingAsText() {')
+          b = s.index('    private fun pumpListing() {',a)
+          s = s[:a] + s[b:]
+          once('"/meshrelay.ashx?p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"', 'FileBrowserTransport.endpoint(encodedNodeId, tunnelId, encodedRelayToken)')
+          once('webSocket?.send(req.toString().encodeUtf8()) == true', 'webSocket?.send(FileBrowserTransport.listingPayload(req.toString())) == true')
+          once('Log.d("MeshFiles", "Opening files transport for $cleanNodeId")', 'Log.d("MeshFilesDiag", "file-browser-relay browser=1 protocol=5 listing=binary-utf8")\n        Log.d("MeshFiles", "Opening files transport for $cleanNodeId")')
+          p.write_text(s)
+          helper = root/'FileBrowserTransport.kt'
+          assert not helper.exists()
+          helper.write_text('''package iecxiv.meshfabric.data.remote
+          
+          import okio.ByteString
+          import okio.ByteString.Companion.encodeUtf8
+          
+          internal object FileBrowserTransport {
+              // Inputs are already URL-encoded by the caller, as in the existing tunnel setup.
+              fun endpoint(encodedNodeId: String, tunnelId: String, encodedRelayToken: String): String =
+                  "/meshrelay.ashx?browser=1&p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
+          
+              fun listingPayload(json: String): ByteString = json.encodeUtf8()
+          }
+          ''')
+          test = Path('app/src/test/java/iecxiv/meshfabric/data/remote/FileBrowserTransportTest.kt')
+          assert not test.exists()
+          test.parent.mkdir(parents=True,exist_ok=True)
+          test.write_text('''package iecxiv.meshfabric.data.remote
+          
+          import com.google.gson.JsonObject
+          import com.google.gson.JsonParser
+          import org.junit.Assert.*
+          import org.junit.Test
+          
+          class FileBrowserTransportTest {
+              @Test fun marksOnlyTheClientEndpointAsBrowser() {
+                  val endpoint = FileBrowserTransport.endpoint("node%2F%2Ftest","tunnel1","token")
+                  assertTrue(endpoint.startsWith("/meshrelay.ashx?browser=1&p=5&"))
+                  assertTrue(endpoint.contains("nodeid=node%2F%2Ftest"))
+                  assertTrue(endpoint.contains("id=tunnel1"))
+                  assertTrue(endpoint.endsWith("rauth=token&auth=token"))
+              }
+              @Test fun doesNotDoubleEncodeNodeOrToken() {
+                  val endpoint = FileBrowserTransport.endpoint("node%2F%2Fid%24","t1","a%2Bb%3D")
+                  assertTrue(endpoint.contains("nodeid=node%2F%2Fid%24"))
+                  assertTrue(endpoint.contains("rauth=a%2Bb%3D"))
+                  assertFalse(endpoint.contains("%252F"))
+              }
+              @Test fun listingIsBinaryUtf8WithUnchangedRootAndRequestId() {
+                  val json = JsonObject().apply {
+                      addProperty("action","ls")
+                      addProperty("path","")
+                      addProperty("reqid",17L)
+                  }
+                  val binary = FileBrowserTransport.listingPayload(json.toString())
+                  val parsed = JsonParser.parseString(binary.utf8()).asJsonObject
+                  assertEquals("ls",parsed.get("action").asString)
+                  assertEquals("",parsed.get("path").asString)
+                  assertEquals(17L,parsed.get("reqid").asLong)
+              }
+              @Test fun unicodePathsRoundTripInBinary() {
+                  val json = JsonObject().apply {
+                      addProperty("action","ls")
+                      addProperty("path","C:/Usuarios/José/Documentos")
+                  }
+                  assertEquals(json.toString(),FileBrowserTransport.listingPayload(json.toString()).utf8())
+              }
+          }
+          ''')
+          PY
+          git rm app/src/main/java/iecxiv/meshfabric/data/remote/ListingTextFallback.kt app/src/test/java/iecxiv/meshfabric/data/remote/ListingTextFallbackTest.kt
+          git diff --check
+      - name: Compile and run tests
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Publish verified transport alignment
+        run: |
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/FileBrowserTransport.kt app/src/test/java/iecxiv/meshfabric/data/remote/FileBrowserTransportTest.kt
+          git rm .github/workflows/align-file-browser-tunnel.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: mark file relay browser endpoint and retain binary UTF-8 listings'
+          git push origin HEAD:dev
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: file-browser-tunnel-verification
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+          if-no-files-found: ignore
