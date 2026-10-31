@@ -211,7 +211,6 @@ class FileSession(
     @Volatile var isUserDisconnect = true
     @Volatile private var irrecoverable = false
     private val navigation = FileNavigationState()
-    private val listingTextFallback = ListingTextFallback()
     private val driveState = MutableStateFlow<List<WindowsDriveEntry>>(emptyList())
     internal val windowsDrives: StateFlow<List<WindowsDriveEntry>> = driveState.asStateFlow()
     internal fun windowsFileSystem(): Boolean = driveState.value.isNotEmpty() || meshClient.groupedDevices.value.any { (_, nodes) ->
@@ -360,7 +359,6 @@ class FileSession(
                     if (!isUserDisconnect && !irrecoverable) {
                         if (!meshClient.connectionState.value && webSocket != null) retireSocket()
                         if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
-                        retryWindowsListingAsText()
                         if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
                             Log.w("MeshFilesDiag", "listing-timeout epoch=$socketEpoch reqid=${navigation.pending?.id} elapsedMs=${nowMs() - listingStarted}")
                             _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"
@@ -415,21 +413,6 @@ class FileSession(
         } else pumpListing()
     }
 
-    private fun retryWindowsListingAsText() {
-        if (!isConnected() || !meshClient.connectionState.value || isUserDisconnect) return
-        val request = navigation.pending ?: return
-        val socket = webSocket ?: return
-        if (!listingTextFallback.claim(windowsFileSystem(), socketEpoch, request.id, nowMs() - listingStarted)) return
-        val packet = JsonObject().apply {
-            addProperty("action", "ls")
-            addProperty("path", WindowsDriveSupport.wire(request.path, true))
-            addProperty("reqid", request.id)
-        }
-        val queued = socket.send(packet.toString())
-        Log.d("MeshFilesDiag", "ls-text-fallback epoch=$socketEpoch reqid=${request.id} queued=$queued")
-        if (!queued) retireSocket()
-    }
-
     private fun pumpListing() {
         if (!isConnected() || !meshClient.connectionState.value || isUserDisconnect) return
         val request = navigation.next() ?: return
@@ -439,7 +422,7 @@ class FileSession(
             addProperty("reqid", request.id)
         }
         listingStarted = nowMs()
-        val queued = webSocket?.send(req.toString().encodeUtf8()) == true
+        val queued = webSocket?.send(FileBrowserTransport.listingPayload(req.toString())) == true
         Log.d("MeshFilesDiag", "ls epoch=$socketEpoch reqid=${request.id} path=${req.get("path")} windows=${windowsFileSystem()} queued=$queued")
         if (!queued) retireSocket()
     }
@@ -464,9 +447,10 @@ class FileSession(
 
         val wsUrl = OkHttpHelper.toWebSocketUrl(
             serverUrl,
-            "/meshrelay.ashx?p=5&nodeid=$encodedNodeId&id=$tunnelId&rauth=$encodedRelayToken&auth=$encodedRelayToken"
+            FileBrowserTransport.endpoint(encodedNodeId, tunnelId, encodedRelayToken)
         )
 
+        Log.d("MeshFilesDiag", "file-browser-relay browser=1 protocol=5 listing=binary-utf8")
         Log.d("MeshFiles", "Opening files transport for $cleanNodeId")
 
         val requestBuilder = Request.Builder().url(wsUrl)
