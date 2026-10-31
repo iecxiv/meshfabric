@@ -112,6 +112,7 @@ fun RemoteDesktopScreen(
     val isConnected by viewModel.isConnected(nodeId).collectAsState()
     val desktopBitmap by viewModel.desktopBitmap(nodeId).collectAsState()
     val frameVersion by viewModel.frameVersion(nodeId).collectAsState()
+    val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
     val settings by viewModel.settings(nodeId).collectAsState()
     val remoteClipboardText by viewModel.remoteClipboardText(nodeId).collectAsState()
 
@@ -465,6 +466,12 @@ fun RemoteDesktopScreen(
                                             android.graphics.RectF(0f, 0f, size.width, size.height),
                                             null
                                         )
+                                        drawDiagnostics[0]++
+                                        val diagnosticNow = android.os.SystemClock.elapsedRealtime()
+                                        if (diagnosticNow - drawDiagnostics[1] >= 1000L) {
+                                            drawDiagnostics[1] = diagnosticNow
+                                            android.util.Log.d("MeshDesktopDraw", "draws=${drawDiagnostics[0]} version=$currentFrameVersion bitmap=${bitmap.width}x${bitmap.height}")
+                                        }
                                     }
                                 }
                             }

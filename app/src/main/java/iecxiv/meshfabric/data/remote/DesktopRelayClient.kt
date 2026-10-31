@@ -81,6 +81,23 @@ class DesktopSession(
     private val _frameVersion = MutableStateFlow(0L)
     val frameVersion: StateFlow<Long> = _frameVersion.asStateFlow()
 
+    private var diagPackets = 0L
+    private var diagBytes = 0L
+    private var diagImagePackets = 0L
+    private var diagJumboPackets = 0L
+    private var diagDecoded = 0L
+    private var diagDecodeFailures = 0L
+    private var diagPublished = 0L
+    private var diagLastCmd = -1
+    private var diagLastLog = 0L
+
+    private fun logFrameDiagnostics(stage: String, force: Boolean = false) {
+        val now = nowMs()
+        if (!force && now - diagLastLog < 1000L) return
+        diagLastLog = now
+        Log.d("MeshDesktopDiag", "epoch=$epoch stage=$stage connected=${_connectionState.value} visible=$visible rx=$diagPackets bytes=$diagBytes lastCmd=$diagLastCmd images=$diagImagePackets jumbo=$diagJumboPackets decoded=$diagDecoded decodeFailed=$diagDecodeFailures published=$diagPublished version=${_frameVersion.value}")
+    }
+
     private val _settings = MutableStateFlow(DesktopSettings())
     val settings: StateFlow<DesktopSettings> = _settings.asStateFlow()
 
@@ -136,7 +153,10 @@ class DesktopSession(
             while (true) {
                 delay(_settings.value.frameRate.delayMs.coerceAtLeast(100L))
                 synchronized(this@DesktopSession) {
-                    if (current(socket, generation) && visible && isConnected()) sendUnPause()
+                    if (current(socket, generation) && visible && isConnected()) {
+                            sendUnPause()
+                            logFrameDiagnostics("heartbeat")
+                        }
                 }
             }
         }
@@ -212,6 +232,7 @@ class DesktopSession(
     }
 
     private fun retireSocket() {
+        logFrameDiagnostics("retire", true)
         epoch++
         tunnelJob?.cancel()
         tunnelJob = null
@@ -287,7 +308,12 @@ class DesktopSession(
 
                 override fun onMessage(socket: WebSocket, bytes: ByteString) {
                     synchronized(this@DesktopSession) {
-                        if (current(socket, generation)) handleBinaryFrame(bytes.toByteArray())
+                        if (current(socket, generation)) {
+                            diagPackets++
+                            diagBytes += bytes.size
+                            handleBinaryFrame(bytes.toByteArray())
+                            logFrameDiagnostics("receive", diagPackets <= 3L)
+                        }
                     }
                 }
 
@@ -390,6 +416,9 @@ class DesktopSession(
 
         val cmd = ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
 
+        diagLastCmd = cmd
+        if (cmd == 3) diagImagePackets++
+        if (cmd == 27) diagJumboPackets++
         when (cmd) {
             7 -> {
                 if (data.size < 8) return
@@ -420,6 +449,7 @@ class DesktopSession(
                     val imgData = data.copyOfRange(offset, data.size)
                     try {
                         val tileBitmap = BitmapFactory.decodeByteArray(imgData, 0, imgData.size)
+                        if (tileBitmap == null) diagDecodeFailures++ else diagDecoded++
                         if (tileBitmap != null) {
                             val requiredW = max(x + tileBitmap.width, _screenResolution.value.first)
                             val requiredH = max(y + tileBitmap.height, _screenResolution.value.second)
@@ -431,6 +461,8 @@ class DesktopSession(
                             drawTileOnCanvas(tileBitmap, x, y)
                         }
                     } catch (e: Exception) {
+                        diagDecodeFailures++
+                        Log.e("MeshDesktopDiag", "decode-error type=${e.javaClass.simpleName} bytes=${imgData.size}")
                         Log.e("DesktopSession", "Error decoding tile at $x, $y: ${e.message}")
                     }
                 }
@@ -480,6 +512,7 @@ class DesktopSession(
         if (canvas != null) {
             canvas.drawBitmap(tile, x.toFloat(), y.toFloat(), paint)
             _frameVersion.value = System.currentTimeMillis()
+            diagPublished++
         }
     }
 
