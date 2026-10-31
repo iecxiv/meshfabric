@@ -1,0 +1,276 @@
+name: Global diagnostic switch
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/global-diagnostics-switch.yml']
+permissions:
+  contents: write
+concurrency:
+  group: global-diagnostics-switch
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded global diagnostic control
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, re, json
+          root = Path('app/src/main/java/iecxiv/meshfabric')
+          settings = root/'ui/settings/SettingsScreen.kt'
+          assert subprocess.check_output(['git','hash-object',str(settings)],text=True).strip() == 'ec109b172b13c8010ed778ed1a42fa55599a8ded', 'Settings changed; review required'
+          api = 'iecxiv.meshfabric.diagnostics.AppDiagnostics'
+          directory = root/'diagnostics'
+          assert not directory.exists(), 'Diagnostics package already exists; review required'
+          pairs = {'(':')','[':']','{':'}'}
+          def comment(s,i):
+              if s.startswith('//',i):
+                  j=s.find('\n',i); return len(s) if j<0 else j
+              if s.startswith('/*',i):
+                  depth=1; j=i+2
+                  while depth:
+                      assert j<len(s), 'Unterminated comment'
+                      if s.startswith('/*',j): depth+=1; j+=2
+                      elif s.startswith('*/',j): depth-=1; j+=2
+                      else: j+=1
+                  return j
+              return i
+          def quoted(s,i):
+              if s.startswith('"""',i):
+                  j=s.find('"""',i+3); assert j>=0; return j+3
+              q=s[i]; j=i+1
+              while j<len(s):
+                  if s[j]=='\\': j+=2
+                  elif q=='"' and s.startswith('${',j): j=balanced(s,j+1)
+                  elif s[j]==q: return j+1
+                  else: j+=1
+              raise AssertionError('Unterminated literal')
+          def balanced(s,i):
+              close=pairs[s[i]]; j=i+1
+              while j<len(s):
+                  k=comment(s,j)
+                  if k!=j: j=k
+                  elif s[j] in ('"',"'"): j=quoted(s,j)
+                  elif s[j] in pairs: j=balanced(s,j)
+                  elif s[j]==close: return j+1
+                  else: j+=1
+              raise AssertionError('Unbalanced call')
+          def arguments(s):
+              result=[]; start=0; i=0
+              while i<len(s):
+                  k=comment(s,i)
+                  if k!=i: i=k
+                  elif s[i] in ('"',"'"): i=quoted(s,i)
+                  elif s[i] in pairs: i=balanced(s,i)
+                  elif s[i]==',': result.append(s[start:i].strip()); start=i+1; i+=1
+                  else: i+=1
+              result.append(s[start:].strip()); return result
+          token=re.compile(r'(?<![\w.])(?:(?:android\.util\.)?Log\.(v|d|i|w|e|wtf|println)|(println|print|kotlin\.io\.println|System\.(?:out|err)\.(?:println|print))|([A-Za-z_]\w*)\.printStackTrace)\s*\(')
+          def calls(s):
+              result=[]; i=0
+              while i<len(s):
+                  k=comment(s,i)
+                  if k!=i: i=k; continue
+                  if s[i] in ('"',"'"): i=quoted(s,i); continue
+                  m=token.match(s,i)
+                  if m:
+                      end=balanced(s,m.end()-1)
+                      result.append((m,end,arguments(s[m.end():end-1]))); i=end
+                  else: i+=1
+              return result
+          audit=[]
+          for p in sorted(root.rglob('*')):
+              if p.suffix not in ('.kt','.java'): continue
+              s=p.read_text()
+              found=calls(s)
+              if not found: continue
+              assert p.suffix=='.kt', 'Java logging needs review: '+str(p)
+              assert not re.search(r'import\s+android\.util\.Log\s+as\s+',s), 'Aliased logger needs review'
+              edits=[]
+              for m,end,args in found:
+                  line=s.count('\n',0,m.start())+1
+                  site=p.name+':'+str(line)
+                  level=m.group(1)
+                  if level:
+                      assert len(args)>=2, site
+                      tag=args[0] if re.fullmatch(r'"[A-Za-z0-9_-]{1,60}"',args[0]) else json.dumps(p.stem[:23])
+                      if level=='println': tag=json.dumps(p.stem[:23])
+                      message=args[1] if level!='println' else args[-1]
+                      prefix=re.match(r'\s*"([^"$\\]*)',message)
+                      event=site+(' '+prefix.group(1).strip()[:100] if prefix else '')
+                      if level in ('w','e','wtf'):
+                          error=', '+args[2] if len(args)==3 else ''
+                          replacement=api+'.fault('+tag+', '+json.dumps(event)+error+')'
+                      else:
+                          priority={'v':2,'d':3,'i':4,'println':3}[level]
+                          replacement=api+'.trace('+str(priority)+', '+tag+', '+json.dumps(event)+') { '+message+' }'
+                  elif m.group(3):
+                      assert not args or args==[''], 'Custom stack trace target needs review'
+                      replacement='run { '+api+'.fault('+json.dumps(p.stem[:23])+', '+json.dumps(site)+', '+m.group(3)+'); Unit }'
+                  else:
+                      replacement='run { '+api+'.trace(3, "LegacyDiagnostic", '+json.dumps(site)+') { "" }; Unit }'
+                  edits.append((m.start(),end,replacement))
+              for a,b,new in reversed(edits): s=s[:a]+new+s[b:]
+              assert not calls(s), 'Unmigrated logging calls: '+str(p)
+              p.write_text(s)
+              audit.append({'file':str(p),'sites':len(edits)})
+          assert audit, 'No logging sites found'
+          relay=root/'data/remote/DesktopRelayClient.kt'
+          s=relay.read_text()
+          anchor='    private fun logFrameDiagnostics(stage: String, force: Boolean = false) {'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,anchor+'\n        if (!'+api+'.enabled) return',1)
+          s=re.sub(r'\b(diag(?:Packets|ImagePackets|JumboPackets|Decoded|DecodeFailures|Published))\+\+',lambda m:'run { if ('+api+'.enabled) { '+m.group(1)+'++ }; Unit }',s)
+          s=s.replace('diagBytes += bytes.size','if ('+api+'.enabled) { diagBytes += bytes.size }')
+          s=s.replace('diagLastCmd = cmd','if ('+api+'.enabled) { diagLastCmd = cmd }')
+          relay.write_text(s)
+          screen=root/'ui/desktop/RemoteDesktopScreen.kt'
+          s=screen.read_text()
+          start=s.index('drawDiagnostics[0]++')
+          condition=s.index('if (diagnosticNow - drawDiagnostics[1] >= 1000L)',start)
+          opening=s.index('{',condition)
+          end=balanced(s,opening)
+          block=s[start:end]
+          s=s[:start]+'if ('+api+'.enabled) {\n'+block+'\n                                        }'+s[end:]
+          screen.write_text(s)
+          s=settings.read_text()
+          anchor='            // Info Card'
+          assert s.count(anchor)==1
+          s=s.replace(anchor,'            iecxiv.meshfabric.diagnostics.DiagnosticSettings()\n\n'+anchor,1)
+          settings.write_text(s)
+          directory.mkdir()
+          (directory/'AppDiagnostics.kt').write_text('''package iecxiv.meshfabric.diagnostics
+          import android.util.Log
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.asStateFlow
+          internal object AppDiagnostics {
+              private val state = MutableStateFlow(false)
+              val active = state.asStateFlow()
+              val enabled: Boolean get() = state.value
+              fun setEnabled(value: Boolean) { state.value = value }
+              internal var sink: (Int, String, String) -> Int = { p, t, m -> Log.println(p, t, m) }
+              private val numeric = Regex("(epoch|rx|bytes|lastCmd|images|jumbo|decoded|decodeFailed|published|version|draws)=(-?[0-9]+|true|false)\\\\b")
+              internal fun metadata(tag: String, value: Any?): String {
+                  if (tag != "MeshDesktopDiag" && tag != "MeshDesktopDraw") return ""
+                  return numeric.findAll(value.toString()).joinToString(" ") { it.value }
+              }
+              fun trace(priority: Int, tag: String, event: String, message: () -> Any?): Int {
+                  if (!enabled) return 0
+                  val details = if (tag == "MeshDesktopDiag" || tag == "MeshDesktopDraw") metadata(tag, message()) else ""
+                  return sink(priority, tag, (event + " " + details).trim())
+              }
+              fun fault(tag: String, event: String, error: Throwable? = null): Int =
+                  sink(Log.ERROR, tag, event + (error?.let { " type=" + it.javaClass.simpleName } ?: ""))
+          }
+          ''')
+          (directory/'DiagnosticSettings.kt').write_text('''package iecxiv.meshfabric.diagnostics
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.res.stringResource
+          import androidx.compose.ui.unit.dp
+          import iecxiv.meshfabric.R
+          @Composable internal fun DiagnosticSettings() {
+              val active by AppDiagnostics.active.collectAsState()
+              Card(Modifier.fillMaxWidth()) {
+                  Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment=Alignment.CenterVertically) {
+                      Column(Modifier.weight(1f).padding(end=12.dp)) {
+                          Text(stringResource(R.string.diagnostic_switch_title), style=MaterialTheme.typography.titleMedium)
+                          Text(stringResource(R.string.diagnostic_switch_description), style=MaterialTheme.typography.bodySmall)
+                      }
+                      Switch(checked=active, onCheckedChange=AppDiagnostics::setEnabled)
+                  }
+              }
+          }
+          ''')
+          import xml.etree.ElementTree as ET
+          for folder,title,description in [
+              ('values','Diagnóstico avanzado','Registra metadatos técnicos para resolver problemas. Se desactiva al reiniciar el proceso de la app. No incluye contenido de archivos, portapapeles ni credenciales.'),
+              ('values-es','Diagnóstico avanzado','Registra metadatos técnicos para resolver problemas. Se desactiva al reiniciar el proceso de la app. No incluye contenido de archivos, portapapeles ni credenciales.'),
+              ('values-en','Advanced diagnostics','Logs technical metadata for troubleshooting. Turns off when the app process restarts. Excludes file contents, clipboard contents and credentials.')]:
+              target=Path('app/src/main/res')/folder/'diagnostic_switch.xml'
+              assert not target.exists()
+              target.parent.mkdir(parents=True,exist_ok=True)
+              xml=ET.Element('resources')
+              ET.SubElement(xml,'string',name='diagnostic_switch_title').text=title
+              ET.SubElement(xml,'string',name='diagnostic_switch_description').text=description
+              ET.ElementTree(xml).write(target,encoding='utf-8',xml_declaration=True)
+          tests=Path('app/src/test/java/iecxiv/meshfabric/diagnostics/AppDiagnosticsTest.kt')
+          assert not tests.exists()
+          tests.parent.mkdir(parents=True,exist_ok=True)
+          tests.write_text('''package iecxiv.meshfabric.diagnostics
+          import org.junit.Assert.*
+          import org.junit.Test
+          class AppDiagnosticsTest {
+              @Test fun disabledDiagnosticsDoNotEvaluateMessagesOrEmitLogs() {
+                  AppDiagnostics.setEnabled(false)
+                  var evaluated=false
+                  assertEquals(0,AppDiagnostics.trace(3,"MeshDesktopDiag","test") { evaluated=true; "rx=1" })
+                  assertFalse(evaluated)
+              }
+              @Test fun enabledDiagnosticsEmitOnlyAllowedNumericMetadata() {
+                  val original=AppDiagnostics.sink
+                  var output=""
+                  try {
+                      AppDiagnostics.sink={ _,_,message -> output=message; 0 }
+                      AppDiagnostics.setEnabled(true)
+                      AppDiagnostics.trace(3,"MeshDesktopDiag","test") { "rx=12 decoded=3 token=SECRET clipboard=PRIVATE" }
+                      assertTrue(output.contains("rx=12"))
+                      assertFalse(output.contains("SECRET"))
+                      assertFalse(output.contains("PRIVATE"))
+                  } finally { AppDiagnostics.setEnabled(false); AppDiagnostics.sink=original }
+              }
+              @Test fun arbitraryPayloadLogsAreNeverEvaluatedEvenWhenEnabled() {
+                  val original=AppDiagnostics.sink
+                  try {
+                      AppDiagnostics.sink={ _,_,_ -> 0 }
+                      AppDiagnostics.setEnabled(true)
+                      var evaluated=false
+                      AppDiagnostics.trace(3,"MeshFilesRecvRawText","payload omitted") { evaluated=true; "PRIVATE" }
+                      assertFalse(evaluated)
+                  } finally { AppDiagnostics.setEnabled(false); AppDiagnostics.sink=original }
+              }
+          }
+          ''')
+          report=Path('app/build/reports/diagnostic-migration.json')
+          report.parent.mkdir(parents=True,exist_ok=True)
+          report.write_text(json.dumps(audit,indent=2))
+          PY
+          git diff --check
+      - name: Compile, run tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - name: Publish validated diagnostic switch
+        run: |
+          git add app/src/main/java/iecxiv/meshfabric app/src/main/res/values/diagnostic_switch.xml app/src/main/res/values-es/diagnostic_switch.xml app/src/main/res/values-en/diagnostic_switch.xml app/src/test/java/iecxiv/meshfabric/diagnostics
+          git rm .github/workflows/global-diagnostics-switch.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: add opt-in process-scoped diagnostics with metadata-only logging'
+          git push origin HEAD:dev
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: global-diagnostics-switch-verification
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
