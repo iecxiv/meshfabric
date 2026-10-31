@@ -39,7 +39,8 @@ jobs:
           s = s.replace(old,'    val menuMaxHeight=availableMenuHeight',1)
           assert s.count('import android.content.res.Configuration\n') == 1
           s = s.replace('import android.content.res.Configuration\n','',1)
-          assert 'Configuration.' not in s
+          assert 'Configuration.ORIENTATION_LANDSCAPE' not in s, 'Orientation cap remains'
+          assert 'val configuration=LocalConfiguration.current' in s, 'Window configuration must be retained'
           p.write_text(s)
           PY
           git diff --check
