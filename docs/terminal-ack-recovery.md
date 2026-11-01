@@ -1,5 +1,7 @@
 # Foreground-only terminal ACK watchdog
 
+English | [Español](es/terminal-ack-recovery.md)
+
 A pending parser acknowledgement has a 20-second deadline only while its renderer is attached and the current navigation lifecycle is RESUMED. Detach/background cancels the scheduled check without abandoning the pending output. Returning to RESUMED gives a fresh full deadline. Repeated RESUMED callbacks do not extend it. An idle/static terminal has no deadline.
 
 On expiration the view shows ACK_TIMEOUT and stops advancing output. Late ACKs cannot silently clear that error. The socket, remote PTY and journal are not restarted. No Ctrl+L or other synthetic input is sent.

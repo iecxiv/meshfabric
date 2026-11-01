@@ -1,5 +1,7 @@
 # Terminal archives and the save-buffers setting
 
+English | [Español](es/terminal-archive-persistence.md)
+
 Closing with X (or closing all sessions) retires the current transport and archives its local record. Archives are separate from the current-session registry: they do not highlight the device button, reconnect automatically, or indicate that a remote process survived. Opening terminal starts a new record; previous records are selected through History.
 
 With Save terminal buffers enabled, archives and checkpoints use app-private no-backup storage, separated by a hash of server URL and username. Output is plain text, not encrypted. Stable record IDs prevent duplicate archives. Writes use a synchronized temporary file, fsync, and replacement; malformed or oversized stored records are not loaded.

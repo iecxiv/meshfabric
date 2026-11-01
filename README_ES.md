@@ -39,7 +39,7 @@ Esto aborda problemas como las flechas de Hacker's Keyboard que no llegan al esc
 
 Existen limitaciones con teclas reservadas por Android, distribuciones remotas, AltGr, bloqueos y teclado numérico, modificadores izquierdo/derecho, composición del IME, mezcla con la barra de herramientas, juegos, códigos de exploración y atajos protegidos del sistema. Una liberación enviada después de fallar el transporte no garantiza su recepción remota.
 
-Consulta [Entrada de teclado del escritorio](docs/desktop-keyboard-input.md).
+Consulta [Entrada de teclado del escritorio](docs/es/desktop-keyboard-input.md).
 
 ### Terminal
 
@@ -107,7 +107,7 @@ Durante ese desplazamiento no se conserva la selección directa ni la apertura d
 - Cerrar un terminal, incluso al cerrar todas las sesiones, archiva su registro sin dejar resaltada una sesión actual. Los archivos históricos son independientes del registro de sesiones actuales.
 - Guardar búferes del terminal conserva registros cerrados y puntos de control por servidor/cuenta, restaurados como historiales de solo lectura. Los puntos de control se limitan aproximadamente a uno por segundo, con guardados adicionales al detener la actividad y al archivar mediante el callback de retirada de tareas recientes. Una terminación abrupta puede perder salida todavía no escrita.
 - Con la opción desactivada, los historiales solo permanecen en memoria. Desactivarla elimina los archivos guardados y los búferes antiguos. Eliminar un historial borra también su archivo para que no reaparezca al reiniciar.
-- La salida persistida no recrea una conexión viva. Consulta [Persistencia de historiales](docs/terminal-archive-persistence.md) para almacenamiento, separación de cuentas, migración y límites.
+- La salida persistida no recrea una conexión viva. Consulta [Persistencia de historiales](docs/es/terminal-archive-persistence.md) para almacenamiento, separación de cuentas, migración y límites.
 - La caché conserva hasta cuatro renderizadores sin expulsar vistas adjuntas. Un renderizador expulsado puede reconstruirse desde la salida disponible, no desde una instantánea VT completa.
 - El truncamiento se indica explícitamente. Reconstruir una vista desconectada puede reproducir desde la salida más antigua disponible: es una recuperación de historial de mejor esfuerzo, no una restauración de datos ausentes ni del estado visual completo.
 - La entrega de salida en directo detecta estrictamente huecos, incluida la lectura inicial. Continuar desde un cursor expulsado o invalidado no omite silenciosamente datos perdidos.
@@ -119,13 +119,13 @@ Documentación técnica:
 - [Selección y copia](docs/terminal-selection-copy.md)
 - [Vista previa de pegado](docs/terminal-paste.md)
 - [Pegado con edición](docs/terminal-paste-edit.md)
-- [Foco e IME](docs/terminal-focus-ime.md)
+- [Foco e IME](docs/es/terminal-focus-ime.md)
 - [Teclas especiales](docs/terminal-special-keys.md)
 - [Desplazamiento táctil](docs/terminal-touch-scroll.md)
 - [Retención del renderizador](docs/terminal-renderer-retention.md)
-- [Supervisión ACK y recuperación de vista](docs/terminal-ack-recovery.md)
-- [Reconexión manual e historial retenido](docs/terminal-manual-reconnect.md)
-- [Persistencia de historiales](docs/terminal-archive-persistence.md)
+- [Supervisión ACK y recuperación de vista](docs/es/terminal-ack-recovery.md)
+- [Reconexión manual e historial retenido](docs/es/terminal-manual-reconnect.md)
+- [Persistencia de historiales](docs/es/terminal-archive-persistence.md)
 
 ### Gestor de archivos y editor de texto
 
@@ -251,7 +251,7 @@ Superar pruebas automatizadas no garantiza compatibilidad universal con Hacker's
 
 - Los datos recordados incluyen URL del servidor, usuario y cookie de autenticación. No se guarda la contraseña de inicio de sesión.
 - Las preferencias usan EncryptedSharedPreferences con clave maestra de Android KeyStore cuando está disponible. Si falla la inicialización cifrada, se usan SharedPreferences privadas normales: no asumas que las sesiones recordadas siempre están cifradas.
-- La salida guardada del terminal no está cifrada. Los registros JSON se guardan en almacenamiento privado excluido de backups, separados por claves hash de servidor/cuenta. Desactivar Guardar búferes elimina historiales guardados y archivos antiguos; el historial puede seguir en memoria durante esa ejecución. Consulta [Persistencia de historiales](docs/terminal-archive-persistence.md).
+- La salida guardada del terminal no está cifrada. Los registros JSON se guardan en almacenamiento privado excluido de backups, separados por claves hash de servidor/cuenta. Desactivar Guardar búferes elimina historiales guardados y archivos antiguos; el historial puede seguir en memoria durante esa ejecución. Consulta [Persistencia de historiales](docs/es/terminal-archive-persistence.md).
 - La copia del terminal marca el contenido del portapapeles como sensible para ocultar vistas previas compatibles. No cifra el portapapeles ni impide otros lectores autorizados.
 - Trata portapapeles, salida retenida y logs de diagnóstico como potencialmente sensibles. No asumas que todas las rutas de diagnóstico han sido auditadas contra divulgación de contenido.
 - Ignorar errores SSL debilita la verificación de certificados. Utiliza certificados de confianza y deja esa opción desactivada fuera de entornos controlados.

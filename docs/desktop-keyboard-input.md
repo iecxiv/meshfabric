@@ -1,5 +1,7 @@
 # Desktop native keyboard events
 
+English | [Español](es/desktop-keyboard-input.md)
+
 Desktop only, based on dev/main 2f61dbf. The existing hidden text field now intercepts mapped Android key down/up before default caret/focus processing; consumed keys are not also sent by text edits. Hardware focus does not require opening the soft keyboard. IME text callbacks and existing Unicode transport are preserved, not rewritten. Tests dispatch soft-keyboard-flagged arrow events as well as physical Ctrl/arrows/F12; this is not a test of the actual Hacker's Keyboard APK.
 
 Mapping covers letters, digits, OEM punctuation, arrows, Tab/Enter/Escape, Backspace/Delete, Insert, Home/End, PageUp/PageDown, F1-F12, keypad, locks, PrintScreen/Break, modifiers and context menu when delivered by Android. Left/right modifiers normalize to generic remote VKs. Pressed keys are reference-counted, repeats generate repeated downs without extra ups, implicit meta modifiers are balanced, and losing focus/activity/connection/dialog ownership releases tracked keys best-effort without replay. Android system Home/Back/power/volume and unknown codes pass through. Unsupported ACTION_MULTIPLE is left to the existing input path.
