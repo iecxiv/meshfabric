@@ -151,6 +151,7 @@ private fun FileManagerContent(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val canCreateFiles = LocalFileCreationAllowed.current
     val isConnected by viewModel.isConnected(nodeId).collectAsState()
     val currentPath by viewModel.currentPath(nodeId).collectAsState()
     val driveEntries by viewModel.drives(nodeId).collectAsState()
@@ -477,20 +478,20 @@ private fun FileManagerContent(
                                     ) {
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.new_folder)) },
-                                            enabled = (!driveSelector) && (!LocalAndroidFiles.current),
+                                            enabled = ((!driveSelector) && (!LocalAndroidFiles.current)) && LocalFileCreationAllowed.current,
                                             leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
-                                                showCreateFolderDialog = true
+                                                if (canCreateFiles) showCreateFolderDialog = true
                                             }
                                         )
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.new_text_file)) },
-                                            enabled = (!driveSelector) && (!LocalAndroidFiles.current),
+                                            enabled = ((!driveSelector) && (!LocalAndroidFiles.current)) && LocalFileCreationAllowed.current,
                                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
-                                                showCreateFileDialog = true
+                                                if (canCreateFiles) showCreateFileDialog = true
                                             }
                                         )
                                         DropdownMenuItem(
@@ -674,19 +675,21 @@ private fun FileManagerContent(
                                 onDismissRequest = { fabMenuExpanded = false }
                             ) {
                                 DropdownMenuItem(
+ enabled = LocalFileCreationAllowed.current,
                                     text = { Text("Nueva Carpeta") },
                                     leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                                     onClick = {
                                         fabMenuExpanded = false
-                                        showCreateFolderDialog = true
+                                        if (canCreateFiles) showCreateFolderDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
+ enabled = LocalFileCreationAllowed.current,
                                     text = { Text("Nuevo Archivo de Texto") },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = null) },
                                     onClick = {
                                         fabMenuExpanded = false
-                                        showCreateFileDialog = true
+                                        if (canCreateFiles) showCreateFileDialog = true
                                     }
                                 )
                                 DropdownMenuItem(
@@ -1945,8 +1948,14 @@ fun FileManagerScreen(
     val android = node?.platform == DevicePlatform.ANDROID
     CompositionLocalProvider(
         LocalAndroidFiles provides android,
+        LocalFileCreationAllowed provides fileCreationAllowed(android, viewModel.isWindowsFiles(nodeId), path),
         LocalFileUploads provides (!android || androidFileUploadAllowed(path))
     ) {
         FileManagerContent(nodeId, nodeName, viewModel, onBack)
     }
 }
+
+private val LocalFileCreationAllowed = staticCompositionLocalOf { true }
+
+internal fun fileCreationAllowed(android: Boolean, windows: Boolean, path: String): Boolean =
+    !android && !(windows && iecxiv.meshfabric.data.remote.WindowsDriveSupport.selector(path))
