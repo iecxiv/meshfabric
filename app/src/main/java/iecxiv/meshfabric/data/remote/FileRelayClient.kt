@@ -2653,7 +2653,7 @@ class FileSession(
             addProperty("id", reqIdStr)
         }
 
-        val totalSize = if (item.size > 0L) item.size else 1024L * 1024L * 5L
+        val totalSize = 0L
 
         val progress = TransferProgress(
             fileName = cleanZipName,
@@ -2725,23 +2725,13 @@ class FileSession(
         val total = json.get("total")?.asLong ?: json.get("totalBytes")?.asLong ?: json.get("size")?.asLong
         val percent = json.get("progress")?.asFloat ?: json.get("percent")?.asFloat ?: json.get("percentage")?.asFloat
 
-        val newTotal = total ?: session.totalSize
-        session.totalSize = newTotal
-
-        if (percent != null) {
-            val p = if (percent > 1.0f) (percent / 100.0f).coerceIn(0f, 1f) else percent.coerceIn(0f, 1f)
-            val calcBytes = (newTotal * p).toLong()
-            val monotonicBytes = maxOf(session.bytesCompressed, calcBytes)
-            session.bytesCompressed = monotonicBytes
-            _activeTransfers.value = _activeTransfers.value.map {
-                if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
-            }
-        } else if (current != null) {
-            val monotonicBytes = maxOf(session.bytesCompressed, current)
-            session.bytesCompressed = monotonicBytes
-            _activeTransfers.value = _activeTransfers.value.map {
-                if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
-            }
+        val (progressCurrent, progressTotal) = zipProgressValues(percent, current, total)
+        session.totalSize = progressTotal
+        session.bytesCompressed = progressCurrent
+        _activeTransfers.value = _activeTransfers.value.map {
+            if (it.filePath == session.zipPath) {
+                it.copy(bytesTransferred = progressCurrent, totalBytes = progressTotal)
+            } else it
         }
 
         val isComplete = msg.equals("zippingDone", ignoreCase = true) ||

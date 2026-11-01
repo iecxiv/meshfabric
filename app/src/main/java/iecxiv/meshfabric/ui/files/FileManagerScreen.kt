@@ -1028,10 +1028,14 @@ private fun FileManagerContent(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                CircularProgressIndicator(
-                                    progress = { activeZipTransfer?.percentage ?: 0f },
-                                    modifier = Modifier.size(52.dp)
-                                )
+                                if (activeZipTransfer.totalBytes > 0L) {
+                                    CircularProgressIndicator(
+                                        progress = { activeZipTransfer.percentage },
+                                        modifier = Modifier.size(52.dp)
+                                    )
+                                } else {
+                                    CircularProgressIndicator(modifier = Modifier.size(52.dp))
+                                }
                                 Spacer(modifier = Modifier.height(18.dp))
                                 Text(
                                     text = stringResource(R.string.compress_in_progress_overlay_msg),
