@@ -946,6 +946,7 @@ private fun FileManagerContent(
                                                 HorizontalDivider()
                                             }
                                             DropdownMenuItem(
+ enabled = !LocalAndroidFiles.current,
                                                 text = { Text(stringResource(R.string.compress_zip)) },
                                                 leadingIcon = { Icon(Icons.Default.FolderZip, contentDescription = null) },
                                                 onClick = {
@@ -968,6 +969,7 @@ private fun FileManagerContent(
 
                                             HorizontalDivider()
                                             DropdownMenuItem(
+ enabled = !LocalAndroidFiles.current,
                                                 text = { Text(stringResource(R.string.rename)) },
                                                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
                                                 onClick = {
