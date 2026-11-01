@@ -1,5 +1,7 @@
 # Terminal: readiness step after validated phase 1
 
+English | [Español](es/terminal-readiness-step.md)
+
 This step does not reintroduce the rejected wire-protocol phase 2.
 
 ## Changes

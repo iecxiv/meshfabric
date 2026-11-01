@@ -1,5 +1,7 @@
 # Retained terminal renderer after 40479b0
 
+English | [Español](es/terminal-renderer-retention.md)
+
 ## Scope
 
 Each terminal session may retain its WebView, xterm instance, output cursor, pending ACK, scroll/alternate buffer and font size across navigation. Compose creates only a FrameLayout host. Detaching does not stop loading or reset delivery. Reattaching does not replay history. Resize scheduling, PTY protocol and JavaScript runtime are unchanged.

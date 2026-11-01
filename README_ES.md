@@ -116,13 +116,13 @@ Durante ese desplazamiento no se conserva la selección directa ni la apertura d
 
 Documentación técnica:
 
-- [Selección y copia](docs/terminal-selection-copy.md)
-- [Vista previa de pegado](docs/terminal-paste.md)
-- [Pegado con edición](docs/terminal-paste-edit.md)
+- [Selección y copia](docs/es/terminal-selection-copy.md)
+- [Vista previa de pegado](docs/es/terminal-paste.md)
+- [Pegado con edición](docs/es/terminal-paste-edit.md)
 - [Foco e IME](docs/es/terminal-focus-ime.md)
-- [Teclas especiales](docs/terminal-special-keys.md)
-- [Desplazamiento táctil](docs/terminal-touch-scroll.md)
-- [Retención del renderizador](docs/terminal-renderer-retention.md)
+- [Teclas especiales](docs/es/terminal-special-keys.md)
+- [Desplazamiento táctil](docs/es/terminal-touch-scroll.md)
+- [Retención del renderizador](docs/es/terminal-renderer-retention.md)
 - [Supervisión ACK y recuperación de vista](docs/es/terminal-ack-recovery.md)
 - [Reconexión manual e historial retenido](docs/es/terminal-manual-reconnect.md)
 - [Persistencia de historiales](docs/es/terminal-archive-persistence.md)
@@ -167,7 +167,7 @@ Enviar o aceptar una solicitud no equivale a ejecutarla. MeshFabric informa de r
 - Recursos Android en inglés y español, incluidos controles de reconexión, historial, eliminación y cierre del terminal.
 - La localización no está completa: algunos mensajes de gestión, actividad, escritorio y resultados siguen escritos directamente en español. La cobertura de claves no demuestra que todas las frases estén externalizadas o traducidas.
 
-El inventario y sus limitaciones se documentan en [docs/i18n](docs/i18n/README.md). Los documentos técnicos enlazados pueden estar en inglés.
+El inventario y sus limitaciones se documentan en [docs/i18n](docs/es/i18n/README.md). La documentación técnica dispone de versiones en inglés y español.
 
 ## Requisitos
 
@@ -277,3 +277,7 @@ No se presentan como funciones completadas:
 ## Licencia
 
 Bajo la [Licencia Apache, versión 2.0](LICENSE).
+
+## Índice de documentación técnica
+
+Consulta las [17 guías en español](docs/es/README.md).
