@@ -1,0 +1,67 @@
+app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+2693:     private fun handleZipControlMessage(json: JsonObject) {
+2694:         if (activeZipSessions.isEmpty()) return
+2695:
+2696:         val reqid = json.get("reqid")?.asString ?: json.get("id")?.asString ?: ""
+2697:         val rawTargetFile = json.get("file")?.asString ?: json.get("dest")?.asString ?: json.get("target")?.asString ?: ""
+2698:         val targetFile = rawTargetFile.trimStart('/')
+2699:
+2700:         val session = activeZipSessions.values.firstOrNull {
+2701:             (reqid.isNotEmpty() && (it.zipPath.contains(reqid) || it.fileName.contains(reqid))) ||
+2702:             (targetFile.isNotEmpty() && (
+2703:                 it.fileName.contains(targetFile, ignoreCase = true) ||
+2704:                 it.sourcePath.contains(targetFile, ignoreCase = true) ||
+2705:                 it.zipPath.contains(targetFile, ignoreCase = true) ||
+2706:                 targetFile.contains(it.fileName.substringBeforeLast('.'), ignoreCase = true)
+2707:             ))
+2708:         } ?: activeZipSessions.values.firstOrNull() ?: return
+2709:
+2710:         val msg = json.get("msg")?.asString ?: ""
+2711:         val subaction = json.get("subaction")?.asString ?: ""
+2712:         val status = json.get("status")?.asString ?: ""
+2713:         val errorMsg = json.get("error")?.asString ?: json.get("err")?.asString
+2714:
+2715:         if (errorMsg != null || status.equals("error", ignoreCase = true)) {
+2716:             val err = errorMsg ?: "Error en compresión ZIP"
+2717:             session.job?.cancel()
+2718:             _statusMessage.value = err
+2719:             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != session.zipPath }
+2720:             activeZipSessions.remove(session.zipPath)
+2721:             return
+2722:         }
+2723:
+2724:         val current = json.get("current")?.asLong ?: json.get("bytes")?.asLong ?: json.get("transferred")?.asLong ?: json.get("compressed")?.asLong
+2725:         val total = json.get("total")?.asLong ?: json.get("totalBytes")?.asLong ?: json.get("size")?.asLong
+2726:         val percent = json.get("progress")?.asFloat ?: json.get("percent")?.asFloat ?: json.get("percentage")?.asFloat
+2727:
+2728:         val newTotal = total ?: session.totalSize
+2729:         session.totalSize = newTotal
+2730:
+2731:         if (percent != null) {
+2732:             val p = if (percent > 1.0f) (percent / 100.0f).coerceIn(0f, 1f) else percent.coerceIn(0f, 1f)
+2733:             val calcBytes = (newTotal * p).toLong()
+2734:             val monotonicBytes = maxOf(session.bytesCompressed, calcBytes)
+2735:             session.bytesCompressed = monotonicBytes
+2736:             _activeTransfers.value = _activeTransfers.value.map {
+2737:                 if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
+2738:             }
+2739:         } else if (current != null) {
+2740:             val monotonicBytes = maxOf(session.bytesCompressed, current)
+2741:             session.bytesCompressed = monotonicBytes
+2742:             _activeTransfers.value = _activeTransfers.value.map {
+2743:                 if (it.filePath == session.zipPath) it.copy(bytesTransferred = monotonicBytes, totalBytes = newTotal) else it
+2744:             }
+2745:         }
+2746:
+2747:         val isComplete = msg.equals("zippingDone", ignoreCase = true) ||
+2748:                 msg.equals("unzippingDone", ignoreCase = true) ||
+2749:                 subaction == "complete" || subaction == "end" || subaction == "done" ||
+2750:                 status.equals("ok", ignoreCase = true) || status.equals("completed", ignoreCase = true) || status.equals("done", ignoreCase = true) ||
+2751:                 json.get("done")?.asBoolean == true || json.get("complete")?.asBoolean == true || json.get("result")?.asString == "ok" ||
+2752:                 (percent != null && percent >= 100f)
+2753:
+2754:         if (isComplete) {
+2755:             finishZip(session)
+2756:         }
+2757:     }
+2758:

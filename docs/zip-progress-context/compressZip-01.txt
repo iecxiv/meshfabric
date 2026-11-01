@@ -1,0 +1,5 @@
+app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt
+3328:     fun compressZip(nodeId: String, item: FileItem, customZipName: String? = null) {
+3329:         sessions[cleanKey(nodeId)]?.compressZip(item, customZipName)
+3330:     }
+3331:
