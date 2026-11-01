@@ -1564,15 +1564,13 @@ class FileSession(
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
             }
 
-            if (ctx != null) {
-                showDownloadCompleteNotification(ctx, fileName, key, totalSize, session.localUri)
-                scope.launch(Dispatchers.Main) {
-                    Toast.makeText(
-                        ctx,
-                        "Descarga completada: $fileName (${formatSize(totalSize)}) en carpeta Downloads",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+            showDownloadCompleteNotification(ctx, fileName, key, totalSize, session.localUri)
+            scope.launch(Dispatchers.Main) {
+                Toast.makeText(
+                    ctx,
+                    "Descarga completada: $fileName (${formatSize(totalSize)}) en carpeta Downloads",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         } catch (e: Exception) {
             iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDownload", "FileRelayClient.kt:1578 Error finishing download:", e)

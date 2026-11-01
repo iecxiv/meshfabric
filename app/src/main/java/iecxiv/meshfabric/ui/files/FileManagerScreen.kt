@@ -1039,7 +1039,7 @@ private fun FileManagerContent(
                                     fontWeight = FontWeight.SemiBold,
                                     textAlign = TextAlign.Center
                                 )
-                                if (activeZipTransfer != null && activeZipTransfer.percentage > 0f) {
+                                if (activeZipTransfer.percentage > 0f) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = "${(activeZipTransfer.percentage * 100).toInt()}%",
