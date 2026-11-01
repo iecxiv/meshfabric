@@ -1,0 +1,32 @@
+name: Retry Android file menu validation
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/retry-android-file-menu.yml']
+permissions:
+  contents: write
+  actions: write
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check target execution
+        run: |
+          gh api repos/iecxiv/meshfabric/actions/runs/41317986071 > run.json
+          python3 - <<'PY'
+          import json
+          r = json.load(open('run.json'))
+          assert r['head_branch'] == 'dev'
+          assert r['path'] == '.github/workflows/android-file-menu.yml'
+          assert r['status'] == 'completed'
+          assert r['conclusion'] == 'failure'
+          PY
+      - name: Remove temporary workflow before retry
+        run: |
+          sha=$(gh api 'repos/iecxiv/meshfabric/contents/.github/workflows/retry-android-file-menu.yml?ref=dev' --jq .sha)
+          gh api --method DELETE repos/iecxiv/meshfabric/contents/.github/workflows/retry-android-file-menu.yml -f branch=dev -f sha="$sha" -f message='ci: remove temporary Android menu retry workflow'
+      - name: Rerun existing validation against current dev checkout
+        run: gh api --method POST repos/iecxiv/meshfabric/actions/runs/41317986071/rerun
