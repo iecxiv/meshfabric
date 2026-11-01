@@ -1,5 +1,9 @@
 package iecxiv.meshfabric.ui.files
 
+import iecxiv.meshfabric.data.model.DevicePlatform
+import iecxiv.meshfabric.data.model.platform
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import iecxiv.meshfabric.R
 import iecxiv.meshfabric.ui.components.NumberedTextEditor
 import iecxiv.meshfabric.data.model.TransferType
@@ -140,7 +144,7 @@ fun isTextFileCandidate(item: FileItem): Boolean {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FileManagerScreen(
+private fun FileManagerContent(
     nodeId: String,
     nodeName: String,
     viewModel: FileManagerViewModel,
@@ -473,7 +477,7 @@ fun FileManagerScreen(
                                     ) {
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.new_folder)) },
-                                            enabled = !driveSelector,
+                                            enabled = (!driveSelector) && (!LocalAndroidFiles.current),
                                             leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
@@ -482,7 +486,7 @@ fun FileManagerScreen(
                                         )
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.new_text_file)) },
-                                            enabled = !driveSelector,
+                                            enabled = (!driveSelector) && (!LocalAndroidFiles.current),
                                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
@@ -491,7 +495,7 @@ fun FileManagerScreen(
                                         )
                                         DropdownMenuItem(
                                             text = { Text(stringResource(R.string.upload_file)) },
-                                            enabled = !driveSelector,
+                                            enabled = (!driveSelector) && (LocalFileUploads.current),
                                             leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
                                             onClick = {
                                                 fabMenuExpanded = false
@@ -687,7 +691,7 @@ fun FileManagerScreen(
                                 )
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.upload_file)) },
-                                            enabled = !driveSelector,
+                                            enabled = (!driveSelector) && (LocalFileUploads.current),
                                     leadingIcon = { Icon(Icons.Default.Upload, contentDescription = null) },
                                     onClick = {
                                         fabMenuExpanded = false
@@ -975,6 +979,7 @@ fun FileManagerScreen(
                                                 }
                                             )
                                             DropdownMenuItem(
+ enabled = !LocalAndroidFiles.current,
                                                 text = { Text(stringResource(R.string.delete)) },
                                                 leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red) },
                                                 onClick = {
@@ -1910,4 +1915,36 @@ fun formatFileSize(size: Long): String {
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
     val digitGroups = (log10(size.toDouble()) / log10(1024.0)).toInt()
     return String.format(Locale.getDefault(), "%.1f %s", size / 1024.0.pow(digitGroups.toDouble()), units[digitGroups])
+}
+private val LocalAndroidFiles = staticCompositionLocalOf { false }
+private val LocalFileUploads = staticCompositionLocalOf { true }
+
+internal fun androidFileUploadAllowed(path: String): Boolean {
+    val p = path.replace('\\', '/').trim('/').lowercase(Locale.ROOT)
+    if (p.split('/').any { it == "." || it == ".." }) return false
+    return listOf("sdcard", "storage/emulated/0", "mnt/sdcard", "storage/self/primary").any {
+        p.startsWith("$it/") && p.removePrefix("$it/").isNotBlank()
+    }
+}
+
+@Composable
+fun FileManagerScreen(
+    nodeId: String,
+    nodeName: String,
+    viewModel: FileManagerViewModel,
+    onBack: () -> Unit
+) {
+    val groups by viewModel.meshClient.groupedDevices.collectAsState()
+    val path by viewModel.currentPath(nodeId).collectAsState()
+    val cleanId = nodeId.removePrefix("node//").removePrefix("node/").trim()
+    val node = groups.asSequence().flatMap { it.second.asSequence() }.firstOrNull {
+        it.id.removePrefix("node//").removePrefix("node/").trim() == cleanId
+    }
+    val android = node?.platform == DevicePlatform.ANDROID
+    CompositionLocalProvider(
+        LocalAndroidFiles provides android,
+        LocalFileUploads provides (!android || androidFileUploadAllowed(path))
+    ) {
+        FileManagerContent(nodeId, nodeName, viewModel, onBack)
+    }
 }
