@@ -1,0 +1,122 @@
+name: Publish Spanish technical docs batch one
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/translate-docs-batch-one.yml']
+permissions:
+  contents: write
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - name: Add Spanish guides and reciprocal navigation
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/docs-base"
+          python3 - <<'PY'
+          from pathlib import Path
+          translations = {
+              'desktop-keyboard-input.md': '''# Eventos nativos de teclado del escritorio
+
+          Solo para el escritorio, basado en dev/main 2f61dbf. El campo de texto oculto existente intercepta ahora las pulsaciones y liberaciones de teclas Android reconocidas antes del procesamiento predeterminado del cursor y del foco; las teclas consumidas no se envían también mediante ediciones de texto. El foco para el teclado físico no requiere abrir el teclado virtual. Los callbacks de texto del IME y el transporte Unicode se conservan, no se reescriben. Las pruebas envían flechas marcadas como procedentes de teclado virtual, además de Ctrl/flechas/F12 físicos; no prueban el APK real de Hacker's Keyboard.
+
+          El mapeo cubre letras, dígitos, puntuación OEM, flechas, Tab/Intro/Escape, Retroceso/Supr, Insert, Inicio/Fin, RePág/AvPág, F1–F12, teclado numérico, bloqueos, ImprPant/Pausa, modificadores y menú contextual cuando Android entrega esos eventos. Los modificadores izquierdo/derecho se normalizan a códigos VK remotos genéricos. Las teclas pulsadas se cuentan por referencias; las repeticiones generan pulsaciones adicionales sin liberaciones extra; los modificadores implícitos de meta se equilibran. Perder el foco, la actividad, la conexión o el control de entrada por un diálogo provoca un intento de liberar las teclas registradas sin reproducirlas. Inicio/Atrás/encendido/volumen del sistema Android y los códigos desconocidos siguen su ruta habitual. ACTION_MULTIPLE no admitido se deja a la ruta de entrada existente.
+
+          Limitaciones: no se garantiza universalmente la distribución remota, AltGr, estados de bloqueo/teclado numérico, modificadores por lado, comportamiento Unicode/composición, mezcla con la barra de herramientas, juegos o consumidores de códigos de exploración, combinaciones protegidas del sistema operativo ni atajos interceptados por Android. Los emisores existentes de teclas individuales, combinaciones y texto no cambian. No se rediseñan el protocolo ni el portapapeles, ratón, terminal o versión. Liberar una tecla cuando el transporte ya está roto no garantiza que el sistema remoto reciba su liberación.
+
+          CI compila la app y sus pruebas, ejecuta pruebas JVM de mapeo/estado, pruebas nativas de despacho Compose y regresiones existentes del terminal. Sigue siendo necesaria la validación en dispositivos con Hacker's Keyboard, un teclado físico y equipos Windows/Linux, especialmente idiomas/acentos, texto del IME, modificadores mantenidos, repeticiones y recuperación tras pérdida de foco o desconexión. No se añade registro del contenido de las teclas.
+          ''',
+              'terminal-ack-recovery.md': '''# Supervisor ACK del terminal solo en primer plano
+
+          Una confirmación pendiente del parser tiene un plazo de 20 segundos únicamente mientras su renderizador está adjunto y el ciclo de vida de la navegación actual está en RESUMED. Separar la vista o pasar a segundo plano cancela la comprobación programada sin abandonar la salida pendiente. Volver a RESUMED concede un plazo completo nuevo. Los callbacks RESUMED repetidos no lo amplían. Un terminal inactivo o estático no tiene plazo.
+
+          Al vencer, la vista muestra ACK_TIMEOUT y deja de avanzar la salida. Las confirmaciones tardías no borran silenciosamente ese error. No se reinician el socket, el PTY remoto ni el registro de salida. No se envía Ctrl+L ni ninguna otra entrada sintética.
+
+          ACK_TIMEOUT y la pérdida del renderizador ofrecen la acción explícita y confirmada Recrear vista. Esta elimina únicamente el renderizador esperado exacto de la caché y construye otro asociado a la sesión existente. El inicio de la sesión de red se vincula al dispositivo/navegación, no al reemplazo del renderizador. Los huecos OUTPUT_CONTINUITY no ofrecen este botón porque reproducir la salida no recupera un registro ya truncado.
+
+          Recrear no restaura una instantánea VT. La confirmación advierte de que nano y otros programas a pantalla completa pueden necesitar redibujarse. Se conservan las limitaciones existentes de reproducción y geometría. No se añade un bucle de reintentos automáticos ni una desconexión de sesión como alternativa. El supervisor aplica una heurística conservadora de tiempo de espera, no demuestra un fallo del proceso del renderizador.
+
+          Las asociaciones de visibilidad usan tokens para impedir que una pantalla anterior pause un host nuevo. La recuperación comprueba la identidad al eliminar, de modo que un botón obsoleto no destruya un renderizador de reemplazo. Los observadores se eliminan al liberar la composición; el renderizador no almacena objetos Lifecycle/Activity.
+
+          Se incluyen catorce pruebas JVM puras nuevas del supervisor y dos de recuperación del almacén. Las pruebas existentes JavaScript, pipeline, preparación, negociación y cuatro pruebas de eco con WebView real deben pasar en CI antes de publicar. Todavía no ejercitan el diálogo de recuperación ni las transiciones Android entre primer y segundo plano en un dispositivo físico. Compruébalos manualmente, junto con nano/teclado/giro y la entrada c/1.
+          ''',
+              'terminal-archive-persistence.md': '''# Historiales del terminal y ajuste de guardado de búferes
+
+          Cerrar con X, o cerrar todas las sesiones, retira el transporte actual y archiva su registro local. Los historiales archivados están separados del registro de sesiones actuales: no resaltan el botón del dispositivo, no reconectan automáticamente ni indican que haya sobrevivido un proceso remoto. Abrir el terminal inicia un registro nuevo; los anteriores se seleccionan mediante Historial.
+
+          Con Guardar búferes del terminal activado, los historiales y puntos de control usan almacenamiento privado de la app excluido de backups, separado mediante un hash de la URL del servidor y el usuario. La salida es texto sin cifrar. Los identificadores estables de registro evitan duplicados. Las escrituras utilizan un archivo temporal sincronizado, fsync y reemplazo; los registros guardados malformados o demasiado grandes no se cargan.
+
+          Con el ajuste desactivado, los registros solo permanecen en memoria. Desactivarlo elimina los archivos de historial y los búferes antiguos guardados. El ajuste se comprueba de nuevo al escribir, incluidos los puntos de control diferidos, y se conserva al cerrar sesión. Activarlo permite que los siguientes puntos de control y cierres vuelvan a guardar.
+
+          Los puntos de control de salida se limitan aproximadamente a uno por segundo. La actividad también guarda en onStop. Retirar la tarea cancela reconexiones pendientes y archiva todos los registros actuales del terminal mediante el callback existente del servicio. Estos callbacks no garantizan recuperar salida nunca escrita antes de una terminación abrupta del proceso; al reiniciar se restaura el último registro completo guardado como historial de solo lectura, nunca como sesión desconectada actual.
+
+          Eliminar historiales también borra sus archivos guardados. Solo se eliminan los registros revisados por la acción de borrado; las sesiones actuales quedan excluidas. Los búferes antiguos por dispositivo solo se migran cuando una cuenta recordada identifica a su propietario al arrancar. Los archivos antiguos sin propietario identificado no se asignan a una cuenta recién introducida.
+
+          Validación: las pruebas JVM del almacén en disco cubren inserción/actualización y deduplicación, separación de cuentas, persistencia desactivada, eliminación duradera, contención de rutas y rechazo de registros demasiado grandes. La validación en dispositivo debe comprobar todavía X, retirada de tareas recientes, reinicio, ambos estados del ajuste, cambios de cuenta y eliminación seguida de reinicio.
+          ''',
+              'terminal-focus-ime.md': '''# Solo foco y teclado
+
+          El icono superior del teclado muestra u oculta explícitamente el IME del terminal; el editor de comandos sigue disponible como cuarto elemento del menú de herramientas. La preparación del HTML o la readjunción del WebView no solicitan foco del terminal ni IME. Tocar el terminal conserva el comportamiento existente de xterm. Al cerrar menús o diálogos se restaura una vez el foco sin volver a abrir el IME. Las ventanas superpuestas bloquean solicitudes de foco originadas por la app, no el transporte de pegado.
+
+          Las solicitudes de foco llevan una generación y se consumen una vez. Antes del trabajo asíncrono del IME se vuelven a comprobar el foco de ventana, la asociación de la vista, la preparación, el estado reanudado y la salud del renderizador. El bloqueo, segundo plano, pérdida de foco de ventana, separación y destrucción cancelan solicitudes obsoletas. Una solicitud emitida mientras se cierra otra ventana espera al foco de ventana; no hay bucles diferidos de sondeo/reintento ni apertura automática al reanudar. La visibilidad del teclado virtual usa los insets de ventana, no un indicador de alternancia recordado. No se usa SHOW_FORCED.
+
+          Se conserva la InputConnection nativa del WebView; solo se añaden flags EditorInfo para solicitar que no haya interfaz de extracción/pantalla completa ni aprendizaje personalizado. Los proveedores pueden ignorarlos. No se cambia el mapeo de texto/teclas, eco de entrada, lectura del portapapeles ni reenvío de entrada. Este cambio no modifica el CSS de desplazamiento, la distribución de teclas especiales, el algoritmo de redimensionado, versionName 1.1.1 ni versionCode 1.
+
+          CI añade siete pruebas JVM del control de solicitudes y una prueba nativa de renderizador/WebView que cubre ausencia inicial de foco/IME automáticos, restauración del foco, traspaso a una ventana real de diálogo, apertura/cierre explícitos, IME oculto tras actualizar fuente/reanudar, rechazo durante bloqueo/segundo plano/separación y flags EditorInfo. También se ejecutan las regresiones existentes de eco/copia/pegado y pantalla táctil. Siguen siendo necesarias pruebas en dispositivo con diálogos reales de copia/pegado/comandos, cierre con Atrás, giro, distintos IME, teclado físico, acentos/emoji/composición y disposición visual percibida. No se afirma compatibilidad universal con los IME.
+          ''',
+              'terminal-manual-reconnect.md': '''# Reconexión manual del terminal: primer incremento
+
+          - Desconectar la pantalla del terminal cierra únicamente su transporte. El historial y el renderizador retenido siguen disponibles para lectura; el botón de cierre ya no abandona la pantalla.
+          - Reconectar crea un candidato independiente con un plazo total de 30 segundos, esperando a la conexión de control existente antes de abrir el túnel del terminal. No reintenta automáticamente el terminal.
+          - Los candidatos fallidos o cancelados no sustituyen el registro anterior. Una negociación correcta promueve una TerminalSession nueva; los renderizadores archivados siguen asociados a sus objetos de sesión originales.
+          - El selector de historiales anteriores es de solo lectura. La salida actual y la anterior nunca comparten un registro. La entrada se controla en Compose, el renderizador, JavaScript y el transporte de la sesión.
+          - Los registros permanecen en memoria durante la vida de este ViewModel. Este incremento no añade persistencia de historiales, serialización del terminal ni garantías de continuidad del proceso remoto. Los ajustes existentes de persistencia del búfer actual no cambian.
+          - Los WebView retenidos siguen usando la caché LRU existente de cuatro renderizadores. Tras una expulsión, la reproducción se hace con el mejor esfuerzo a partir de la salida retenida, no como restauración exacta de aplicaciones de pantalla alternativa.
+          - No cambian el protocolo de negociación, la versión de xterm ni el algoritmo de redimensionado.
+
+          ## Validación
+
+          CI debe ejecutar todas las pruebas unitarias debug y assembleDebug antes de publicar el commit funcional. Las pruebas de los controles de entrada no son pruebas integrales de sockets ni de interfaz Android.
+
+          En un dispositivo: desconecta Wi-Fi; comprueba desplazamiento/copia y bloqueo del teclado/pegado/teclas; provoca un fallo y cancela una reconexión; reconecta y ejecuta clear; revisa el historial anterior; sal de la pantalla y vuelve; repite reconexiones; abre nano y alterna teclado/orientación para comprobar regresiones de redimensionado. Confirma que desconectar voluntariamente nunca inicia una reconexión automática del terminal. Comprueba la persistencia activada/desactivada después de reiniciar la app.
+
+          Corrección de reproducción del historial: read() conserva su detección estricta original de huecos, incluido un cursor de arranque nulo. Solo la reproducción inicial de una vista desconectada usa explícitamente readHistory(). Las pruebas de continuidad existentes no cambian; otras pruebas cubren la reproducción explícita y los cursores obsoletos.
+          '''
+          }
+          root = Path('docs')
+          out = root / 'es'
+          out.mkdir(exist_ok=True)
+          readme = Path('README_ES.md')
+          assert readme.exists()
+          r = readme.read_text()
+          for name, text in translations.items():
+              original = root / name
+              target = out / name
+              assert original.is_file() and not target.exists(), name
+              english = original.read_text()
+              first, rest = english.split('\n', 1)
+              navigation = f'English | [Español](es/{name})'
+              assert navigation not in english
+              original.write_text(first + '\n\n' + navigation + '\n' + rest)
+              first_es, rest_es = text.split('\n', 1)
+              target.write_text(first_es + '\n\n' + f'[English](../{name}) | Español' + '\n' + rest_es)
+              r = r.replace(f'(docs/{name})', f'(docs/es/{name})')
+              assert original.read_text().replace('\n' + navigation + '\n', '', 1) == english
+          readme.write_text(r)
+          for p in [readme] + [root / n for n in translations] + [out / n for n in translations]:
+              assert all(line == line.rstrip() for line in p.read_text().splitlines()), str(p)
+          PY
+          git diff --check
+      - name: Publish documentation only
+        run: |
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$(cat "$RUNNER_TEMP/docs-base")"
+          git add README_ES.md docs/desktop-keyboard-input.md docs/terminal-ack-recovery.md docs/terminal-archive-persistence.md docs/terminal-focus-ime.md docs/terminal-manual-reconnect.md docs/es/desktop-keyboard-input.md docs/es/terminal-ack-recovery.md docs/es/terminal-archive-persistence.md docs/es/terminal-focus-ime.md docs/es/terminal-manual-reconnect.md
+          git rm .github/workflows/translate-docs-batch-one.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: translate desktop and terminal recovery guides into Spanish'
+          git push origin HEAD:dev
