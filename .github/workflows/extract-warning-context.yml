@@ -1,0 +1,42 @@
+name: Extract remaining warning context
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/extract-warning-context.yml']
+permissions:
+  contents: write
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - name: Extract numbered source context
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/context-base"
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          report = Path('docs/build-warning-context.txt')
+          assert not report.exists()
+          sections = ['Source commit: ' + subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()]
+          for rel, first, last in [('data/remote/FileRelayClient.kt', 1500, 1630), ('ui/files/FileManagerScreen.kt', 1000, 1100)]:
+              p = Path('app/src/main/java/iecxiv/meshfabric') / rel
+              lines = p.read_text().splitlines()
+              assert len(lines) >= last
+              sections.append(str(p) + '\n' + '\n'.join(f'{i}: {lines[i-1]}' for i in range(first, last+1)))
+          report.parent.mkdir(parents=True, exist_ok=True)
+          report.write_text('\n\n'.join(sections) + '\n')
+          PY
+      - name: Publish diagnostic context only
+        run: |
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$(cat "$RUNNER_TEMP/context-base")"
+          git add docs/build-warning-context.txt
+          git rm .github/workflows/extract-warning-context.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: expose source context for two remaining build warnings'
+          git push origin HEAD:dev
