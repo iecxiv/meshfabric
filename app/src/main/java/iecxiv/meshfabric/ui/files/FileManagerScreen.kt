@@ -463,7 +463,7 @@ private fun FileManagerContent(
                                 }
 
                                 Box {
-                                    FloatingActionButton(
+                                    if (!LocalHideRootFileFab.current) FloatingActionButton(
                                         onClick = { fabMenuExpanded = !fabMenuExpanded },
                                         containerColor = MaterialTheme.colorScheme.primary,
                                         contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -473,7 +473,7 @@ private fun FileManagerContent(
                                     }
 
                                     DropdownMenu(
-                                        expanded = fabMenuExpanded,
+                                        expanded = fabMenuExpanded && !LocalHideRootFileFab.current,
                                         onDismissRequest = { fabMenuExpanded = false }
                                     ) {
                                         DropdownMenuItem(
@@ -661,7 +661,7 @@ private fun FileManagerContent(
                         }
 
                         Box {
-                            FloatingActionButton(
+                            if (!LocalHideRootFileFab.current) FloatingActionButton(
                                 onClick = { fabMenuExpanded = !fabMenuExpanded },
                                 containerColor = MaterialTheme.colorScheme.primary,
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -671,7 +671,7 @@ private fun FileManagerContent(
                             }
 
                             DropdownMenu(
-                                expanded = fabMenuExpanded,
+                                expanded = fabMenuExpanded && !LocalHideRootFileFab.current,
                                 onDismissRequest = { fabMenuExpanded = false }
                             ) {
                                 DropdownMenuItem(
@@ -1948,6 +1948,7 @@ fun FileManagerScreen(
     val android = node?.platform == DevicePlatform.ANDROID
     CompositionLocalProvider(
         LocalAndroidFiles provides android,
+        LocalHideRootFileFab provides hideRootFileFab(android, viewModel.isWindowsFiles(nodeId), path),
         LocalFileCreationAllowed provides fileCreationAllowed(android, viewModel.isWindowsFiles(nodeId), path),
         LocalFileUploads provides (!android || androidFileUploadAllowed(path))
     ) {
@@ -1959,3 +1960,8 @@ private val LocalFileCreationAllowed = staticCompositionLocalOf { true }
 
 internal fun fileCreationAllowed(android: Boolean, windows: Boolean, path: String): Boolean =
     !android && !(windows && iecxiv.meshfabric.data.remote.WindowsDriveSupport.selector(path))
+
+private val LocalHideRootFileFab = staticCompositionLocalOf { false }
+
+internal fun hideRootFileFab(android: Boolean, windows: Boolean, path: String): Boolean =
+    (android || windows) && iecxiv.meshfabric.data.remote.WindowsDriveSupport.selector(path)
