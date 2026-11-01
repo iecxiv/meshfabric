@@ -1,0 +1,164 @@
+name: Validate ZIP progress fix
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/fix-zip-progress.yml']
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Fix ZIP-only progress interpretation
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/zip-fix-base"
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('app/src/main/java/iecxiv/meshfabric')
+          p = root / 'data/remote/FileRelayClient.kt'
+          s = p.read_text()
+          old = 'val totalSize = if (item.size > 0L) item.size else 1024L * 1024L * 5L'
+          assert s.count(old) == 1
+          s = s.replace(old, 'val totalSize = 0L', 1)
+          start = s.index('    private fun handleZipControlMessage(')
+          a = s.index('        val newTotal = total ?: session.totalSize', start)
+          b = s.index('        val isComplete = ', a)
+          replacement = '''        val (progressCurrent, progressTotal) = zipProgressValues(percent, current, total)
+                  session.totalSize = progressTotal
+                  session.bytesCompressed = progressCurrent
+                  _activeTransfers.value = _activeTransfers.value.map {
+                      if (it.filePath == session.zipPath) {
+                          it.copy(bytesTransferred = progressCurrent, totalBytes = progressTotal)
+                      } else it
+                  }
+
+          '''
+          s = s[:a] + replacement + s[b:]
+          p.write_text(s)
+          helper = root / 'data/remote/ZipProgressValues.kt'
+          assert not helper.exists()
+          helper.write_text('''package iecxiv.meshfabric.data.remote
+
+          // Percentage fields use 0..100. Never infer a fractional scale from a small value.
+          // The fixed denominator represents percentage units, not measured ZIP bytes.
+          internal fun zipProgressValues(percent: Float?, current: Long?, total: Long?): Pair<Long, Long> {
+              if (percent != null) {
+                  if (!percent.isFinite() || percent < 0f || percent > 100f) return 0L to 0L
+                  return (percent.toDouble() * 100.0).toLong() to 10000L
+              }
+              if (current == null || total == null || current < 0L || total <= 0L || current > total) {
+                  return 0L to 0L
+              }
+              return current to total
+          }
+          ''')
+          p = root / 'ui/files/FileManagerScreen.kt'
+          s = p.read_text()
+          old = '''                                CircularProgressIndicator(
+                                              progress = { activeZipTransfer?.percentage ?: 0f },
+                                              modifier = Modifier.size(52.dp)
+                                          )'''
+          import re
+          pattern = r'(?m)^(\s*)CircularProgressIndicator\(\n\s*progress = \{ activeZipTransfer\?\.percentage \?: 0f \},\n\s*modifier = Modifier.size\(52.dp\)\n\s*\)'
+          matches = list(re.finditer(pattern, s))
+          assert len(matches) == 1
+          m = matches[0]
+          indent = m.group(1).split('\n')[-1]
+          replacement = '\n'.join(indent + line for line in [
+              'if (activeZipTransfer.totalBytes > 0L) {',
+              '    CircularProgressIndicator(',
+              '        progress = { activeZipTransfer.percentage },',
+              '        modifier = Modifier.size(52.dp)',
+              '    )',
+              '} else {',
+              '    CircularProgressIndicator(modifier = Modifier.size(52.dp))',
+              '}'
+          ])
+          s = s[:m.start()] + replacement + s[m.end():]
+          p.write_text(s)
+          t = Path('app/src/test/java/iecxiv/meshfabric/data/remote/ZipProgressValuesTest.kt')
+          assert not t.exists()
+          t.parent.mkdir(parents=True, exist_ok=True)
+          t.write_text('''package iecxiv.meshfabric.data.remote
+          import org.junit.Assert.*
+          import org.junit.Test
+          class ZipProgressValuesTest {
+              @Test fun oneMeansOnePercent() {
+                  val (current, total) = zipProgressValues(1f, null, null)
+                  assertEquals(0.01f, current.toFloat() / total, 0.00001f)
+              }
+              @Test fun percentageScaleIsConsistent() {
+                  listOf(0f, 0.5f, 1f, 50f, 100f).forEach { p ->
+                      val (current, total) = zipProgressValues(p, null, null)
+                      assertEquals(p / 100f, current.toFloat() / total, 0.00001f)
+                  }
+              }
+              @Test fun unknownTotalsDoNotInventProgress() {
+                  assertEquals(0L to 0L, zipProgressValues(null, null, null))
+                  assertEquals(0L to 0L, zipProgressValues(null, 500L, null))
+                  assertEquals(0L to 0L, zipProgressValues(null, 500L, 0L))
+              }
+              @Test fun countersRequireValidMatchingRange() {
+                  assertEquals(25L to 100L, zipProgressValues(null, 25L, 100L))
+                  assertEquals(0L to 0L, zipProgressValues(null, 200L, 100L))
+                  assertEquals(0L to 0L, zipProgressValues(null, -1L, 100L))
+              }
+              @Test fun invalidPercentIsUnknown() {
+                  listOf(Float.NaN, Float.POSITIVE_INFINITY, -1f, 101f).forEach {
+                      assertEquals(0L to 0L, zipProgressValues(it, null, null))
+                  }
+              }
+          }
+          ''')
+          PY
+          git diff --check
+          git diff
+      - name: Clean build, unit tests and lint
+        shell: bash
+        run: |
+          set -o pipefail
+          bash ./gradlew clean :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace --warning-mode=all 2>&1 | tee zip-progress-fix.log
+      - name: Check Kotlin warnings
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          warnings = [line for line in Path('zip-progress-fix.log').read_text().splitlines() if line.startswith('w: ')]
+          assert not warnings, warnings
+          PY
+      - name: Publish validated ZIP fix
+        run: |
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$(cat "$RUNNER_TEMP/zip-fix-base")"
+          git add app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt app/src/main/java/iecxiv/meshfabric/data/remote/ZipProgressValues.kt app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt app/src/test/java/iecxiv/meshfabric/data/remote/ZipProgressValuesTest.kt
+          git rm -r docs/zip-progress-context
+          git rm .github/workflows/fix-zip-progress.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: normalize ZIP percentage scale and avoid fabricated totals'
+          git push origin HEAD:dev
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zip-progress-fix-verification
+          path: |
+            zip-progress-fix.log
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
