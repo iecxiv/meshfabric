@@ -5,10 +5,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -158,7 +158,7 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
                 DropdownMenu(expanded=menu,onDismissRequest={ menu=false },modifier=Modifier.width(selectorWidth).heightIn(max=280.dp),
                     shape=MaterialTheme.shapes.medium,containerColor=scheme.surfaceVariant,tonalElevation=2.dp,border=BorderStroke(1.dp,scheme.outlineVariant)) {
                     choices.forEach { (id,label)->DropdownMenuItem(text={ Text(label,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis) },
-                        leadingIcon={ Icon(when(id) { ""->Icons.Default.Devices; "__server"->Icons.Default.Storage; "__unknown"->Icons.Default.HelpOutline; else->Icons.Default.Computer },null,Modifier.size(20.dp)) },
+                        leadingIcon={ Icon(when(id) { ""->Icons.Default.Devices; "__server"->Icons.Default.Storage; "__unknown"->Icons.AutoMirrored.Filled.HelpOutline; else->Icons.Default.Computer },null,Modifier.size(20.dp)) },
                         onClick={ device=id; menu=false }) }
                 }
             }

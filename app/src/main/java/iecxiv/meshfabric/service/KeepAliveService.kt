@@ -38,8 +38,13 @@ class KeepAliveService : Service() {
             return if (icon.type == android.graphics.drawable.Icon.TYPE_RESOURCE) icon.resId else 0
         }
         // Resource ID supplied by setSmallIcon(int), available on API 26 and 27.
-        return notification.extras.getInt(Notification.EXTRA_SMALL_ICON, 0)
+        return legacySmallIconResourceId(notification)
     }
+
+    // API 26/27 compatibility: preserve the resource ID supplied by setSmallIcon(int).
+    @Suppress("DEPRECATION")
+    private fun legacySmallIconResourceId(notification: Notification): Int =
+        notification.extras.getInt(Notification.EXTRA_SMALL_ICON, 0)
 
     private fun currentStatusIcon(): Int {
         return try {

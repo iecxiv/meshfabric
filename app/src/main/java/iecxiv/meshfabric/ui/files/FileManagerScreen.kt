@@ -437,7 +437,7 @@ private fun FileManagerContent(
                                 }
                                 Text(
                                     text = if (activeCount == 1) {
-                                        "$summaryLabel: ${activeTransfers[0].fileName} ($overallPercentage%)"
+                                        if (activeTransfers[0].type == TransferType.COMPRESS && activeTransfers[0].totalBytes <= 0L && !activeTransfers[0].isCompleted) "$summaryLabel: ${activeTransfers[0].fileName}..." else "$summaryLabel: ${activeTransfers[0].fileName} ($overallPercentage%)"
                                     } else {
                                         "$activeCount transferencias activas ($overallPercentage%)"
                                     },
@@ -570,13 +570,19 @@ private fun FileManagerContent(
                                                     )
                                                 }
                                                 Spacer(modifier = Modifier.height(2.dp))
-                                                LinearProgressIndicator(
+                                                if (transfer.type == TransferType.COMPRESS && transfer.totalBytes <= 0L && !transfer.isCompleted) {
+LinearProgressIndicator(
+                                                    modifier = Modifier.fillMaxWidth().height(4.dp)
+                                                )
+} else {
+LinearProgressIndicator(
                                                     progress = { transfer.percentage },
                                                     modifier = Modifier.fillMaxWidth().height(4.dp)
                                                 )
+}
                                                 Spacer(modifier = Modifier.height(2.dp))
                                                 Text(
-                                                    text = "${formatFileSize(transfer.bytesTransferred)} / ${formatFileSize(transfer.totalBytes)}",
+                                                    text = transferProgressDetail(transfer, "${formatFileSize(transfer.bytesTransferred)} / ${formatFileSize(transfer.totalBytes)}"),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
@@ -1028,10 +1034,14 @@ private fun FileManagerContent(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                CircularProgressIndicator(
-                                    progress = { activeZipTransfer?.percentage ?: 0f },
-                                    modifier = Modifier.size(52.dp)
-                                )
+                                if (activeZipTransfer.totalBytes > 0L) {
+                                    CircularProgressIndicator(
+                                        progress = { activeZipTransfer.percentage },
+                                        modifier = Modifier.size(52.dp)
+                                    )
+                                } else {
+                                    CircularProgressIndicator(modifier = Modifier.size(52.dp))
+                                }
                                 Spacer(modifier = Modifier.height(18.dp))
                                 Text(
                                     text = stringResource(R.string.compress_in_progress_overlay_msg),
@@ -1039,7 +1049,7 @@ private fun FileManagerContent(
                                     fontWeight = FontWeight.SemiBold,
                                     textAlign = TextAlign.Center
                                 )
-                                if (activeZipTransfer != null && activeZipTransfer.percentage > 0f) {
+                                if (activeZipTransfer.percentage > 0f) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = "${(activeZipTransfer.percentage * 100).toInt()}%",
