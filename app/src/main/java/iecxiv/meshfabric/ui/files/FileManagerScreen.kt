@@ -462,7 +462,7 @@ private fun FileManagerContent(
                                     )
                                 }
 
-                                Box {
+                                Box(modifier = Modifier.heightIn(min = 42.dp)) {
                                     if (!LocalHideRootFileFab.current) FloatingActionButton(
                                         onClick = { fabMenuExpanded = !fabMenuExpanded },
                                         containerColor = MaterialTheme.colorScheme.primary,
@@ -660,7 +660,7 @@ private fun FileManagerContent(
                             )
                         }
 
-                        Box {
+                        Box(modifier = Modifier.heightIn(min = 42.dp)) {
                             if (!LocalHideRootFileFab.current) FloatingActionButton(
                                 onClick = { fabMenuExpanded = !fabMenuExpanded },
                                 containerColor = MaterialTheme.colorScheme.primary,
