@@ -1,0 +1,140 @@
+name: Validate ZIP tray labels
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/fix-zip-tray-label.yml']
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Show ZIP progress instead of synthetic byte counts
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/zip-tray-base"
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path('app/src/main/java/iecxiv/meshfabric/ui/files')
+          p = root / 'FileManagerScreen.kt'
+          s = p.read_text()
+          pattern = r'"\$\{(\w+)\(transfer\.bytesTransferred\)\} / \$\{\1\(transfer\.totalBytes\)\}"'
+          matches = list(re.finditer(pattern, s))
+          assert len(matches) == 1, '\n'.join(line for line in s.splitlines() if 'transfer.bytesTransferred' in line or 'transfer.totalBytes' in line)
+          m = matches[0]
+          s = s[:m.start()] + 'transferProgressDetail(transfer, ' + m.group(0) + ')' + s[m.end():]
+          replacements = []
+          for match in re.finditer(r'LinearProgressIndicator\(', s):
+              start = match.start()
+              i = match.end()
+              depth = 1
+              while depth and i < len(s):
+                  if s[i] == '(':
+                      depth += 1
+                  elif s[i] == ')':
+                      depth -= 1
+                  i += 1
+              call = s[start:i]
+              if 'transfer.percentage' not in call:
+                  continue
+              unknown, n = re.subn(r'\s*progress\s*=\s*\{\s*transfer.percentage\s*\},', '', call, count=1)
+              assert n == 1
+              wrapped = 'if (transfer.type == TransferType.COMPRESS && transfer.totalBytes <= 0L && !transfer.isCompleted) {\n' + unknown + '\n} else {\n' + call + '\n}'
+              replacements.append((start, i, wrapped))
+          assert len(replacements) == 1
+          for a, b, replacement in reversed(replacements):
+              s = s[:a] + replacement + s[b:]
+          old = '"$summaryLabel: ${activeTransfers[0].fileName} ($overallPercentage%)"'
+          assert s.count(old) == 1
+          s = s.replace(old, 'if (activeTransfers[0].type == TransferType.COMPRESS && activeTransfers[0].totalBytes <= 0L && !activeTransfers[0].isCompleted) "$summaryLabel: ${activeTransfers[0].fileName}..." else ' + old, 1)
+          p.write_text(s)
+          helper = root / 'TransferProgressDetail.kt'
+          assert not helper.exists()
+          helper.write_text('''package iecxiv.meshfabric.ui.files
+
+          import iecxiv.meshfabric.data.model.TransferProgress
+          import iecxiv.meshfabric.data.model.TransferType
+
+          internal fun transferProgressDetail(transfer: TransferProgress, byteDetail: String): String =
+              if (transfer.type != TransferType.COMPRESS) byteDetail
+              else if (transfer.isCompleted) "100%"
+              else if (transfer.totalBytes > 0L) "${(transfer.percentage * 100).toInt()}%"
+              else "..."
+          ''')
+          t = Path('app/src/test/java/iecxiv/meshfabric/ui/files/TransferProgressDetailTest.kt')
+          assert not t.exists()
+          t.parent.mkdir(parents=True, exist_ok=True)
+          t.write_text('''package iecxiv.meshfabric.ui.files
+          import iecxiv.meshfabric.data.model.TransferProgress
+          import iecxiv.meshfabric.data.model.TransferType
+          import org.junit.Assert.*
+          import org.junit.Test
+          class TransferProgressDetailTest {
+              @Test fun zipDoesNotDisplaySyntheticBytes() {
+                  val zip = TransferProgress(type = TransferType.COMPRESS, bytesTransferred = 6700L, totalBytes = 10000L)
+                  assertEquals("67%", transferProgressDetail(zip, "6.5 KB / 9.8 KB"))
+              }
+              @Test fun unknownZipHasNoPercentageOrSize() {
+                  assertEquals("...", transferProgressDetail(TransferProgress(type = TransferType.COMPRESS), "0 B / 0 B"))
+              }
+              @Test fun completedZipShowsCompletion() {
+                  assertEquals("100%", transferProgressDetail(TransferProgress(type = TransferType.COMPRESS, isCompleted = true), "0 B / 0 B"))
+              }
+              @Test fun otherTransferSizesRemainUnchanged() {
+                  TransferType.entries.filter { it != TransferType.COMPRESS }.forEach {
+                      assertEquals("5 MB / 10 MB", transferProgressDetail(TransferProgress(type = it), "5 MB / 10 MB"))
+                  }
+              }
+          }
+          ''')
+          PY
+          git diff --check
+          git diff
+      - name: Build, unit tests and lint
+        shell: bash
+        run: |
+          set -o pipefail
+          bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace 2>&1 | tee zip-tray-fix.log
+      - name: Check Kotlin warnings
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          warnings = [line for line in Path('zip-tray-fix.log').read_text().splitlines() if line.startswith('w: ')]
+          assert not warnings, warnings
+          PY
+      - name: Publish validated tray fix
+        run: |
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$(cat "$RUNNER_TEMP/zip-tray-base")"
+          git add app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt app/src/main/java/iecxiv/meshfabric/ui/files/TransferProgressDetail.kt app/src/test/java/iecxiv/meshfabric/ui/files/TransferProgressDetailTest.kt
+          git rm .github/workflows/fix-zip-tray-label.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: show ZIP percentages instead of synthetic byte sizes in transfer tray'
+          git push origin HEAD:dev
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zip-tray-fix-verification
+          path: |
+            zip-tray-fix.log
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
