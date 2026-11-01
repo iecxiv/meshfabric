@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -66,19 +67,19 @@ private class Management(private val source:MeshCentralClient,private val deskto
         socket=OkHttpHelper.createClient(source.ignoreSsl).newWebSocket(Request.Builder()
             .url(OkHttpHelper.toWebSocketUrl(source.serverUrl,"/control.ashx?moreargs=1"))
             .header("Cookie",source.authCookie).build(),object:WebSocketListener() {
-            override fun onOpen(ws:WebSocket,response:Response) {
-                if(epoch!=generation) { ws.cancel(); return }
-                ws.send(json("action" to "urlargs","args" to json("auth" to source.extractRawToken(source.authCookie))).toString())
-                ws.send(json("action" to "userinfo").toString())
+            override fun onOpen(webSocket:WebSocket,response:Response) {
+                if(epoch!=generation) { webSocket.cancel(); return }
+                webSocket.send(json("action" to "urlargs","args" to json("auth" to source.extractRawToken(source.authCookie))).toString())
+                webSocket.send(json("action" to "userinfo").toString())
             }
-            override fun onMessage(ws:WebSocket,text:String) {
+            override fun onMessage(webSocket:WebSocket,text:String) {
                 synchronized(this@Management) {
                     if(epoch!=generation || text.length>2000000) return
                     val j=runCatching { JSONObject(text) }.getOrNull() ?: return
                     activity.reply(j)
                     if(feedback.receive(j)) return
                     when(j.value("action")) {
-                        "ping"->ws.send(json("action" to "pong").toString())
+                        "ping"->webSocket.send(json("action" to "pong").toString())
                         "userinfo"->if(!j.optJSONObject("userinfo")?.value("_id").isNullOrBlank()) {
                             connecting=false; state.update { it.copy(ready=true,status="Acciones conectadas") }
                         }
@@ -96,9 +97,9 @@ private class Management(private val source:MeshCentralClient,private val deskto
                     }
                 }
             }
-            override fun onClosing(ws:WebSocket,code:Int,reason:String) { ws.close(code,"") }
-            override fun onClosed(ws:WebSocket,code:Int,reason:String) { fail(epoch) }
-            override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) { fail(epoch) }
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) { webSocket.close(code,"") }
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { fail(epoch) }
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) { fail(epoch) }
         })
         scope.launch { delay(20000); if(epoch==generation && !state.value.ready) fail(epoch) }
     }
@@ -314,7 +315,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             json("action" to "runcommands","nodeids" to targets,"type" to interpreter.type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
         },
         Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications,directSend=true) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
-        Operation("Abrir URL remota",listOf("url" to "URL HTTP/HTTPS"),true,Icons.Default.OpenInNew) {
+        Operation("Abrir URL remota",listOf("url" to "URL HTTP/HTTPS"),true,Icons.AutoMirrored.Filled.OpenInNew) {
             val url=it.getValue("url").trim(); require(url.startsWith("https://") || url.startsWith("http://")) { "URL no válida" }
             json("action" to "msg","type" to "openUrl","nodeid" to node.id,"url" to url)
         },

@@ -264,15 +264,15 @@ class DesktopSession(
                 if (meshClient.authCookie.isNotBlank()) header("Cookie", meshClient.authCookie)
             }.build()
             webSocket = OkHttpHelper.createClient(meshClient.ignoreSsl).newWebSocket(request, object : WebSocketListener() {
-                override fun onOpen(socket: WebSocket, response: Response) {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
                     synchronized(this@DesktopSession) {
-                        if (!current(socket, generation)) { socket.cancel(); return }
+                        if (!current(webSocket, generation)) { webSocket.cancel(); return }
                         if (!meshClient.connectionState.value) { retireSocket(); return }
                         meshClient.requestTunnel(fullNodeId, 2, tunnelId)
                         tunnelJob = scope.launch {
                             delay(1000L)
                             synchronized(this@DesktopSession) {
-                                if (current(socket, generation) && !isConnected() && meshClient.connectionState.value) {
+                                if (current(webSocket, generation) && !isConnected() && meshClient.connectionState.value) {
                                     meshClient.requestTunnel(fullNodeId, 2, tunnelId)
                                 }
                             }
@@ -280,21 +280,21 @@ class DesktopSession(
                     }
                 }
 
-                override fun onMessage(socket: WebSocket, text: String) {
+                override fun onMessage(webSocket: WebSocket, text: String) {
                     synchronized(this@DesktopSession) {
-                        if (!current(socket, generation)) return
+                        if (!current(webSocket, generation)) return
                         if (text == "c" || text == "cr") {
                             if (isConnected()) return
                             tunnelJob?.cancel()
                             tunnelJob = null
                             failures = 0
                             updateState(true)
-                            socket.send("2")
+                            webSocket.send("2")
                             initializationJob = scope.launch {
                                 for (wait in listOf(100L, 200L, 400L, 800L)) {
                                     delay(wait)
                                     synchronized(this@DesktopSession) {
-                                        if (!current(socket, generation)) return@launch
+                                        if (!current(webSocket, generation)) return@launch
                                         refreshDisplay()
                                         if (wait == 400L) requestRemoteClipboard()
                                     }
@@ -307,9 +307,9 @@ class DesktopSession(
                     }
                 }
 
-                override fun onMessage(socket: WebSocket, bytes: ByteString) {
+                override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                     synchronized(this@DesktopSession) {
-                        if (current(socket, generation)) {
+                        if (current(webSocket, generation)) {
                             run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagPackets++ }; Unit }
                             if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagBytes += bytes.size }
                             handleBinaryFrame(bytes.toByteArray())
@@ -318,22 +318,22 @@ class DesktopSession(
                     }
                 }
 
-                override fun onClosing(socket: WebSocket, code: Int, reason: String) {
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                     synchronized(this@DesktopSession) {
-                        if (current(socket, generation)) retireSocket()
+                        if (current(webSocket, generation)) retireSocket()
                     }
-                    socket.cancel()
+                    webSocket.cancel()
                 }
 
-                override fun onClosed(socket: WebSocket, code: Int, reason: String) {
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     synchronized(this@DesktopSession) {
-                        if (current(socket, generation)) retireSocket()
+                        if (current(webSocket, generation)) retireSocket()
                     }
                 }
 
-                override fun onFailure(socket: WebSocket, t: Throwable, response: Response?) {
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     synchronized(this@DesktopSession) {
-                        if (current(socket, generation)) {
+                        if (current(webSocket, generation)) {
                             iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("DesktopSession", "DesktopRelayClient.kt:336 Desktop transport failed for")
                             retireSocket()
                         }

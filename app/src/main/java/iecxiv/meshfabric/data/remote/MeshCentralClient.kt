@@ -233,10 +233,10 @@ class MeshCentralClient {
                 val request=Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1"))
                     .apply { if(cookie.isNotBlank()) header("Cookie",cookie) }.build()
                 webSocket=client.newWebSocket(request,object:WebSocketListener() {
-                    override fun onOpen(socket:WebSocket,response:Response) {
+                    override fun onOpen(webSocket:WebSocket,response:Response) {
                         var accepted=false
                         controlGeneration.runIfCurrent(epoch) {
-                            if(webSocket===socket && !isUserLogout) {
+                            if(this@MeshCentralClient.webSocket===webSocket && !isUserLogout) {
                                 accepted=true
                                 controlConnecting=false
                                 controlTimeout?.cancel()
@@ -250,7 +250,7 @@ class MeshCentralClient {
                                         addProperty("action","urlargs")
                                         add("args",JsonObject().apply { addProperty("auth",token.ifEmpty { cookie }) })
                                     }
-                                    socket.send(auth.toString())
+                                    webSocket.send(auth.toString())
                                 }
                                 launchControlWork { _ ->
                                     delay(150)
@@ -262,22 +262,22 @@ class MeshCentralClient {
                                 startNodePollLoop()
                             }
                         }
-                        if(!accepted) socket.cancel()
+                        if(!accepted) webSocket.cancel()
                     }
-                    override fun onMessage(socket:WebSocket,text:String) {
+                    override fun onMessage(webSocket:WebSocket,text:String) {
                         controlGeneration.runIfCurrent(epoch) {
-                            if(webSocket===socket && !isUserLogout) handleControlMessage(text)
+                            if(this@MeshCentralClient.webSocket===webSocket && !isUserLogout) handleControlMessage(text)
                         }
                     }
-                    override fun onClosing(socket:WebSocket,code:Int,reason:String) {
-                        retireControlSocket(epoch,socket)
-                        socket.close(code,reason)
+                    override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {
+                        retireControlSocket(epoch,webSocket)
+                        webSocket.close(code,reason)
                     }
-                    override fun onClosed(socket:WebSocket,code:Int,reason:String) {
-                        retireControlSocket(epoch,socket)
+                    override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {
+                        retireControlSocket(epoch,webSocket)
                     }
-                    override fun onFailure(socket:WebSocket,t:Throwable,response:Response?) {
-                        if(retireControlSocket(epoch,socket)) iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:280 Control socket failed (")
+                    override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {
+                        if(retireControlSocket(epoch,webSocket)) iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:280 Control webSocket failed (")
                     }
                 })
                 val socket=webSocket!!
