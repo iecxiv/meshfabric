@@ -1,5 +1,7 @@
 # MeshFabric Android App
 
+English | [Español](README_ES.md)
+
 MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and an activity view without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
 Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.

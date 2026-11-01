@@ -1,5 +1,7 @@
 # Terminal refactor — phase 1
 
+English | [Español](es/terminal-refactor.md)
+
 ## Scope
 
 Keep the bundled xterm.js and FitAddon versions and the existing Android bridge API.

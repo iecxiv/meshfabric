@@ -1,5 +1,7 @@
 # Manual terminal reconnection — first increment
 
+English | [Español](es/terminal-manual-reconnect.md)
+
 - Disconnecting the terminal screen closes only its transport. History and the retained renderer remain readable; the close button no longer leaves the screen.
 - Reconnect creates an independent candidate with a total 30-second deadline, waiting for the existing control connection before opening a terminal tunnel. It does not retry the terminal automatically.
 - Failed/cancelled candidates cannot replace the prior record. Handshake success promotes a new TerminalSession; archived renderers remain bound to their original session objects.

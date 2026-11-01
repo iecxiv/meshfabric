@@ -1,5 +1,7 @@
 # Windows drive navigation
 
+English | [Español](es/windows-file-drives.md)
+
 Windows nodes identified by their OS description request the virtual drive selector with ls path "". The UI keeps "/" as the logical selector location; Linux continues to request "/" unchanged. Only drive entries actually returned by the agent are shown.
 
 Drive replies use t=1 and n/name, with optional dt/s/f metadata. Normal and recovery-core variants and dir/files/list aliases are accepted. Drive paths are absolute, normalized for Windows separators, and never prefixed with the virtual root. Units, removable disks and optical drives have navigation-only rows; unknown capacities are omitted. Up from a drive, a cached volume mount point or a UNC share returns to the selector. The Drives header button returns there directly.

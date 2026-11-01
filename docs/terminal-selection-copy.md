@@ -1,5 +1,7 @@
 # Interaction polish 1: selection and copy
 
+English | [Español](es/terminal-selection-copy.md)
+
 Adds a terminal tools menu and a native read-only snapshot dialog. Long-press selection uses Compose SelectionContainer, not DOM selection over the terminal canvas. Partial selection copies through the native selection toolbar; Copy all copies exactly the snapshot. Copying is always user-initiated and never sends input to the remote shell. This is a separate snapshot, not direct selection on the live terminal.
 
 Snapshot extraction uses only the active xterm buffer public line APIs. Physical soft wraps are joined; genuine line breaks remain. Blank viewport padding is omitted. Bounds are 2,000 recent rows and 200,000 UTF-16 code units; truncation is shown explicitly, and surrogate pairs are not cut. There is no capture from the hidden normal buffer while nano uses the alternate buffer.

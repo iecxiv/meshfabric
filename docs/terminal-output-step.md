@@ -1,5 +1,7 @@
 # Terminal output delivery after 32a5aaf
 
+English | [Español](es/terminal-output-step.md)
+
 ## Scope
 
 No changes to resize scheduling, PTY size messages, handshake, input encoding, keyboard shortcuts or WebView retention. This is a delivery step on top of the validated phase 1 and readiness gate.

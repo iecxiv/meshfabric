@@ -1,5 +1,7 @@
 # Typed terminal receive path and real WebView echo checks
 
+English | [Español](es/terminal-typed-receive.md)
+
 Binary WebSocket output is delivered directly to handleTerminalOutput and never interpreted as c/cr/1 handshake. Text-frame handshake compatibility is retained before connection; connected text uses the same output publisher. No change to resize packets, renderer retention, input encoding or local echo.
 
 Four Android instrumentation cases drive the production TerminalSession receive handlers, the journal and parser ACK delivery, then inspect the real bundled xterm buffer inside an Android WebView. They cover ac1b and cc11 as isolated binary/text characters. The socket is fake and no remote commands or credentials are used. The test page wraps the bundled Terminal constructor only in its synthetic HTML; no inspection hook is added to production assets. These cases do not reproduce a full MeshCentral network connection or Android keyboard input.
