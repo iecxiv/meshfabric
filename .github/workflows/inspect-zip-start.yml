@@ -1,0 +1,40 @@
+name: Inspect ZIP start and monitoring
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/inspect-zip-start.yml']
+permissions:
+  contents: write
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+      - name: Extract missing source block
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/zip-start-base"
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/iecxiv/meshfabric/data/remote/FileRelayClient.kt')
+          lines = p.read_text().splitlines()
+          assert len(lines) >= 2692
+          out = Path('docs/zip-progress-context')
+          assert out.is_dir()
+          for first, last in [(2520, 2609), (2610, 2692)]:
+              dest = out / f'start-source-{first}-{last}.txt'
+              assert not dest.exists()
+              dest.write_text(str(p) + '\n' + '\n'.join(f'{i}: {lines[i-1]}'.rstrip() for i in range(first, last+1)) + '\n')
+          PY
+      - name: Publish diagnostic context only
+        run: |
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "$(cat "$RUNNER_TEMP/zip-start-base")"
+          git add docs/zip-progress-context/start-source-2520-2609.txt docs/zip-progress-context/start-source-2610-2692.txt
+          git rm .github/workflows/inspect-zip-start.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: expose ZIP start and monitoring source context'
+          git push origin HEAD:dev
