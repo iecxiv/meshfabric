@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
@@ -115,8 +116,10 @@ fun RemoteDesktopScreen(
     val frameVersion by viewModel.frameVersion(nodeId).collectAsState()
     val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
     val settings by viewModel.settings(nodeId).collectAsState()
-    val desktopDialogsLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+    val desktopDialogConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
+    val desktopDialogsLandscape = desktopDialogConfiguration.orientation ==
         android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val desktopLandscapeDialogWidth = (desktopDialogConfiguration.screenWidthDp - 48).coerceIn(1, 600).dp
     val remoteClipboardText by viewModel.remoteClipboardText(nodeId).collectAsState()
     val clipboardReadState by viewModel.clipboardReadState(nodeId).collectAsState()
     val clipboardWriteState by viewModel.clipboardWriteState(nodeId).collectAsState()
@@ -666,7 +669,7 @@ drawDiagnostics[0]++
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 6.dp,
                     modifier = Modifier
-                        .fillMaxWidth(if (desktopDialogsLandscape) 0.92f else 1f)
+                        .then(if (desktopDialogsLandscape) Modifier.width(desktopLandscapeDialogWidth) else Modifier.fillMaxWidth())
                         .padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(
@@ -959,7 +962,7 @@ drawDiagnostics[0]++
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 6.dp,
                     modifier = Modifier
-                        .fillMaxWidth(if (desktopDialogsLandscape) 0.92f else 1f)
+                        .then(if (desktopDialogsLandscape) Modifier.width(desktopLandscapeDialogWidth) else Modifier.fillMaxWidth())
                         .padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(
