@@ -1,0 +1,99 @@
+name: Publish bounded desktop dialog width
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-desktop-dialog-width-cap.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-desktop-dialog-width-cap-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify approved base
+        run: test "$(git rev-parse HEAD^)" = 5f4e30b2416af0dd64f90af882ce9125a62e92e5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Cap the two landscape dialog widths
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          path = Path('app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt')
+          data = path.read_bytes()
+          actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          assert actual == '1996936dade6b21ccf85988e0eb2bc4a5581fdb0', 'Desktop source changed; refusing to overwrite'
+          source = data.decode()
+          old = '    val desktopDialogsLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation ==\n        android.content.res.Configuration.ORIENTATION_LANDSCAPE'
+          new = '    val desktopDialogConfiguration = androidx.compose.ui.platform.LocalConfiguration.current\n    val desktopDialogsLandscape = desktopDialogConfiguration.orientation ==\n        android.content.res.Configuration.ORIENTATION_LANDSCAPE\n    val desktopLandscapeDialogWidth = (desktopDialogConfiguration.screenWidthDp - 48).coerceIn(1, 600).dp'
+          assert source.count(old) == 1
+          result = source.replace(old, new, 1)
+          import_needle = 'import androidx.compose.foundation.layout.heightIn\n'
+          assert result.count(import_needle) == 1
+          assert 'import androidx.compose.foundation.layout.width\n' not in result
+          result = result.replace(import_needle, import_needle + 'import androidx.compose.foundation.layout.width\n', 1)
+          old_width = '.fillMaxWidth(if (desktopDialogsLandscape) 0.92f else 1f)'
+          new_width = '.then(if (desktopDialogsLandscape) Modifier.width(desktopLandscapeDialogWidth) else Modifier.fillMaxWidth())'
+          assert result.count(old_width) == 2
+          for flag in ['showKeyboardDialog', 'showSettingsDialog']:
+              header = '                onDismissRequest = { ' + flag + ' = false }'
+              assert result.count(header) == 1
+              start = result.index(header)
+              surface = result.index('                Surface(', start)
+              column = result.index('                    Column(', surface)
+              block = result[surface:column]
+              assert block.count(old_width) == 1
+              result = result[:surface] + block.replace(old_width, new_width, 1) + result[column:]
+          assert old_width not in result
+          assert result.count(new_width) == 2
+          clipboard = '        if (showClipboardDialog) {\n            androidx.compose.ui.window.Dialog('
+          a = source.index(clipboard)
+          b = source.index('        // Desktop Options / Settings Dialog', a)
+          c = result.index(clipboard)
+          d = result.index('        // Desktop Options / Settings Dialog', c)
+          assert source[a:b] == result[c:d], 'Clipboard dialog must remain unchanged'
+          path.write_text(result)
+          PY
+          git diff --check
+      - name: Build APK and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Publish verified adjustment and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt
+          git rm .github/workflows/publish-desktop-dialog-width-cap.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(desktop): cap landscape keyboard and settings dialog widths'
+          git push origin HEAD:refs/heads/dev
+      - name: Upload APK and test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dialog-width-cap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
