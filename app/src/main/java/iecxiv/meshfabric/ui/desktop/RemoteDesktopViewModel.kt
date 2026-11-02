@@ -34,6 +34,8 @@ class RemoteDesktopViewModel(
     fun frameVersion(nodeId: String): StateFlow<Long> = desktopClient.getFrameVersion(meshClient, nodeId)
     fun settings(nodeId: String): StateFlow<DesktopSettings> = desktopClient.getSettings(meshClient, nodeId)
     fun remoteClipboardText(nodeId: String): StateFlow<String> = desktopClient.getRemoteClipboardText(meshClient, nodeId)
+    fun clipboardReadState(nodeId: String) = desktopClient.getSession(meshClient, nodeId).clipboardReadState
+    fun clipboardWriteState(nodeId: String) = desktopClient.getSession(meshClient, nodeId).clipboardWriteState
 
     fun startSession(nodeId: String) {
         sessionManager?.getDesktopSettings()?.let { savedSettings ->
@@ -188,21 +190,11 @@ class RemoteDesktopViewModel(
     }
 
     fun sendClipboardText(nodeId: String, text: String) {
-        viewModelScope.launch {
-            desktopClient.sendClipboardText(meshClient, nodeId, text)
-            delay(300)
-            desktopClient.sendClipboardText(meshClient, nodeId, text)
-        }
+        desktopClient.sendClipboardText(meshClient, nodeId, text)
     }
 
     fun requestRemoteClipboard(nodeId: String) {
-        viewModelScope.launch {
-            desktopClient.requestRemoteClipboard(meshClient, nodeId)
-            delay(300)
-            desktopClient.requestRemoteClipboard(meshClient, nodeId)
-            delay(700)
-            desktopClient.requestRemoteClipboard(meshClient, nodeId)
-        }
+        desktopClient.requestRemoteClipboard(meshClient, nodeId)
     }
 
     fun sendCtrlAltDel(nodeId: String) {

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="desktop_clipboard_waiting">Waiting for the remote response…</string>
+  <string name="desktop_clipboard_received">Clipboard received, including an empty clipboard.</string>
+  <string name="desktop_clipboard_confirmed">Transfer confirmed by the remote device.</string>
+  <string name="desktop_clipboard_failed">The operation could not be completed.</string>
+  <string name="desktop_clipboard_timeout">No remote response. The operation is not confirmed.</string>
+</resources>

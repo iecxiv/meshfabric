@@ -106,6 +106,32 @@ class DesktopSession(
     val remoteClipboardText: StateFlow<String> = _remoteClipboardText.asStateFlow()
 
     var onClipboardReceived: ((String) -> Unit)? = null
+    private val _clipboardReadState = MutableStateFlow(ClipboardTransferState.IDLE)
+    val clipboardReadState: StateFlow<ClipboardTransferState> = _clipboardReadState.asStateFlow()
+    private val _clipboardWriteState = MutableStateFlow(ClipboardTransferState.IDLE)
+    val clipboardWriteState: StateFlow<ClipboardTransferState> = _clipboardWriteState.asStateFlow()
+    private var clipboardReadTimeout: Job? = null
+    private var clipboardWriteTimeout: Job? = null
+
+    @Synchronized
+    fun clipboardWriteResult(success: Boolean) {
+        if (isUserDisconnect || _clipboardWriteState.value != ClipboardTransferState.WAITING) return
+        clipboardWriteTimeout?.cancel()
+        clipboardWriteTimeout = null
+        _clipboardWriteState.value = if (success) ClipboardTransferState.CONFIRMED else ClipboardTransferState.FAILED
+    }
+
+    private fun expireClipboardOperation(read: Boolean): Job {
+        val generation = epoch
+        return scope.launch {
+            delay(5_000L)
+            synchronized(this@DesktopSession) {
+                val state = if (read) _clipboardReadState else _clipboardWriteState
+                if (epoch == generation && !isUserDisconnect && state.value == ClipboardTransferState.WAITING)
+                    state.value = ClipboardTransferState.TIMED_OUT
+            }
+        }
+    }
     var onStateChanged: (() -> Unit)? = null
 
     private var unpauseJob: Job? = null
@@ -234,6 +260,10 @@ class DesktopSession(
 
     private fun retireSocket() {
         logFrameDiagnostics("retire", true)
+        clipboardReadTimeout?.cancel()
+        clipboardWriteTimeout?.cancel()
+        if (_clipboardReadState.value == ClipboardTransferState.WAITING) _clipboardReadState.value = ClipboardTransferState.FAILED
+        if (_clipboardWriteState.value == ClipboardTransferState.WAITING) _clipboardWriteState.value = ClipboardTransferState.FAILED
         epoch++
         tunnelJob?.cancel()
         tunnelJob = null
@@ -354,13 +384,14 @@ class DesktopSession(
         }
     }
 
+    @Synchronized
     fun updateRemoteClipboard(text: String) {
-        val cleaned = text.replace("\u0000", "").trim()
-        if (cleaned.isNotEmpty()) {
-            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:359 Updated remote clipboard for") { "Updated remote clipboard for $cleanNodeId: '$cleaned'" }
-            _remoteClipboardText.value = cleaned
-            onClipboardReceived?.invoke(cleaned)
-        }
+        if (isUserDisconnect) return
+        clipboardReadTimeout?.cancel()
+        clipboardReadTimeout = null
+        _remoteClipboardText.value = text
+        _clipboardReadState.value = ClipboardTransferState.RECEIVED
+        onClipboardReceived?.invoke(text)
     }
 
     private fun handleJsonControlMessage(text: String) {
@@ -379,13 +410,12 @@ class DesktopSession(
                 "metadata", "displays", "desktop", "uiprompt" -> {
                     refreshDisplay()
                 }
-                "clipboard", "getclip", "setclip", "getclipboard" -> {
-                    val clipData = json.get("data")?.asString
-                        ?: json.get("text")?.asString
-                        ?: json.get("clip")?.asString
-                        ?: json.get("value")?.asString
-                        ?: ""
-                    updateRemoteClipboard(clipData)
+                "clipboard", "getclip", "setclip" -> {
+                    when (val reply = ClipboardControlProtocol.decode(json, fullNodeId)) {
+                        is ClipboardControlReply.Content -> if (reply.nodeId == cleanNodeId) updateRemoteClipboard(reply.text)
+                        is ClipboardControlReply.WriteResult -> if (reply.nodeId == cleanNodeId) clipboardWriteResult(reply.success)
+                        null -> Unit
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -469,14 +499,9 @@ class DesktopSession(
                 }
             }
             9 -> {
-                if (data.size >= 4) {
-                    val pktLen = ((data[2].toInt() and 0xFF) shl 8) or (data[3].toInt() and 0xFF)
-                    val textLen = if (pktLen >= 4) (pktLen - 4).coerceAtMost(data.size - 4) else (data.size - 4)
-                    val text = if (textLen > 0) {
-                        String(data, 4, textLen, Charsets.UTF_8)
-                    } else ""
-                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:477 Received binary KVM cmd 9 (Clipboard) textLen=") { "Received binary KVM cmd 9 (Clipboard) textLen=$textLen, rawText='$text'" }
-                    updateRemoteClipboard(text)
+                val packetLength = ((data[2].toInt() and 0xFF) shl 8) or (data[3].toInt() and 0xFF)
+                if (packetLength in 4..data.size) {
+                    updateRemoteClipboard(String(data, 4, packetLength - 4, Charsets.UTF_8))
                 }
             }
             else -> {
@@ -706,31 +731,25 @@ class DesktopSession(
         webSocket?.send(ByteString.of(*pktUp))
     }
 
+    @Synchronized
     fun sendClipboardText(text: String) {
-        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:709 sendClipboardText called for") { "sendClipboardText called for $cleanNodeId with text '$text'" }
-        if (webSocket != null) {
-            val textBytes = text.toByteArray(Charsets.UTF_8)
-            val len = 4 + textBytes.size
-            val pkt = ByteArray(len)
-            pkt[0] = 0x00
-            pkt[1] = 0x09
-            pkt[2] = ((len shr 8) and 0xFF).toByte()
-            pkt[3] = (len and 0xFF).toByte()
-            System.arraycopy(textBytes, 0, pkt, 4, textBytes.size)
-            webSocket?.send(ByteString.of(*pkt))
-            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:720 Sent binary clipboard text (cmd 9) to KVM socket for") { "Sent binary clipboard text (cmd 9) to KVM socket for $cleanNodeId: '$text'" }
-        }
-        meshClient.sendClipboardText(fullNodeId, text)
+        if (_clipboardWriteState.value == ClipboardTransferState.WAITING) return
+        clipboardWriteTimeout?.cancel()
+        if (isUserDisconnect) { _clipboardWriteState.value = ClipboardTransferState.FAILED; return }
+        _clipboardWriteState.value = ClipboardTransferState.WAITING
+        if (meshClient.sendClipboardText(fullNodeId, text)) clipboardWriteTimeout = expireClipboardOperation(false)
+        else _clipboardWriteState.value = ClipboardTransferState.FAILED
     }
 
+    @Synchronized
     fun requestRemoteClipboard() {
-        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:726 requestRemoteClipboard called for") { "requestRemoteClipboard called for $cleanNodeId, ws connected=${_connectionState.value}, ws=$webSocket" }
-        if (webSocket != null) {
-            val pkt = byteArrayOf(0x00, 0x09, 0x00, 0x04)
-            webSocket?.send(ByteString.of(*pkt))
-            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:730 Sent binary getclipboard (cmd 9) to KVM socket for") { "Sent binary getclipboard (cmd 9) to KVM socket for $cleanNodeId" }
-        }
-        meshClient.sendClipboardRequest(fullNodeId)
+        if (_clipboardReadState.value == ClipboardTransferState.WAITING) return
+        clipboardReadTimeout?.cancel()
+        if (isUserDisconnect) { _clipboardReadState.value = ClipboardTransferState.FAILED; return }
+        _clipboardReadState.value = ClipboardTransferState.WAITING
+        _remoteClipboardText.value = ""
+        if (meshClient.sendClipboardRequest(fullNodeId)) clipboardReadTimeout = expireClipboardOperation(true)
+        else _clipboardReadState.value = ClipboardTransferState.FAILED
     }
 
     fun sendLockScreen() {
@@ -790,6 +809,31 @@ class DesktopRelayClient {
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private val sessions = ConcurrentHashMap<String, DesktopSession>()
+    private val clipboardBindings = mutableSetOf<MeshCentralClient>()
+
+    // Called under getSession's monitor. Route asynchronously to avoid control/session lock inversion.
+    private fun bindClipboard(mesh: MeshCentralClient) {
+        if (!clipboardBindings.add(mesh)) return
+        val previousContent = mesh.onClipboardReceivedListener
+        val previousResult = mesh.onClipboardWriteResultListener
+        mesh.onClipboardReceivedListener = { nodeId, text ->
+            val key = cleanKey(nodeId)
+            val session = sessions[key]
+            if (session != null && session.meshClient === mesh && !session.isUserDisconnect) scope.launch {
+                if (sessions[key] === session && !session.isUserDisconnect) session.updateRemoteClipboard(text)
+            }
+            previousContent?.invoke(nodeId, text)
+        }
+        mesh.onClipboardWriteResultListener = { nodeId, success ->
+            val key = cleanKey(nodeId)
+            val session = sessions[key]
+            if (session != null && session.meshClient === mesh && !session.isUserDisconnect) scope.launch {
+                if (sessions[key] === session && !session.isUserDisconnect) session.clipboardWriteResult(success)
+            }
+            previousResult?.invoke(nodeId, success)
+        }
+    }
+
 
     private val _activeNodes = MutableStateFlow<Set<String>>(emptySet())
     val activeNodesFlow: StateFlow<Set<String>> = _activeNodes.asStateFlow()
@@ -824,6 +868,7 @@ class DesktopRelayClient {
 
     @Synchronized
     fun getSession(meshClient: MeshCentralClient, nodeId: String): DesktopSession {
+        bindClipboard(meshClient)
         val key = cleanKey(nodeId)
         return sessions.getOrPut(key) {
             DesktopSession(nodeId = key, meshClient = meshClient, scope = scope).also { sess ->
