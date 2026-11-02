@@ -10,6 +10,7 @@ import iecxiv.meshfabric.data.remote.MeshCentralClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import okio.ByteString
 
 enum class MouseMode {
     LEFT_CLICK,
@@ -162,7 +163,15 @@ class RemoteDesktopViewModel(
     }
 
     fun sendUnicodeText(nodeId: String, text: String) {
-        desktopClient.sendUnicodeText(nodeId, text)
+        if (text.isEmpty()) return
+        val session = desktopClient.getSession(meshClient, nodeId)
+        synchronized(session) {
+            if (!session.isConnected() || session.isUserDisconnect) return
+            val socket = session.webSocket ?: return
+            for (packet in DesktopTextEncoding.packets(text)) {
+                if (!socket.send(ByteString.of(*packet))) break
+            }
+        }
     }
 
     fun sendDesktopKeyEvent(nodeId: String, keyCode: Int, isDown: Boolean) {
