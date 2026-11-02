@@ -199,12 +199,12 @@ fun RemoteDesktopScreen(
         }
     }
 
-    LaunchedEffect(remoteClipboardText, clipboardReadState, settings.autoClipboard) {
-        if (settings.autoClipboard && clipboardReadState == ClipboardTransferState.RECEIVED) {
-            clipboardManager.setText(AnnotatedString(remoteClipboardText))
-            Toast.makeText(context, "Portapapeles copiado automáticamente a Android", Toast.LENGTH_SHORT).show()
-        }
-    }
+    DesktopAutoClipboard(
+        nodeId = nodeId,
+        enabled = settings.autoClipboard,
+        connected = isConnected,
+        viewModel = viewModel
+    )
 
     LaunchedEffect(showClipboardDialog) {
         if (showClipboardDialog) {
