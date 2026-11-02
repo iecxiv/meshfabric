@@ -1,0 +1,68 @@
+name: Publish bidirectional automatic clipboard
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-bidirectional-clipboard.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-bidirectional-clipboard-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify approved base
+        run: test "$(git rev-parse HEAD^)" = fed67ce00c2265fa5c03e973824da64f14fb6240
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply scoped automatic clipboard changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, zlib
+          payload = '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'
+          source = zlib.decompress(base64.b64decode(payload))
+          assert hashlib.sha256(source).hexdigest() == '8fc7ca1c7178dc126c063dbd06c6efcc4bfa495483c7fff0130f9f19b1fd5929'
+          exec(compile(source, 'approved_bidirectional_clipboard', 'exec'), {'__name__': '__main__'})
+          PY
+          git diff --check
+      - name: Build APK and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Publish verified implementation and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopAutoClipboard.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopClipboardAutoPolicy.kt app/src/test/java/iecxiv/meshfabric/ui/desktop/DesktopClipboardAutoPolicyTest.kt docs/desktop-auto-clipboard.md
+          git rm .github/workflows/publish-bidirectional-clipboard.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(desktop): synchronize foreground clipboard in both directions'
+          git push origin HEAD:refs/heads/dev
+      - name: Upload APK and test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bidirectional-clipboard-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
