@@ -886,7 +886,6 @@ drawDiagnostics[0]++
                                 onClick = {
                                     iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:884 Solicitar del Remoto clicked") { "Solicitar del Remoto clicked" }
                                     viewModel.requestRemoteClipboard(nodeId)
-                                    Toast.makeText(context, "Solicitando del remoto...", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier
                                     .weight(1f)
