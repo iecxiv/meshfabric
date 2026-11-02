@@ -67,6 +67,7 @@ class MeshCentralClient {
 
     var onNodeConnectedListener: ((String) -> Unit)? = null
     var onClipboardReceivedListener: ((nodeId: String, text: String) -> Unit)? = null
+    var onClipboardWriteResultListener: ((nodeId: String, success: Boolean) -> Unit)? = null
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.CONNECTING)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -557,15 +558,10 @@ class MeshCentralClient {
                     webSocket?.send(pong.toString())
                 }
                 "msg", "clipboard", "getclip", "setclip" -> {
-                    val msgType = json.get("type")?.asString ?: json.get("action")?.asString ?: ""
-                    val nodeId = json.get("nodeid")?.asString ?: json.get("node")?.asString ?: ""
-                    val clipData = json.get("data")?.asString
-                        ?: json.get("text")?.asString
-                        ?: json.get("clip")?.asString
-                        ?: json.get("value")?.asString
-                        ?: ""
-                    if (clipData.isNotEmpty()) {
-                        onClipboardReceivedListener?.invoke(nodeId, clipData)
+                    when (val reply = ClipboardControlProtocol.decode(json)) {
+                        is ClipboardControlReply.Content -> onClipboardReceivedListener?.invoke(reply.nodeId, reply.text)
+                        is ClipboardControlReply.WriteResult -> onClipboardWriteResultListener?.invoke(reply.nodeId, reply.success)
+                        null -> Unit
                     }
                 }
             }
@@ -654,73 +650,17 @@ class MeshCentralClient {
         nodePollJob = null
     }
 
-    fun sendClipboardRequest(nodeId: String) {
-        if (webSocket == null) return
-        val fullNodeId = if (!nodeId.startsWith("node//")) "node//" + nodeId.removePrefix("node/") else nodeId
+    fun sendClipboardRequest(nodeId: String): Boolean = sendClipboardCommand("getclip", nodeId)
 
-        val msg1 = JsonObject().apply {
-            addProperty("action", "msg")
-            addProperty("type", "getclip")
-            addProperty("nodeid", fullNodeId)
-        }
-        val msg2 = JsonObject().apply {
-            addProperty("action", "getclip")
-            addProperty("nodeid", fullNodeId)
-        }
-        val msg3 = JsonObject().apply {
-            addProperty("action", "getclip")
-        }
-        val msg4 = JsonObject().apply {
-            addProperty("action", "msg")
-            addProperty("type", "getclipboard")
-            addProperty("nodeid", fullNodeId)
-        }
-        try {
-            webSocket?.send(msg1.toString())
-            webSocket?.send(msg2.toString())
-            webSocket?.send(msg3.toString())
-            webSocket?.send(msg4.toString())
-            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshCentralClient", "MeshCentralClient.kt:683 Sent getclip requests via control socket to") { "Sent getclip requests via control socket to $fullNodeId" }
-        } catch (e: Exception) {
-            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:685 Error sending getclip request:")
-        }
-    }
+    fun sendClipboardText(nodeId: String, text: String): Boolean = sendClipboardCommand("setclip", nodeId, text)
 
-    fun sendClipboardText(nodeId: String, text: String) {
-        if (webSocket == null) return
-        val fullNodeId = if (!nodeId.startsWith("node//")) "node//" + nodeId.removePrefix("node/") else nodeId
-
-        val msg1 = JsonObject().apply {
-            addProperty("action", "msg")
-            addProperty("type", "setclip")
-            addProperty("nodeid", fullNodeId)
-            addProperty("data", text)
+    private fun sendClipboardCommand(type: String, nodeId: String, text: String? = null): Boolean =
+        controlGeneration.locked {
+            if (isUserLogout || !_connectionState.value) return@locked false
+            val socket = webSocket ?: return@locked false
+            val packet = ClipboardControlProtocol.command(type, nodeId, text) ?: return@locked false
+            socket.send(packet.toString())
         }
-        val msg2 = JsonObject().apply {
-            addProperty("action", "setclip")
-            addProperty("nodeid", fullNodeId)
-            addProperty("data", text)
-        }
-        val msg3 = JsonObject().apply {
-            addProperty("action", "setclip")
-            addProperty("data", text)
-        }
-        val msg4 = JsonObject().apply {
-            addProperty("action", "msg")
-            addProperty("type", "clipboard")
-            addProperty("nodeid", fullNodeId)
-            addProperty("data", text)
-        }
-        try {
-            webSocket?.send(msg1.toString())
-            webSocket?.send(msg2.toString())
-            webSocket?.send(msg3.toString())
-            webSocket?.send(msg4.toString())
-            iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshCentralClient", "MeshCentralClient.kt:719 Sent setclip text via control socket to") { "Sent setclip text via control socket to $fullNodeId: '$text'" }
-        } catch (e: Exception) {
-            iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient", "MeshCentralClient.kt:721 Error sending setclip text:")
-        }
-    }
 
     fun hasActiveSessions(): Boolean {
         return _connectionState.value && webSocket != null

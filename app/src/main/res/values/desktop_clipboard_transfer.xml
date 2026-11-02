@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="desktop_clipboard_waiting">Esperando respuesta del remoto…</string>
+  <string name="desktop_clipboard_received">Portapapeles recibido, incluido si está vacío.</string>
+  <string name="desktop_clipboard_confirmed">Envío confirmado por el remoto.</string>
+  <string name="desktop_clipboard_failed">No se pudo completar la operación.</string>
+  <string name="desktop_clipboard_timeout">Sin respuesta del remoto. La operación no está confirmada.</string>
+</resources>

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
@@ -100,6 +101,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.data.remote.DesktopEncoding
 import iecxiv.meshfabric.data.remote.FrameRateOption
+import iecxiv.meshfabric.data.remote.ClipboardTransferState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -114,7 +116,13 @@ fun RemoteDesktopScreen(
     val frameVersion by viewModel.frameVersion(nodeId).collectAsState()
     val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
     val settings by viewModel.settings(nodeId).collectAsState()
+    val desktopDialogConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
+    val desktopDialogsLandscape = desktopDialogConfiguration.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val desktopLandscapeDialogWidth = (desktopDialogConfiguration.screenWidthDp - 48).coerceIn(1, 600).dp
     val remoteClipboardText by viewModel.remoteClipboardText(nodeId).collectAsState()
+    val clipboardReadState by viewModel.clipboardReadState(nodeId).collectAsState()
+    val clipboardWriteState by viewModel.clipboardWriteState(nodeId).collectAsState()
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
@@ -196,12 +204,12 @@ fun RemoteDesktopScreen(
         }
     }
 
-    LaunchedEffect(remoteClipboardText, settings.autoClipboard) {
-        if (settings.autoClipboard && remoteClipboardText.isNotEmpty()) {
-            clipboardManager.setText(AnnotatedString(remoteClipboardText))
-            Toast.makeText(context, "Portapapeles copiado automáticamente a Android", Toast.LENGTH_SHORT).show()
-        }
-    }
+    DesktopAutoClipboard(
+        nodeId = nodeId,
+        enabled = settings.autoClipboard,
+        connected = isConnected,
+        viewModel = viewModel
+    )
 
     LaunchedEffect(showClipboardDialog) {
         if (showClipboardDialog) {
@@ -651,6 +659,9 @@ drawDiagnostics[0]++
         // Combined Keyboard & Hotkeys Dialog
         if (showKeyboardDialog) {
             androidx.compose.ui.window.Dialog(
+                properties = androidx.compose.ui.window.DialogProperties(
+                    usePlatformDefaultWidth = !desktopDialogsLandscape
+                ),
                 onDismissRequest = { showKeyboardDialog = false }
             ) {
                 Surface(
@@ -658,7 +669,7 @@ drawDiagnostics[0]++
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 6.dp,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .then(if (desktopDialogsLandscape) Modifier.width(desktopLandscapeDialogWidth) else Modifier.fillMaxWidth())
                         .padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(
@@ -810,6 +821,7 @@ drawDiagnostics[0]++
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(stringResource(R.string.send_to_remote_clipboard), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        DesktopClipboardStatus(clipboardWriteState)
                         Spacer(modifier = Modifier.height(4.dp))
                         OutlinedTextField(
                             value = sendClipboardInput,
@@ -844,14 +856,9 @@ drawDiagnostics[0]++
                                 Text(stringResource(R.string.paste_from_android), fontSize = 11.sp, maxLines = 1)
                             }
                             Button(
+                                enabled = isConnected && clipboardWriteState != ClipboardTransferState.WAITING,
                                 onClick = {
-                                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:846 Enviar al Remoto clicked, input='") { "Enviar al Remoto clicked, input='$sendClipboardInput'" }
-                                    if (sendClipboardInput.isNotEmpty()) {
-                                        viewModel.sendClipboardText(nodeId, sendClipboardInput)
-                                        Toast.makeText(context, "Enviado al portapapeles remoto", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Ingresa texto para enviar", Toast.LENGTH_SHORT).show()
-                                    }
+                                    viewModel.sendClipboardText(nodeId, sendClipboardInput)
                                 },
                                 modifier = Modifier
                                     .weight(1f)
@@ -865,6 +872,7 @@ drawDiagnostics[0]++
                         HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
 
                         Text(stringResource(R.string.get_from_remote_clipboard), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        DesktopClipboardStatus(clipboardReadState)
                         Spacer(modifier = Modifier.height(4.dp))
                         OutlinedTextField(
                             value = remoteClipboardText,
@@ -882,10 +890,10 @@ drawDiagnostics[0]++
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedButton(
+                                enabled = isConnected && clipboardReadState != ClipboardTransferState.WAITING,
                                 onClick = {
                                     iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:884 Solicitar del Remoto clicked") { "Solicitar del Remoto clicked" }
                                     viewModel.requestRemoteClipboard(nodeId)
-                                    Toast.makeText(context, "Solicitando del remoto...", Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier
                                     .weight(1f)
@@ -896,8 +904,7 @@ drawDiagnostics[0]++
                             }
                             Button(
                                 onClick = {
-                                    iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:897 Copiar a Android clicked, text='") { "Copiar a Android clicked, text='$remoteClipboardText'" }
-                                    if (remoteClipboardText.isNotEmpty()) {
+                                    if (clipboardReadState == ClipboardTransferState.RECEIVED) {
                                         clipboardManager.setText(AnnotatedString(remoteClipboardText))
                                         Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()
                                     } else {
@@ -945,6 +952,9 @@ drawDiagnostics[0]++
             )
 
             androidx.compose.ui.window.Dialog(
+                properties = androidx.compose.ui.window.DialogProperties(
+                    usePlatformDefaultWidth = !desktopDialogsLandscape
+                ),
                 onDismissRequest = { showSettingsDialog = false }
             ) {
                 Surface(
@@ -952,7 +962,7 @@ drawDiagnostics[0]++
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 6.dp,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .then(if (desktopDialogsLandscape) Modifier.width(desktopLandscapeDialogWidth) else Modifier.fillMaxWidth())
                         .padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(
@@ -1143,4 +1153,18 @@ drawDiagnostics[0]++
             }
         }
     }
+}
+
+
+@Composable
+private fun DesktopClipboardStatus(state: ClipboardTransferState) {
+    val message = when (state) {
+        ClipboardTransferState.IDLE -> return
+        ClipboardTransferState.WAITING -> R.string.desktop_clipboard_waiting
+        ClipboardTransferState.RECEIVED -> R.string.desktop_clipboard_received
+        ClipboardTransferState.CONFIRMED -> R.string.desktop_clipboard_confirmed
+        ClipboardTransferState.FAILED -> R.string.desktop_clipboard_failed
+        ClipboardTransferState.TIMED_OUT -> R.string.desktop_clipboard_timeout
+    }
+    Text(stringResource(message), style = MaterialTheme.typography.bodySmall)
 }
