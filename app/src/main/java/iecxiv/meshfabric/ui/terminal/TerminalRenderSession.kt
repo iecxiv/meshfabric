@@ -15,6 +15,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import com.google.gson.Gson
+import iecxiv.meshfabric.data.model.DevicePlatform
+import iecxiv.meshfabric.data.model.platform
 import iecxiv.meshfabric.data.remote.TerminalSession
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -44,9 +46,15 @@ internal class TerminalRenderSession(
     val error: StateFlow<TerminalRendererError?> = failure.asStateFlow()
     private val focusRequests = TerminalFocusRequests()
     private var focusBlocked = false
+    private val windowsResizeDiagnostics = WindowsTerminalResizeDiagnostics(session)
     private val webView = object : WebView(wrapper) {
         private var imeOrientation = resources.configuration.orientation
         private var imeConfigurationVersion = 0L
+
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            super.onSizeChanged(w, h, oldw, oldh)
+            windowsResizeDiagnostics.layout(this, w, h, oldw, oldh)
+        }
 
         override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
             val orientationChanged = imeOrientation != newConfig.orientation
@@ -126,6 +134,7 @@ internal class TerminalRenderSession(
             override fun onConsoleMessage(message: ConsoleMessage?): Boolean = true
         }
         webView.addJavascriptInterface(Bridge(), "AndroidTerminal")
+        windowsResizeDiagnostics.attach(webView)
         outputJob = scope.launch {
             session.outputRevision.collect {
                 if (session.isUserDisconnect) destroy() else pump()
@@ -338,6 +347,7 @@ internal class TerminalRenderSession(
         val batch = delivery.prepare(page, slice) ?: return
         ackWatchdog.sent(batch.token, nowMs())
         scheduleAckCheck()
+        windowsResizeDiagnostics.batch(batch.text.length)
         webView.evaluateJavascript("window.writeTerminalBatch(${gson.toJson(batch.token)},${gson.toJson(batch.text)});") { accepted ->
             if (!isDestroyed && accepted != "true") stopOutput()
         }
@@ -364,6 +374,7 @@ internal class TerminalRenderSession(
         wrapper.baseContext = appContext
         webView.stopLoading()
         webView.removeJavascriptInterface("AndroidTerminal")
+        windowsResizeDiagnostics.dispose(webView)
         webView.webChromeClient = null
         webView.webViewClient = WebViewClient()
         webView.destroy()
@@ -374,12 +385,18 @@ internal class TerminalRenderSession(
             webView.post { if (!isDestroyed && failure.value == null) session.sendInput(data) }
         }
         @JavascriptInterface fun onTerminalResize(cols: Int, rows: Int) {
-            webView.post { if (!isDestroyed) session.sendResize(cols, rows) }
+            webView.post {
+                if (!isDestroyed) {
+                    windowsResizeDiagnostics.resizeRequest(cols, rows, session.connectionState.value)
+                    session.sendResize(cols, rows)
+                }
+            }
         }
         @JavascriptInterface fun onHtmlReady() {
             webView.post {
                 if (!isDestroyed && readyGate.accept(page)) {
                     ready = true
+                    windowsResizeDiagnostics.install(webView)
                     webView.evaluateJavascript("window.setTerminalInputEnabled(${session.connectionState.value});", null)
                     delivery.attach(page)
                     webView.evaluateJavascript("window.setFontSize($fontSize);", null)
@@ -396,5 +413,108 @@ internal class TerminalRenderSession(
                 }
             }
         }
+    }
+}
+
+/** Bounded metadata-only Logcat capture for the Windows keyboard/resize investigation. */
+internal class WindowsTerminalResizeDiagnostics(session: TerminalSession) {
+    // Freeze the decision at renderer creation. Missing metadata never enables tracing.
+    private val enabled = session.meshClient.groupedDevices.value.any { (_, nodes) ->
+        nodes.any { node ->
+            node.id.removePrefix("node//").removePrefix("node/").trim() == session.cleanNodeId &&
+                node.platform == DevicePlatform.WINDOWS
+        }
+    }
+    private val capture = System.identityHashCode(this)
+    private var remaining = 2000
+    private var active = true
+
+    @Synchronized private fun record(event: String, details: String) {
+        if (!enabled || !active || remaining <= 0) return
+        val sequence = 2001 - remaining--
+        android.util.Log.i("MeshTerminalWinResize",
+            "capture=$capture seq=$sequence t=${android.os.SystemClock.elapsedRealtime()} event=$event $details")
+        if (remaining == 0) android.util.Log.i("MeshTerminalWinResize", "capture=$capture capture-limit-reached")
+    }
+
+    fun attach(view: WebView) {
+        if (enabled) view.addJavascriptInterface(this, "WindowsTerminalResizeDiagnostics")
+    }
+
+    fun layout(view: WebView, width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        if (!enabled) return
+        val insets = androidx.core.view.ViewCompat.getRootWindowInsets(view)
+        val ime = androidx.core.view.WindowInsetsCompat.Type.ime()
+        record("layout", "width=$width height=$height oldWidth=$oldWidth oldHeight=$oldHeight imeVisible=${insets?.isVisible(ime)} imeBottom=${insets?.getInsets(ime)?.bottom}")
+    }
+
+    fun resizeRequest(cols: Int, rows: Int, connected: Boolean) {
+        if (enabled) record("resize-request", "cols=$cols rows=$rows connected=$connected")
+    }
+
+    fun batch(chars: Int) {
+        if (enabled) record("delivery-batch", "chars=$chars")
+    }
+
+    // No strings from JavaScript are accepted, preventing terminal content in logs.
+    @JavascriptInterface fun snapshot(event: Int, cols: Int, rows: Int, base: Int,
+        viewport: Int, cursor: Int, lines: Int, alternate: Boolean, chars: Int) {
+        if (!enabled || event !in 0..3 || cols !in 0..100000 || rows !in 0..100000 ||
+            base !in 0..10000000 || viewport !in 0..10000000 || cursor !in 0..100000 ||
+            lines !in 0..10000000 || chars !in 0..2097152) return
+        val phase = when (event) {
+            0 -> "resize-before"
+            1 -> "resize-after"
+            2 -> "write-before"
+            else -> "write-parsed"
+        }
+        record(phase, "cols=$cols rows=$rows baseY=$base viewportY=$viewport cursorY=$cursor lines=$lines alternate=$alternate chars=$chars")
+    }
+
+    fun install(view: WebView) {
+        if (!enabled) return
+        view.evaluateJavascript(SCRIPT) { result ->
+            record("hooks", "installed=${result == "true"}")
+        }
+    }
+
+    @Synchronized fun dispose(view: WebView) {
+        active = false
+        if (enabled) view.removeJavascriptInterface("WindowsTerminalResizeDiagnostics")
+    }
+
+    private companion object {
+        val SCRIPT = """
+            (function () {
+              'use strict';
+              var bridge = window.WindowsTerminalResizeDiagnostics;
+              var proto = window.Terminal && window.Terminal.prototype;
+              if (!bridge || !proto || typeof proto.resize !== 'function' || typeof proto.write !== 'function') return false;
+              if (proto.__meshWindowsResizeDiagnostics) return true;
+              function report(term, event, chars) {
+                try {
+                  var b = term.buffer.active;
+                  bridge.snapshot(event, term.cols, term.rows, b.baseY, b.viewportY,
+                    b.cursorY, b.length, b.type === 'alternate', chars);
+                } catch (_) { /* Diagnostics must not interrupt terminal delivery. */ }
+              }
+              var resize = proto.resize, write = proto.write;
+              proto.resize = function (cols, rows) {
+                report(this, 0, 0);
+                try { return resize.apply(this, arguments); }
+                finally { report(this, 1, 0); }
+              };
+              proto.write = function (data, callback) {
+                var term = this, chars = data && data.length || 0;
+                report(term, 2, chars);
+                return write.call(term, data, function () {
+                  report(term, 3, chars);
+                  if (typeof callback === 'function') return callback.apply(this, arguments);
+                });
+              };
+              Object.defineProperty(proto, '__meshWindowsResizeDiagnostics', { value: true });
+              return true;
+            }());
+        """.trimIndent()
     }
 }
