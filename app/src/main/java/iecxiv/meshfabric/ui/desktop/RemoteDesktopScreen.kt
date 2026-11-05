@@ -116,6 +116,7 @@ fun RemoteDesktopScreen(
     val frameVersion by viewModel.frameVersion(nodeId).collectAsState()
     val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
     val settings by viewModel.settings(nodeId).collectAsState()
+    val desktopMouseCapture = remember(nodeId) { DesktopMouseCapture() }
     val desktopDialogConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
     val desktopDialogsLandscape = desktopDialogConfiguration.orientation ==
         android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -354,6 +355,18 @@ fun RemoteDesktopScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .desktopRightClickCanvas(
+                                capture = desktopMouseCapture,
+                                enabled = desktopKeyboardActive,
+                                geometry = DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY),
+                                onRightClick = { point ->
+                                    val (remoteWidth, remoteHeight) = viewModel.screenResolution(nodeId).value
+                                    if (remoteWidth <= 0 || remoteHeight <= 0) false else {
+                                        viewModel.performMouseClick(nodeId, point.xFraction, point.yFraction, isRightClick = true)
+                                        true
+                                    }
+                                }
+                            )
                             .desktopVerticalWheel(
                                 enabled = desktopKeyboardActive,
                                 geometry = DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY),
@@ -520,6 +533,7 @@ drawDiagnostics[0]++
                         .align(Alignment.BottomStart)
                         .padding(12.dp)
                         .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
                             detectVerticalDragGestures { change, dragAmount ->
                                 change.consume()
@@ -573,6 +587,7 @@ drawDiagnostics[0]++
                         .fillMaxWidth()
                         .padding(12.dp)
                         .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
                             detectVerticalDragGestures { change, dragAmount ->
                                 change.consume()
