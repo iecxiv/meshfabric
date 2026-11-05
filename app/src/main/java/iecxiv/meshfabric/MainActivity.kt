@@ -32,6 +32,43 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
+    internal var desktopMouseCapture: iecxiv.meshfabric.ui.desktop.DesktopMouseCapture? = null
+
+    private fun cancelDesktopPointerGesture(downTime: Long, eventTime: Long) {
+        val cancel = android.view.MotionEvent.obtain(downTime, eventTime,
+            android.view.MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+        try { super.dispatchTouchEvent(cancel) } finally { cancel.recycle() }
+    }
+
+    override fun dispatchTouchEvent(event: android.view.MotionEvent): Boolean {
+        if (desktopMouseCapture?.motion(event) == true) return true
+        return super.dispatchTouchEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: android.view.MotionEvent): Boolean {
+        if (desktopMouseCapture?.motion(event) == true) {
+            if (event.actionMasked == android.view.MotionEvent.ACTION_BUTTON_PRESS)
+                cancelDesktopPointerGesture(event.downTime, event.eventTime)
+            return true
+        }
+        return super.dispatchGenericMotionEvent(event)
+    }
+
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (desktopMouseCapture?.key(event) == true) {
+            if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0)
+                cancelDesktopPointerGesture(event.downTime, event.eventTime)
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) desktopMouseCapture?.reset()
+    }
+
+
     private lateinit var sessionManager: SessionManager
     private lateinit var meshClient: MeshCentralClient
     private lateinit var desktopClient: DesktopRelayClient
@@ -159,6 +196,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        desktopMouseCapture?.reset()
         super.onStop()
         terminalClient.checkpointHistory()
         val totalActiveSessions = terminalClient.getSessionCount() +
@@ -181,6 +219,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        desktopMouseCapture?.reset()
+        desktopMouseCapture = null
         super.onDestroy()
         // Keep active sessions alive unless destroyed by user action or task removed
     }
