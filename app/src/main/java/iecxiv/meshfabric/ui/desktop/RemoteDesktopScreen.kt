@@ -354,6 +354,19 @@ fun RemoteDesktopScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .desktopVerticalWheel(
+                                enabled = desktopKeyboardActive,
+                                geometry = DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY),
+                                reverse = settings.reverseMouseWheel,
+                                onWheel = { point, delta ->
+                                    val (remoteWidth, remoteHeight) = viewModel.screenResolution(nodeId).value
+                                    val position = point.remote(remoteWidth, remoteHeight)
+                                    if (position == null) false else {
+                                        viewModel.sendMouseScroll(nodeId, position.first, position.second, delta)
+                                        true
+                                    }
+                                }
+                            )
                             .pointerInput(nodeId, selectedMode, containerWidth, containerHeight, drawWidth, drawHeight) {
                                 if (showClipboardDialog || showKeyboardDialog || showSettingsDialog) return@pointerInput
                                 val touchSlop = viewConfiguration.touchSlop
