@@ -48,7 +48,7 @@ internal val LocalDeviceDetailsClient = staticCompositionLocalOf<MeshCentralClie
 internal fun DeviceDetailsButton(node: MeshNode) {
     var visible by rememberSaveable(node.id) { mutableStateOf(false) }
     IconButton(onClick = { visible = true }) {
-        Icon(Icons.Default.Info, stringResource(R.string.device_details_open, node.name), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(Icons.Default.Info, stringResource(R.string.device_details_open, node.name), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (visible) DeviceDetailsDialog(node) { visible = false }
 }
