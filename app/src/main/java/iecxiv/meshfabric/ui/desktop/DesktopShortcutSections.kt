@@ -3,6 +3,10 @@ package iecxiv.meshfabric.ui.desktop
 import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,12 +59,18 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
                 enabled = connected, modifier = Modifier.weight(1f)) {
                 Text(shortcut.label)
             }
-            TextButton(onClick = { move(index, -1) }, enabled = index > 0,
-                contentPadding = PaddingValues(4.dp)) { Text("Subir") }
-            TextButton(onClick = { move(index, 1) }, enabled = index < entries.lastIndex,
-                contentPadding = PaddingValues(4.dp)) { Text("Bajar") }
-            TextButton(onClick = { save(entries.filterIndexed { i, _ -> i != index }) },
-                contentPadding = PaddingValues(4.dp)) { Text("Quitar") }
+            IconButton(onClick = { move(index, -1) }, enabled = index > 0,
+                modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir ${shortcut.label}", modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = { move(index, 1) }, enabled = index < entries.lastIndex,
+                modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar ${shortcut.label}", modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = { save(entries.filterIndexed { i, _ -> i != index }) },
+                modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = "Quitar ${shortcut.label}", modifier = Modifier.size(20.dp))
+            }
         }
     }
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
