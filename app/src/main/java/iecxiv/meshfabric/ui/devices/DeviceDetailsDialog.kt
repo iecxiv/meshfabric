@@ -183,7 +183,7 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                         }
                     }
                     item(key = "identity_heading") {
-                        InventoryHeading(identityTitle, Icons.Default.Badge, identity.size, "identity" in expanded, es) { toggle("identity") }
+                        InventoryHeading(identityTitle, Icons.Default.Badge, "identity" in expanded, es) { toggle("identity") }
                     }
                     if ("identity" in expanded) itemsIndexed(identity, key = { index, _ -> "identity_row_$index" }) { index, row ->
                         InventoryRow(ReadableInventoryValue(row.path, "", row.value), row, false,
@@ -191,7 +191,7 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                     }
                     sections.forEach { section ->
                         item(key = "heading_${section.key}") {
-                            InventoryHeading(sectionTitle(section.key, es), sectionIcon(section.key), section.rows.size,
+                            InventoryHeading(sectionTitle(section.key, es), sectionIcon(section.key),
                                 section.key in expanded, es) { toggle(section.key) }
                         }
                         if (section.key in expanded) itemsIndexed(section.rows, key = { index, _ -> "${section.key}_row_$index" }) { index, row ->
@@ -246,7 +246,7 @@ private fun sectionIcon(key: String): ImageVector = when (key) {
 }
 
 @Composable
-private fun InventoryHeading(title: String, icon: ImageVector, count: Int, expanded: Boolean, es: Boolean, onToggle: () -> Unit) {
+private fun InventoryHeading(title: String, icon: ImageVector, expanded: Boolean, es: Boolean, onToggle: () -> Unit) {
     val state = if (expanded) { if (es) "Expandido" else "Expanded" } else { if (es) "Contraído" else "Collapsed" }
     val action = if (expanded) { if (es) "Contraer" else "Collapse" } else { if (es) "Expandir" else "Expand" }
     Surface(Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(12.dp),
@@ -256,7 +256,6 @@ private fun InventoryHeading(title: String, icon: ImageVector, count: Int, expan
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
