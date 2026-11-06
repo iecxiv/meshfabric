@@ -87,6 +87,16 @@ class SessionManager(context: Context) {
         _onlyOnlineDevicesFlow.value = enabled
     }
 
+    private val _hideDeviceNetworkInfoFlow = MutableStateFlow(
+        prefs.getBoolean("hide_device_network_info", false)
+    )
+    val hideDeviceNetworkInfoFlow: StateFlow<Boolean> = _hideDeviceNetworkInfoFlow.asStateFlow()
+
+    fun saveHideDeviceNetworkInfo(hidden: Boolean) {
+        prefs.edit().putBoolean("hide_device_network_info", hidden).apply()
+        _hideDeviceNetworkInfoFlow.value = hidden
+    }
+
     private fun getSavedThemeMode(): AppThemeMode {
         val savedName = prefs.getString(KEY_THEME_MODE, AppThemeMode.SYSTEM.name)
         return try {
@@ -183,13 +193,15 @@ class SessionManager(context: Context) {
     fun clearSession() {
         val keepTerminalBuffers = isSaveTerminalBuffersEnabled()
         val keepOnlineFilter = _onlyOnlineDevicesFlow.value
+        val keepNetworkInfoHidden = _hideDeviceNetworkInfoFlow.value
         val currentAppName = _appNameFlow.value
         val currentIconPath = _customIconPathFlow.value
         val currentTheme = _themeModeFlow.value
 
         prefs.edit().clear().apply()
         prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, keepTerminalBuffers)
-            .putBoolean("only_online_devices", keepOnlineFilter).apply()
+            .putBoolean("only_online_devices", keepOnlineFilter)
+            .putBoolean("hide_device_network_info", keepNetworkInfoHidden).apply()
 
         // Preserve app settings when clearing user session
         prefs.edit()

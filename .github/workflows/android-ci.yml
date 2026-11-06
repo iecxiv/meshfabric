@@ -2,7 +2,12 @@ name: Android build and test
 
 on:
   push:
-    branches: [main, desktop-improve]
+    branches: [main, dev, desktop-improve]
+    # The publishing workflow validates these workflow-only preparation commits.
+    # Code changes and PRs targeting main still run the complete Android checks.
+    paths-ignore:
+      - '.github/workflows/android-ci.yml'
+      - '.github/workflows/publish-lint-key-routing.yml'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -58,6 +63,7 @@ jobs:
             app/build/reports/tests/
             app/build/test-results/
             app/build/reports/lint-results-debug.*
+            app/build/intermediates/**/lint-results-debug.txt
           if-no-files-found: ignore
           retention-days: 14
 

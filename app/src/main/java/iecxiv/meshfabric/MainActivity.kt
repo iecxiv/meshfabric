@@ -54,13 +54,18 @@ class MainActivity : ComponentActivity() {
         return super.dispatchGenericMotionEvent(event)
     }
 
-    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
-        if (desktopMouseCapture?.key(event) == true) {
-            if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0)
-                cancelDesktopPointerGesture(event.downTime, event.eventTime)
-            return true
-        }
-        return super.dispatchKeyEvent(event)
+    private var desktopWindowKeys: iecxiv.meshfabric.ui.desktop.DesktopMouseWindowCallback? = null
+
+    private fun installDesktopMouseWindowCallback() {
+        if (desktopWindowKeys != null) return
+        val original = window.callback ?: return
+        val callback = iecxiv.meshfabric.ui.desktop.DesktopMouseWindowCallback(
+            original = original,
+            consume = { event -> desktopMouseCapture?.key(event) == true },
+            cancelGesture = { downTime, eventTime -> cancelDesktopPointerGesture(downTime, eventTime) }
+        )
+        desktopWindowKeys = callback
+        window.callback = callback
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -85,6 +90,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        installDesktopMouseWindowCallback()
 
         sessionManager = SessionManager(applicationContext)
         meshClient = MeshCentralClient()
@@ -219,6 +225,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        desktopWindowKeys?.let { callback ->
+            if (window.callback === callback) window.callback = callback.original
+        }
+        desktopWindowKeys = null
         desktopMouseCapture?.reset()
         desktopMouseCapture = null
         super.onDestroy()

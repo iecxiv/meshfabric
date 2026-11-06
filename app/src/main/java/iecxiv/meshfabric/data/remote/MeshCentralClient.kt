@@ -81,6 +81,20 @@ class MeshCentralClient {
     private val meshesMap = ConcurrentHashMap<String, MeshGroup>()
     private val nodesMap = ConcurrentHashMap<String, MeshNode>()
 
+    private val nodeNetworkInfo = DeviceNetworkInfoCache()
+    val networkAddresses = nodeNetworkInfo.addresses
+
+    fun requestNodeNetworkInfo(nodeId: String) {
+        controlGeneration.locked {
+            val socket = webSocket ?: return@locked
+            if (!_connectionState.value || isUserLogout) return@locked
+            val request = nodeNetworkInfo.request(nodeId) ?: return@locked
+            if (!socket.send(request.toString())) nodeNetworkInfo.failed(request)
+        }
+    }
+
+    fun invalidateNodeNetworkInfoRequests() { nodeNetworkInfo.invalidate() }
+
     fun getNodeMeshId(nodeId: String): String {
         val cleanId = nodeId.removePrefix("node//").removePrefix("node/").trim()
         val node = nodesMap[cleanId] ?: nodesMap["node//$cleanId"]
@@ -203,6 +217,7 @@ class MeshCentralClient {
             val identity=Triple(url,cookie,ignoreSslCert)
             if(webSocket!=null && controlIdentity==identity && (controlConnecting || _connectionState.value)) return
             val epoch=controlGeneration.advance()
+            nodeNetworkInfo.connectionChanged()
             cancelControlWork()
             controlTimeout?.cancel()
             controlTimeout=null
@@ -212,6 +227,7 @@ class MeshCentralClient {
             webSocket=null
             previous?.cancel()
             if(controlIdentity!=identity) {
+                nodeNetworkInfo.clear()
                 relayAuthCookie=""
                 userAuthCookie=""
                 _userInfo.value=null
@@ -553,6 +569,7 @@ class MeshCentralClient {
                         webSocket?.send("""{"action":"nodes"}""")
                     }
                 }
+                "getnetworkinfo" -> { nodeNetworkInfo.receive(json) }
                 "ping" -> {
                     val pong = JsonObject().apply { addProperty("action", "pong") }
                     webSocket?.send(pong.toString())
@@ -688,6 +705,7 @@ class MeshCentralClient {
 
     fun disconnect() {
         controlGeneration.locked {
+            nodeNetworkInfo.clear()
             isUserLogout=true
             controlConnecting=false
             controlGeneration.advance()

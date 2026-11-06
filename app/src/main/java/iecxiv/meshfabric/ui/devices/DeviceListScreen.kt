@@ -39,6 +39,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
     val allGroups by viewModel.groupedDevices.collectAsState()
     val fallbackOnlineFilter = remember { MutableStateFlow(false) }
+    val fallbackNetworkVisibility = remember { MutableStateFlow(false) }
+    val hideDeviceNetworkInfo by (viewModel.sessionManager?.hideDeviceNetworkInfoFlow ?: fallbackNetworkVisibility).collectAsState()
     val onlyOnline by (viewModel.sessionManager?.onlyOnlineDevicesFlow ?: fallbackOnlineFilter).collectAsState()
     val groups = remember(allGroups, onlyOnline) {
         if (!onlyOnline) allGroups else allGroups.mapNotNull { (group, nodes) ->
@@ -46,6 +48,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
         }
     }
     val connection by viewModel.connectionStatus.collectAsState()
+    val networkRefresh by viewModel.networkRefresh.collectAsState()
+    val networkConnected by viewModel.isConnected.collectAsState()
+    val networkLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val search by viewModel.searchQuery.collectAsState()
     val collapsed by viewModel.collapsedGroups.collectAsState()
     val desktop by viewModel.desktopSessionsStatus.collectAsState()
@@ -76,6 +81,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
             ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
+            ToolIcon(if(hideDeviceNetworkInfo) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                if(hideDeviceNetworkInfo) "Mostrar IP e interfaces" else "Ocultar IP e interfaces") {
+                val hidden = !hideDeviceNetworkInfo
+                val manager = viewModel.sessionManager
+                if (manager != null) manager.saveHideDeviceNetworkInfo(hidden)
+                else fallbackNetworkVisibility.value = hidden
+            }
             IconToggleButton(checked=onlyOnline,onCheckedChange={ enabled ->
                 val manager = viewModel.sessionManager
                 if (manager != null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value = enabled
@@ -128,9 +140,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 item(key="group_${group.id}") { GroupHeaderCard(group,nodes.count { it.isOnline },nodes.count { !it.isOnline },
                     search.isNotBlank() || group.id !in collapsed) { viewModel.toggleGroupExpanded(group.id) } }
                 if(search.isNotBlank() || group.id !in collapsed) items(nodes,key={ "node_${it.id}" }) { node ->
+                    LaunchedEffect(node.id, networkRefresh, networkLifecycle, networkConnected) {
+                        if (networkConnected && networkLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            while (true) {
+                                viewModel.requestDeviceNetworkInfo(node.id)
+                                kotlinx.coroutines.delay(10_000L)
+                            }
+                        }
+                    }
                     val clean=node.id.removePrefix("node//").removePrefix("node/").trim()
                     DeviceCard(node,desktop[clean] ?: SessionStatus.NONE,terminal[clean] ?: SessionStatus.NONE,files[clean] ?: SessionStatus.NONE,
-                        { onOpenDesktop(node.id,node.name) },{ onOpenTerminal(node.id,node.name) },{ onOpenFiles(node.id,node.name) })
+                        { onOpenDesktop(node.id,node.name) },{ onOpenTerminal(node.id,node.name) },{ onOpenFiles(node.id,node.name) }, showNetworkInfo = !hideDeviceNetworkInfo)
                 }
             }
         }
@@ -157,7 +177,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     }
 }
 @Composable fun DeviceCard(node:MeshNode,desktopStatus:SessionStatus=SessionStatus.NONE,terminalStatus:SessionStatus=SessionStatus.NONE,
-    fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit) {
+    fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit,showNetworkInfo:Boolean=true) {
     val os=node.osDisplayName.ifEmpty { stringResource(R.string.device_os_unknown) }
     Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
         colors=CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface),
@@ -184,6 +204,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
                         }
                     }
                     if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    val networkText = DeviceNetworkDisplay.text(node.networkIpv4.orEmpty(), hidden = !showNetworkInfo)
+                    if (networkText != null) Text(
+                        text = networkText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 LocalDeviceActionMenu.current(node)
             }

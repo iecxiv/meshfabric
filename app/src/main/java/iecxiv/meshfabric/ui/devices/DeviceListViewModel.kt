@@ -25,6 +25,9 @@ class DeviceListViewModel(
 ) : ViewModel() {
 
     val searchQuery = MutableStateFlow("")
+    private val _networkRefresh = MutableStateFlow(0L)
+    val networkRefresh = _networkRefresh.asStateFlow()
+    fun requestDeviceNetworkInfo(nodeId: String) = meshClient.requestNodeNetworkInfo(nodeId)
 
     val userInfo = meshClient.userInfo
     val isConnected = meshClient.connectionState
@@ -74,8 +77,13 @@ class DeviceListViewModel(
 
     val groupedDevices: StateFlow<List<Pair<MeshGroup, List<MeshNode>>>> = combine(
         meshClient.groupedDevices,
-        searchQuery
-    ) { groups, query ->
+        searchQuery,
+        meshClient.networkAddresses
+    ) { rawGroups, query, addresses ->
+        val groups = rawGroups.map { (group, nodes) ->
+            group to nodes.map { node -> node.copy(networkIpv4 = addresses[
+                iecxiv.meshfabric.data.remote.DeviceNetworkIpv4.nodeKey(node.id)].orEmpty()) }
+        }
         if (query.isBlank()) {
             groups
         } else {
@@ -146,6 +154,8 @@ class DeviceListViewModel(
     }
 
     fun refresh() {
+        meshClient.invalidateNodeNetworkInfoRequests()
+        _networkRefresh.value += 1L
         meshClient.requestServerData()
     }
 }

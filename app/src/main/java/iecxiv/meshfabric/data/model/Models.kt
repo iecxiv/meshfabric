@@ -22,6 +22,8 @@ data class AgentInfo(
     val ver: Int = 0
 )
 
+data class DeviceIpv4(val interfaceName: String, val address: String)
+
 data class MeshNode(
     @SerializedName("_id") val id: String = "",
     val name: String = "",
@@ -34,21 +36,14 @@ data class MeshNode(
     val localip: String? = null,
     val icon: Int = 0,
     val caps: Int = 0,
-    val p: Int = 0
+    val p: Int = 0,
+    @Transient val networkIpv4: List<DeviceIpv4> = emptyList()
 ) {
     val isOnline: Boolean
         get() = (conn and 1) != 0 || (conn and 2) != 0 || conn > 0
 
     val displayIp: String?
-        get() {
-            val local = localip?.trim()
-            if (!local.isNullOrEmpty() && local != "0.0.0.0" && local != "127.0.0.1") return local
-            val remote = ip?.trim()
-            if (!remote.isNullOrEmpty() && remote != "0.0.0.0" && remote != "127.0.0.1") return remote
-            val global = gip?.trim()
-            if (!global.isNullOrEmpty() && global != "0.0.0.0" && global != "127.0.0.1") return global
-            return null
-        }
+        get() = networkIpv4.orEmpty().map { it.address }.distinct().joinToString(", ").takeIf { it.isNotEmpty() }
 
     val supportsDesktop: Boolean
         get() {
