@@ -19,7 +19,7 @@ class DeviceDetailsCollapseTest {
     @Test fun identifiersAreCollapsedInitiallyAndCanBeExpandedAndCollapsed() {
         open()
         compose.onNodeWithText(node.id).assertDoesNotExist()
-        val heading = compose.onNodeWithText("^(Identificación|Identification)$".toRegex())
+        val heading = compose.onNode(hasText("Identificación") or hasText("Identification"))
         heading.performScrollTo().performClick()
         compose.onNodeWithText(node.id).performScrollTo().assertIsDisplayed()
         heading.performScrollTo().performClick()
