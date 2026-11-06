@@ -1,0 +1,67 @@
+name: Publish desktop shortcuts and held modifiers
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-desktop-shortcuts-hold.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-desktop-shortcuts-hold-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify approved base
+        run: test "$(git rev-parse HEAD^)" = 119f67c50b950eb941ab150181e6414c359a4e0a
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply approved desktop keyboard changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, zlib
+          source = zlib.decompress(base64.b64decode('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'))
+          assert hashlib.sha256(source).hexdigest() == 'dad71d0a2c2f6422f49a99fcea58a5fb0ab19e43b791c502add1aa256b9a4606'
+          exec(compile(source, 'approved_desktop_shortcuts_hold', 'exec'), {'__name__': '__main__'})
+          PY
+          git diff --check
+      - name: Compile debug APK and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest --no-daemon --stacktrace
+      - name: Publish implementation and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopViewModel.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopHeldKeys.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopKeyActions.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopShortcuts.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopShortcutSections.kt app/src/test/java/iecxiv/meshfabric/ui/desktop/DesktopHoldKeysTest.kt docs/desktop-shortcuts-hold.md
+          git rm .github/workflows/publish-desktop-shortcuts-hold.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(desktop): add custom shortcuts and held modifier controls'
+          git push origin HEAD:refs/heads/dev
+      - name: Upload APK and test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-shortcuts-hold-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
