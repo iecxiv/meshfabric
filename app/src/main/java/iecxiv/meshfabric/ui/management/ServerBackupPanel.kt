@@ -185,6 +185,7 @@ private data class BackupRequest(val password:String,val override:Boolean) { ove
     var pending by remember { mutableStateOf<BackupRequest?>(null) }
     var job by remember { mutableStateOf<Job?>(null) }
     var call by remember { mutableStateOf<Call?>(null) }
+    var restoring by remember { mutableStateOf(false) }
     DisposableEffect(Unit) { onDispose { call?.cancel(); job?.cancel() } }
     val launcher=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri->
         val request=pending
@@ -218,7 +219,8 @@ private data class BackupRequest(val password:String,val override:Boolean) { ove
             }
         }
     }
-    val busy=phase is BackupPhase.Checking || phase is BackupPhase.Sending || phase is BackupPhase.Working
+    val backupBusy=phase is BackupPhase.Checking || phase is BackupPhase.Sending || phase is BackupPhase.Working || pending!=null || dialog
+    val busy=backupBusy || restoring
     Text(stringResource(R.string.my_server_backup_title),style=MaterialTheme.typography.titleSmall)
     TextButton(enabled=source!=null && !busy,onClick={
         val current=source
@@ -248,7 +250,7 @@ private data class BackupRequest(val password:String,val override:Boolean) { ove
         is BackupPhase.Done->Text(stringResource(R.string.my_server_backup_done,Formatter.formatShortFileSize(context,state.bytes)),style=MaterialTheme.typography.bodySmall)
         is BackupPhase.Failed->Text(if(state.message==R.string.my_server_backup_failed_http) stringResource(state.message,state.code) else stringResource(state.message),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
     }
-    Text(stringResource(R.string.my_server_backup_restore_pending),style=MaterialTheme.typography.bodySmall)
+    ServerRestorePanel(source,enabled=!backupBusy,onBusy={ restoring=it })
     if(dialog) AlertDialog(onDismissRequest={ dialog=false; password="" },title={ Text(stringResource(R.string.my_server_backup_dialog_title)) },
         text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.my_server_backup_dialog_text))

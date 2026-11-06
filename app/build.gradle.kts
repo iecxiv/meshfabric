@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.gson)
     implementation(libs.security.crypto)
+    implementation("net.lingala.zip4j:zip4j:2.11.6")
 
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
