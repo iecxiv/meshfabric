@@ -751,7 +751,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.system_quick_actions), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(6.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 16, 27) }, label = { Text("Ctrl+Shift+Esc", fontSize = 11.sp) })
@@ -767,7 +768,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.editing_and_shortcuts), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(6.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 FilterChip(selected = true, onClick = { viewModel.sendKeyCombo(nodeId, 17, 65) }, label = { Text("Ctrl+A", fontSize = 11.sp) })
@@ -781,7 +783,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.special_keys), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(6.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 27) }, label = { Text("Esc", fontSize = 11.sp) })
@@ -798,7 +801,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.f_keys), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(6.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 for (f in 1..12) {
@@ -1016,7 +1020,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.quality), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 qualityList.forEach { q ->
@@ -1036,7 +1041,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.scale), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 scaleList.forEach { (scaleVal, label) ->
@@ -1056,7 +1062,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.frame_rate), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 FrameRateOption.entries.forEach { fr ->
@@ -1076,7 +1083,8 @@ drawDiagnostics[0]++
                             Text(stringResource(R.string.encoding), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 DesktopEncoding.entries.forEach { enc ->

@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -47,15 +48,18 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
 
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Text("Hold · teclas mantenidas", style = MaterialTheme.typography.titleSmall)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    FlowRow(modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
         desktopHoldKeys.forEach { key ->
             FilterChip(selected = key in held, enabled = connected,
                 onClick = { viewModel.toggleDesktopHold(nodeId, key) },
                 label = { Text(desktopKeyLabel(key)) })
         }
     }
-    OutlinedButton(onClick = { viewModel.releaseDesktopHolds(nodeId) }, enabled = held.isNotEmpty()) {
-        Text("Soltar todas")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        OutlinedButton(onClick = { viewModel.releaseDesktopHolds(nodeId) }, enabled = held.isNotEmpty()) {
+            Text("Soltar todas")
+        }
     }
     Text("Se mantienen al cerrar este diálogo. Al salir se intenta liberarlas; no se reactivan al reconectar.",
         style = MaterialTheme.typography.bodySmall)
@@ -83,21 +87,17 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
             }
         }
     }
-    val shortcutEditorScroll = rememberScrollState()
-    val pickerWidth = (124f * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
-    LaunchedEffect(shortcutEditorScroll.value) { showKeys = false }
-    Row(Modifier.fillMaxWidth().horizontalScroll(shortcutEditorScroll),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        ShortcutModifierChecks(modifiers, { key, checked ->
+    DesktopShortcutEditorControls(modifiers, selectedKey, showKeys,
+        onModifierChange = { key, checked ->
             modifiers = if (checked) modifiers + key else modifiers - key
-        }, Modifier.wrapContentWidth())
-        ShortcutKeyPicker(selectedKey, showKeys, { showKeys = it },
-            { selectedKey = it; showKeys = false }, Modifier.width(pickerWidth))
-    }
+        },
+        onExpandedChange = { showKeys = it },
+        onSelected = { selectedKey = it; showKeys = false })
     val candidate = desktopHoldKeys.filter { it in modifiers } + listOfNotNull(selectedKey)
-    Button(enabled = candidate.isNotEmpty() && entries.size < 64 && entries.none { it.keys == candidate },
-        onClick = { save(entries + DesktopShortcut(candidate)) }) { Text("Añadir") }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Button(enabled = candidate.isNotEmpty() && entries.size < 64 && entries.none { it.keys == candidate },
+            onClick = { save(entries + DesktopShortcut(candidate)) }) { Text("Añadir") }
+    }
     TextButton(onClick = { save(DesktopShortcuts.defaults) }) { Text("Restaurar atajos predeterminados") }
 }
 
@@ -137,7 +137,7 @@ private fun ShortcutKeyPicker(
         OutlinedButton(onClick = { onExpandedChange(true) }, modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
             Text(selectedKey?.let(::desktopKeyLabel) ?: "Ninguna tecla", fontSize = 11.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) },
             offset = DpOffset.Zero, modifier = Modifier.heightIn(max = 260.dp)) {
@@ -145,6 +145,34 @@ private fun ShortcutKeyPicker(
             DesktopShortcuts.selectableKeys.forEach { key ->
                 DropdownMenuItem(text = { Text(desktopKeyLabel(key)) }, onClick = { onSelected(key) })
             }
+        }
+    }
+}
+
+
+@Composable
+internal fun DesktopShortcutEditorControls(
+    modifiers: Set<Int>,
+    selectedKey: Int?,
+    expanded: Boolean,
+    onModifierChange: (Int, Boolean) -> Unit,
+    onExpandedChange: (Boolean) -> Unit,
+    onSelected: (Int?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val modifierScroll = rememberScrollState()
+    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+    LaunchedEffect(modifierScroll.value) { onExpandedChange(false) }
+    BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        val pickerWidth = (124f * fontScale).dp.coerceAtMost(maxWidth * 0.5f)
+        val editorWidth = (336f * fontScale + 4f).dp.coerceAtMost(maxWidth)
+        Row(Modifier.width(editorWidth).testTag("shortcut-editor-row"),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            ShortcutModifierChecks(modifiers, onModifierChange,
+                Modifier.weight(1f).testTag("shortcut-modifier-viewport").horizontalScroll(modifierScroll))
+            ShortcutKeyPicker(selectedKey, expanded, onExpandedChange, onSelected,
+                Modifier.width(pickerWidth).testTag("shortcut-key-picker"))
         }
     }
 }
