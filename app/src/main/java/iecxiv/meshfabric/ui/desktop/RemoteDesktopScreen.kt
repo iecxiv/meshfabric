@@ -166,6 +166,10 @@ fun RemoteDesktopScreen(
         if (desktopKeyboardActive) focusRequester.requestFocus()
     }
     DisposableEffect(desktopKeyboard) { onDispose { desktopKeyboard.setActive(false) } }
+    LaunchedEffect(nodeId, isConnected, desktopLifecycle) {
+        if (!isConnected || !desktopLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
+            viewModel.releaseDesktopKeys(nodeId)
+    }
 
     LaunchedEffect(isImeVisible) {
         if (!isImeVisible && isSoftKeyboardOpen) {
@@ -805,6 +809,7 @@ drawDiagnostics[0]++
                                     )
                                 }
                             }
+                            DesktopShortcutSections(nodeId, viewModel, isConnected)
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))

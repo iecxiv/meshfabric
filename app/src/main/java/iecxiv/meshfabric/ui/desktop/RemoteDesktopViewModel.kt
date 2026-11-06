@@ -26,6 +26,28 @@ class RemoteDesktopViewModel(
     val sessionManager: SessionManager? = null
 ) : ViewModel() {
 
+    private val desktopInputs = mutableMapOf<String, DesktopKeyActions>()
+
+    private fun desktopInput(nodeId: String): DesktopKeyActions = desktopInputs.getOrPut(nodeId) {
+        DesktopKeyActions(viewModelScope, binding = {
+            val session = desktopClient.getSession(meshClient, nodeId)
+            synchronized(session) {
+                if (session.isConnected() && !session.isUserDisconnect) session.webSocket else null
+            }
+        }, emit = { origin, key, down ->
+            val session = desktopClient.getSession(meshClient, nodeId)
+            synchronized(session) {
+                if (session.webSocket === origin && session.isConnected() && !session.isUserDisconnect)
+                    session.sendKeyEvent(key, down)
+            }
+        })
+    }
+
+    fun heldDesktopModifiers(nodeId: String): StateFlow<Set<Int>> = desktopInput(nodeId).held
+    fun toggleDesktopHold(nodeId: String, key: Int) = desktopInput(nodeId).toggle(key)
+    fun releaseDesktopHolds(nodeId: String) = desktopInput(nodeId).releaseHolds()
+    fun releaseDesktopKeys(nodeId: String) { desktopInputs[nodeId]?.clear() }
+
     var selectedMouseMode = MouseMode.LEFT_CLICK
 
     fun isConnected(nodeId: String): StateFlow<Boolean> = desktopClient.getConnectionState(meshClient, nodeId)
@@ -45,6 +67,7 @@ class RemoteDesktopViewModel(
     }
 
     fun pauseSession(nodeId: String) {
+        releaseDesktopKeys(nodeId)
         desktopClient.pauseSession(nodeId)
     }
 
@@ -178,15 +201,15 @@ class RemoteDesktopViewModel(
 
     fun sendDesktopKeyEvent(nodeId: String, keyCode: Int, isDown: Boolean) {
         if (keyCode !in 1..255) return
-        desktopClient.getSession(meshClient, nodeId).sendKeyEvent(keyCode, isDown)
+        desktopInput(nodeId).physical(keyCode, isDown)
     }
 
     fun sendSingleKey(nodeId: String, keyCode: Int) {
-        desktopClient.sendSingleKey(nodeId, keyCode)
+        desktopInput(nodeId).combo(keyCode)
     }
 
     fun sendKeyCombo(nodeId: String, vararg keyCodes: Int) {
-        desktopClient.sendKeyCombo(nodeId, *keyCodes)
+        desktopInput(nodeId).combo(*keyCodes)
     }
 
     fun sendClipboardText(nodeId: String, text: String) {
@@ -198,7 +221,7 @@ class RemoteDesktopViewModel(
     }
 
     fun sendCtrlAltDel(nodeId: String) {
-        desktopClient.sendKeyCombo(nodeId, 0x11, 0x12, 0x2E)
+        sendKeyCombo(nodeId, 0x11, 0x12, 0x2E)
     }
 
     fun sendHotkeyCommand(nodeId: String, command: String) {
@@ -210,10 +233,13 @@ class RemoteDesktopViewModel(
     }
 
     fun stopSession(nodeId: String) {
+        releaseDesktopKeys(nodeId)
         desktopClient.disconnectSession(nodeId)
     }
 
     override fun onCleared() {
+        desktopInputs.values.forEach { it.clear() }
+        desktopInputs.clear()
         super.onCleared()
         desktopClient.disconnectAll()
     }
