@@ -8,6 +8,8 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -65,7 +67,8 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
             FilterChip(selected = true,
                 onClick = { viewModel.sendKeyCombo(nodeId, *shortcut.keys.toIntArray()) },
                 enabled = connected, modifier = Modifier.weight(1f).heightIn(min = 32.dp),
-                label = { Text(shortcut.label, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) })
+                label = { Text(shortcut.label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                    fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) })
             IconButton(onClick = { move(index, -1) }, enabled = index > 0,
                 modifier = Modifier.size(40.dp)) {
                 Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir ${shortcut.label}", modifier = Modifier.size(20.dp))
@@ -80,25 +83,17 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
             }
         }
     }
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-        val modifierWidth = (212f * fontScale).dp
-        val inlinePicker = maxWidth >= modifierWidth + (112f * fontScale).dp + 4.dp
-        Column(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                ShortcutModifierChecks(modifiers, { key, checked ->
-                    modifiers = if (checked) modifiers + key else modifiers - key
-                }, if (inlinePicker) Modifier.width(modifierWidth) else Modifier.fillMaxWidth())
-                if (inlinePicker) ShortcutKeyPicker(selectedKey, showKeys,
-                    { showKeys = it }, { selectedKey = it; showKeys = false }, Modifier.weight(1f))
-            }
-            if (!inlinePicker) {
-                Spacer(Modifier.height(4.dp))
-                ShortcutKeyPicker(selectedKey, showKeys, { showKeys = it },
-                    { selectedKey = it; showKeys = false }, Modifier.fillMaxWidth())
-            }
-        }
+    val shortcutEditorScroll = rememberScrollState()
+    val pickerWidth = (124f * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
+    LaunchedEffect(shortcutEditorScroll.value) { showKeys = false }
+    Row(Modifier.fillMaxWidth().horizontalScroll(shortcutEditorScroll),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        ShortcutModifierChecks(modifiers, { key, checked ->
+            modifiers = if (checked) modifiers + key else modifiers - key
+        }, Modifier.wrapContentWidth())
+        ShortcutKeyPicker(selectedKey, showKeys, { showKeys = it },
+            { selectedKey = it; showKeys = false }, Modifier.width(pickerWidth))
     }
     val candidate = desktopHoldKeys.filter { it in modifiers } + listOfNotNull(selectedKey)
     Button(enabled = candidate.isNotEmpty() && entries.size < 64 && entries.none { it.keys == candidate },
@@ -113,7 +108,7 @@ private fun ShortcutModifierChecks(
     onCheckedChange: (Int, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(modifier.horizontalScroll(rememberScrollState()),
+    Row(modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         desktopHoldKeys.forEach { key ->
@@ -138,14 +133,14 @@ private fun ShortcutKeyPicker(
     onSelected: (Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(modifier) {
+    Box(modifier.wrapContentSize(Alignment.TopStart)) {
         OutlinedButton(onClick = { onExpandedChange(true) }, modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
             Text(selectedKey?.let(::desktopKeyLabel) ?: "Ninguna tecla", fontSize = 11.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) },
-            modifier = Modifier.heightIn(max = 260.dp)) {
+            offset = DpOffset.Zero, modifier = Modifier.heightIn(max = 260.dp)) {
             DropdownMenuItem(text = { Text("Ninguna tecla") }, onClick = { onSelected(null) })
             DesktopShortcuts.selectableKeys.forEach { key ->
                 DropdownMenuItem(text = { Text(desktopKeyLabel(key)) }, onClick = { onSelected(key) })
