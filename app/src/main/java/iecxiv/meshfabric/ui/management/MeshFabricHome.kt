@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.management
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -9,6 +10,7 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
@@ -23,8 +25,10 @@ import iecxiv.meshfabric.data.remote.DesktopRelayClient
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import iecxiv.meshfabric.data.remote.OkHttpHelper
 import iecxiv.meshfabric.ui.components.MeshFabricActivityScreen
+import iecxiv.meshfabric.ui.components.MeshFabricAppBar
 import iecxiv.meshfabric.ui.devices.DeviceListScreen
 import iecxiv.meshfabric.ui.devices.DeviceListViewModel
+import iecxiv.meshfabric.ui.devices.LocalDeviceDetailsClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -216,12 +220,16 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val nodes=groups.flatMap { it.second }.distinctBy { it.id }
     val snackbar=remember { SnackbarHostState() }
     val uiScope=rememberCoroutineScope()
-    var page by remember { mutableIntStateOf(0) }
+    var page by rememberSaveable { mutableIntStateOf(0) }
+    var returnPage by rememberSaveable { mutableIntStateOf(0) }
     var operation by remember { mutableStateOf<Operation?>(null) }
     var operationNode by remember { mutableStateOf("") }
+    BackHandler(enabled=page==2) { page=returnPage.coerceIn(0,1) }
     LaunchedEffect(connected) { if(connected) management.connect() else management.pause() }
     LaunchedEffect(nodes) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
-    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },bottomBar={ CompactBottomNavigation(page) { page=it } }) { padding->
+    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
+        topBar={ if(page==2) MeshFabricAppBar(viewModel,onOpenSettings) },
+        bottomBar={ CompactBottomNavigation(page) { next->if(next==2 && page!=2) returnPage=page; page=next } }) { padding->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
                 val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
@@ -234,6 +242,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                     onSelect={ op->operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
             }) {
                 DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
+            } else if(page==2) CompositionLocalProvider(LocalDeviceDetailsClient provides viewModel.meshClient) {
+                MyServerScreen(viewModel.meshClient,Modifier.fillMaxSize())
             } else MeshFabricActivityScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
                 actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
         }

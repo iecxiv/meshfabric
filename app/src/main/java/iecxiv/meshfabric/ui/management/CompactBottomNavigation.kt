@@ -10,7 +10,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -20,27 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import iecxiv.meshfabric.R
-import iecxiv.meshfabric.ui.devices.LocalDeviceDetailsClient
 
 @Composable internal fun CompactBottomNavigation(page:Int,onSelect:(Int)->Unit) {
-    var server by rememberSaveable { mutableStateOf(false) }
-    val source=LocalDeviceDetailsClient.current
-    CompactNavigationItems(page) { if(it==2) server=true else onSelect(it) }
-    if(server) Dialog(onDismissRequest={ server=false },properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) {
-            Scaffold(contentWindowInsets=WindowInsets.safeDrawing,bottomBar={
-                CompactNavigationItems(2) { if(it!=2) { server=false; onSelect(it) } }
-            }) { padding->
-                MyServerScreen(source,Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding))
-            }
-        }
-    }
-}
-
-@Composable private fun CompactNavigationItems(page:Int,onSelect:(Int)->Unit) {
     val scheme=MaterialTheme.colorScheme
     Surface(color=scheme.surface,tonalElevation=0.dp,shadowElevation=0.dp) {
         Column {

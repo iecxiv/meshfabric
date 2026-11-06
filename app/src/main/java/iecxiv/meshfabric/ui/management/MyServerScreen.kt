@@ -196,12 +196,7 @@ private class ServerReader(private val source:MeshCentralClient) {
     LaunchedEffect(tab,state.ready) { if(tab==1 && state.ready && state.history.isBlank()) reader?.request("servertimelinestats",state.hours) }
     DisposableEffect(reader) { onDispose { reader?.close() } }
     Column(modifier) {
-        Text(stringResource(R.string.my_server_title),Modifier.padding(16.dp),style=MaterialTheme.typography.headlineSmall)
-        ScrollableTabRow(selectedTabIndex=tab,edgePadding=8.dp) {
-            listOf(R.string.my_server_general,R.string.my_server_statistics,R.string.my_server_console,R.string.my_server_trace).forEachIndexed { index,label->
-                Tab(selected=tab==index,onClick={ tab=index },text={ Text(stringResource(label)) })
-            }
-        }
+        ServerSectionTabs(tab) { tab=it }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text(stringResource(when { state.failed->R.string.my_server_failure; state.ready->R.string.my_server_connected; else->R.string.my_server_connecting }),color=if(state.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if(state.failed) TextButton(onClick={ retry++ }) { Text(stringResource(R.string.my_server_retry)) }
