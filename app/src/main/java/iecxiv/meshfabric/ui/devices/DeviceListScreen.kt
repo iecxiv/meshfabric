@@ -46,6 +46,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
         }
     }
     val connection by viewModel.connectionStatus.collectAsState()
+    val networkRefresh by viewModel.networkRefresh.collectAsState()
+    val networkConnected by viewModel.isConnected.collectAsState()
+    val networkLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val search by viewModel.searchQuery.collectAsState()
     val collapsed by viewModel.collapsedGroups.collectAsState()
     val desktop by viewModel.desktopSessionsStatus.collectAsState()
@@ -128,6 +131,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 item(key="group_${group.id}") { GroupHeaderCard(group,nodes.count { it.isOnline },nodes.count { !it.isOnline },
                     search.isNotBlank() || group.id !in collapsed) { viewModel.toggleGroupExpanded(group.id) } }
                 if(search.isNotBlank() || group.id !in collapsed) items(nodes,key={ "node_${it.id}" }) { node ->
+                    LaunchedEffect(node.id, networkRefresh, networkLifecycle, networkConnected) {
+                        if (networkConnected && networkLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            while (true) {
+                                viewModel.requestDeviceNetworkInfo(node.id)
+                                kotlinx.coroutines.delay(10_000L)
+                            }
+                        }
+                    }
                     val clean=node.id.removePrefix("node//").removePrefix("node/").trim()
                     DeviceCard(node,desktop[clean] ?: SessionStatus.NONE,terminal[clean] ?: SessionStatus.NONE,files[clean] ?: SessionStatus.NONE,
                         { onOpenDesktop(node.id,node.name) },{ onOpenTerminal(node.id,node.name) },{ onOpenFiles(node.id,node.name) })
@@ -184,6 +195,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
                         }
                     }
                     if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    val addresses = node.networkIpv4.orEmpty()
+                    if (addresses.isNotEmpty()) Text(
+                        text = if (addresses.size == 1) "IP: ${addresses.first().address}" else
+                            addresses.joinToString("\n") { "IP: ${it.address} (${it.interfaceName})" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 LocalDeviceActionMenu.current(node)
             }
