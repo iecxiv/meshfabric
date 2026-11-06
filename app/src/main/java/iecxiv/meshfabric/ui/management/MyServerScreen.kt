@@ -213,7 +213,7 @@ private class ServerReader(private val source:MeshCentralClient) {
                     }
                 }
                 1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty()) { reader?.request("servertimelinestats",it) }
-                else->Text(stringResource(R.string.my_server_section_pending))
+                else->ServerAdminPanel(source,tab==3)
             }
             if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
