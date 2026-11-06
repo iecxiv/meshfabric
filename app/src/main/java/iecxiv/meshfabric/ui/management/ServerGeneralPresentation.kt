@@ -30,6 +30,7 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.devices.LocalDeviceDetailsClient
 import java.util.Locale
 import kotlin.math.ceil
 
@@ -161,6 +162,10 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
 }
 
 @Composable internal fun ServerReadResultDialog(raw:String,action:String,onClose:()->Unit) {
+    if(action=="serverversion") {
+        ServerVersionDialog(LocalDeviceDetailsClient.current,onClose)
+        return
+    }
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun label(a:String,b:String)=if(es) a else b
     val result=remember(raw,action) { serverReadableResult(raw,action) }
