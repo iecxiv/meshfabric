@@ -95,6 +95,7 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         if(!available() || exact.isBlank() || exact.length>1000) return false
         state.update { it.copy(pending="console",token=it.token+1,notice="sent") }
         if(socket?.send(JSONObject().put("action","serverconsole").put("value",exact).toString())!=true) fail(generation)
+        else state.update { it.copy(console=boundedAdminOutput(it.console,"> "+exact)) }
         return true
     }
     @Synchronized fun apply(proposal:TraceProposal):Boolean {
@@ -150,7 +151,8 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     }
     if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     if(!traceView) {
-        OutlinedTextField(value=command,onValueChange={ if(it.length<=1000) command=it },label={ Text(label("Comando del servidor (no shell del dispositivo)","Server command (not device shell)")) },modifier=Modifier.fillMaxWidth(),maxLines=4)
+        ServerConsoleTerminal(state.console,onClear={ channel?.clear(false) })
+        OutlinedTextField(value=command,onValueChange={ if(it.length<=1000) command=it },label={ Text(label("Comando del servidor (no shell del dispositivo)","Server command (not device shell)")) },textStyle=MaterialTheme.typography.bodyMedium.copy(fontFamily=FontFamily.Monospace),modifier=Modifier.fillMaxWidth(),maxLines=4)
         TextButton(onClick={ commandProposal=command },enabled=enabled && command.isNotBlank()) { Text(label("Revisar envío","Review send")) }
     } else {
         Text(label("Las fuentes de seguimiento son globales: afectan a otros administradores. Cerrar esta vista no envía una orden de desactivación.","Trace sources are global and affect other administrators. Closing this view sends no disable command."),style=MaterialTheme.typography.bodySmall)
@@ -183,19 +185,21 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         }
     }
     if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
-    TextButton(onClick={ channel?.clear(traceView) }) { Text(label("Limpiar solo la salida local","Clear local output only")) }
-    val output=if(traceView) state.trace else state.console
-    if(traceView) Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
-        SelectionContainer {
-            Column(Modifier.fillMaxWidth().heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                if(output.isEmpty()) Text(label("Sin salida recibida.","No output received."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                output.forEachIndexed { index,entry->
-                    Text(entry,fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodySmall)
-                    if(index<output.lastIndex) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+    if(traceView) {
+        TextButton(onClick={ channel?.clear(true) }) { Text(label("Limpiar solo la salida local","Clear local output only")) }
+        val output=state.trace
+        Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+            SelectionContainer {
+                Column(Modifier.fillMaxWidth().heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                    if(output.isEmpty()) Text(label("Sin salida recibida.","No output received."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    output.forEachIndexed { index,entry->
+                        Text(entry,fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodySmall)
+                        if(index<output.lastIndex) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                    }
                 }
             }
         }
-    } else SelectionContainer { Text(output.joinToString("\n").ifBlank { label("Sin salida recibida.","No output received.") },Modifier.fillMaxWidth().heightIn(max=320.dp).verticalScroll(rememberScrollState()),fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodySmall) }
+    }
     commandProposal?.let { exact->AlertDialog(onDismissRequest={ commandProposal=null },title={ Text(label("Confirmar comando del servidor","Confirm server command")) },
         text={ Column { Text(source?.serverUrl.orEmpty()); Text(label("Puede modificar el servidor o reiniciarlo. No se reintentará automáticamente.","May modify or restart the server. No automatic retry.")); SelectionContainer { Text(exact,fontFamily=FontFamily.Monospace) } } },
         confirmButton={ TextButton(enabled=enabled,onClick={ commandProposal=null; if(channel?.command(exact)==true) command="" }) { Text(label("Enviar","Send")) } },dismissButton={ TextButton(onClick={ commandProposal=null }) { Text(label("Cancelar","Cancel")) } }) }
