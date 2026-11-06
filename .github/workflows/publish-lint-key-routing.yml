@@ -1,4 +1,4 @@
-name: Verify and publish public window key routing lint fix
+name: Publish validated lint fix and compact shortcut UI
 on:
   push:
     branches: [dev]
@@ -18,8 +18,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 2
-      - name: Verify approved base
-        run: test "$(git rev-parse HEAD^)" = 1af609e817e7d4f34ab60224921895d59a02e637
+      - name: Verify approved preparation parent
+        run: test "$(git rev-parse HEAD^)" = d44784445d8bf2e3fe7dc355afbded7d89b37e71
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -30,43 +30,47 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Apply approved input-routing and CI changes
+      - name: Apply approved app changes without editing workflow files
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import base64, hashlib, zlib
-          source = zlib.decompress(base64.b64decode('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'))
-          assert hashlib.sha256(source).hexdigest() == '6d6cd0e400ed310f6892c7576c2514a9310b6c9aac095b05b19dc824191b3477'
-          exec(compile(source, 'approved_lint_key_routing', 'exec'), {'__name__': '__main__'})
+          source = zlib.decompress(base64.b64decode('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'))
+          assert hashlib.sha256(source).hexdigest() == 'c8bf0bef3bae2a18572c2083d9736f179b3ef79222f91fd2cb0c0d84428ef701'
+          exec(compile(source, 'approved_lint_and_compact_ui', 'exec'), {'__name__': '__main__'})
           PY
           git diff --check
-      - name: Build and test with the same mandatory lint gate as main
+          git diff --exit-code -- .github/workflows app/build.gradle.kts
+      - name: Compile APKs, run JVM tests and require lint success
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleDebugAndroidTest --continue --no-daemon --stacktrace
-      - name: Show complete lint text report even on failure
+      - name: Show complete lint report even if validation fails
         if: ${{ always() }}
         shell: bash
         run: |
           if [ -d app/build ]; then
             find app/build -type f -name 'lint-results-debug.txt' -print -exec cat {} \;
           fi
-      - name: Publish only after all validation succeeds
+      - name: Publish app code only after successful validation
         shell: bash
         run: |
           set -euo pipefail
-          git diff --exit-code -- app/build.gradle.kts
-          git add -- app/src/main/java/iecxiv/meshfabric/MainActivity.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopMouseWindowCallback.kt app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopMouseWindowCallbackTest.kt .github/workflows/android-ci.yml docs/android-lint-input-routing.md
-          git rm .github/workflows/publish-lint-key-routing.yml
+          git diff --exit-code -- .github/workflows app/build.gradle.kts
+          git add -- app/src/main/java/iecxiv/meshfabric/MainActivity.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopMouseWindowCallback.kt app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopMouseWindowCallbackTest.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopShortcutSections.kt app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt docs/android-lint-input-routing.md
           git diff --cached --check
+          if git diff --cached --name-only | grep -q '^.github/'; then
+            echo 'Refusing to publish workflow changes with the Actions token'
+            exit 1
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(android): use public window key callback and gate dev with lint'
+          git commit -m 'fix(android): publish validated public key routing and compact shortcut UI'
           git push origin HEAD:refs/heads/dev
-      - name: Upload full validation reports and APK
+      - name: Upload validation reports and debug APK
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: lint-key-routing-${{ github.run_id }}-${{ github.run_attempt }}
+          name: validated-shortcuts-1.2.8-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             app/build/outputs/apk/debug/*.apk
             app/build/reports/tests/
