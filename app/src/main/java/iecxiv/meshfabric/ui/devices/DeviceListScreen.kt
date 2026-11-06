@@ -211,7 +211,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                LocalDeviceActionMenu.current(node)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    DeviceDetailsButton(node)
+                    LocalDeviceActionMenu.current(node)
+                }
             }
             if(node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE }) {
                 Spacer(Modifier.height(8.dp))
