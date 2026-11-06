@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_details_open">Detalles de %1$s</string>
+    <string name="device_details_title">Detalles del dispositivo</string>
+    <string name="device_details_hint">Toca un valor para copiarlo. Se muestran los últimos datos disponibles del dispositivo.</string>
+    <string name="device_details_identity">Identificación</string>
+    <string name="device_details_network">Red</string>
+    <string name="device_details_agent">Agente y datos técnicos</string>
+    <string name="device_details_name">Nombre</string>
+    <string name="device_details_status">Estado</string>
+    <string name="device_details_online">Conectado</string>
+    <string name="device_details_offline">Desconectado</string>
+    <string name="device_details_os">Sistema operativo</string>
+    <string name="device_details_node_id">ID del dispositivo</string>
+    <string name="device_details_group_id">ID del grupo</string>
+    <string name="device_details_ip">IP (ip)</string>
+    <string name="device_details_gateway_ip">IP (gip)</string>
+    <string name="device_details_local_ip">IP local (localip)</string>
+    <string name="device_details_interface">IPv4 · %1$s</string>
+    <string name="device_details_no_interfaces">Sin datos de interfaces disponibles</string>
+    <string name="device_details_agent_id">ID del tipo de agente</string>
+    <string name="device_details_agent_version">Versión del agente</string>
+    <string name="device_details_agent_caps">Capacidades del agente (valor bruto)</string>
+    <string name="device_details_node_caps">Capacidades del dispositivo (valor bruto)</string>
+    <string name="device_details_connection_flags">Indicadores de conexión (conn)</string>
+    <string name="device_details_policy_flags">Indicadores de política (p)</string>
+    <string name="device_details_unavailable">No disponible</string>
+    <string name="device_details_copy_value">Copiar %1$s</string>
+    <string name="device_details_copied">Copiado</string>
+    <string name="device_details_copy_failed">No se ha podido copiar el valor</string>
+    <string name="device_details_close">Cerrar</string>
+</resources>

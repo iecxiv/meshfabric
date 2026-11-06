@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -27,6 +28,7 @@ import iecxiv.meshfabric.R
 import iecxiv.meshfabric.ui.desktop.RemoteDesktopScreen
 import iecxiv.meshfabric.ui.desktop.RemoteDesktopViewModel
 import iecxiv.meshfabric.ui.devices.DeviceListViewModel
+import iecxiv.meshfabric.ui.devices.LocalDeviceDetailsClient
 import iecxiv.meshfabric.ui.management.MeshFabricHome
 import iecxiv.meshfabric.ui.files.FileManagerScreen
 import iecxiv.meshfabric.ui.files.FileManagerViewModel
@@ -102,18 +104,20 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
                 onOpenSettings={ navController.navigateOnceFrom(entry,"settings") })
         }
         composable("devices") { entry->
-            MeshFabricHome(viewModel=deviceListViewModel,
-                onLogout={
-                    if(navController.acceptsNavigationFrom(entry)) {
-                        terminalViewModel.clearRendering()
-                        loginViewModel.logout()
-                        navController.navigateOnceFrom(entry,"login") { popUpTo("devices") { inclusive=true } }
-                    }
-                },
-                onOpenSettings={ navController.navigateOnceFrom(entry,"settings") },
-                onOpenDesktop={ id,name->openRemote(entry,"desktop",id,name) },
-                onOpenTerminal={ id,name->openRemote(entry,"terminal",id,name) },
-                onOpenFiles={ id,name->openRemote(entry,"files",id,name) })
+            CompositionLocalProvider(LocalDeviceDetailsClient provides deviceListViewModel.meshClient) {
+                MeshFabricHome(viewModel=deviceListViewModel,
+                    onLogout={
+                        if(navController.acceptsNavigationFrom(entry)) {
+                            terminalViewModel.clearRendering()
+                            loginViewModel.logout()
+                            navController.navigateOnceFrom(entry,"login") { popUpTo("devices") { inclusive=true } }
+                        }
+                    },
+                    onOpenSettings={ navController.navigateOnceFrom(entry,"settings") },
+                    onOpenDesktop={ id,name->openRemote(entry,"desktop",id,name) },
+                    onOpenTerminal={ id,name->openRemote(entry,"terminal",id,name) },
+                    onOpenFiles={ id,name->openRemote(entry,"files",id,name) })
+            }
         }
         composable("settings") { entry->
             val back:()->Unit={ navController.backOnceFrom(entry,recoveryRoute()) }

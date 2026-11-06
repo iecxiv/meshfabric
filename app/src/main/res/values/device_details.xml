@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_details_open">Details of %1$s</string>
+    <string name="device_details_title">Device details</string>
+    <string name="device_details_hint">Tap a value to copy it. These are the latest available device data.</string>
+    <string name="device_details_identity">Identification</string>
+    <string name="device_details_network">Network</string>
+    <string name="device_details_agent">Agent and technical data</string>
+    <string name="device_details_name">Name</string>
+    <string name="device_details_status">Status</string>
+    <string name="device_details_online">Online</string>
+    <string name="device_details_offline">Offline</string>
+    <string name="device_details_os">Operating system</string>
+    <string name="device_details_node_id">Device ID</string>
+    <string name="device_details_group_id">Group ID</string>
+    <string name="device_details_ip">IP (ip)</string>
+    <string name="device_details_gateway_ip">IP (gip)</string>
+    <string name="device_details_local_ip">Local IP (localip)</string>
+    <string name="device_details_interface">IPv4 · %1$s</string>
+    <string name="device_details_no_interfaces">No interface data available</string>
+    <string name="device_details_agent_id">Agent type ID</string>
+    <string name="device_details_agent_version">Agent version</string>
+    <string name="device_details_agent_caps">Agent capabilities (raw)</string>
+    <string name="device_details_node_caps">Device capabilities (raw)</string>
+    <string name="device_details_connection_flags">Connection flags (conn)</string>
+    <string name="device_details_policy_flags">Policy flags (p)</string>
+    <string name="device_details_unavailable">Not available</string>
+    <string name="device_details_copy_value">Copy %1$s</string>
+    <string name="device_details_copied">Copied</string>
+    <string name="device_details_copy_failed">Could not copy the value</string>
+    <string name="device_details_close">Close</string>
+</resources>
