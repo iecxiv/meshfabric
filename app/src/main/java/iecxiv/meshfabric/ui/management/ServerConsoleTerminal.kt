@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.io.ByteArrayInputStream
 
-private class ServerConsoleRenderer(context:Context,private val status:(Boolean)->Unit) {
+private class ServerConsoleRenderer(private val context:Context,private val status:(Boolean)->Unit) {
     private var destroyed=false
     private var ready=false
     private var latest=""
