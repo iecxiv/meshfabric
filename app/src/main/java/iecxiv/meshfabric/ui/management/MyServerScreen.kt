@@ -116,7 +116,7 @@ internal fun historySegments(points:List<HistoryPoint>,key:String,logarithmic:Bo
     return segments
 }
 
-private data class ServerReadState(val ready:Boolean=false,val failed:Boolean=false,val stats:String="",val pending:String="",val result:String="",val history:String="",val hours:Int=24)
+private data class ServerReadState(val ready:Boolean=false,val failed:Boolean=false,val stats:String="",val pending:String="",val result:String="",val history:String="",val hours:Int=24,val resultKind:String="")
 private class ServerReader(private val source:MeshCentralClient) {
     val state=MutableStateFlow(ServerReadState())
     private var socket:WebSocket?=null
@@ -146,7 +146,7 @@ private class ServerReader(private val source:MeshCentralClient) {
                         }
                         "serverstats"->state.update { it.copy(stats=packet.toString()) }
                         "servertimelinestats"->if(state.value.pending==action) state.update { it.copy(pending="",history=packet.toString()) }
-                        "serverversion","servererrors","serverconfig"->if(state.value.pending==action) state.update { it.copy(pending="",result=packet.toString(2)) }
+                        "serverversion","servererrors","serverconfig"->if(state.value.pending==action) state.update { it.copy(pending="",result=packet.toString(),resultKind=action) }
                         "close","stopped"->failed(epoch)
                     }
                 } }
@@ -159,7 +159,7 @@ private class ServerReader(private val source:MeshCentralClient) {
     @Synchronized private fun failed(epoch:Long) {
         if(epoch!=generation) return
         generation++; val previous=socket; socket=null
-        state.update { it.copy(ready=false,failed=true,pending="",result="",history="") }
+        state.update { it.copy(ready=false,failed=true,pending="",result="",history="",resultKind="") }
         previous?.cancel()
     }
     @Synchronized fun request(action:String,hours:Int=24) {
@@ -167,12 +167,12 @@ private class ServerReader(private val source:MeshCentralClient) {
         if(action=="servertimelinestats" && hours !in setOf(3,8,24,48,72,720)) return
         val packet=JSONObject().put("action",action)
         if(action=="servertimelinestats") packet.put("hours",hours)
-        state.update { it.copy(pending=action,result="",failed=false,history=if(action=="servertimelinestats") "" else it.history,hours=if(action=="servertimelinestats") hours else it.hours) }
+        state.update { it.copy(pending=action,result="",resultKind="",failed=false,history=if(action=="servertimelinestats") "" else it.history,hours=if(action=="servertimelinestats") hours else it.hours) }
         if(socket?.send(packet.toString())!=true) failed(generation)
     }
     @Synchronized fun timeout(action:String) { if(state.value.pending==action) failed(generation) }
     @Synchronized fun connectionTimeout() { if(!state.value.ready) failed(generation) }
-    @Synchronized fun dismiss() { state.update { it.copy(result="") } }
+    @Synchronized fun dismiss() { state.update { it.copy(result="",resultKind="") } }
     @Synchronized fun close() {
         generation++
         socket?.send("{\"action\":\"serverstats\"}"); socket?.cancel(); socket=null
@@ -207,23 +207,14 @@ private class ServerReader(private val source:MeshCentralClient) {
             if(state.failed) TextButton(onClick={ retry++ }) { Text(stringResource(R.string.my_server_retry)) }
             when(tab) {
                 0->{
-                    Text(stringResource(R.string.my_server_actions),style=MaterialTheme.typography.titleMedium)
-                    ServerBackupPanel(source)
-                    val enabled=state.ready && state.pending.isEmpty()
-                    TextButton(onClick={ reader?.request("serverversion") },enabled=enabled) { Text(stringResource(R.string.my_server_version)) }
-                    TextButton(onClick={ reader?.request("servererrors") },enabled=enabled) { Text(stringResource(R.string.my_server_errors)) }
-                    TextButton(onClick={ confirmConfig=true },enabled=enabled) { Text(stringResource(R.string.my_server_config)) }
-                    HorizontalDivider()
-                    Text(stringResource(R.string.my_server_status),style=MaterialTheme.typography.titleMedium)
-                    val stats=remember(state.stats) { runCatching { JSONObject(state.stats) }.getOrNull() }
-                    if(stats==null) Text(stringResource(R.string.my_server_no_data)) else {
-                        Text(stringResource(R.string.my_server_cpu)+": "+(stats.optJSONArray("cpuavg")?.toString() ?: "—"))
-                        Text(stringResource(R.string.my_server_memory)+": "+listOf("availablemem","freemem","totalmem").joinToString(" / ") { key->if(stats.has(key)) "${stats.optLong(key)/1048576} MiB" else "—" })
-                        val values=stats.optJSONObject("values")?.optJSONObject("ServerState")
-                        listOf("UserAccounts" to R.string.my_server_users,"DeviceGroups" to R.string.my_server_groups,"AgentSessions" to R.string.my_server_agents,"ConnectedUsers" to R.string.my_server_online_users,"UsersSessions" to R.string.my_server_sessions,"RelaySessions" to R.string.my_server_relays,"RelayCount" to R.string.my_server_relay_count,"ConnectedIntelAMT" to R.string.my_server_amt,"ConnectedIntelAMTCira" to R.string.my_server_cira).forEach { (key,label)->
-                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) { Text(stringResource(label),Modifier.weight(1f)); Text(if(values?.has(key)==true) values.optString(key) else "—") }
-                        }
+                    ServerGeneralActions {
+                        ServerBackupPanel(source)
+                        val enabled=state.ready && state.pending.isEmpty()
+                        TextButton(onClick={ reader?.request("serverversion") },enabled=enabled) { Text(stringResource(R.string.my_server_version)) }
+                        TextButton(onClick={ reader?.request("servererrors") },enabled=enabled) { Text(stringResource(R.string.my_server_errors)) }
+                        TextButton(onClick={ confirmConfig=true },enabled=enabled) { Text(stringResource(R.string.my_server_config)) }
                     }
+                    ServerGeneralOverview(state.stats,state.ready)
                 }
                 1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty()) { reader?.request("servertimelinestats",it) }
                 else->ServerAdminPanel(source,tab==3)
@@ -233,8 +224,7 @@ private class ServerReader(private val source:MeshCentralClient) {
     }
     if(confirmConfig) AlertDialog(onDismissRequest={ confirmConfig=false },title={ Text(stringResource(R.string.my_server_config)) },text={ Text(stringResource(R.string.my_server_sensitive)) },
         confirmButton={ TextButton(onClick={ confirmConfig=false; reader?.request("serverconfig") }) { Text(stringResource(R.string.my_server_view)) } },dismissButton={ TextButton(onClick={ confirmConfig=false }) { Text(stringResource(R.string.my_server_cancel)) } })
-    if(state.result.isNotEmpty()) AlertDialog(onDismissRequest={ reader?.dismiss() },title={ Text(stringResource(R.string.my_server_result)) },
-        text={ SelectionContainer { Text(state.result,Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodySmall) } },confirmButton={ TextButton(onClick={ reader?.dismiss() }) { Text(stringResource(R.string.my_server_close)) } })
+    if(state.result.isNotEmpty()) ServerReadResultDialog(state.result,state.resultKind) { reader?.dismiss() }
 }
 
 @Composable private fun HistoryPanel(raw:String,hours:Int,ready:Boolean,busy:Boolean,onLoad:(Int)->Unit) {
