@@ -1,0 +1,9 @@
+# Validated publication recovery and compact shortcuts
+
+The previous candidate compiled, passed JVM tests and lint (0 errors, 176 warnings), but GitHub rejected its push because the Actions token attempted to update android-ci.yml. The GitHub connector now commits both workflow files atomically. Actions edits, stages and pushes only the six listed app/test/doc files; it never edits or deletes workflows. A read-only blob hash verifies the approved CI file. No new token, suppression, baseline or disabled lint rule.
+
+Preserve the previously validated public Window.Callback input fix and five Android test cases. Unconsumed keys and unrelated callbacks delegate to the original; destruction restores it only if still owned. Mouse recognition and normal Back policy are unchanged.
+
+The eye uses the same ToolIcon and theme color as Refresh, retaining persistence and placement. Custom shortcuts use equal-width FilterChips matching existing keys, with fixed-width management icons. Four compact modifier checkbox cells stay in a single scrollable row. The key picker fits alongside when width/font scale allow, otherwise below. Hold, shortcut storage and sending stay unchanged.
+
+CI checks app-code pushes on dev/main/desktop-improve and all PRs targeting main. Pushes changing only the two preparation workflow paths use the full publishing validation instead. Publication requires APK build, JVM tests, lint and instrumentation APK compilation; no commit on failure. Five instrumentation tests and visual/input checks still require an Android device/emulator. Version remains 1.2.8, code 1.

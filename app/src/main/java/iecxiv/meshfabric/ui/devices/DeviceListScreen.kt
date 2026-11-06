@@ -81,14 +81,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
             ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
-            IconToggleButton(checked=!hideDeviceNetworkInfo,onCheckedChange={ visible ->
+            ToolIcon(if(hideDeviceNetworkInfo) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                if(hideDeviceNetworkInfo) "Mostrar IP e interfaces" else "Ocultar IP e interfaces") {
+                val hidden = !hideDeviceNetworkInfo
                 val manager = viewModel.sessionManager
-                if (manager != null) manager.saveHideDeviceNetworkInfo(!visible)
-                else fallbackNetworkVisibility.value = !visible
-            },modifier=Modifier.size(38.dp)) {
-                Icon(if(hideDeviceNetworkInfo) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    if(hideDeviceNetworkInfo) "Mostrar IP e interfaces" else "Ocultar IP e interfaces",
-                    Modifier.size(20.dp),tint=Color.Gray)
+                if (manager != null) manager.saveHideDeviceNetworkInfo(hidden)
+                else fallbackNetworkVisibility.value = hidden
             }
             IconToggleButton(checked=onlyOnline,onCheckedChange={ enabled ->
                 val manager = viewModel.sessionManager
