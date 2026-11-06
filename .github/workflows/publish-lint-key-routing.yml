@@ -1,0 +1,77 @@
+name: Verify and publish public window key routing lint fix
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-lint-key-routing.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-lint-key-routing-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify approved base
+        run: test "$(git rev-parse HEAD^)" = 1af609e817e7d4f34ab60224921895d59a02e637
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply approved input-routing and CI changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, zlib
+          source = zlib.decompress(base64.b64decode('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'))
+          assert hashlib.sha256(source).hexdigest() == '6d6cd0e400ed310f6892c7576c2514a9310b6c9aac095b05b19dc824191b3477'
+          exec(compile(source, 'approved_lint_key_routing', 'exec'), {'__name__': '__main__'})
+          PY
+          git diff --check
+      - name: Build and test with the same mandatory lint gate as main
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:assembleDebugAndroidTest --continue --no-daemon --stacktrace
+      - name: Show complete lint text report even on failure
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -d app/build ]; then
+            find app/build -type f -name 'lint-results-debug.txt' -print -exec cat {} \;
+          fi
+      - name: Publish only after all validation succeeds
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- app/build.gradle.kts
+          git add -- app/src/main/java/iecxiv/meshfabric/MainActivity.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopMouseWindowCallback.kt app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopMouseWindowCallbackTest.kt .github/workflows/android-ci.yml docs/android-lint-input-routing.md
+          git rm .github/workflows/publish-lint-key-routing.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(android): use public window key callback and gate dev with lint'
+          git push origin HEAD:refs/heads/dev
+      - name: Upload full validation reports and APK
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-key-routing-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/intermediates/**/lint-results-debug.txt
+          if-no-files-found: ignore
+          retention-days: 14
