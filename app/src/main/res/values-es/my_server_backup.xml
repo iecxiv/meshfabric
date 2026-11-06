@@ -1,0 +1,29 @@
+<resources>
+    <string name="my_server_backup_title">Copia de seguridad del servidor</string>
+    <string name="my_server_backup_start">Descargar copia de seguridad…</string>
+    <string name="my_server_backup_checking">Comprobando permisos…</string>
+    <string name="my_server_backup_sending">Enviando la contraseña y preparando la copia. El servidor puede tardar hasta 2 minutos.</string>
+    <string name="my_server_backup_working">Descargando… %1$s</string>
+    <string name="my_server_backup_done">Copia guardada (%1$s). Solo se comprobó la cabecera ZIP; no se verificaron la contraseña ni el contenido.</string>
+    <string name="my_server_backup_cancel_download">Cancelar descarga</string>
+    <string name="my_server_backup_cancelled">Descarga cancelada. No se guardó nada.</string>
+    <string name="my_server_backup_restore_pending">La restauración todavía no está implementada.</string>
+    <string name="my_server_backup_dialog_title">Descargar copia de seguridad</string>
+    <string name="my_server_backup_dialog_text">Introduce una contraseña opcional para cifrar la copia. Puede contener certificados y secretos del servidor: guárdala en un lugar seguro.</string>
+    <string name="my_server_backup_password">Contraseña</string>
+    <string name="my_server_backup_system_password">Usar contraseña del sistema</string>
+    <string name="my_server_backup_no_encryption">Sin contraseña, la copia no se cifrará.</string>
+    <string name="my_server_backup_other_sessions">No inicies otra copia o restauración desde otra sesión mientras esta se prepara: el servidor guarda la contraseña en un ajuste compartido.</string>
+    <string name="my_server_backup_choose">Elegir destino</string>
+    <string name="my_server_backup_failed_access">No se pudo confirmar el permiso de copia con el servidor.</string>
+    <string name="my_server_backup_failed_denied">No tienes permiso de copia de seguridad en este servidor.</string>
+    <string name="my_server_backup_failed_session">Sesión no disponible. Reconecta e inténtalo de nuevo.</string>
+    <string name="my_server_backup_failed_password">No se pudo enviar la contraseña de la copia. No se descargó nada.</string>
+    <string name="my_server_backup_failed_disabled">El servidor tiene las copias desactivadas (403).</string>
+    <string name="my_server_backup_failed_unauthorized">El servidor rechazó la sesión web o el permiso (401).</string>
+    <string name="my_server_backup_failed_http">El servidor respondió con HTTP %1$d. No se guardó nada.</string>
+    <string name="my_server_backup_failed_invalid">La respuesta no era un ZIP válido. No se guardó nada.</string>
+    <string name="my_server_backup_failed_network">Conexión interrumpida o sin respuesta. No se guardó ninguna copia.</string>
+    <string name="my_server_backup_failed_write">No se pudo escribir el archivo elegido. No se guardó ninguna copia.</string>
+    <string name="my_server_backup_failed_lost">La selección se interrumpió. No se envió nada.</string>
+</resources>

@@ -195,7 +195,7 @@ private class ServerReader(private val source:MeshCentralClient) {
             when(tab) {
                 0->{
                     Text(stringResource(R.string.my_server_actions),style=MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.my_server_backup_pending),style=MaterialTheme.typography.bodySmall)
+                    ServerBackupPanel(source)
                     val enabled=state.ready && state.pending.isEmpty()
                     TextButton(onClick={ reader?.request("serverversion") },enabled=enabled) { Text(stringResource(R.string.my_server_version)) }
                     TextButton(onClick={ reader?.request("servererrors") },enabled=enabled) { Text(stringResource(R.string.my_server_errors)) }
