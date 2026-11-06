@@ -1,0 +1,77 @@
+name: Publish 1.2.8 UI privacy and shortcut icons
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-ui-privacy-128.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-ui-privacy-128-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Verify approved base
+        run: test "$(git rev-parse HEAD^)" = 99809978e156600b917821752fbfe6ebe461e714
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply approved UI and version changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64, hashlib, zlib
+          source = zlib.decompress(base64.b64decode('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'))
+          assert hashlib.sha256(source).hexdigest() == '18fb8a9b18addb1f4f27836ca6394fd2a7c4e8ba299d56ca221903a9d2edff69'
+          exec(compile(source, 'approved_ui_privacy_128', 'exec'), {'__name__': '__main__'})
+          PY
+          git diff --check
+      - name: Build APKs and run JVM tests
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify APK version without changing versionCode
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+          tool = os.path.join(os.environ['ANDROID_HOME'], 'build-tools', '35.0.0', 'aapt')
+          package = subprocess.check_output([tool, 'dump', 'badging', 'app/build/outputs/apk/debug/app-debug.apk'], text=True).splitlines()[0]
+          assert "versionName='1.2.8'" in package, package
+          assert "versionCode='1'" in package, package
+          PY
+      - name: Publish verified implementation and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -- app/build.gradle.kts app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceNetworkDisplay.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopShortcutSections.kt app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceNetworkDisplayTest.kt app/src/androidTest/java/iecxiv/meshfabric/data/local/DeviceNetworkVisibilityPersistenceTest.kt docs/device-card-interface-ipv4.md
+          git rm .github/workflows/publish-ui-privacy-128.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(ui): add persistent network privacy toggle and shortcut icons for 1.2.8'
+          git push origin HEAD:refs/heads/dev
+      - name: Upload APK and test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-privacy-1.2.8-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/reports/tests/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
