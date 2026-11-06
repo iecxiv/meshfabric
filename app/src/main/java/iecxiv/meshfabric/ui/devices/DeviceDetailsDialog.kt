@@ -219,7 +219,7 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                         Text(if (es) "Actualizar" else "Reload")
                     }
                     Spacer(Modifier.width(8.dp))
-                    FilledTonalButton(onClick = onDismiss) { Text(stringResource(R.string.device_details_close)) }
+                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.device_details_close)) }
                 }
             }
         }
