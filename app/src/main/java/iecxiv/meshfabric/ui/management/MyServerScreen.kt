@@ -49,6 +49,18 @@ internal fun historyTime(value:JsonElement?):Long? = runCatching {
         } else runCatching { Instant.parse(text).toEpochMilli() }.getOrElse { OffsetDateTime.parse(text).toInstant().toEpochMilli() }
     }
 }.getOrNull()
+internal val connectionHistoryKeys=listOf("ca","cu","us","rs","am","amc")
+internal fun connectionHistoryValues(value:JsonElement?):Map<String,Double> {
+    if(value==null || !value.isJsonObject) return emptyMap()
+    return connectionHistoryKeys.mapNotNull { key->
+        val count=runCatching {
+            val field=value.asJsonObject.get(key)
+            if(field==null || !field.isJsonPrimitive || !field.asJsonPrimitive.isNumber) null
+            else field.asDouble.takeIf { it.isFinite() && it>=0 && it<=9007199254740991.0 && it%1.0==0.0 }
+        }.getOrNull()
+        count?.let { "conn.$key" to it }
+    }.toMap()
+}
 internal fun serverHistory(raw:String):List<HistoryPoint> {
     if(raw.isBlank()) return emptyList()
     val events=JsonParser.parseString(raw).asJsonObject.getAsJsonArray("events") ?: error("Missing events")
@@ -72,6 +84,7 @@ internal fun serverHistory(raw:String):List<HistoryPoint> {
         val item=element.asJsonObject
         val time=historyTime(item.get("time")) ?: return@mapNotNull null
         val values=mutableMapOf<String,Double>()
+        values.putAll(connectionHistoryValues(item.get("conn")))
         repeat(3) { i->number(indexed(item.get("cpu"),i))?.let { values["cpu.$i"]=it } }
         val mem=item.get("mem")?.takeIf { it.isJsonObject }?.asJsonObject
         listOf("rss","heapTotal","heapUsed","external").forEach { key->number(mem?.get(key))?.let { values["mem.$key"]=it/1048576.0 } }
@@ -234,11 +247,21 @@ private class ServerReader(private val source:MeshCentralClient) {
     val servers=points.map { it.server }.distinct()
     val selected=server.takeIf { it in servers } ?: servers.firstOrNull().orEmpty()
     val filtered=remember(points,selected) { points.filter { it.server==selected } }
-    val keys=when(kind) { 0->listOf("cpu.0","cpu.1","cpu.2"); 1->listOf("mem.rss","mem.heapTotal","mem.heapUsed","mem.external"); else->listOf("traffic.agent","traffic.http","traffic.terminal","traffic.desktop","traffic.files") }
-    val labels=when(kind) { 0->listOf("1 min","5 min","15 min"); 1->listOf("RSS","Heap total",if(es) "Heap usado" else "Heap used",if(es) "Externa" else "External"); else->listOf(if(es) "Agente" else "Agent","HTTP","Terminal",if(es) "Escritorio" else "Desktop",if(es) "Archivos" else "Files") }
-    val colors=listOf(Color(0xFFB28704),Color(0xFF2878C0),Color(0xFFD94A78),Color(0xFF238A37),Color(0xFF9B4AAA))
+    val keys=when(kind) {
+        0->listOf("cpu.0","cpu.1","cpu.2")
+        1->listOf("mem.rss","mem.heapTotal","mem.heapUsed","mem.external")
+        3->connectionHistoryKeys.map { "conn.$it" }
+        else->listOf("traffic.agent","traffic.http","traffic.terminal","traffic.desktop","traffic.files")
+    }
+    val labels=when(kind) {
+        0->listOf("1 min","5 min","15 min")
+        1->listOf("RSS","Heap total",if(es) "Heap usado" else "Heap used",if(es) "Externa" else "External")
+        3->if(es) listOf("Agentes","Usuarios conectados","Sesiones de usuario","Sesiones de relé","Intel AMT directo","Intel AMT CIRA") else listOf("Agents","Connected users","User sessions","Relay sessions","Direct Intel AMT","Intel AMT CIRA")
+        else->listOf(if(es) "Agente" else "Agent","HTTP","Terminal",if(es) "Escritorio" else "Desktop",if(es) "Archivos" else "Files")
+    }
+    val colors=listOf(Color(0xFFB28704),Color(0xFF2878C0),Color(0xFFD94A78),Color(0xFF238A37),Color(0xFF9B4AAA),Color(0xFF00838F))
     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-        listOf("CPU",if(es) "Memoria" else "Memory",if(es) "Tráfico" else "Traffic").forEachIndexed { i,label->FilterChip(selected=kind==i,onClick={ kind=i },label={ Text(label) }) }
+        listOf("CPU",if(es) "Memoria" else "Memory",if(es) "Tráfico" else "Traffic",if(es) "Conexiones" else "Connections").forEachIndexed { i,label->FilterChip(selected=kind==i,onClick={ kind=i },label={ Text(label) }) }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
         listOf(3,8,24,48,72,720).forEach { period->FilterChip(selected=hours==period,enabled=ready && !busy,onClick={ onLoad(period) },label={ Text(if(period==720) { if(es) "30 días" else "30 days" } else "$period h") }) }
@@ -250,20 +273,26 @@ private class ServerReader(private val source:MeshCentralClient) {
     if(servers.size>1) Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
         servers.forEach { id->FilterChip(selected=selected==id,onClick={ server=id },label={ Text(id.ifBlank { if(es) "Servidor local" else "Local server" }) }) }
     }
-    Text(when(kind) { 0->if(es) "Carga media, no porcentaje de CPU" else "Load average, not CPU percent"; 1->"MiB"; else->if(es) "MiB por muestra · entrada + salida" else "MiB per sample · inbound + outbound" },style=MaterialTheme.typography.bodySmall)
+    Text(when(kind) { 0->if(es) "Carga media, no porcentaje de CPU" else "Load average, not CPU percent"; 1->"MiB"; 3->if(es) "Recuentos en cada muestra · no conexiones por segundo" else "Counts at each sample · not connections per second"; else->if(es) "MiB por muestra · entrada + salida" else "MiB per sample · inbound + outbound" },style=MaterialTheme.typography.bodySmall)
     if(logarithmic) Text(if(es) "Los ceros y valores ausentes interrumpen la línea." else "Zero and missing values break the line.",style=MaterialTheme.typography.bodySmall)
     val series=remember(filtered,kind,logarithmic) { keys.map { historySegments(filtered,it,logarithmic) } }
     val all=series.flatten().flatten()
     when {
         parsed.isFailure->Text(if(es) "Historial no válido o demasiado grande para el visor." else "Invalid history or viewer limit exceeded.",color=MaterialTheme.colorScheme.error)
-        all.isEmpty()->Text(if(es) "Sin datos para esta métrica. Algunos servidores no incluyen CPU en el historial." else "No data for this metric. Some servers omit CPU from history.")
+        all.isEmpty()->Text(when {
+            logarithmic && filtered.any { point->keys.any { point.values[it]==0.0 } }->if(es) "No hay valores positivos para mostrar en escala logarítmica. Usa la escala lineal para ver los ceros." else "No positive values to plot on log scale. Use linear scale to see zeros."
+            kind==0->if(es) "Sin datos para esta métrica. Algunos servidores no incluyen CPU en el historial." else "No data for this metric. Some servers omit CPU from history."
+            kind==3->if(es) "Sin datos históricos de conexiones para este servidor y periodo." else "No connection history for this server and period."
+            else->if(es) "Sin datos para esta métrica." else "No data for this metric."
+        })
         else->{
             val minTime=filtered.minOf { it.time }; val maxTime=filtered.maxOf { it.time }
             val low=if(logarithmic) all.minOf { it.second } else 0.0
             val high=all.maxOf { it.second }.let { if(it<=low) low+1.0 else it }
             val grid=MaterialTheme.colorScheme.outlineVariant
             val axis=if(logarithmic) "log10" else ""
-            Text("$axis ${String.format(java.util.Locale.getDefault(),"%.3f",high)}",style=MaterialTheme.typography.labelSmall)
+            val axisFormat=if(kind==3 && !logarithmic) "%.0f" else "%.3f"
+            Text("$axis ${String.format(java.util.Locale.getDefault(),axisFormat,high)}",style=MaterialTheme.typography.labelSmall)
             val description=if(es) "Gráfico temporal. Valores de la última muestra debajo." else "Time chart. Latest sample values follow."
             Canvas(Modifier.fillMaxWidth().height(300.dp).semantics { contentDescription=description }) {
                 val width=(size.width-12.dp.toPx()).coerceAtLeast(1f)
@@ -276,13 +305,13 @@ private class ServerReader(private val source:MeshCentralClient) {
                     if(segment.size==1) drawCircle(colors[i],2.dp.toPx(),position(segment.first()))
                 } }
             }
-            Text("$axis ${String.format(java.util.Locale.getDefault(),"%.3f",low)}",style=MaterialTheme.typography.labelSmall)
+            Text("$axis ${String.format(java.util.Locale.getDefault(),axisFormat,low)}",style=MaterialTheme.typography.labelSmall)
             val formatter=remember { DateTimeFormatter.ofPattern("dd/MM HH:mm z").withZone(ZoneId.systemDefault()) }
             Text("${formatter.format(Instant.ofEpochMilli(minTime))} — ${formatter.format(Instant.ofEpochMilli(maxTime))}",style=MaterialTheme.typography.labelSmall)
             Text(if(es) "Última muestra:" else "Latest sample:",style=MaterialTheme.typography.titleSmall)
             keys.forEachIndexed { i,key->
                 val value=filtered.lastOrNull()?.values?.get(key)
-                Text("${labels[i]}: ${value?.let { String.format(java.util.Locale.getDefault(),"%.3f",it) } ?: "—"}",color=colors[i],style=MaterialTheme.typography.bodySmall)
+                Text("${labels[i]}: ${value?.let { String.format(java.util.Locale.getDefault(),if(kind==3) "%.0f" else "%.3f",it) } ?: "—"}",color=colors[i],style=MaterialTheme.typography.bodySmall)
             }
         }
     }
