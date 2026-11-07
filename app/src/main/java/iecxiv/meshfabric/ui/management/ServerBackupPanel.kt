@@ -48,7 +48,7 @@ internal fun backupFileName(now:LocalDateTime)="meshfabric-server-backup-"+now.f
 private sealed interface Control {
     data class Access(val allowed:Boolean,val systemPassword:Boolean):Control
     object Sent:Control
-    data class Failed(@StringRes val message:Int):Control
+    data class Failed(@param:StringRes val message:Int):Control
 }
 
 private suspend fun controlExchange(source:MeshCentralClient,check:Boolean,password:String,override:Boolean):Control {
@@ -104,7 +104,7 @@ private suspend fun controlExchange(source:MeshCentralClient,check:Boolean,passw
 
 private sealed interface Download {
     data class Done(val bytes:Long):Download
-    data class Failed(@StringRes val message:Int,val code:Int=0):Download
+    data class Failed(@param:StringRes val message:Int,val code:Int=0):Download
 }
 
 private suspend fun downloadBackup(source:MeshCentralClient,cache:File,resolver:ContentResolver,output:Uri,onCall:(Call)->Unit,onProgress:(Long)->Unit):Download = withContext(Dispatchers.IO) {
@@ -170,7 +170,7 @@ private sealed interface BackupPhase {
     object Sending:BackupPhase
     data class Working(val bytes:Long):BackupPhase
     data class Done(val bytes:Long):BackupPhase
-    data class Failed(@StringRes val message:Int,val code:Int=0):BackupPhase
+    data class Failed(@param:StringRes val message:Int,val code:Int=0):BackupPhase
 }
 private data class BackupRequest(val password:String,val override:Boolean) { override fun toString()="BackupRequest" }
 
