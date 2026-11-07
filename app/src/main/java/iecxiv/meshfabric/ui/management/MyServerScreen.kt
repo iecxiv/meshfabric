@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.management
 
+import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -12,7 +13,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -89,14 +92,16 @@ internal fun serverHistory(raw:String):List<HistoryPoint> {
         val mem=item.get("mem")?.takeIf { it.isJsonObject }?.asJsonObject
         listOf("rss","heapTotal","heapUsed","external").forEach { key->number(mem?.get(key))?.let { values["mem.$key"]=it/1048576.0 } }
         val traffic=item.get("traffic")?.takeIf { it.isJsonObject }?.asJsonObject
-        fun combined(key:String,vararg parts:Double?) {
-            val available=parts.filterNotNull()
+        fun directions(key:String,inbound:Double?,outbound:Double?) {
+            inbound?.let { values["traffic.$key.in"]=it/1048576.0 }
+            outbound?.let { values["traffic.$key.out"]=it/1048576.0 }
+            val available=listOfNotNull(inbound,outbound)
             if(available.isNotEmpty()) available.sum().takeIf { it.isFinite() }?.let { values["traffic.$key"]=it/1048576.0 }
         }
-        combined("agent",total(traffic?.get("AgentCtrlIn")),total(traffic?.get("AgentCtrlOut")))
-        combined("http",total(traffic?.get("httpIn")),total(traffic?.get("httpOut")))
+        directions("agent",total(traffic?.get("AgentCtrlIn")),total(traffic?.get("AgentCtrlOut")))
+        directions("http",total(traffic?.get("httpIn")),total(traffic?.get("httpOut")))
         listOf("terminal" to 1,"desktop" to 2,"files" to 5).forEach { (key,index)->
-            combined(key,number(indexed(traffic?.get("relayIn"),index)),number(indexed(traffic?.get("relayOut"),index)))
+            directions(key,number(indexed(traffic?.get("relayIn"),index)),number(indexed(traffic?.get("relayOut"),index)))
         }
         HistoryPoint(time,runCatching { item.get("s")?.asString }.getOrNull().orEmpty(),runCatching { item.get("first")?.asBoolean }.getOrNull()==true,values)
     }.distinctBy { it.server to it.time }.sortedBy { it.time }
@@ -116,14 +121,14 @@ internal fun historySegments(points:List<HistoryPoint>,key:String,logarithmic:Bo
     return segments
 }
 
-private data class ServerReadState(val ready:Boolean=false,val failed:Boolean=false,val stats:String="",val pending:String="",val result:String="",val history:String="",val hours:Int=24,val resultKind:String="")
-private class ServerReader(private val source:MeshCentralClient) {
-    val state=MutableStateFlow(ServerReadState())
+private data class ServerReadState(val ready:Boolean=false,val failed:Boolean=false,val stats:String="",val pending:String="",val result:String="",val history:String="",val hours:Int=3,val resultKind:String="")
+private class ServerReader(private val source:MeshCentralClient,initialHours:Int) {
+    val state=MutableStateFlow(ServerReadState(hours=normalizedHistoryHours(initialHours)))
     private var socket:WebSocket?=null
     private var generation=0L
     @Synchronized fun connect() {
         close()
-        if(source.isUserLogout || source.authCookie.isBlank()) { state.value=ServerReadState(failed=true); return }
+        if(source.isUserLogout || source.authCookie.isBlank()) { state.value=ServerReadState(failed=true,hours=state.value.hours); return }
         val epoch=generation
         try {
             socket=OkHttpHelper.createClient(source.ignoreSsl).newWebSocket(Request.Builder()
@@ -154,7 +159,7 @@ private class ServerReader(private val source:MeshCentralClient) {
                 override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { failed(epoch) }
                 override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) { failed(epoch) }
             })
-        } catch(_:Exception) { state.value=ServerReadState(failed=true) }
+        } catch(_:Exception) { state.value=ServerReadState(failed=true,hours=state.value.hours) }
     }
     @Synchronized private fun failed(epoch:Long) {
         if(epoch!=generation) return
@@ -162,9 +167,9 @@ private class ServerReader(private val source:MeshCentralClient) {
         state.update { it.copy(ready=false,failed=true,pending="",result="",history="",resultKind="") }
         previous?.cancel()
     }
-    @Synchronized fun request(action:String,hours:Int=24) {
+    @Synchronized fun request(action:String,hours:Int=state.value.hours) {
         if(action !in setOf("serverversion","servererrors","serverconfig","servertimelinestats") || !state.value.ready || state.value.pending.isNotEmpty()) return
-        if(action=="servertimelinestats" && hours !in setOf(3,8,24,48,72,720)) return
+        if(action=="servertimelinestats" && hours !in serverHistoryPeriods) return
         val packet=JSONObject().put("action",action)
         if(action=="servertimelinestats") packet.put("hours",hours)
         state.update { it.copy(pending=action,result="",resultKind="",failed=false,history=if(action=="servertimelinestats") "" else it.history,hours=if(action=="servertimelinestats") hours else it.hours) }
@@ -176,14 +181,16 @@ private class ServerReader(private val source:MeshCentralClient) {
     @Synchronized fun close() {
         generation++
         socket?.send("{\"action\":\"serverstats\"}"); socket?.cancel(); socket=null
-        state.value=ServerReadState()
+        state.value=ServerReadState(hours=state.value.hours)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun MyServerScreen(source:MeshCentralClient?,modifier:Modifier=Modifier) {
-    val reader=remember(source) { source?.let { ServerReader(it) } }
-    val state=reader?.state?.collectAsState()?.value ?: ServerReadState(failed=true)
+    val context=LocalContext.current.applicationContext
+    val preferences=remember(context) { ServerHistoryPreferences(context.getSharedPreferences("server_history",Context.MODE_PRIVATE)) }
+    val reader=remember(source,preferences) { source?.let { ServerReader(it,preferences.hours()) } }
+    val state=reader?.state?.collectAsState()?.value ?: ServerReadState(failed=true,hours=preferences.hours())
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var retry by remember { mutableIntStateOf(0) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -211,7 +218,12 @@ private class ServerReader(private val source:MeshCentralClient) {
                     }
                     ServerGeneralOverview(state.stats,state.ready)
                 }
-                1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty()) { reader?.request("servertimelinestats",it) }
+                1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty()) { period->
+                    if(period in serverHistoryPeriods && state.ready && state.pending.isEmpty()) {
+                        preferences.saveHours(period)
+                        reader?.request("servertimelinestats",period)
+                    }
+                }
                 else->ServerAdminPanel(source,tab==3)
             }
             if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -225,6 +237,8 @@ private class ServerReader(private val source:MeshCentralClient) {
 @Composable private fun HistoryPanel(raw:String,hours:Int,ready:Boolean,busy:Boolean,onLoad:(Int)->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     var kind by rememberSaveable { mutableIntStateOf(0) }
+    var inbound by rememberSaveable { mutableStateOf(true) }
+    var outbound by rememberSaveable { mutableStateOf(true) }
     var logarithmic by rememberSaveable { mutableStateOf(false) }
     var server by rememberSaveable { mutableStateOf("") }
     val parsed=remember(raw) { runCatching { serverHistory(raw) } }
@@ -232,24 +246,35 @@ private class ServerReader(private val source:MeshCentralClient) {
     val servers=points.map { it.server }.distinct()
     val selected=server.takeIf { it in servers } ?: servers.firstOrNull().orEmpty()
     val filtered=remember(points,selected) { points.filter { it.server==selected } }
+    val directions=buildList { if(inbound) add("in"); if(outbound) add("out") }
+    val trafficKeys=listOf("agent","http","terminal","desktop","files")
+    val trafficLabels=listOf(if(es) "Agente" else "Agent","HTTP","Terminal",if(es) "Escritorio" else "Desktop",if(es) "Archivos" else "Files")
     val keys=when(kind) {
-        0->listOf("cpu.0","cpu.1","cpu.2")
-        1->listOf("mem.rss","mem.heapTotal","mem.heapUsed","mem.external")
-        3->connectionHistoryKeys.map { "conn.$it" }
-        else->listOf("traffic.agent","traffic.http","traffic.terminal","traffic.desktop","traffic.files")
+        0->connectionHistoryKeys.map { "conn.$it" }
+        1->listOf("cpu.0","cpu.1","cpu.2")
+        2->listOf("mem.rss","mem.heapTotal","mem.heapUsed","mem.external")
+        else->trafficKeys.flatMap { key->directions.map { direction->"traffic.$key.$direction" } }
     }
     val labels=when(kind) {
-        0->listOf("1 min","5 min","15 min")
-        1->listOf("RSS","Heap total",if(es) "Heap usado" else "Heap used",if(es) "Externa" else "External")
-        3->if(es) listOf("Agentes","Usuarios conectados","Sesiones de usuario","Sesiones de relé","Intel AMT directo","Intel AMT CIRA") else listOf("Agents","Connected users","User sessions","Relay sessions","Direct Intel AMT","Intel AMT CIRA")
-        else->listOf(if(es) "Agente" else "Agent","HTTP","Terminal",if(es) "Escritorio" else "Desktop",if(es) "Archivos" else "Files")
+        0->if(es) listOf("Agentes","Usuarios conectados","Sesiones de usuario","Sesiones de relé","Intel AMT directo","Intel AMT CIRA") else listOf("Agents","Connected users","User sessions","Relay sessions","Direct Intel AMT","Intel AMT CIRA")
+        1->listOf("1 min","5 min","15 min")
+        2->listOf("RSS","Heap total",if(es) "Heap usado" else "Heap used",if(es) "Externa" else "External")
+        else->trafficLabels.flatMap { label->directions.map { direction->label+" · "+if(direction=="in") { if(es) "Entrante" else "Inbound" } else { if(es) "Saliente" else "Outbound" } } }
     }
     val colors=listOf(Color(0xFFB28704),Color(0xFF2878C0),Color(0xFFD94A78),Color(0xFF238A37),Color(0xFF9B4AAA),Color(0xFF00838F))
+    fun seriesColor(index:Int)=colors[if(kind==3) index/directions.size.coerceAtLeast(1) else index]
     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-        listOf("CPU",if(es) "Memoria" else "Memory",if(es) "Tráfico" else "Traffic",if(es) "Conexiones" else "Connections").forEachIndexed { i,label->FilterChip(selected=kind==i,onClick={ kind=i },label={ Text(label) }) }
+        listOf(if(es) "Conexiones" else "Connections","CPU",if(es) "Memoria" else "Memory",if(es) "Tráfico" else "Traffic").forEachIndexed { i,label->FilterChip(selected=kind==i,onClick={ kind=i },label={ Text(label) }) }
+    }
+    if(kind==3) {
+        Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected=inbound,enabled=!inbound || outbound,onClick={ inbound=!inbound },label={ Text(if(es) "Entrante" else "Inbound") })
+            FilterChip(selected=outbound,enabled=!outbound || inbound,onClick={ outbound=!outbound },label={ Text(if(es) "Saliente" else "Outbound") })
+        }
+        Text(if(es) "Desde el servidor: entrante, línea continua; saliente, línea discontinua. Al menos una dirección activa." else "Server perspective: inbound, solid line; outbound, dashed line. At least one direction stays active.",style=MaterialTheme.typography.bodySmall)
     }
     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-        listOf(3,8,24,48,72,720).forEach { period->FilterChip(selected=hours==period,enabled=ready && !busy,onClick={ onLoad(period) },label={ Text(if(period==720) { if(es) "30 días" else "30 days" } else "$period h") }) }
+        serverHistoryPeriods.forEach { period->FilterChip(selected=hours==period,enabled=ready && !busy,onClick={ onLoad(period) },label={ Text(if(period==720) { if(es) "30 días" else "30 days" } else "$period h") }) }
     }
     Row {
         TextButton(onClick={ onLoad(hours) },enabled=ready && !busy) { Text(if(es) "Actualizar" else "Refresh") }
@@ -258,16 +283,16 @@ private class ServerReader(private val source:MeshCentralClient) {
     if(servers.size>1) Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
         servers.forEach { id->FilterChip(selected=selected==id,onClick={ server=id },label={ Text(id.ifBlank { if(es) "Servidor local" else "Local server" }) }) }
     }
-    Text(when(kind) { 0->if(es) "Carga media, no porcentaje de CPU" else "Load average, not CPU percent"; 1->"MiB"; 3->if(es) "Recuentos en cada muestra · no conexiones por segundo" else "Counts at each sample · not connections per second"; else->if(es) "MiB por muestra · entrada + salida" else "MiB per sample · inbound + outbound" },style=MaterialTheme.typography.bodySmall)
+    Text(when(kind) { 0->if(es) "Recuentos en cada muestra · no conexiones por segundo" else "Counts at each sample · not connections per second"; 1->if(es) "Carga media, no porcentaje de CPU" else "Load average, not CPU percent"; 2->"MiB"; else->if(es) "MiB por muestra · direcciones separadas · no es una velocidad" else "MiB per sample · separate directions · not a rate" },style=MaterialTheme.typography.bodySmall)
     if(logarithmic) Text(if(es) "Los ceros y valores ausentes interrumpen la línea." else "Zero and missing values break the line.",style=MaterialTheme.typography.bodySmall)
-    val series=remember(filtered,kind,logarithmic) { keys.map { historySegments(filtered,it,logarithmic) } }
+    val series=remember(filtered,keys,logarithmic) { keys.map { historySegments(filtered,it,logarithmic) } }
     val all=series.flatten().flatten()
     when {
         parsed.isFailure->Text(if(es) "Historial no válido o demasiado grande para el visor." else "Invalid history or viewer limit exceeded.",color=MaterialTheme.colorScheme.error)
         all.isEmpty()->Text(when {
             logarithmic && filtered.any { point->keys.any { point.values[it]==0.0 } }->if(es) "No hay valores positivos para mostrar en escala logarítmica. Usa la escala lineal para ver los ceros." else "No positive values to plot on log scale. Use linear scale to see zeros."
-            kind==0->if(es) "Sin datos para esta métrica. Algunos servidores no incluyen CPU en el historial." else "No data for this metric. Some servers omit CPU from history."
-            kind==3->if(es) "Sin datos históricos de conexiones para este servidor y periodo." else "No connection history for this server and period."
+            kind==1->if(es) "Sin datos para esta métrica. Algunos servidores no incluyen CPU en el historial." else "No data for this metric. Some servers omit CPU from history."
+            kind==0->if(es) "Sin datos históricos de conexiones para este servidor y periodo." else "No connection history for this server and period."
             else->if(es) "Sin datos para esta métrica." else "No data for this metric."
         })
         else->{
@@ -276,18 +301,20 @@ private class ServerReader(private val source:MeshCentralClient) {
             val high=all.maxOf { it.second }.let { if(it<=low) low+1.0 else it }
             val grid=MaterialTheme.colorScheme.outlineVariant
             val axis=if(logarithmic) "log10" else ""
-            val axisFormat=if(kind==3 && !logarithmic) "%.0f" else "%.3f"
+            val axisFormat=if(kind==0 && !logarithmic) "%.0f" else "%.3f"
             Text("$axis ${String.format(java.util.Locale.getDefault(),axisFormat,high)}",style=MaterialTheme.typography.labelSmall)
             val description=if(es) "Gráfico temporal. Valores de la última muestra debajo." else "Time chart. Latest sample values follow."
             Canvas(Modifier.fillMaxWidth().height(300.dp).semantics { contentDescription=description }) {
                 val width=(size.width-12.dp.toPx()).coerceAtLeast(1f)
                 val height=(size.height-12.dp.toPx()).coerceAtLeast(1f)
                 val offset=6.dp.toPx()
+                val dashed=PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(),4.dp.toPx()))
                 repeat(5) { i->val y=offset+height*i/4; drawLine(grid,Offset(offset,y),Offset(offset+width,y)) }
                 fun position(point:Pair<Long,Double>):Offset=Offset(offset+(((point.first-minTime).toDouble()/(maxTime-minTime).coerceAtLeast(1))*width).toFloat(),offset+((1-(point.second-low)/(high-low))*height).toFloat())
                 series.forEachIndexed { i,segments->segments.forEach { segment->
-                    segment.zipWithNext().forEach { (a,b)->drawLine(colors[i],position(a),position(b),strokeWidth=2.dp.toPx()) }
-                    if(segment.size==1) drawCircle(colors[i],2.dp.toPx(),position(segment.first()))
+                    val effect=if(kind==3 && keys[i].endsWith(".out")) dashed else null
+                    segment.zipWithNext().forEach { (a,b)->drawLine(seriesColor(i),position(a),position(b),strokeWidth=2.dp.toPx(),pathEffect=effect) }
+                    if(segment.size==1) drawCircle(seriesColor(i),2.dp.toPx(),position(segment.first()))
                 } }
             }
             Text("$axis ${String.format(java.util.Locale.getDefault(),axisFormat,low)}",style=MaterialTheme.typography.labelSmall)
@@ -296,7 +323,7 @@ private class ServerReader(private val source:MeshCentralClient) {
             Text(if(es) "Última muestra:" else "Latest sample:",style=MaterialTheme.typography.titleSmall)
             keys.forEachIndexed { i,key->
                 val value=filtered.lastOrNull()?.values?.get(key)
-                Text("${labels[i]}: ${value?.let { String.format(java.util.Locale.getDefault(),if(kind==3) "%.0f" else "%.3f",it) } ?: "—"}",color=colors[i],style=MaterialTheme.typography.bodySmall)
+                Text("${labels[i]}: ${value?.let { String.format(java.util.Locale.getDefault(),if(kind==0) "%.0f" else "%.3f",it) } ?: "—"}",color=seriesColor(i),style=MaterialTheme.typography.bodySmall)
             }
         }
     }
