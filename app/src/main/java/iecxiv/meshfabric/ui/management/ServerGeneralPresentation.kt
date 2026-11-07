@@ -24,6 +24,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.GsonBuilder
@@ -82,19 +83,22 @@ internal fun serverOverview(raw:String):ServerOverview?=runCatching {
 private fun generalDecimal(value:Double?,digits:Int=2)=value?.let { String.format(Locale.getDefault(),"%.${digits}f",it) } ?: "—"
 private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.0,1)+" MiB" } ?: "—"
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun ServerGeneralActions(content:@Composable ColumnScope.()->Unit) {
     Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
-        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-            Text(stringResource(R.string.my_server_actions),style=MaterialTheme.typography.titleMedium)
-            content()
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
+            Column(Modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
+                Text(stringResource(R.string.my_server_actions),style=MaterialTheme.typography.titleMedium)
+                content()
+            }
         }
     }
 }
 @Composable private fun ServerMetricRing(fraction:Double?,icon:ImageVector,description:String) {
     val track=MaterialTheme.colorScheme.outlineVariant
     val color=MaterialTheme.colorScheme.primary
-    Box(Modifier.size(42.dp).semantics { contentDescription=description },contentAlignment=Alignment.Center) {
+    Box(Modifier.size(36.dp).semantics { contentDescription=description },contentAlignment=Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val stroke=5.dp.toPx(); val inset=stroke/2
             val top=Offset(inset,inset); val bounds=Size(size.width-stroke,size.height-stroke)
@@ -104,15 +108,23 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
         Icon(icon,null,Modifier.size(18.dp),tint=if(fraction==null) MaterialTheme.colorScheme.onSurfaceVariant else color)
     }
 }
-@Composable private fun ServerMetricCard(modifier:Modifier,title:String,body:String,fraction:Double?,icon:ImageVector,description:String) {
+@Composable private fun ServerMetricCard(modifier:Modifier,title:String,fraction:Double?,icon:ImageVector,description:String,body:@Composable ()->Unit) {
     Surface(modifier,shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
-        Row(Modifier.padding(10.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.Top) {
+        Row(Modifier.padding(8.dp),horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically) {
             ServerMetricRing(fraction,icon,description)
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 Text(title,style=MaterialTheme.typography.labelLarge,fontWeight=FontWeight.SemiBold)
-                Text(body,style=MaterialTheme.typography.bodySmall)
+                body()
             }
+        }
+    }
+}
+@Composable private fun ServerLoadLine(values:List<String>) {
+    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+        values.forEachIndexed { index,value->
+            Text(value,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center)
+            if(index<values.lastIndex) Text("/",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -122,14 +134,20 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
     val stats=remember(raw) { serverOverview(raw) }
     Text(label("Estadísticas del servidor","Server statistics"),style=MaterialTheme.typography.titleMedium)
     if(!connected && stats!=null) Text(label("Última muestra recibida · conexión no disponible","Last received sample · connection unavailable"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)
-    val loadBody=(0..2).joinToString("\n") { i->"${listOf(1,5,15)[i]} min: ${generalDecimal(stats?.load?.getOrNull(i))}" }
     val used=stats?.memoryFraction?.let { fraction->stats.total?.times(fraction) }
     val memoryBody=if(stats?.memoryFraction!=null) "${generalDecimal(stats.memoryFraction?.times(100),0)}%\n${generalMemory(used)} / ${generalMemory(stats.total)}" else label("Uso: —\nTotal: ","Usage: —\nTotal: ")+generalMemory(stats?.total)
-    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-        ServerMetricCard(Modifier.weight(1f),label("Carga del servidor","Server load"),loadBody,stats?.loadFraction,Icons.Default.Speed,
-            label("Media de carga de un minuto, escala ","One-minute load average, scale ")+"0–${generalDecimal(stats?.loadScale,0)}")
-        ServerMetricCard(Modifier.weight(1f),label("Memoria","Memory"),memoryBody,stats?.memoryFraction,Icons.Default.Memory,
-            label("Memoria usada calculada como total menos libre","Used memory calculated as total minus free")+": "+generalDecimal(stats?.memoryFraction?.times(100),0)+"%")
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        ServerMetricCard(Modifier.weight(1f).fillMaxHeight(),label("Carga del servidor","Server load"),stats?.loadFraction,Icons.Default.Speed,
+            label("Media de carga de un minuto, escala ","One-minute load average, scale ")+"0–${generalDecimal(stats?.loadScale,0)}") {
+            Column {
+                ServerLoadLine((0..2).map { generalDecimal(stats?.load?.getOrNull(it)) })
+                ServerLoadLine(listOf("1m","5m","15m"))
+            }
+        }
+        ServerMetricCard(Modifier.weight(1f).fillMaxHeight(),label("Memoria","Memory"),stats?.memoryFraction,Icons.Default.Memory,
+            label("Memoria usada calculada como total menos libre","Used memory calculated as total minus free")+": "+generalDecimal(stats?.memoryFraction?.times(100),0)+"%") {
+            Text(memoryBody,style=MaterialTheme.typography.bodySmall)
+        }
     }
     Text(label("Carga: medias de 1/5/15 min, no porcentaje de CPU. El círculo representa 1 min con escala automática 0–","Load: 1/5/15-minute averages, not CPU percent. The ring shows 1 minute on automatic scale 0–")+generalDecimal(stats?.loadScale,0),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     Text(label("Libre: ","Free: ")+generalMemory(stats?.free)+label(" · Disponible: "," · Available: ")+generalMemory(stats?.available),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
