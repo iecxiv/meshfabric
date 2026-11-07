@@ -17,7 +17,7 @@ internal fun webNoticeState(packet:JSONObject):JSONObject? {
     if(event.optString("action")!="userWebState") return null
     val value=event.opt("state")
     val text=when(value) { is String->value; is JSONObject->value.toString(); else->return null }
-    if(text.toByteArray(Charsets.UTF_8).size>10000) return null
+    if(text.length>10000) return null
     return runCatching { JSONObject(text) }.getOrNull()?.takeIf { webNoticeMask(it)!=null }
 }
 
@@ -38,7 +38,7 @@ internal fun mergeWebNoticeState(state:JSONObject,before:Long,options:AccountNot
     if(previous!=before) return null
     val updated=(previous and 31L.inv()) or webNoticeFlags(options)
     val result=JSONObject(state.toString()).put("notifications",updated.toString())
-    return result.takeIf { it.toString().toByteArray(Charsets.UTF_8).size<=10000 }
+    return result.takeIf { it.toString().length<=10000 }
 }
 
 internal fun webNoticeKind(packet:JSONObject)=if(packet.has("amtMessage") && !packet.isNull("amtMessage")) "amt" else "general"

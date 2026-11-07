@@ -48,7 +48,7 @@ val value=a.opt(index)
 if(value is JSONObject) mapOf("p" to value.opt("p"),"u" to value.opt("u")) else value
 })
 }
-private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val server:JSONObject?=null,val notice:AccountNotice?=null,val webState:JSONObject?=null)
+private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val server:JSONObject?=null,val notice:AccountNotice?=null,val webState:JSONObject?=null,val webStateError:String="")
 private class AccountWire(private val source:MeshCentralClient,private val actor:String) {
 val state=MutableStateFlow(AccountState())
 private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -61,6 +61,7 @@ private var rid=""
 private var args=JSONObject()
 private var secret=""
 private var cookie=""
+private val webStateReader=AccountWebStateReader()
 private var retired=false
 private var tokenReadback=false
 private var noticeSerial=0L
@@ -112,11 +113,23 @@ timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generati
 @Synchronized private fun failed(generation:Long) { if(generation==epoch) pause(if(pending.isBlank()) "offline" else "unknown") }
 @Synchronized fun pause(reason:String="offline") {
 val notice=if(retired) "deleteUnknown" else if(pending.isNotBlank() && reason=="offline") "unknown" else reason
-epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null
+webStateReader.cancel(); epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null
 pending=""; rid=""; args=JSONObject(); secret=""; cookie=""; tokenReadback=false; keys.clear(); tokens.clear(); connectivity.clear()
 state.value=AccountState(status=notice)
 }
 @Synchronized fun dispose() { pause(); scope.cancel() }
+@Synchronized fun refreshWebState() {
+if(!state.value.ready || state.value.busy || !same() || state.value.webState!=null || webStateReader.isRunning()) return
+val generation=epoch
+val bound=identity
+webStateReader.load(bound) { snapshot,reason->
+synchronized(this@AccountWire) {
+if(generation==epoch && bound==identity && same() && state.value.webState==null) {
+state.update { it.copy(webState=snapshot,webStateError=reason) }
+}
+}
+}
+}
 @Synchronized fun clearResult() { if(state.value.busy) pause("unknown") else { secret=""; keys.clear(); tokens.clear(); state.update { it.copy(reply=null,tokenList=null) } } }
 private fun send(action:String)=socket?.send(JSONObject().put("action",action).toString())==true
 private fun finish(reply:JSONObject?,status:String) {
@@ -157,7 +170,7 @@ val user=p.optJSONObject("userinfo") ?: return
 if(user.optString("_id")!=actor) { pause("identity"); return }
 val first=!state.value.ready
 state.update { it.copy(ready=true,user=JSONObject(user.toString()),status=if(first) "ready" else it.status) }
-if(first) { timer?.cancel(); send("authcookie") }
+if(first) { timer?.cancel(); send("authcookie"); refreshWebState() }
 val lang=if(user.isNull("lang")) "" else user.optString("lang")
 if(pending=="changelang" && accountDefaultLanguage(lang)==accountDefaultLanguage(args.optString("lang"))) finish(JSONObject(),"confirmed")
 return
@@ -321,7 +334,7 @@ else->t("Cuenta desconectada o conectando.","Account offline or connecting.")
 }
 fun openAction(index:Int) {
 wire.clearResult(); mode=index
-when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"); 2->wire.request("otpauth-getpasswords"); 3->wire.request("previousLogins"); 9->wire.request("loginTokens") }
+when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"); 2->wire.request("otpauth-getpasswords"); 3->wire.request("previousLogins"); 6->wire.refreshWebState(); 9->wire.request("loginTokens") }
 }
 val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
 Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -467,6 +480,10 @@ val beforeMask=state.webState?.let(::webNoticeMask)
 var draft by remember(beforeMask) { mutableStateOf(options) }
 Text(t("Opciones compartidas con la web de esta cuenta. Los cambios se envían al servidor; la confirmación requiere observar userWebState. La recepción y el permiso Android son independientes.","Options shared with this account's web interface. Changes are sent to the server; confirmation requires observing userWebState. Reception and Android permission are independent."),style=MaterialTheme.typography.bodySmall)
 if(beforeMask==null) Text(t("No se ha recibido el estado web. Guardar permanece deshabilitado para no sobrescribir otros ajustes.","Web state has not been received. Saving remains disabled to avoid overwriting other settings."),style=MaterialTheme.typography.bodySmall)
+if(beforeMask==null) {
+if(state.webStateError.isNotBlank()) Text(t("Detalle de lectura: ","Read detail: ")+state.webStateError,style=MaterialTheme.typography.bodySmall)
+TextButton(enabled=!state.busy,onClick=wire::refreshWebState) { Text(t("Volver a consultar estado web","Reload web state")) }
+}
 option(t("Sonido de notificación","Notification sound"),draft.sound,{ draft=draft.copy(sound=it) })
 option(t("Mostrar el nombre de grupo de dispositivos","Display device group name"),draft.groupName,{ draft=draft.copy(groupName=it) })
 option(t("Conexiones de dispositivo","Device connections"),draft.connections,{ draft=draft.copy(connections=it) })

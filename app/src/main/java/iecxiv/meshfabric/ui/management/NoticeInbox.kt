@@ -49,6 +49,7 @@ private var identity:Triple<String,String,Boolean>?=null
 private var actor=""
 private var account:JSONObject?=null
 private var webMask:Long?=null
+private val webStateReader=AccountWebStateReader()
 private var serial=0L
 private var closed=false
 private val connectivity=mutableMapOf<String,Int>()
@@ -61,12 +62,26 @@ private fun current()=Triple(source.serverUrl,source.authCookie,source.ignoreSsl
 if(closed) return
 if(!noticeScopeValid(connection,current(),userId,source.isUserLogout)) { clear(); return }
 if(identity!=connection || actor!=userId) {
+webStateReader.cancel()
 NoticeNavigation.release(notificationScope); publisher.clear(); notificationScope=java.util.UUID.randomUUID().toString()
 identity=connection; actor=userId; account=null; webMask=null; data.value=NoticeInboxState(); connectivity.clear()
 source.groupedDevices.value.forEach { (_,nodes)->nodes.forEach { connectivity[noticeNodeKey(it.id)]=it.conn } }
 }
 NoticeNavigation.bind(notificationScope)
 reloadPreferences()
+if(webMask==null) refreshWebState()
+}
+@Synchronized private fun refreshWebState() {
+if(!matchesCurrentSource() || webMask!=null || webStateReader.isRunning()) return
+val bound=identity ?: return
+val boundScope=notificationScope
+webStateReader.load(bound) { snapshot,_->
+synchronized(this@NoticeInbox) {
+if(snapshot!=null && matchesCurrentSource() && identity==bound && notificationScope==boundScope && webMask==null) {
+webMask=webNoticeMask(snapshot); reloadPreferences()
+}
+}
+}
 }
 @Synchronized private fun reloadPreferences() {
 if(closed || actor.isBlank()) return
@@ -136,7 +151,7 @@ publisher.cancel(notificationScope,id)
 data.value=data.value.copy(entries=noticeInboxRemove(data.value.entries,id))
 }
 @Synchronized fun clearEntries() { if(matchesCurrentSource()) { publisher.clear(); data.value=data.value.copy(entries=emptyList()) } }
-@Synchronized fun clear() { NoticeNavigation.release(notificationScope); publisher.clear(); notificationScope=java.util.UUID.randomUUID().toString(); identity=null; actor=""; account=null; webMask=null; connectivity.clear(); data.value=NoticeInboxState() }
+@Synchronized fun clear() { webStateReader.cancel(); NoticeNavigation.release(notificationScope); publisher.clear(); notificationScope=java.util.UUID.randomUUID().toString(); identity=null; actor=""; account=null; webMask=null; connectivity.clear(); data.value=NoticeInboxState() }
 @Synchronized fun close() { closed=true; prefs.unregisterOnSharedPreferenceChangeListener(listener); clear() }
 }
 
