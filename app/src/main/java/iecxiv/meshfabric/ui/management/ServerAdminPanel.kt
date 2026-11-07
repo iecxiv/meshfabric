@@ -94,8 +94,8 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     @Synchronized fun command(exact:String):Boolean {
         if(!available() || exact.isBlank() || exact.length>1000) return false
         state.update { it.copy(pending="console",token=it.token+1,notice="sent") }
-        if(socket?.send(JSONObject().put("action","serverconsole").put("value",exact).toString())!=true) fail(generation)
-        else state.update { it.copy(console=boundedAdminOutput(it.console,"> "+exact)) }
+        if(socket?.send(JSONObject().put("action","serverconsole").put("value",exact).toString())!=true) { fail(generation); return false }
+        state.update { it.copy(console=boundedAdminOutput(it.console,"> "+exact)) }
         return true
     }
     @Synchronized fun apply(proposal:TraceProposal):Boolean {
@@ -125,7 +125,6 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var retry by remember { mutableIntStateOf(0) }
     var command by remember { mutableStateOf("") }
-    var commandProposal by remember { mutableStateOf<String?>(null) }
     var traceProposal by remember { mutableStateOf<TraceProposal?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
     var traceMenu by remember { mutableStateOf(false) }
@@ -133,14 +132,14 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         try { channel?.connect(); awaitCancellation() } finally { channel?.close() }
     } }
     DisposableEffect(channel) { onDispose { channel?.close() } }
-    LaunchedEffect(state.ready,retry) { if(!state.ready) { commandProposal=null; traceProposal=null; traceMenu=false; delay(20000); channel?.connectionTimeout() } }
+    LaunchedEffect(state.ready,retry) { if(!state.ready) { traceProposal=null; traceMenu=false; delay(20000); channel?.connectionTimeout() } }
     LaunchedEffect(state.token,state.pending) { if(state.pending.isNotEmpty()) { traceMenu=false; delay(25000); channel?.timeout(state.token) } }
     LaunchedEffect(state.sources) { selected=state.sources.orEmpty(); traceProposal=null; traceMenu=false }
     val enabled=state.ready && state.admin && state.pending.isEmpty()
     Text(label("Canal de administración independiente", "Independent administration channel"),style=MaterialTheme.typography.titleSmall)
     Text(when { state.failed->label("Sin conexión. Reconecta manualmente.","Disconnected. Reconnect manually."); !state.ready->label("Conectando…","Connecting…"); !state.admin->label("Se requiere administrador completo del servidor.","Full server administrator required."); else->label("Administrador conectado. El servidor valida también sus restricciones.","Administrator connected. Server restrictions still apply.") })
     if(state.failed) TextButton(onClick={ retry++ }) { Text(label("Reconectar","Reconnect")) }
-    Text(label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not saved to disk or diagnostic logs; cleared on exit or background. May contain sensitive data."),style=MaterialTheme.typography.bodySmall)
+    val privacy=label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not saved to disk or diagnostic logs; cleared on exit or background. May contain sensitive data.")
     val notice=when(state.notice) {
         "sent"->label("Solicitud enviada; resultado pendiente.","Request sent; result pending.")
         "reply"->label("Respuesta recibida del servidor. Revisa su contenido.","Server reply received. Review its contents.")
@@ -149,12 +148,17 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         "unknown"->label("Conexión interrumpida o sin respuesta. Resultado desconocido; no se reenviará la operación.","Interrupted or no response. Result unknown; the operation will not be resent.")
         else->""
     }
-    if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     if(!traceView) {
-        ServerConsoleTerminal(state.console,onClear={ channel?.clear(false) })
-        OutlinedTextField(value=command,onValueChange={ if(it.length<=1000) command=it },label={ Text(label("Comando del servidor (no shell del dispositivo)","Server command (not device shell)")) },textStyle=MaterialTheme.typography.bodyMedium.copy(fontFamily=FontFamily.Monospace),modifier=Modifier.fillMaxWidth(),maxLines=4)
-        TextButton(onClick={ commandProposal=command },enabled=enabled && command.isNotBlank()) { Text(label("Revisar envío","Review send")) }
+        ServerConsoleTerminal(state.console,onClear={ channel?.clear(false) },commandInput={
+            OutlinedTextField(value=command,onValueChange={ if(it.length<=1000) command=it },label={ Text(label("Comando del servidor (no shell del dispositivo)","Server command (not device shell)")) },textStyle=MaterialTheme.typography.bodyMedium.copy(fontFamily=FontFamily.Monospace),modifier=Modifier.fillMaxWidth(),maxLines=4)
+            Button(onClick={ val exact=command; if(channel?.command(exact)==true) command="" },enabled=enabled && command.isNotBlank()) { Text(label("Enviar","Send")) }
+        })
+        Text(label("Enviar ejecuta el comando directamente, sin revisión ni confirmación. Puede modificar el servidor o reiniciarlo. No se reintentará automáticamente.","Send dispatches the command directly, without review or confirmation. It may modify or restart the server. No automatic retry."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(privacy,style=MaterialTheme.typography.bodySmall)
+        if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     } else {
+        Text(privacy,style=MaterialTheme.typography.bodySmall)
+        if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         Text(label("Las fuentes de seguimiento son globales: afectan a otros administradores. Cerrar esta vista no envía una orden de desactivación.","Trace sources are global and affect other administrators. Closing this view sends no disable command."),style=MaterialTheme.typography.bodySmall)
         val current=state.sources
         Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
@@ -200,9 +204,6 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
             }
         }
     }
-    commandProposal?.let { exact->AlertDialog(onDismissRequest={ commandProposal=null },title={ Text(label("Confirmar comando del servidor","Confirm server command")) },
-        text={ Column { Text(source?.serverUrl.orEmpty()); Text(label("Puede modificar el servidor o reiniciarlo. No se reintentará automáticamente.","May modify or restart the server. No automatic retry.")); SelectionContainer { Text(exact,fontFamily=FontFamily.Monospace) } } },
-        confirmButton={ TextButton(enabled=enabled,onClick={ commandProposal=null; if(channel?.command(exact)==true) command="" }) { Text(label("Enviar","Send")) } },dismissButton={ TextButton(onClick={ commandProposal=null }) { Text(label("Cancelar","Cancel")) } }) }
     traceProposal?.let { proposal->AlertDialog(onDismissRequest={ traceProposal=null },title={ Text(label("Cambiar seguimiento global","Change global tracing")) },
         text={ Column { Text(source?.serverUrl.orEmpty()); Text(label("Esto reemplaza las fuentes para todo el servidor.","This replaces sources for the entire server.")); Text(label("Actuales: ","Current: ")+proposal.base.sorted().joinToString { traceSourceName(it,es)+" ("+it+")" }.ifBlank { "—" }); Text(label("Nuevas: ","New: ")+proposal.desired.sorted().joinToString { traceSourceName(it,es)+" ("+it+")" }.ifBlank { label("ninguna: desactivar todas","none: disable all") }) } },
         confirmButton={ TextButton(enabled=enabled,onClick={ traceProposal=null; channel?.apply(proposal) }) { Text(label("Aplicar globalmente","Apply globally")) } },dismissButton={ TextButton(onClick={ traceProposal=null }) { Text(label("Cancelar","Cancel")) } }) }

@@ -73,6 +73,11 @@ private class ServerConsoleRenderer(context:Context,private val status:(Boolean?
         broken=true; ready=false; busy=false
         publish(false,stage)
     }
+    private fun scrollPixels(distance:Float) {
+        if(destroyed || broken || !ready || view.height<=0 || !distance.isFinite()) return
+        val fraction=distance.toDouble()/view.height
+        view.evaluateJavascript("(function(){var v=document.querySelector('#terminal .xterm-viewport');if(v)v.scrollTop += $fraction * window.innerHeight;})()",null)
+    }
     @SuppressLint("SetJavaScriptEnabled","ClickableViewAccessibility")
     private fun configure() {
         view.setBackgroundColor(android.graphics.Color.rgb(13,17,23))
@@ -93,12 +98,19 @@ private class ServerConsoleRenderer(context:Context,private val status:(Boolean?
         }
         view.isVerticalScrollBarEnabled=false
         view.setDownloadListener { _,_,_,_,_-> }
+        var touchY=0f
         view.setOnTouchListener { target,event->
             when(event.actionMasked) {
-                MotionEvent.ACTION_DOWN,MotionEvent.ACTION_MOVE->target.parent?.requestDisallowInterceptTouchEvent(true)
-                MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->target.parent?.requestDisallowInterceptTouchEvent(false)
+                MotionEvent.ACTION_DOWN->{ touchY=event.y; target.parent?.requestDisallowInterceptTouchEvent(true) }
+                MotionEvent.ACTION_MOVE->{
+                    if(event.pointerCount==1) scrollPixels(touchY-event.y)
+                    touchY=event.y
+                    target.parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                MotionEvent.ACTION_UP->{ target.parent?.requestDisallowInterceptTouchEvent(false); target.performClick() }
+                MotionEvent.ACTION_CANCEL->target.parent?.requestDisallowInterceptTouchEvent(false)
             }
-            false
+            true
         }
         view.webChromeClient=object:WebChromeClient() {
             override fun onConsoleMessage(consoleMessage:ConsoleMessage)=true
@@ -180,7 +192,7 @@ private class ServerConsoleRenderer(context:Context,private val status:(Boolean?
     }
 }
 
-@Composable internal fun ServerConsoleTerminal(output:List<String>,onClear:()->Unit) {
+@Composable internal fun ServerConsoleTerminal(output:List<String>,onClear:()->Unit,commandInput:@Composable ()->Unit={}) {
     val context=LocalContext.current
     val clipboard=LocalClipboardManager.current
     val es=LocalConfiguration.current.locales[0].language=="es"
@@ -220,6 +232,7 @@ private class ServerConsoleRenderer(context:Context,private val status:(Boolean?
                     style=MaterialTheme.typography.bodySmall.copy(fontSize=font.sp,lineHeight=(font+5).sp))
             }
         }
-        Text(label("Salida xterm local de solo lectura. Escribe y revisa el comando debajo; no es una shell del dispositivo.","Read-only local xterm output. Enter and review the command below; this is not a device shell."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        commandInput()
+        Text(label("Salida xterm local de solo lectura. Desliza dentro del recuadro para recorrerla. El campo envía comandos al servidor, no a una shell del dispositivo.","Read-only local xterm output. Swipe inside the box to scroll. The input sends commands to the server, not a device shell."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

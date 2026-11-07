@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>MeshCentral server console</title>
 <link rel="stylesheet" href="xterm.css">
-<style>html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#0d1117}#terminal{box-sizing:border-box;width:100%;height:100%;padding:8px}.xterm-viewport{touch-action:pan-y}#error{color:#ff7b72;font:14px monospace;white-space:pre-wrap;padding:12px}</style>
+<style>html,body{height:100%;width:100%;margin:0;overflow:hidden;background:#0d1117}#terminal{position:absolute;inset:8px;box-sizing:border-box;padding:0;overflow:hidden}#terminal>.xterm{height:100%;width:100%}#terminal .xterm-viewport{overflow-y:scroll;overflow-x:hidden;overscroll-behavior:contain}#error{color:#ff7b72;font:14px monospace;white-space:pre-wrap;padding:12px}</style>
 <script defer src="xterm.js"></script>
 <script defer src="xterm-fit.js"></script>
 <script defer src="server-console.js"></script>
