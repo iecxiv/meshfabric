@@ -47,6 +47,8 @@ private val data=MutableStateFlow(NoticeInboxState())
 val state=data.asStateFlow()
 private var identity:Triple<String,String,Boolean>?=null
 private var actor=""
+private var account:JSONObject?=null
+private var webMask:Long?=null
 private var serial=0L
 private var closed=false
 private val connectivity=mutableMapOf<String,Int>()
@@ -60,8 +62,8 @@ if(closed) return
 if(!noticeScopeValid(connection,current(),userId,source.isUserLogout)) { clear(); return }
 if(identity!=connection || actor!=userId) {
 NoticeNavigation.release(notificationScope); publisher.clear(); notificationScope=java.util.UUID.randomUUID().toString()
-identity=connection; actor=userId; data.value=NoticeInboxState(); connectivity.clear()
-source.groupedDevices.value.forEach { (_,nodes)->nodes.forEach { connectivity[it.id]=it.conn } }
+identity=connection; actor=userId; account=null; webMask=null; data.value=NoticeInboxState(); connectivity.clear()
+source.groupedDevices.value.forEach { (_,nodes)->nodes.forEach { connectivity[noticeNodeKey(it.id)]=it.conn } }
 }
 NoticeNavigation.bind(notificationScope)
 reloadPreferences()
@@ -70,43 +72,58 @@ reloadPreferences()
 if(closed || actor.isBlank()) return
 if(!matchesCurrentSource()) { clear(); return }
 val key=MessageDigest.getInstance("SHA-256").digest((identity!!.first+"\u0000"+actor).toByteArray()).joinToString("") { "%02x".format(it) }
-val options=AccountNoticeOptions(prefs.getBoolean("${key}_sound",false),prefs.getBoolean("${key}_groupname",true),prefs.getBoolean("${key}_connect",false),prefs.getBoolean("${key}_disconnect",false),prefs.getBoolean("${key}_amt",false))
+val options=webNoticeOptions(webMask ?: 0L)
 data.value=data.value.copy(enabled=prefs.getBoolean("${key}_alerts",false),options=options,localeTag=prefs.getString("${key}_locale","").orEmpty(),hours24=prefs.getBoolean("${key}_24",true))
 }
 private fun append(kind:String,e:JSONObject,channels:Int=0) {
 val s=data.value
-if(!s.enabled || !accountNoticeAllowed(kind,s.options)) return
-val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
-val match=source.groupedDevices.value.firstNotNullOfOrNull { (g,nodes)->nodes.firstOrNull { it.id==id }?.let { g to it } }
+val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }.ifBlank { (e.opt("node") as? String).orEmpty() }
+val nodeMatch=source.groupedDevices.value.firstNotNullOfOrNull { (g,nodes)->nodes.firstOrNull { noticeNodeKey(it.id)==noticeNodeKey(id) }?.let { g to it } }
+val meshId=e.optString("meshid").ifBlank { e.optJSONObject("node")?.optString("meshid").orEmpty() }.ifBlank { nodeMatch?.first?.id.orEmpty() }
+val groupFlags=webNoticeNumber(account?.optJSONObject("links")?.optJSONObject(meshId)?.opt("notify")) ?: 0L
+val effectiveOptions=webNoticeOptions((webMask ?: 0L) or (groupFlags and 14L))
+if(!s.enabled || !accountNoticeAllowed(kind,effectiveOptions)) return
+val match=nodeMatch
 val name=match?.second?.name.orEmpty().ifBlank { e.optString("nodename").ifBlank { id } }.take(200)
 val group=match?.first?.name.orEmpty().ifBlank { e.optString("meshname") }.take(200)
-val body=if(kind=="general") e.optString("value").ifBlank { e.optString("msg") }.take(1000) else if(kind=="amt") e.optString("msg").take(600) else ""
+val body=if(kind=="general") e.optString("value").ifBlank { e.optString("msg") }.take(1000) else if(kind=="amt") e.optString("value").ifBlank { e.optString("msg") }.take(1000) else ""
 if(kind=="general" && body.isBlank()) return
 val entry=NoticeInboxEntry(AccountNotice(++serial,kind,body,name,group,channels),e.optString("title").take(160))
 val updated=noticeInboxAppend(s.entries,entry)
 val retained=updated.map { it.notice.serial }.toSet()
 s.entries.filterNot { it.notice.serial in retained }.forEach { publisher.cancel(notificationScope,it.notice.serial) }
 data.value=s.copy(entries=updated)
-publisher.post(notificationScope,entry,s.options)
+publisher.post(notificationScope,entry,effectiveOptions)
 }
 @Synchronized fun receive(p:JSONObject) {
-if(!matchesCurrentSource()) { clear(); return }
 val action=p.optString("action")
+if(action=="userinfo") {
+val info=p.optJSONObject("userinfo") ?: return
+val userId=info.optString("_id")
+if(!userId.startsWith("user/")) return
+bind(userId,current())
+if(matchesCurrentSource()) account=JSONObject(info.toString())
+return
+}
+if(!matchesCurrentSource()) { clear(); return }
+webNoticeState(p)?.let { snapshot->webMask=webNoticeMask(snapshot); reloadPreferences(); return }
+if(action=="nodes") {
+noticeSnapshotNodes(p).forEach { node->noticeConnectivity(JSONObject().put("action","changenode").put("node",node))?.let { (id,conn)->connectivity[id]=conn } }
+return
+}
 if(action=="msg" && p.optString("type")=="notify") {
 if(p.optInt("msgid",-1) in 17..21 && p.optString("tag")!="broadcast") return
-append("general",p); return
+append(webNoticeKind(p),p); return
 }
 val e=if(action=="event") p.optJSONObject("event") ?: return else p
-val kind=e.optString("action")
-if(kind=="nodeconnect" || kind=="nodedisconnect") {
-val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
-if(id.isBlank()) return
-val n=e.opt("conn") as? Number
-val next=if(n!=null && n.toDouble()>=0 && n.toDouble()<=Int.MAX_VALUE && n.toDouble()%1.0==0.0) n.toInt() else if(kind=="nodedisconnect") 0 else return
+if(e.optString("action")=="accountchange") {
+val info=e.optJSONObject("account")
+if(info?.optString("_id")==actor) account=JSONObject(info.toString())
+}
+val (id,next)=noticeConnectivity(e) ?: return
 val (gained,lost)=accountConnectionChange(connectivity.put(id,next),next)
 if(gained!=0) append("connect",e,gained)
 if(lost!=0) append("disconnect",e,lost)
-} else if(kind=="relaylog" && e.optInt("protocol")==101) append("amt",e)
 }
 @Synchronized fun setRead(id:Long?=null,read:Boolean=true) {
 if(!matchesCurrentSource()) return
@@ -119,7 +136,7 @@ publisher.cancel(notificationScope,id)
 data.value=data.value.copy(entries=noticeInboxRemove(data.value.entries,id))
 }
 @Synchronized fun clearEntries() { if(matchesCurrentSource()) { publisher.clear(); data.value=data.value.copy(entries=emptyList()) } }
-@Synchronized fun clear() { NoticeNavigation.release(notificationScope); publisher.clear(); notificationScope=java.util.UUID.randomUUID().toString(); identity=null; actor=""; connectivity.clear(); data.value=NoticeInboxState() }
+@Synchronized fun clear() { NoticeNavigation.release(notificationScope); publisher.clear(); notificationScope=java.util.UUID.randomUUID().toString(); identity=null; actor=""; account=null; webMask=null; connectivity.clear(); data.value=NoticeInboxState() }
 @Synchronized fun close() { closed=true; prefs.unregisterOnSharedPreferenceChangeListener(listener); clear() }
 }
 
@@ -168,7 +185,7 @@ Text(entry.title.ifBlank { fallback },style=MaterialTheme.typography.titleSmall)
 val names=listOf(n.nodeName,if(s.options.groupName) n.groupName else "").filter { it.isNotBlank() }.joinToString(" · ")
 if(names.isNotBlank()) Text(names,style=MaterialTheme.typography.bodyMedium)
 if(n.text.isNotBlank()) Text(n.text,style=MaterialTheme.typography.bodyMedium)
-val channels=listOf(1 to t("Agente","Agent"),2 to "Intel AMT CIRA",4 to "Intel AMT",16 to "MQTT").filter { n.channels and it.first != 0 }.joinToString(", ") { it.second }
+val channels=listOf(1 to t("Agente","Agent"),2 to "Intel AMT",4 to "Intel AMT CIRA",16 to "MQTT").filter { n.channels and it.first != 0 }.joinToString(", ") { it.second }
 if(channels.isNotBlank()) Text(channels,style=MaterialTheme.typography.bodySmall)
 Text(if(entry.read) t("Leído","Read") else t("No leído","Unread"),style=MaterialTheme.typography.labelMedium,color=if(entry.read) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
 TextButton(onClick={ inbox.setRead(n.serial,!entry.read) }) { Text(if(entry.read) t("Marcar como no leído","Mark unread") else t("Marcar como leído","Mark read")) }

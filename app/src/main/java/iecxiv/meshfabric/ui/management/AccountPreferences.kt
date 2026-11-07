@@ -78,7 +78,7 @@ Text(title,style=MaterialTheme.typography.titleSmall)
 val names=listOf(note.nodeName,if(options.groupName) note.groupName else "").filter { it.isNotBlank() }.joinToString(" · ")
 if(names.isNotBlank()) Text(names,style=MaterialTheme.typography.bodyMedium)
 if(note.text.isNotBlank()) Text(note.text,style=MaterialTheme.typography.bodySmall)
-val channels=listOf(1 to if(es) "Agente" else "Agent",2 to "Intel AMT CIRA",4 to "Intel AMT",16 to "MQTT").filter { note.channels and it.first != 0 }.joinToString(", ") { it.second }
+val channels=listOf(1 to if(es) "Agente" else "Agent",2 to "Intel AMT",4 to "Intel AMT CIRA",16 to "MQTT").filter { note.channels and it.first != 0 }.joinToString(", ") { it.second }
 if(channels.isNotBlank()) Text(channels,style=MaterialTheme.typography.bodySmall)
 }
 }

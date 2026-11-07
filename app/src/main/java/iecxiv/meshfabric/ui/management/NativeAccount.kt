@@ -48,7 +48,7 @@ val value=a.opt(index)
 if(value is JSONObject) mapOf("p" to value.opt("p"),"u" to value.opt("u")) else value
 })
 }
-private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val server:JSONObject?=null,val notice:AccountNotice?=null)
+private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val server:JSONObject?=null,val notice:AccountNotice?=null,val webState:JSONObject?=null)
 private class AccountWire(private val source:MeshCentralClient,private val actor:String) {
 val state=MutableStateFlow(AccountState())
 private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -74,27 +74,20 @@ val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id")
 val match=source.groupedDevices.value.firstNotNullOfOrNull { (group,nodes)->nodes.firstOrNull { it.id==id }?.let { group to it } }
 val name=match?.second?.name.orEmpty().ifBlank { e.optString("nodename").ifBlank { id } }.take(200)
 val group=match?.first?.name.orEmpty().ifBlank { e.optString("meshname") }.take(200)
-val text=if(kind=="general") e.optString("value").ifBlank { e.optString("msg") }.take(1000) else if(kind=="amt") e.optString("msg").take(600) else ""
+val text=if(kind=="general") e.optString("value").ifBlank { e.optString("msg") }.take(1000) else if(kind=="amt") e.optString("value").ifBlank { e.optString("msg") }.take(1000) else ""
 val entry=AccountNotice(++noticeSerial,kind,text,name,group,channels)
 state.update { it.copy(notice=entry) }
 }
 private fun noticeEvent(e:JSONObject) {
-val action=e.optString("action")
-if(action=="nodeconnect" || action=="nodedisconnect") {
-val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
-val number=e.opt("conn") as? Number
-val next=if(number!=null && number.toDouble()>=0 && number.toDouble()<=Int.MAX_VALUE && number.toDouble()%1.0==0.0) number.toInt() else if(action=="nodedisconnect") 0 else return
-if(id.isBlank()) return
-val before=connectivity.put(id,next)
-val (gained,lost)=accountConnectionChange(before,next)
+val (id,next)=noticeConnectivity(e) ?: return
+val (gained,lost)=accountConnectionChange(connectivity.put(id,next),next)
 if(gained!=0) announce("connect",e,gained)
 if(lost!=0) announce("disconnect",e,lost)
-} else if(action=="relaylog" && e.optInt("protocol")==101) announce("amt",e)
 }
 @Synchronized fun start() {
 if(retired || socket!=null || actor.isBlank() || !source.connectionState.value || source.isUserLogout) return
 identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
-connectivity.clear(); source.groupedDevices.value.forEach { (_,nodes)->nodes.forEach { connectivity[it.id]=it.conn } }
+connectivity.clear(); source.groupedDevices.value.forEach { (_,nodes)->nodes.forEach { connectivity[noticeNodeKey(it.id)]=it.conn } }
 val generation=++epoch
 state.value=AccountState(status="connecting")
 runCatching {
@@ -151,8 +144,14 @@ val action=p.optString("action")
 if(action=="ping") { send("pong"); return }
 if(action=="close" || action=="stopped") { pause(); return }
 if(action=="authcookie") { cookie=p.optString("cookie"); return }
-if(action=="serverinfo") { state.update { it.copy(server=JSONObject(p.toString())) }; return }
-if(action=="nodeconnect" || action=="nodedisconnect") { noticeEvent(p); return }
+if(action=="serverinfo") { state.update { it.copy(server=accountServerInfo(p)) }; return }
+if(action=="userWebState" || (action=="event" && p.optJSONObject("event")?.optString("action")=="userWebState")) {
+val snapshot=webNoticeState(p) ?: return
+state.update { it.copy(webState=snapshot) }
+if(pending=="userWebState" && webNoticeMask(snapshot)==args.optLong("notifications",-1)) finish(null,"confirmed")
+return
+}
+if(action in setOf("nodeconnect","nodedisconnect","changenode")) { noticeEvent(p); return }
 if(action=="userinfo") {
 val user=p.optJSONObject("userinfo") ?: return
 if(user.optString("_id")!=actor) { pause("identity"); return }
@@ -173,7 +172,7 @@ return
 if(action=="msg" && p.optString("type")=="notify") {
 val result=nativePasswordResult(p.optInt("msgid",-1))
 if(pending=="changepassword" && result!=null) { finish(null,if(result) "confirmed" else "password:${p.optInt("msgid")}"); return }
-announce("general",p)
+announce(webNoticeKind(p),p)
 return
 }
 if(pending.isBlank()) return
@@ -230,6 +229,22 @@ state.update { it.copy(tokenList=list) }
 }
 finish(p,resultStatus)
 }
+@Synchronized fun saveNotificationOptions(options:AccountNoticeOptions,before:Long):Boolean {
+val s=state.value
+if(!s.ready || s.busy || !same()) return false
+val site=ProfilePermissions.normalized(s.user?.optLong("siteadmin",0L) ?: 0L)
+if(site!=0xffffffffL && site and 1024L!=0L) return false
+val snapshot=s.webState ?: return false
+val updated=mergeWebNoticeState(snapshot,before,options) ?: return false
+pending="userWebState"; rid=UUID.randomUUID().toString()
+args=JSONObject().put("notifications",webNoticeMask(updated))
+state.update { it.copy(busy=true,status="sent",reply=null) }
+val generation=epoch
+timer?.cancel(); timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generation==epoch && pending.isNotBlank()) pause("unknown") } }
+val payload=JSONObject().put("action","userWebState").put("state",updated.toString()).put("responseid",rid)
+if(socket?.send(payload.toString())!=true) { pause("unknown"); return false }
+return true
+}
 @Synchronized fun request(action:String,fields:JSONObject=JSONObject()):Boolean {
 val s=state.value
 if(!s.ready || s.busy || !same()) return false
@@ -281,7 +296,7 @@ val prefKey=remember(source.serverUrl,actor) { MessageDigest.getInstance("SHA-25
 var hours24 by remember(prefKey) { mutableStateOf(prefs.getBoolean("${prefKey}_24",true)) }
 var dateLocale by remember(prefKey) { mutableStateOf(prefs.getString("${prefKey}_locale","").orEmpty()) }
 var alerts by remember(prefKey) { mutableStateOf(prefs.getBoolean("${prefKey}_alerts",false)) }
-var options by remember(prefKey) { mutableStateOf(AccountNoticeOptions(prefs.getBoolean("${prefKey}_sound",false),prefs.getBoolean("${prefKey}_groupname",true),prefs.getBoolean("${prefKey}_connect",false),prefs.getBoolean("${prefKey}_disconnect",false),prefs.getBoolean("${prefKey}_amt",false))) }
+val options=webNoticeOptions(state.webState?.let(::webNoticeMask) ?: 0L)
 var mode by remember { mutableStateOf<Int?>(null) }
 DisposableEffect(wire) { onDispose { wire.dispose() } }
 LaunchedEffect(wire,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -448,15 +463,19 @@ action("Guardar idioma de cuenta","Save account language",tags.isNotEmpty() && l
 Text(t("El formato regional se guarda localmente para las fechas de Mi Usuario y no cambia la zona horaria. El idioma se solicita al servidor y se comprueba mediante userinfo; no cambia el idioma global de Android ni de toda la app.","The locale is stored locally for My user dates and does not change the time zone. Account language is requested from the server and checked through userinfo; it does not change Android or app-wide language."),style=MaterialTheme.typography.bodySmall)
 }
 6->{
-var draft by remember { mutableStateOf(options) }
-Text(t("Preferencias locales de esta cuenta y servidor. Se aplican a los avisos recibidos mientras Mi Usuario está abierto; deben estar habilitadas las notificaciones en la app.","Local preferences for this account and server. Apply to notices received while My user is open; in-app notifications must be enabled."),style=MaterialTheme.typography.bodySmall)
+val beforeMask=state.webState?.let(::webNoticeMask)
+var draft by remember(beforeMask) { mutableStateOf(options) }
+Text(t("Opciones compartidas con la web de esta cuenta. Los cambios se envían al servidor; la confirmación requiere observar userWebState. La recepción y el permiso Android son independientes.","Options shared with this account's web interface. Changes are sent to the server; confirmation requires observing userWebState. Reception and Android permission are independent."),style=MaterialTheme.typography.bodySmall)
+if(beforeMask==null) Text(t("No se ha recibido el estado web. Guardar permanece deshabilitado para no sobrescribir otros ajustes.","Web state has not been received. Saving remains disabled to avoid overwriting other settings."),style=MaterialTheme.typography.bodySmall)
 option(t("Sonido de notificación","Notification sound"),draft.sound,{ draft=draft.copy(sound=it) })
 option(t("Mostrar el nombre de grupo de dispositivos","Display device group name"),draft.groupName,{ draft=draft.copy(groupName=it) })
 option(t("Conexiones de dispositivo","Device connections"),draft.connections,{ draft=draft.copy(connections=it) })
 option(t("Desconexiones de dispositivo","Device disconnections"),draft.disconnections,{ draft=draft.copy(disconnections=it) })
 option(t("Eventos de escritorio y serial de Intel(R) AMT","Intel(R) AMT desktop and serial events"),draft.amt,{ draft=draft.copy(amt=it) })
-action("Guardar opciones","Save options") { options=draft; prefs.edit().putBoolean("${prefKey}_sound",draft.sound).putBoolean("${prefKey}_groupname",draft.groupName).putBoolean("${prefKey}_connect",draft.connections).putBoolean("${prefKey}_disconnect",draft.disconnections).putBoolean("${prefKey}_amt",draft.amt).apply(); feedback=t("Opciones locales guardadas.","Local options saved.") }
-Text(t("AMT filtra eventos de redirección que el servidor emita con protocolo 101. El sonido usa el tono de notificación y depende de los ajustes del sistema. Estas opciones no modifican las preferencias web del servidor ni habilitan recepción en segundo plano.","AMT filters redirection events emitted by the server with protocol 101. Sound uses the notification tone and depends on system settings. These options do not modify server web preferences or enable background reception."),style=MaterialTheme.typography.bodySmall)
+action("Guardar opciones en el servidor","Save server options",beforeMask!=null) {
+feedback=if(beforeMask!=null && wire.saveNotificationOptions(draft,beforeMask)) t("Solicitud enviada; confirmación pendiente.","Request sent; confirmation pending.") else t("No enviado. El estado o los permisos han cambiado; vuelve a consultar.","Not sent. State or permissions changed; reload before retrying.")
+}
+Text(t("AMT filtra mensajes marcados amtMessage. Conexiones y desconexiones se generan a partir de cambios de conectividad. Sonido y nombre del grupo modifican la presentación; no son tipos de mensaje. Android puede modificar el sonido del canal. No se garantiza entrega con el proceso detenido ni actualización inmediata de una pestaña web que no procese el evento.","AMT filters messages marked amtMessage. Connections and disconnections are generated from connectivity changes. Sound and group name affect presentation; they are not message types. Android may override channel sound. Delivery with a stopped process or immediate refresh in a web tab that ignores the event is not guaranteed."),style=MaterialTheme.typography.bodySmall)
 }
 7->{
 field(first,{ first=it },t("Contraseña actual","Current password"),true)
