@@ -131,6 +131,12 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
         }
     }
 }
+@Composable private fun ServerMemoryNoteRow(title:String,value:Double?) {
+    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+        Text(title,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,textAlign=TextAlign.Center)
+        Text(generalMemory(value),Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,textAlign=TextAlign.End)
+    }
+}
 @Composable internal fun ServerGeneralOverview(raw:String,connected:Boolean) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun label(a:String,b:String)=if(es) a else b
@@ -154,7 +160,10 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
     }
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.Top) {
         Text(label("Carga: medias de 1/5/15 min, no porcentaje de CPU. El círculo representa 1 min con escala automática 0–","Load: 1/5/15-minute averages, not CPU percent. The ring shows 1 minute on automatic scale 0–")+generalDecimal(stats?.loadScale,0),modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(label("Libre: ","Free: ")+generalMemory(stats?.free)+label(" · Disponible: "," · Available: ")+generalMemory(stats?.available),modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f)) {
+            ServerMemoryNoteRow(label("Libre","Free"),stats?.free)
+            ServerMemoryNoteRow(label("Disponible","Available"),stats?.available)
+        }
     }
     Text(stringResource(R.string.my_server_status),style=MaterialTheme.typography.titleMedium)
     val rows=listOf(
