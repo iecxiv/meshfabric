@@ -147,7 +147,7 @@ val a=s.history.takeIf { s.historyUser==form.id }
 if(a!=null && a.length()==0) Text(t("Sin registros.","No records."))
 if(a!=null) for(i in 0 until minOf(a.length(),200)) a.optJSONObject(i)?.let { event->
 Text(userDate(event.opt("t")).ifBlank { t("Fecha no disponible","Date unavailable") },style=MaterialTheme.typography.titleSmall)
-Text("${event.optInt("m")} · "+(event.optJSONArray("a")?.let { args->(0 until args.length()).joinToString(" · ") { args.optString(it) } }.orEmpty()),style=MaterialTheme.typography.bodySmall)
+Text(loginHistoryLabel(event.opt("m"),es)+" · "+(event.optJSONArray("a")?.let { args->(0 until args.length()).joinToString(" · ") { args.optString(it) } }.orEmpty()),style=MaterialTheme.typography.bodySmall)
 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
 }
 TextButton(onClick={ session.previousLogins(form.id) },enabled=!s.historyBusy) { Text(t("Actualizar","Refresh")) }

@@ -182,7 +182,7 @@ if(action=="deleteaccount" && (cookie.isBlank() || fields.optString("password").
 pending=action; args=JSONObject(fields.toString()); rid=UUID.randomUUID().toString()
 state.update { it.copy(busy=true,reply=null,status="sent") }
 val generation=epoch
-timer?.cancel(); timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(epoch==generation && pending.isNotBlank()) pause("unknown") } }
+timer?.cancel(); timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generation==epoch && pending.isNotBlank()) pause("unknown") } }
 if(action=="deleteaccount") {
 val url=identity.first.toHttpUrlOrNull()?.newBuilder()?.username("")?.password("")?.addPathSegment("deleteaccount")?.query(null)?.fragment(null)?.build()
 if(url==null || url.scheme!="https") { finish(null,"https"); return false }
@@ -332,7 +332,7 @@ fun instant(item:JSONObject):Instant? { val value=item.opt("t"); return runCatch
 for(item in rows.sortedByDescending { instant(it)?.toEpochMilli() ?: Long.MIN_VALUE }.take(200)) {
 val date=instant(item)?.atZone(ZoneId.systemDefault())?.format(DateTimeFormatter.ofPattern(if(hours24) "yyyy-MM-dd HH:mm:ss" else "yyyy-MM-dd hh:mm:ss a")).orEmpty()
 val details=item.optJSONArray("a")?.let { a->(0 until a.length()).joinToString(" · ") { a.optString(it) } }.orEmpty()
-Text("$date · ${item.optInt("m")}\n$details"); HorizontalDivider()
+Text("$date · ${loginHistoryLabel(item.opt("m"),es)}\n$details"); HorizontalDivider()
 }
 }
 4,6->{
