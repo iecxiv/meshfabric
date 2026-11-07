@@ -152,8 +152,10 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
             Text(memoryBody,style=MaterialTheme.typography.bodySmall)
         }
     }
-    Text(label("Carga: medias de 1/5/15 min, no porcentaje de CPU. El círculo representa 1 min con escala automática 0–","Load: 1/5/15-minute averages, not CPU percent. The ring shows 1 minute on automatic scale 0–")+generalDecimal(stats?.loadScale,0),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-    Text(label("Libre: ","Free: ")+generalMemory(stats?.free)+label(" · Disponible: "," · Available: ")+generalMemory(stats?.available),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.Top) {
+        Text(label("Carga: medias de 1/5/15 min, no porcentaje de CPU. El círculo representa 1 min con escala automática 0–","Load: 1/5/15-minute averages, not CPU percent. The ring shows 1 minute on automatic scale 0–")+generalDecimal(stats?.loadScale,0),modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label("Libre: ","Free: ")+generalMemory(stats?.free)+label(" · Disponible: "," · Available: ")+generalMemory(stats?.available),modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
     Text(stringResource(R.string.my_server_status),style=MaterialTheme.typography.titleMedium)
     val rows=listOf(
         Triple("UserAccounts",stringResource(R.string.my_server_users),Icons.Default.People),
