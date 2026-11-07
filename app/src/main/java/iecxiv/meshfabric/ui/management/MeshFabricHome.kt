@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.management
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -14,6 +15,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,11 +44,14 @@ val LocalDeviceActionMenu=staticCompositionLocalOf<@Composable (MeshNode)->Unit>
 private fun json(vararg pairs:Pair<String,Any?>)=JSONObject().apply { pairs.forEach { (k,v)->put(k,v) } }
 private fun JSONObject.value(k:String)=if(isNull(k)) "" else optString(k,"")
 private data class State(val ready:Boolean=false,val status:String="Sin conexión de acciones",val notes:DeviceNotes?=null)
-private class Management(private val source:MeshCentralClient,private val desktop:DesktopRelayClient):ViewModel() {
+private class Management(private val source:MeshCentralClient,private val desktop:DesktopRelayClient,context:Context):ViewModel() {
     val state=MutableStateFlow(State())
+    val inbox=NoticeInbox(context,source)
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     @Volatile private var socket:WebSocket?=null
     @Volatile private var generation=0L
+    private var identity=Triple("","",false)
+    private fun same()=identity==Triple(source.serverUrl,source.authCookie,source.ignoreSsl) && !source.isUserLogout
     private var connecting=false
     private var notesJob:Job?=null
     private var notesEpoch=0L
@@ -56,7 +61,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
         resolveName={ id->source.groupedDevices.value.asSequence().flatMap { it.second.asSequence() }.firstOrNull { it.id==id }?.name.orEmpty() },
         currentActor={ source.userInfo.value?.name.orEmpty() })
     val feedback=RemoteActionFeedback(scope,
-        sendPacket={ packet->state.value.ready && socket?.send(packet.toString())==true },
+        sendPacket={ packet->state.value.ready && same() && socket?.send(packet.toString())==true },
         nativeClipboard={ id,text->
             if(!desktop.isConnectedToNode(id)) null else {
                 val session=desktop.getSession(source,id)
@@ -65,26 +70,32 @@ private class Management(private val source:MeshCentralClient,private val deskto
             }
         })
     @Synchronized fun connect() {
-        if(connecting || state.value.ready || source.authCookie.isBlank()) return
+        inbox.checkIdentity()
+        if(!same() && (connecting || state.value.ready)) pause()
+        if(connecting || state.value.ready || source.authCookie.isBlank() || source.isUserLogout) return
+        identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
         val epoch=++generation
         connecting=true; state.update { it.copy(status="Conectando acciones…") }
-        socket=OkHttpHelper.createClient(source.ignoreSsl).newWebSocket(Request.Builder()
-            .url(OkHttpHelper.toWebSocketUrl(source.serverUrl,"/control.ashx?moreargs=1"))
-            .header("Cookie",source.authCookie).build(),object:WebSocketListener() {
+        socket=OkHttpHelper.createClient(identity.third).newWebSocket(Request.Builder()
+            .url(OkHttpHelper.toWebSocketUrl(identity.first,"/control.ashx?moreargs=1"))
+            .header("Cookie",identity.second).build(),object:WebSocketListener() {
             override fun onOpen(webSocket:WebSocket,response:Response) {
-                if(epoch!=generation) { webSocket.cancel(); return }
-                webSocket.send(json("action" to "urlargs","args" to json("auth" to source.extractRawToken(source.authCookie))).toString())
+                if(epoch!=generation || !same()) { webSocket.cancel(); fail(epoch); return }
+                webSocket.send(json("action" to "urlargs","args" to json("auth" to source.extractRawToken(identity.second))).toString())
                 webSocket.send(json("action" to "userinfo").toString())
             }
             override fun onMessage(webSocket:WebSocket,text:String) {
                 synchronized(this@Management) {
                     if(epoch!=generation || text.length>2000000) return
+                    if(!same()) { pause(); return }
                     val j=runCatching { JSONObject(text) }.getOrNull() ?: return
+                    inbox.receive(j)
                     activity.reply(j)
                     if(feedback.receive(j)) return
                     when(j.value("action")) {
                         "ping"->webSocket.send(json("action" to "pong").toString())
                         "userinfo"->if(!j.optJSONObject("userinfo")?.value("_id").isNullOrBlank()) {
+                            inbox.bind(j.getJSONObject("userinfo").getString("_id"),identity)
                             connecting=false; state.update { it.copy(ready=true,status="Acciones conectadas") }
                         }
                         "authcookie","serverinfo","pong"->Unit
@@ -109,6 +120,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
     }
     @Synchronized private fun fail(epoch:Long) { if(epoch==generation) pause() }
     @Synchronized fun pause() {
+        inbox.checkIdentity()
         feedback.interrupted(); activity.interrupted()
         generation++; connecting=false; socket?.cancel(); socket=null
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
@@ -116,7 +128,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
             notes=it.notes?.failed("Sin conexión. El borrador local se conserva; el guardado no está confirmado.")) }
     }
     @Synchronized fun send(title:String,payload:JSONObject,write:Boolean):Boolean {
-        if(!state.value.ready) return false
+        if(!state.value.ready || !same()) return false
         val id=UUID.randomUUID().toString()
         val request=JSONObject(payload.toString()).put("responseid",id)
         val sent=if(feedback.handles(request)) feedback.submit(title,request) else socket?.send(request.toString())==true
@@ -199,19 +211,22 @@ private class Management(private val source:MeshCentralClient,private val deskto
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
         state.update { it.copy(notes=null) }
     }
-    @Synchronized fun clear() { pause(); feedback.clear(); activity.clear(); state.value=State() }
-    override fun onCleared() { clear(); scope.cancel() }
+    @Synchronized fun clear() { pause(); inbox.clear(); feedback.clear(); activity.clear(); state.value=State() }
+    override fun onCleared() { clear(); inbox.close(); scope.cancel() }
 }
 private data class Operation(val title:String,val fields:List<Pair<String,String>>,val requiresAgent:Boolean=false,
     val icon:ImageVector=Icons.Default.Computer,val dangerous:Boolean=false,val directSend:Boolean=false,val build:(Map<String,String>)->JSONObject)
 
 @Composable fun MeshFabricHome(viewModel:DeviceListViewModel,onLogout:()->Unit,onOpenSettings:()->Unit,
     onOpenDesktop:(String,String)->Unit,onOpenTerminal:(String,String)->Unit,onOpenFiles:(String,String)->Unit) {
-    val factory=remember(viewModel.meshClient) { object:ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST") override fun <T:ViewModel> create(modelClass:Class<T>):T=Management(viewModel.meshClient,viewModel.desktopClient) as T
+    val appContext=LocalContext.current.applicationContext
+    val factory=remember(viewModel.meshClient,appContext) { object:ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST") override fun <T:ViewModel> create(modelClass:Class<T>):T=Management(viewModel.meshClient,viewModel.desktopClient,appContext) as T
     } }
     val management=androidx.lifecycle.viewmodel.compose.viewModel<Management>(factory=factory)
     val state by management.state.collectAsState()
+    val inboxState by management.inbox.state.collectAsState()
+    val unread=if(management.inbox.matchesCurrentSource()) inboxState.unread else 0
     val desktopSessions by viewModel.desktopSessionsStatus.collectAsState()
     val terminalSessions by viewModel.terminalSessionsStatus.collectAsState()
     val fileSessions by viewModel.fileSessionsStatus.collectAsState()
@@ -223,20 +238,22 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     var page by rememberSaveable { mutableIntStateOf(0) }
     var returnPage by rememberSaveable { mutableIntStateOf(0) }
     var profileReturnPage by rememberSaveable { mutableIntStateOf(0) }
+    var noticeReturnPage by rememberSaveable { mutableIntStateOf(0) }
     var operation by remember { mutableStateOf<Operation?>(null) }
     var operationNode by remember { mutableStateOf("") }
-    BackHandler(enabled=page==2 || page==3) { page=if(page==3) profileReturnPage.coerceIn(0,2) else returnPage.coerceIn(0,1) }
-    LaunchedEffect(connected) { if(connected) management.connect() else management.pause() }
+    BackHandler(enabled=page in 2..4) { page=when(page) { 4->noticeReturnPage.coerceIn(0,3); 3->profileReturnPage.coerceIn(0,2); else->returnPage.coerceIn(0,1) } }
+    LaunchedEffect(connected,viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie) { if(connected) management.connect() else management.pause() }
     LaunchedEffect(nodes) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
-        topBar={ if(page==2 || page==3) MeshFabricAppBar(viewModel,onOpenSettings) },
-        bottomBar={ CompactBottomNavigation(page) { next->
-            if(next in 0..3 && next!=page) {
+        topBar={ if(page in 2..4) MeshFabricAppBar(viewModel,onOpenSettings) },
+        bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
+            if(next in 0..4 && next!=page) {
                 if(next==2 && page in 0..1) returnPage=page
-                if(next==3) profileReturnPage=page.coerceIn(0,2)
+                if(next==3 && page in 0..2) profileReturnPage=page
+                if(next==4) noticeReturnPage=page.coerceIn(0,3)
                 page=next
             }
-        } }) { padding->
+        } } }) { padding->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
                 val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
@@ -253,6 +270,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 MyServerScreen(viewModel.meshClient,Modifier.fillMaxSize())
             } else if(page==3) {
                 ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize())
+            } else if(page==4) {
+                NoticeInboxScreen(management.inbox,state.ready,Modifier.fillMaxSize())
             } else MeshFabricActivityScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
                 actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
         }
