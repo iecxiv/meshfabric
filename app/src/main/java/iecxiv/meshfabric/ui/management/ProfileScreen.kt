@@ -36,14 +36,8 @@ if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation
 } }
 LaunchedEffect(state.ready) { if(!state.ready) form=null }
 Column(modifier) {
-ScrollableTabRow(selectedTabIndex=tab,edgePadding=0.dp) {
-listOf(t("Mi usuario","My user"),t("Usuarios","Users"),t("Grupos de dispositivos","Device groups")).forEachIndexed { index,label->Tab(selected=tab==index,onClick={ tab=index },text={ Text(label) }) }
-}
+ManagementSectionTabs(listOf(t("Mi usuario","My user"),t("Usuarios","Users"),t("Grupos de dispositivos","Device groups")),tab) { tab=it }
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else {
-Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),horizontalArrangement=Arrangement.End) {
-TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
-}
-if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 val message=when(state.notice) {
 "ready"->""
 "confirmed"->t("Solicitud confirmada por el servidor; actualizando.","Server acknowledged the request; refreshing.")
@@ -53,24 +47,38 @@ val message=when(state.notice) {
 "readFailed"->t("Listado incompleto. Modificaciones bloqueadas hasta actualizar.","Incomplete list. Changes blocked until refresh.")
 else->t("Sin conexión o cargando.","Offline or loading.")
 }
-if(message.isNotBlank()) Text(message,Modifier.padding(12.dp),style=MaterialTheme.typography.bodySmall)
 val users=tab==1
 val permitted=!users || ProfilePermissions.manageUsers(state.site)
 val rows=if(users) state.users else state.groups
-Button(enabled=state.canWrite && permitted && (users || ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") },modifier=Modifier.padding(12.dp)) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
-if(!permitted) Text(t("Sin permiso para administrar usuarios.","No permission to manage users."),Modifier.padding(16.dp)) else LazyColumn(Modifier.weight(1f),contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-if(rows.isEmpty() && !state.loading) item { Text(if(state.ready && !state.readError) t("No hay elementos.","No items.") else t("Listado no disponible.","List unavailable.")) }
+LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+item {
+Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+ServerGeneralActions {
+TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
+TextButton(enabled=state.canWrite && permitted && (users || ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
+}
+Text(if(users) t("Usuarios","Users") else t("Grupos de dispositivos","Device groups"),style=MaterialTheme.typography.titleMedium)
+}
+}
+if(!permitted) item { ManagementCard { Text(t("Sin permiso para administrar usuarios.","No permission to manage users."),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant) } } else {
+if(rows.isEmpty() && !state.loading) item { ManagementCard { Text(if(state.ready && !state.readError) t("No hay elementos.","No items.") else t("Listado no disponible.","List unavailable."),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
 items(rows,key={ it.optString("_id") }) { row->
 val id=row.optString("_id")
 val name=row.optString("name").ifBlank { id }
-Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp)) {
-Text(name,style=MaterialTheme.typography.titleSmall); Text(id,style=MaterialTheme.typography.bodySmall)
-Text(row.optString(if(users) "email" else "desc"),style=MaterialTheme.typography.bodySmall)
-Row {
+ManagementCard {
+Text(name,style=MaterialTheme.typography.titleSmall)
+Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+val detail=row.optString(if(users) "email" else "desc")
+if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium)
+HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
 TextButton(enabled=state.canWrite && (if(users) ProfilePermissions.manageUsers(state.site) else ProfilePermissions.editGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"edit",id,name,row.optString("email"),row.optString("desc")) }) { Text(t("Editar","Edit")) }
-TextButton(enabled=state.canWrite && (if(users) ProfilePermissions.manageUsers(state.site) && id!=state.id else ProfilePermissions.deleteGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"delete",id,name) }) { Text(t("Eliminar","Delete"),color=MaterialTheme.colorScheme.error) }
+TextButton(enabled=state.canWrite && (if(users) ProfilePermissions.manageUsers(state.site) && id!=state.id else ProfilePermissions.deleteGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"delete",id,name) },colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)) { Text(t("Eliminar","Delete")) }
 }
-} }
+}
+}
 }
 }
 }

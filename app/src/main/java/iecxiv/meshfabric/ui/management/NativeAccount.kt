@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -232,20 +234,37 @@ val status=when(state.status) {
 "https"->t("Esta operación requiere HTTPS.","This operation requires HTTPS.")
 else->t("Cuenta desconectada o conectando.","Account offline or connecting.")
 }
-Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-Text(t("Mi cuenta","My account"),style=MaterialTheme.typography.titleMedium)
-Text(state.user?.optString("name").orEmpty()); Text(state.user?.optString("email").orEmpty())
-if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall)
-if(alerts && state.alert.isNotBlank()) Text(state.alert,style=MaterialTheme.typography.bodySmall)
-if(!state.ready) OutlinedButton(enabled=state.status!="deleteUnknown",onClick=wire::start) { Text(t("Reconectar cuenta","Reconnect account")) }
-if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-labels.forEachIndexed { index,label->
-if(index==0) Text(t("Seguridad de la cuenta","Account security"),style=MaterialTheme.typography.titleMedium)
-if(index==3) Text(t("Acciones","Actions"),style=MaterialTheme.typography.titleMedium)
-OutlinedButton(enabled=state.ready && !state.busy,onClick={
+fun openAction(index:Int) {
 wire.clearResult(); mode=index
 when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"); 2->wire.request("otpauth-getpasswords"); 3->wire.request("previousLogins"); 9->wire.request("loginTokens") }
-},modifier=Modifier.fillMaxWidth()) { Text(label) }
+}
+val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
+Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+if(alerts && state.alert.isNotBlank()) Text(state.alert,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+if(!state.ready) TextButton(enabled=state.status!="deleteUnknown",onClick=wire::start) { Text(t("Reconectar cuenta","Reconnect account")) }
+if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+Text(t("Mi cuenta","My account"),style=MaterialTheme.typography.titleMedium)
+ManagementCard {
+ManagementInfoRow(t("Nombre de usuario","Username"),state.user?.optString("name").orEmpty())
+HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+ManagementInfoRow(t("Correo electrónico","Email"),state.user?.optString("email").orEmpty())
+HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+ManagementInfoRow(t("ID de cuenta","Account ID"),actor)
+}
+Text(t("Seguridad de la cuenta","Account security"),style=MaterialTheme.typography.titleMedium)
+ManagementCard {
+(0..2).forEach { index->
+ManagementActionRow(labels[index],icons[index],state.ready && !state.busy,onClick={ openAction(index) })
+if(index<2) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+}
+}
+Text(t("Acciones","Actions"),style=MaterialTheme.typography.titleMedium)
+ManagementCard {
+(3..9).forEach { index->
+ManagementActionRow(labels[index],icons[index],state.ready && !state.busy,dangerous=index==8,onClick={ openAction(index) })
+if(index<9) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+}
 }
 }
 mode?.let { selected->key(selected) {
