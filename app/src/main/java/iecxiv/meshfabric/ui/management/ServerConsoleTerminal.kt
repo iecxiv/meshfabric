@@ -2,10 +2,12 @@ package iecxiv.meshfabric.ui.management
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.*
+import android.widget.FrameLayout
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -27,23 +29,52 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.io.ByteArrayInputStream
 
-private class ServerConsoleRenderer(private val context:Context,private val status:(Boolean,String)->Unit) {
+private class ServerConsoleRenderer(context:Context,private val status:(Boolean?,String)->Unit) {
+    private val appContext=context.applicationContext
+    private val wrapper=MutableContextWrapper(appContext)
     private var destroyed=false
     private var broken=false
+    private var started=false
     private var ready=false
     private var busy=false
     private var latest=""
     private var sent=""
     private var sequence=0L
     private var startupDeadline=0L
-    val view=WebView(context)
+    private var phase="created"
+    private val view=object:WebView(wrapper) {
+        override fun onAttachedToWindow() {
+            super.onAttachedToWindow()
+            post { if(!destroyed && !broken) { publish(null,"attached"); startIfMeasured() } }
+        }
+        override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
+            super.onSizeChanged(w,h,oldw,oldh)
+            post {
+                if(!destroyed && !broken) {
+                    publish(null,phase)
+                    startIfMeasured()
+                    if(ready) evaluateJavascript("window.dispatchEvent(new Event('resize'));",null)
+                }
+            }
+        }
+        override fun onDetachedFromWindow() {
+            super.onDetachedFromWindow()
+            if(!destroyed) { onPause(); wrapper.baseContext=appContext }
+        }
+    }
+    init { configure() }
+    private fun publish(ok:Boolean?,next:String) {
+        if(destroyed) return
+        phase=next
+        status(ok,"$next · ${view.width}x${view.height} · attached=${view.isAttachedToWindow}")
+    }
     private fun fail(stage:String) {
         if(destroyed || broken) return
         broken=true; ready=false; busy=false
-        status(false,stage)
+        publish(false,stage)
     }
     @SuppressLint("SetJavaScriptEnabled","ClickableViewAccessibility")
-    fun initialize() {
+    private fun configure() {
         view.setBackgroundColor(android.graphics.Color.rgb(13,17,23))
         view.settings.apply {
             javaScriptEnabled=true
@@ -56,6 +87,9 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
             blockNetworkLoads=true
             cacheMode=WebSettings.LOAD_NO_CACHE
             safeBrowsingEnabled=true
+            useWideViewPort=false
+            loadWithOverviewMode=false
+            setSupportZoom(false)
         }
         view.isVerticalScrollBarEnabled=false
         view.setDownloadListener { _,_,_,_,_-> }
@@ -75,15 +109,29 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
                 val path=serverConsoleAsset(request.url.toString()) ?: return blocked()
                 return try {
                     val mime=when { path.endsWith(".html")->"text/html"; path.endsWith(".css")->"text/css"; else->"application/javascript" }
-                    WebResourceResponse(mime,"utf-8",200,"OK",mapOf("Cache-Control" to "no-store","X-Content-Type-Options" to "nosniff"),context.assets.open(path))
+                    WebResourceResponse(mime,"utf-8",200,"OK",mapOf("Cache-Control" to "no-store","X-Content-Type-Options" to "nosniff"),appContext.assets.open(path))
                 } catch(_:Exception) { blocked() }
             }
-            override fun onPageFinished(webView:WebView,url:String) { if(!destroyed && !broken && url==SERVER_CONSOLE_URL) checkReady() }
+            override fun onPageFinished(webView:WebView,url:String) { if(!destroyed && !broken && url==SERVER_CONSOLE_URL) { publish(null,"page-loaded"); checkReady() } }
             override fun onReceivedError(webView:WebView,request:WebResourceRequest,error:WebResourceError) { if(request.isForMainFrame) fail("load") }
             override fun onReceivedHttpError(webView:WebView,request:WebResourceRequest,response:WebResourceResponse) { if(request.isForMainFrame) fail("asset-http") }
             override fun onRenderProcessGone(webView:WebView,detail:RenderProcessGoneDetail):Boolean { fail("webview"); return true }
         }
+    }
+    fun attach(context:Context,parent:FrameLayout) {
+        if(destroyed || broken || view.parent===parent) return
+        (view.parent as? ViewGroup)?.removeView(view)
+        wrapper.baseContext=context
+        parent.addView(view,FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT))
+        view.onResume()
+        parent.post { if(!destroyed && !broken && view.parent===parent) startIfMeasured() }
+    }
+    private fun startIfMeasured() {
+        if(destroyed || broken || started) return
+        if(!view.isAttachedToWindow || view.width<=0 || view.height<=0) { publish(null,"waiting-layout"); return }
+        started=true
         startupDeadline=SystemClock.elapsedRealtime()+10000L
+        publish(null,"loading-assets")
         view.loadUrl(SERVER_CONSOLE_URL)
         view.postDelayed({ if(!destroyed && !broken && !ready) fail("startup-timeout") },10000L)
     }
@@ -92,7 +140,7 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
         if(destroyed || broken || ready) return
         view.evaluateJavascript("window.serverConsoleFailed ? 'failed' : (window.serverConsoleReady && window.serverConsoleRender ? 'ready' : 'pending')") { value->
             if(!destroyed && !broken && !ready) when {
-                value=="\"ready\""->{ ready=true; deliver() }
+                value=="\"ready\""->{ ready=true; publish(null,"ready"); deliver() }
                 value=="\"failed\""->fail("initialize")
                 SystemClock.elapsedRealtime()>=startupDeadline->fail("startup-timeout")
                 else->view.postDelayed({ checkReady() },100L)
@@ -105,6 +153,7 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
         val payload=latest
         val token=++sequence
         busy=true
+        publish(null,"writing#$token")
         view.evaluateJavascript("window.serverConsoleRender && window.serverConsoleRender($payload,$token)") { value->
             if(!destroyed && !broken) {
                 if(value!="true") fail("accept") else checkWritten(token,payload,SystemClock.elapsedRealtime()+5000L)
@@ -115,7 +164,7 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
         if(destroyed || broken || token!=sequence) return
         view.evaluateJavascript("window.serverConsoleFailed ? 'failed' : (window.serverConsoleRendered === $token ? 'done' : 'pending')") { value->
             if(!destroyed && !broken && token==sequence) when {
-                value=="\"done\""->{ sent=payload; busy=false; status(true,"written"); deliver() }
+                value=="\"done\""->{ sent=payload; busy=false; view.postInvalidateOnAnimation(); publish(true,"written#$token"); deliver() }
                 value=="\"failed\""->fail("write")
                 SystemClock.elapsedRealtime()>=deadline->fail("write-timeout")
                 else->view.postDelayed({ checkWritten(token,payload,deadline) },100L)
@@ -126,6 +175,7 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
         if(destroyed) return
         destroyed=true; ready=false; busy=false; latest=""; sent=""
         (view.parent as? ViewGroup)?.removeView(view)
+        wrapper.baseContext=appContext
         view.stopLoading(); view.clearHistory(); view.removeAllViews(); view.destroy()
     }
 }
@@ -139,10 +189,10 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
     var font by rememberSaveable { mutableIntStateOf(13) }
     var revision by remember { mutableIntStateOf(0) }
     var failed by remember { mutableStateOf(false) }
-    var stage by remember { mutableStateOf("") }
+    var stage by remember { mutableStateOf("created") }
     var loaded by remember { mutableStateOf(false) }
     var showText by remember { mutableStateOf(false) }
-    val renderer=remember(context,revision) { ServerConsoleRenderer(context.applicationContext) { ok,reason->loaded=ok; failed=!ok; stage=reason } }
+    val renderer=remember(context,revision) { ServerConsoleRenderer(context.applicationContext) { ok,reason->if(ok!=null) { loaded=ok; failed=!ok }; stage=reason } }
     DisposableEffect(renderer) { onDispose { renderer.close() } }
     val payload=remember(snapshot,font,es) { serverConsolePayload(snapshot,label("Consola administrativa MeshCentral","MeshCentral administrative console"),label("Sin salida recibida.","No output received."),font,if(es) "es" else "en") }
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -153,12 +203,13 @@ private class ServerConsoleRenderer(private val context:Context,private val stat
             TextButton(onClick=onClear) { Text(label("Limpiar","Clear")) }
         }
         Text(label("Búfer local: ${output.size} entradas · ${snapshot.length} caracteres","Local buffer: ${output.size} entries · ${snapshot.length} characters"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label("Visor xterm: ","xterm view: ")+stage,style=MaterialTheme.typography.labelSmall,color=if(failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=Color(0xFF0D1117),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             if(failed) Column(Modifier.fillMaxWidth().heightIn(min=120.dp).padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                Text(label("Falló el visor xterm ($stage). La salida local sigue disponible debajo; no se han reenviado comandos.","xterm view failed ($stage). Local output remains available below; no commands were resent."),color=Color(0xFFFF7B72))
-                TextButton(onClick={ loaded=false; failed=false; stage=""; revision++ }) { Text(label("Recrear solo la vista local","Recreate local view only")) }
+                Text(label("Falló el visor local. La salida sigue disponible debajo; no se han reenviado comandos.","Local view failed. Output remains available below; no commands were resent."),color=Color(0xFFFF7B72))
+                TextButton(onClick={ loaded=false; failed=false; stage="created"; revision++ }) { Text(label("Recrear solo la vista local","Recreate local view only")) }
             } else key(renderer) {
-                AndroidView(modifier=Modifier.fillMaxWidth().height(320.dp),factory={ renderer.initialize(); renderer.view },onReset=null,onRelease={ renderer.close() },update={ renderer.submit(payload) })
+                AndroidView(modifier=Modifier.fillMaxWidth().height(320.dp),factory={ ctx->FrameLayout(ctx) },onReset=null,onRelease={ renderer.close() },update={ parent->renderer.attach(context,parent); renderer.submit(payload) })
             }
         }
         if(!loaded && !failed) LinearProgressIndicator(Modifier.fillMaxWidth())
