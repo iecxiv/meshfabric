@@ -347,10 +347,15 @@ action("Eliminar clave","Remove key",confirmation && first.toIntOrNull()!=null) 
 Text(t("Cada código es de un solo uso. Generar otros invalida los anteriores.","Each code is single-use. Generating new codes invalidates the previous ones."))
 val list=reply?.optJSONArray("passwords")
 val values=list?.let { nativeBackupValues((0 until it.length()).map(it::opt)) }
+Row {
+Checkbox(checked=reveal,onCheckedChange={ reveal=it },enabled=!state.busy && values?.isNotEmpty()==true)
+Text(t("Mostrar códigos","Show codes"))
+}
 when {
 state.busy->Text(t("Consultando códigos…","Loading codes…"))
 values==null->Text(t("No se recibió una lista válida de códigos. Puede que la función no esté disponible para esta cuenta o servidor.","No valid code list was received. The feature may be unavailable for this account or server."),style=MaterialTheme.typography.bodySmall)
 values.isEmpty()->Text(t("El servidor devolvió una lista vacía: no hay códigos de respaldo.","The server returned an empty list: no backup codes."))
+!reveal->Text(t("Códigos ocultos. Activa Mostrar códigos para verlos.","Codes hidden. Enable Show codes to view them."),style=MaterialTheme.typography.bodySmall)
 else->{ SelectionContainer { Text(values.joinToString("\n"),style=MaterialTheme.typography.bodyLarge) }; action("Copiar códigos","Copy codes") { copy(values.joinToString("\n")) } }
 }
 action("Volver a consultar","Reload codes",state.ready) { run("otpauth-getpasswords") }
