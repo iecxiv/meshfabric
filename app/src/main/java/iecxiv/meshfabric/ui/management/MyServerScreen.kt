@@ -10,6 +10,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -276,9 +277,13 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
         serverHistoryPeriods.forEach { period->FilterChip(selected=hours==period,enabled=ready && !busy,onClick={ onLoad(period) },label={ Text(if(period==720) { if(es) "30 días" else "30 days" } else "$period h") }) }
     }
-    Row {
-        TextButton(onClick={ onLoad(hours) },enabled=ready && !busy) { Text(if(es) "Actualizar" else "Refresh") }
-        FilterChip(selected=logarithmic,onClick={ logarithmic=!logarithmic },label={ Text(if(es) "Escala logarítmica" else "Log scale") })
+    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+        Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically) {
+            TextButton(onClick={ onLoad(hours) },enabled=ready && !busy) { Text(if(es) "Actualizar" else "Refresh") }
+            FilterChip(selected=logarithmic,onClick={ logarithmic=!logarithmic },label={ Text(if(es) "Escala logarítmica" else "Log scale") })
+        }
+        val exportable=parsed.isSuccess && filtered.any { point->keys.any { point.values[it]!=null } }
+        ServerCsvDownload(enabled=ready && !busy && exportable,fileName="ServerStarts.csv",create={ serverHistoryCsv(filtered,keys,hours) })
     }
     if(servers.size>1) Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
         servers.forEach { id->FilterChip(selected=selected==id,onClick={ server=id },label={ Text(id.ifBlank { if(es) "Servidor local" else "Local server" }) }) }
