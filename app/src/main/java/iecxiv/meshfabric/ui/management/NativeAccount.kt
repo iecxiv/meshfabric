@@ -15,7 +15,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
@@ -39,6 +41,15 @@ import java.util.UUID
 
 internal fun nativePasswordResult(id:Int):Boolean? = when(id) { 20->true; 17,18,19,21->false; else->null }
 internal fun nativeTotpValid(secret:String,token:String)=secret.matches(Regex("[A-Z2-7]{16,128}")) && token.matches(Regex("[0-9]{6}"))
+private fun parseNativeBackupResponse(p:JSONObject?):List<NativeBackupCode>? {
+if(p==null || !p.has("passwords")) return null
+if(p.isNull("passwords")) return emptyList()
+val a=p.optJSONArray("passwords") ?: return null
+return nativeBackupCodes((0 until a.length()).map { index->
+val value=a.opt(index)
+if(value is JSONObject) mapOf("p" to value.opt("p"),"u" to value.opt("u")) else value
+})
+}
 private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val alert:String="")
 private class AccountWire(private val source:MeshCentralClient,private val actor:String) {
 val state=MutableStateFlow(AccountState())
@@ -107,7 +118,6 @@ if(id !in 0..Int.MAX_VALUE.toLong() || value.toDouble()!=id.toDouble() || !ids.a
 return true
 }
 private fun objectArray(a:JSONArray?)=a!=null && (0 until a.length()).all { a.optJSONObject(it)!=null }
-private fun backupValues(a:JSONArray?):List<String>?=a?.let { nativeBackupValues((0 until it.length()).map(it::opt)) }
 private fun tokenIds(a:JSONArray?):Set<String>? {
 if(a==null) return null
 val ids=(0 until a.length()).map { (a.optJSONObject(it)?.opt("tokenUser") as? String) ?: return null }
@@ -163,7 +173,7 @@ return
 val valid=when(action) {
 "otpauth-request"->p.optString("secret").matches(Regex("[A-Z2-7]{16,128}"))
 "otpauth-setup","otpauth-clear"->p.opt("success")==true
-"otpauth-getpasswords"->backupValues(p.optJSONArray("passwords"))!=null
+"otpauth-getpasswords"->parseNativeBackupResponse(p)!=null
 "otp-hkey-get"->p.optJSONArray("keys")?.let(::validKeys)==true
 "previousLogins"->objectArray(p.optJSONArray("events"))
 "loginTokens"->tokenIds(p.optJSONArray("loginTokens"))!=null
@@ -345,8 +355,7 @@ action("Eliminar clave","Remove key",confirmation && first.toIntOrNull()!=null) 
 }
 2->{
 Text(t("Cada código es de un solo uso. Generar otros invalida los anteriores.","Each code is single-use. Generating new codes invalidates the previous ones."))
-val list=reply?.optJSONArray("passwords")
-val values=list?.let { nativeBackupValues((0 until it.length()).map(it::opt)) }
+val values=parseNativeBackupResponse(reply)
 Row {
 Checkbox(checked=reveal,onCheckedChange={ reveal=it },enabled=!state.busy && values?.isNotEmpty()==true)
 Text(t("Mostrar códigos","Show codes"))
@@ -356,7 +365,15 @@ state.busy->Text(t("Consultando códigos…","Loading codes…"))
 values==null->Text(t("No se recibió una lista válida de códigos. Puede que la función no esté disponible para esta cuenta o servidor.","No valid code list was received. The feature may be unavailable for this account or server."),style=MaterialTheme.typography.bodySmall)
 values.isEmpty()->Text(t("El servidor devolvió una lista vacía: no hay códigos de respaldo.","The server returned an empty list: no backup codes."))
 !reveal->Text(t("Códigos ocultos. Activa Mostrar códigos para verlos.","Codes hidden. Enable Show codes to view them."),style=MaterialTheme.typography.bodySmall)
-else->{ SelectionContainer { Text(values.joinToString("\n"),style=MaterialTheme.typography.bodyLarge) }; action("Copiar códigos","Copy codes") { copy(values.joinToString("\n")) } }
+else->{
+for(code in values) Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+Text(code.code,Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge,fontFamily=FontFamily.Monospace,textDecoration=if(code.available) TextDecoration.None else TextDecoration.LineThrough,color=if(code.available) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+Text(if(code.available) t("Disponible","Available") else t("Utilizado","Used"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+}
+val copyable=nativeBackupCopyValues(values)
+if(copyable.isEmpty()) Text(t("Todos los códigos recibidos están utilizados.","All received codes have been used."),style=MaterialTheme.typography.bodySmall)
+action("Copiar códigos disponibles","Copy available codes",copyable.isNotEmpty()) { if(reveal) copy(copyable.joinToString("\n")) }
+}
 }
 action("Volver a consultar","Reload codes",state.ready) { run("otpauth-getpasswords") }
 Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo invalidar los códigos anteriores.","I confirm invalidating the previous codes.")) }
