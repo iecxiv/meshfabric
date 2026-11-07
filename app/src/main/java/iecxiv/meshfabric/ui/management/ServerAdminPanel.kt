@@ -92,8 +92,9 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
             notice=if(it.pending=="trace") { if(sources==it.desired) "confirmed" else "changed" } else it.notice) }
     }
     private fun available()=state.value.ready && state.value.admin && state.value.pending.isEmpty() && !source.isUserLogout && identity==currentIdentity()
+    @Synchronized fun canCommand()=available()
     @Synchronized fun command(exact:String):Boolean {
-        if(!available() || exact.isBlank() || exact.length>1000) return false
+        if(!available() || !validServerConsoleCommand(exact)) return false
         state.update { it.copy(pending="console",token=it.token+1,notice="sent") }
         if(socket?.send(JSONObject().put("action","serverconsole").put("value",exact).toString())!=true) { fail(generation); return false }
         state.update { it.copy(console=boundedAdminOutput(it.console,"> "+exact)) }
@@ -126,7 +127,6 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     val state=channel?.state?.collectAsState()?.value ?: AdminState(failed=true,notice="connection")
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var retry by remember { mutableIntStateOf(0) }
-    var command by remember { mutableStateOf("") }
     var traceMenu by remember { mutableStateOf(false) }
     LaunchedEffect(channel,lifecycle,retry) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
         try { channel?.connect(); awaitCancellation() } finally { channel?.close() }
@@ -148,11 +148,8 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         else->""
     }
     if(!traceView) {
-        ServerConsoleTerminal(state.console,onClear={ channel?.clear(false) },commandInput={
-            OutlinedTextField(value=command,onValueChange={ if(it.length<=1000) command=it },label={ Text(label("Comando del servidor (no shell del dispositivo)","Server command (not device shell)")) },textStyle=MaterialTheme.typography.bodyMedium.copy(fontFamily=FontFamily.Monospace),modifier=Modifier.fillMaxWidth(),maxLines=4)
-            Button(onClick={ val exact=command; if(channel?.command(exact)==true) command="" },enabled=enabled && command.isNotBlank()) { Text(label("Enviar","Send")) }
-        })
-        Text(label("Enviar ejecuta el comando directamente, sin revisión ni confirmación. Puede modificar el servidor o reiniciarlo. No se reintentará automáticamente.","Send dispatches the command directly, without review or confirmation. It may modify or restart the server. No automatic retry."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        ServerConsoleTerminal(state.console,onClear={ channel?.clear(false) },enabled=enabled,canSend={ channel?.canCommand()==true },onCommand={ channel?.command(it)==true })
+        Text(label("Enter envía el comando directamente, sin revisión ni confirmación. Puede modificar el servidor o reiniciarlo. No se reintentará automáticamente.","Enter sends the command directly, without review or confirmation. It may modify or restart the server. No automatic retry."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text(privacy,style=MaterialTheme.typography.bodySmall)
         if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     } else {
