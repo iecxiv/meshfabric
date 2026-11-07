@@ -99,19 +99,19 @@ val generation=++epoch
 state.value=AccountState(status="connecting")
 runCatching {
 socket=OkHttpHelper.createClient(identity.third).newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(identity.first,"/control.ashx?moreargs=1")).header("Cookie",identity.second).build(),object:WebSocketListener() {
-override fun onOpen(ws:WebSocket,response:Response) { synchronized(this@AccountWire) {
-if(generation!=epoch || !same()) { ws.cancel(); return }
-ws.send(JSONObject().put("action","urlargs").put("args",JSONObject().put("auth",source.extractRawToken(identity.second))).toString())
-ws.send(JSONObject().put("action","userinfo").toString())
+override fun onOpen(webSocket:WebSocket,response:Response) { synchronized(this@AccountWire) {
+if(generation!=epoch || !same()) { webSocket.cancel(); return }
+webSocket.send(JSONObject().put("action","urlargs").put("args",JSONObject().put("auth",source.extractRawToken(identity.second))).toString())
+webSocket.send(JSONObject().put("action","userinfo").toString())
 } }
-override fun onMessage(ws:WebSocket,text:String) { synchronized(this@AccountWire) {
+override fun onMessage(webSocket:WebSocket,text:String) { synchronized(this@AccountWire) {
 if(generation!=epoch) return
 if(!same() || text.length>1_000_000) { pause("offline"); return }
 runCatching { receive(JSONObject(text)) }.onFailure { pause(if(pending.isBlank()) "malformed" else "unknown") }
 } }
-override fun onClosing(ws:WebSocket,code:Int,reason:String) { ws.close(code,"") }
-override fun onClosed(ws:WebSocket,code:Int,reason:String) { failed(generation) }
-override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) { failed(generation) }
+override fun onClosing(webSocket:WebSocket,code:Int,reason:String) { webSocket.close(code,"") }
+override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { failed(generation) }
+override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) { failed(generation) }
 })
 timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generation==epoch && !state.value.ready) pause("timeout") } }
 }.onFailure { pause("offline") }
@@ -411,7 +411,15 @@ Text(t("El servidor puede registrar aquí solo accesos web, no todos los accesos
 val list=reply?.optJSONArray("events")
 if(list!=null && list.length()==0) Text(t("No hay registros.","No records."))
 val rows=if(list==null) emptyList() else (0 until list.length()).mapNotNull { list.optJSONObject(it) }
-fun instant(item:JSONObject):Instant? { val value=item.opt("t"); return runCatching { (if(value is Number) Instant.ofEpochMilli(if(value.toLong()<100000000000L) Math.multiplyExact(value.toLong(),1000L) else value.toLong()) else Instant.parse(value.toString())).also { it.toEpochMilli() } }.getOrNull() }
+fun instant(item:JSONObject):Instant?=runCatching {
+val value=item.opt("t")
+val parsed:Instant=when(value) {
+is Number->Instant.ofEpochMilli(if(value.toLong()<100000000000L) Math.multiplyExact(value.toLong(),1000L) else value.toLong())
+is String->Instant.parse(value)
+else->return@runCatching null
+}
+parsed.also { it.toEpochMilli() }
+}.getOrNull()
 for(item in rows.sortedByDescending { instant(it)?.toEpochMilli() ?: Long.MIN_VALUE }.take(200)) {
 val date=instant(item)?.let { accountTime(it,dateLocale,hours24) }.orEmpty()
 val details=item.optJSONArray("a")?.let { a->(0 until a.length()).joinToString(" · ") { a.optString(it) } }.orEmpty()

@@ -53,20 +53,20 @@ val epoch=++generation
 state.value=ProfileState(notice="connecting")
 runCatching {
 socket=OkHttpHelper.createClient(binding.third).newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(binding.first,"/control.ashx?moreargs=1")).header("Cookie",binding.second).build(),object:WebSocketListener() {
-override fun onOpen(ws:WebSocket,response:Response) { synchronized(this@ProfileSession) {
-if(epoch!=generation || !valid()) { ws.cancel(); return }
-ws.send(JSONObject().put("action","urlargs").put("args",JSONObject().put("auth",source.extractRawToken(binding.second))).toString())
+override fun onOpen(webSocket:WebSocket,response:Response) { synchronized(this@ProfileSession) {
+if(epoch!=generation || !valid()) { webSocket.cancel(); return }
+webSocket.send(JSONObject().put("action","urlargs").put("args",JSONObject().put("auth",source.extractRawToken(binding.second))).toString())
 send("userinfo")
 } }
-override fun onMessage(ws:WebSocket,text:String) { synchronized(this@ProfileSession) {
+override fun onMessage(webSocket:WebSocket,text:String) { synchronized(this@ProfileSession) {
 if(epoch!=generation) return
 if(!valid() || text.length>2_000_000) { stop(); return }
 val packet=runCatching { JSONObject(text) }.getOrNull() ?: return
 receive(packet)
 } }
-override fun onClosing(ws:WebSocket,code:Int,reason:String) { ws.close(code,"") }
-override fun onClosed(ws:WebSocket,code:Int,reason:String) { failed(epoch) }
-override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) { failed(epoch) }
+override fun onClosing(webSocket:WebSocket,code:Int,reason:String) { webSocket.close(code,"") }
+override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { failed(epoch) }
+override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) { failed(epoch) }
 })
 timer=scope.launch { delay(20_000); synchronized(this@ProfileSession) { if(epoch==generation && !state.value.ready) stop("timeout") } }
 }.onFailure { stop() }
