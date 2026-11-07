@@ -85,11 +85,11 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun ServerGeneralActions(content:@Composable ColumnScope.()->Unit) {
+    Text(stringResource(R.string.my_server_actions),style=MaterialTheme.typography.titleMedium)
     Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
             Column(Modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
-                Text(stringResource(R.string.my_server_actions),style=MaterialTheme.typography.titleMedium)
                 content()
             }
         }

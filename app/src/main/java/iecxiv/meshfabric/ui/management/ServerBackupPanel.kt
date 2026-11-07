@@ -221,7 +221,6 @@ private data class BackupRequest(val password:String,val override:Boolean) { ove
     }
     val backupBusy=phase is BackupPhase.Checking || phase is BackupPhase.Sending || phase is BackupPhase.Working || pending!=null || dialog
     val busy=backupBusy || restoring
-    Text(stringResource(R.string.my_server_backup_title),style=MaterialTheme.typography.titleSmall)
     TextButton(enabled=source!=null && !busy,onClick={
         val current=source
         if(current!=null) {
