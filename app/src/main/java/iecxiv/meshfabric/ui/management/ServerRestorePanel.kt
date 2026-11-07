@@ -99,6 +99,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
     fun label(a:String,b:String)=if(es) a else b
     val scope=rememberCoroutineScope()
     val lifecycle=LocalLifecycleOwner.current.lifecycle
+    var intro by remember(source,enabled) { mutableStateOf(false) }
     var candidate by remember { mutableStateOf<RestoreCandidate?>(null) }
     var proposal by remember { mutableStateOf<RestoreProposal?>(null) }
     var password by remember { mutableStateOf("") }
@@ -113,9 +114,10 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
     var job by remember { mutableStateOf<Job?>(null) }
     var call by remember { mutableStateOf<Call?>(null) }
     fun clearFiles() { candidate?.file?.delete(); proposal?.candidate?.file?.delete(); candidate=null; proposal=null; password=""; typed=""; acceptUnverified=false }
-    LaunchedEffect(selecting,busy,candidate,proposal) { onBusy(selecting || busy || candidate!=null || proposal!=null) }
+    LaunchedEffect(intro,selecting,busy,candidate,proposal) { onBusy(intro || selecting || busy || candidate!=null || proposal!=null) }
     DisposableEffect(lifecycle) {
         val observer=LifecycleEventObserver { _,event->if(event==Lifecycle.Event.ON_STOP && !selecting) {
+            intro=false
             if(busy) { note=if(attempted) "unknown" else "cancelled"; call?.cancel(); job?.cancel() }
             clearFiles()
         } }
@@ -158,10 +160,19 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
             }
         }
     }
-    TextButton(enabled=enabled && source!=null && !busy && !selecting && candidate==null && proposal==null,onClick={
-        note=""; selecting=true
-        try { picker.launch(arrayOf("application/zip","application/octet-stream","application/x-zip-compressed")) } catch(_:Exception) { selecting=false; note="prepare-failed" }
+    TextButton(enabled=enabled && source!=null && !intro && !busy && !selecting && candidate==null && proposal==null,onClick={
+        note=""; intro=true
     }) { Text(label("Restaurar servidor desde copia…","Restore server from backup…")) }
+    if(intro) AlertDialog(onDismissRequest={ intro=false },title={ Text(label("Restaurar servidor desde copia","Restore server from backup")) },
+        text={ Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Text(label("Restauración web de copias NeDB con config.json y meshcentral.db. No es una restauración de MongoDB/SQL. Límite: 256 MiB ZIP, 1 GiB expandido, 20 000 entradas.","Web restore of NeDB backups containing config.json and meshcentral.db. Not MongoDB/SQL restore. Limits: 256 MiB ZIP, 1 GiB expanded, 20,000 entries."))
+            Text(label("Continuar abre el selector de archivos. La restauración se confirmará después de validar la copia.","Continue opens the file picker. Restore will be confirmed after validating the backup."))
+        } },
+        confirmButton={ TextButton(enabled=enabled && source!=null && !busy && !selecting && candidate==null && proposal==null,onClick={
+            intro=false; note=""; selecting=true
+            try { picker.launch(arrayOf("application/zip","application/octet-stream","application/x-zip-compressed")) } catch(_:Exception) { selecting=false; note="prepare-failed" }
+        }) { Text(label("Continuar","Continue")) } },
+        dismissButton={ TextButton(onClick={ intro=false }) { Text(label("Cancelar","Cancel")) } })
     val status=when(note) {
         "preparing"->label("Comprobando permisos y copiando el archivo a caché privada…","Checking permission and freezing the file in private cache…")
         "validating"->label("Validando el ZIP…","Validating ZIP…")
@@ -177,7 +188,6 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
     }
     if(status.isNotEmpty()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(note in setOf("unknown","invalid","rejected","prepare-failed")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-    Text(label("Restauración web de copias NeDB con config.json y meshcentral.db. No es una restauración de MongoDB/SQL. Límite: 256 MiB ZIP, 1 GiB expandido, 20 000 entradas.","Web restore of NeDB backups containing config.json and meshcentral.db. Not MongoDB/SQL restore. Limits: 256 MiB ZIP, 1 GiB expanded, 20,000 entries."),style=MaterialTheme.typography.bodySmall)
     candidate?.let { frozen->AlertDialog(onDismissRequest={ if(!busy) clearFiles() },title={ Text(label("Preparar restauración","Prepare restore")) },
         text={ Column(Modifier.heightIn(max=400.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(frozen.identity.url); Text(frozen.name); Text("${frozen.file.length()} bytes")
