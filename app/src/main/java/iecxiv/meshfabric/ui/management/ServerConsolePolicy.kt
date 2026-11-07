@@ -8,7 +8,7 @@ internal const val SERVER_CONSOLE_LIMIT=64000
 internal fun serverConsoleAsset(url:String):String?=runCatching {
     val uri=URI(url)
     if(uri.scheme!="https" || uri.host!="appassets.androidplatform.net" || uri.port !in listOf(-1,443) || uri.rawUserInfo!=null || uri.rawQuery!=null || uri.rawFragment!=null) return null
-    val allowed=setOf("/terminal/server-console.html","/terminal/server-console.js","/terminal/xterm.js","/terminal/xterm.css","/terminal/xterm-fit.js")
+    val allowed=setOf("/terminal/server-console.html","/terminal/server-console.js","/terminal/server-console-input.js","/terminal/xterm.js","/terminal/xterm.css","/terminal/xterm-fit.js")
     uri.rawPath.takeIf { it in allowed }?.removePrefix("/")
 }.getOrNull()
 internal fun serverConsolePlainText(text:String):String {
