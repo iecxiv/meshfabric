@@ -222,14 +222,21 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val uiScope=rememberCoroutineScope()
     var page by rememberSaveable { mutableIntStateOf(0) }
     var returnPage by rememberSaveable { mutableIntStateOf(0) }
+    var profileReturnPage by rememberSaveable { mutableIntStateOf(0) }
     var operation by remember { mutableStateOf<Operation?>(null) }
     var operationNode by remember { mutableStateOf("") }
-    BackHandler(enabled=page==2) { page=returnPage.coerceIn(0,1) }
+    BackHandler(enabled=page==2 || page==3) { page=if(page==3) profileReturnPage.coerceIn(0,2) else returnPage.coerceIn(0,1) }
     LaunchedEffect(connected) { if(connected) management.connect() else management.pause() }
     LaunchedEffect(nodes) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
-        topBar={ if(page==2) MeshFabricAppBar(viewModel,onOpenSettings) },
-        bottomBar={ CompactBottomNavigation(page) { next->if(next==2 && page!=2) returnPage=page; page=next } }) { padding->
+        topBar={ if(page==2 || page==3) MeshFabricAppBar(viewModel,onOpenSettings) },
+        bottomBar={ CompactBottomNavigation(page) { next->
+            if(next in 0..3 && next!=page) {
+                if(next==2 && page in 0..1) returnPage=page
+                if(next==3) profileReturnPage=page.coerceIn(0,2)
+                page=next
+            }
+        } }) { padding->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
                 val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
@@ -244,6 +251,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
             } else if(page==2) CompositionLocalProvider(LocalDeviceDetailsClient provides viewModel.meshClient) {
                 MyServerScreen(viewModel.meshClient,Modifier.fillMaxSize())
+            } else if(page==3) {
+                ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize())
             } else MeshFabricActivityScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
                 actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
         }

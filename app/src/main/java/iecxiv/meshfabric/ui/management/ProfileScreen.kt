@@ -10,7 +10,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.lifecycle.Lifecycle
@@ -22,7 +21,7 @@ import org.json.JSONObject
 
 internal data class ProfileForm(val users:Boolean,val operation:String,val id:String="",val name:String="",val email:String="",val description:String="")
 
-@Composable internal fun ProfileDestination(source:MeshCentralClient,onDismiss:()->Unit,onNavigate:(Int)->Unit) {
+@Composable internal fun ProfileScreen(source:MeshCentralClient,modifier:Modifier=Modifier) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(s:String,e:String)=if(es) s else e
 val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -36,18 +35,14 @@ LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecy
 if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation() } finally { session.stop() } } else session.stop()
 } }
 LaunchedEffect(state.ready) { if(!state.ready) form=null }
-Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false,securePolicy=SecureFlagPolicy.SecureOn)) {
-Surface(Modifier.fillMaxSize()) {
-Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),bottomBar={ ProfileNavigationBar(3,onNavigate) }) { padding->
-Column(Modifier.fillMaxSize().padding(padding)) {
-Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal=16.dp),horizontalArrangement=Arrangement.SpaceBetween) {
-Text(t("Perfil","Profile"),Modifier.padding(vertical=12.dp),style=MaterialTheme.typography.titleLarge)
-if(tab!=0) TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
-}
+Column(modifier) {
 ScrollableTabRow(selectedTabIndex=tab,edgePadding=0.dp) {
 listOf(t("Mi usuario","My user"),t("Usuarios","Users"),t("Grupos de dispositivos","Device groups")).forEachIndexed { index,label->Tab(selected=tab==index,onClick={ tab=index },text={ Text(label) }) }
 }
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else {
+Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),horizontalArrangement=Arrangement.End) {
+TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
+}
 if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 val message=when(state.notice) {
 "ready"->""
@@ -80,8 +75,6 @@ TextButton(enabled=state.canWrite && (if(users) ProfilePermissions.manageUsers(s
 }
 }
 }
-}
-}
 form?.let { selected->key(selected) {
 var name by remember { mutableStateOf(selected.name) }
 var email by remember { mutableStateOf(selected.email) }
@@ -100,7 +93,7 @@ deleting->ProfilePermissions.deleteGroup(state.site,state.rights(target))
 else->ProfilePermissions.editGroup(state.site,state.rights(target))
 }
 val valid=if(deleting) confirmation==selected.id else if(selected.users && !creating) email.length<=320 else name.isNotBlank() && name.length<=256 && (!selected.users || (!name.contains('/') && password.isNotEmpty() && password.length<=256 && email.length<=320))
-AlertDialog(onDismissRequest={ form=null },title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear","Create") else t("Editar","Edit")) },text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+AlertDialog(onDismissRequest={ form=null },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear","Create") else t("Editar","Edit")) },text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
 if(!creating) { Text(selected.name); Text(selected.id) }
 if(deleting) {
 Text(t("Acción irreversible desde la app. Si es un grupo, puede afectar al acceso a sus dispositivos.","Cannot be undone from the app. Deleting a group can affect access to its devices."))
@@ -127,5 +120,4 @@ else { p.put("meshname",name.trim()).put("desc",description); if(creating) p.put
 if(session.submit(p)) { password=""; form=null } else error=t("No se ha enviado. Comprueba conexión y permisos.","Not sent. Check connection and permissions.")
 }) { Text(if(deleting) t("Eliminar","Delete") else t("Enviar","Send")) } },dismissButton={ TextButton(onClick={ password=""; form=null }) { Text(t("Cancelar","Cancel")) } })
 } }
-}
 }

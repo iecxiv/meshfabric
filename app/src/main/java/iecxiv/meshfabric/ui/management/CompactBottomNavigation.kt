@@ -22,17 +22,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
-import iecxiv.meshfabric.ui.devices.LocalDeviceDetailsClient
 
 @Composable internal fun CompactBottomNavigation(page: Int, onSelect: (Int) -> Unit) {
-val source = LocalDeviceDetailsClient.current
-var profileVisible by remember(source) { mutableStateOf(false) }
-ProfileNavigationBar(if (profileVisible) 3 else page) { next ->
-if (next == 3) profileVisible = source != null else { profileVisible = false; onSelect(next) }
-}
-if (profileVisible && source != null) ProfileDestination(source,
-onDismiss = { profileVisible = false },
-onNavigate = { next -> if (next != 3) { profileVisible = false; onSelect(next) } })
+ProfileNavigationBar(page,onSelect)
 }
 
 @Composable internal fun ProfileNavigationBar(page: Int, onSelect: (Int) -> Unit) {
