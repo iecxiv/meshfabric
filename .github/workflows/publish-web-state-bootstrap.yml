@@ -1,0 +1,212 @@
+name: Validate and publish authenticated web state bootstrap
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-web-state-bootstrap.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-web-state-bootstrap-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded bootstrap patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'NativeAccount.kt':'3b0997d5fbdb976eeff043f66c0ca7f37762bb08','NoticeInbox.kt':'54da11307cd733c37a96e6febd2b30cbb1cab260','WebNoticeProtocol.kt':'69ef65acd5d23f0d84e33a331b94aebaf732ff49'}
+          sources={}
+          for name,sha in expected.items():
+              path=base/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:
+                  raise RuntimeError('Base changed: '+name)
+              sources[name]=path.read_text()
+          def replace(name,old,new):
+              if sources[name].count(old)!=1:
+                  raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:100])
+              sources[name]=sources[name].replace(old,new,1)
+          reader=r'''package iecxiv.meshfabric.ui.management
+
+          import iecxiv.meshfabric.data.remote.OkHttpHelper
+          import okhttp3.Call
+          import okhttp3.Callback
+          import okhttp3.Request
+          import okhttp3.Response
+          import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+          import org.json.JSONObject
+          import java.io.IOException
+          import java.net.URLDecoder
+
+          internal fun embeddedWebState(html:String):JSONObject? {
+              val match=Regex("""\bvar\s+webState\s*=\s*(['"])(.*?)\1\s*;""").find(html) ?: return null
+              val encoded=match.groupValues[2]
+              if(encoded.length>60000) return null
+              val decoded=runCatching { URLDecoder.decode(encoded.replace("+","%2B"),"UTF-8") }.getOrNull() ?: return null
+              return webNoticeState(JSONObject().put("action","userWebState").put("state",decoded))
+          }
+
+          internal class AccountWebStateReader {
+              private var active:Call?=null
+              @Synchronized fun isRunning()=active!=null
+              @Synchronized fun cancel() { active?.cancel(); active=null }
+              private fun complete(call:Call,state:JSONObject?,reason:String,callback:(JSONObject?,String)->Unit) {
+                  val deliver=synchronized(this) { if(active!==call) false else { active=null; true } }
+                  if(deliver) callback(state,reason)
+              }
+              @Synchronized fun load(identity:Triple<String,String,Boolean>,callback:(JSONObject?,String)->Unit) {
+                  cancel()
+                  val original=identity.first.toHttpUrlOrNull()
+                  if(original==null || identity.second.isBlank()) { callback(null,"invalid_session"); return }
+                  val url=original.newBuilder().encodedPath(original.encodedPath.trimEnd('/')+"/")
+                      .query(null).fragment(null).addQueryParameter("nominify","1").build()
+                  val client=OkHttpHelper.createClient(identity.third).newBuilder()
+                      .followRedirects(false).followSslRedirects(false).callTimeout(20,java.util.concurrent.TimeUnit.SECONDS).build()
+                  val call=client.newCall(Request.Builder().url(url).header("Cookie",identity.second)
+                      .header("Accept","text/html").header("Cache-Control","no-cache, no-store").build())
+                  active=call
+                  call.enqueue(object:Callback {
+                      override fun onFailure(call:Call,e:IOException) { complete(call,null,"network_failure",callback) }
+                      override fun onResponse(call:Call,response:Response) {
+                          var reason="state_not_found_or_invalid"
+                          val state=runCatching { response.use { reply->
+                              if(!reply.isSuccessful) { reason="http_${reply.code}"; return@use null }
+                              val type=reply.header("Content-Type").orEmpty().substringBefore(';').trim().lowercase()
+                              if(type !in setOf("text/html","application/xhtml+xml")) { reason="unexpected_content_type"; return@use null }
+                              val bytes=reply.peekBody(4194305L).bytes()
+                              if(bytes.size>4194304) { reason="page_too_large"; return@use null }
+                              embeddedWebState(String(bytes,Charsets.UTF_8))
+                          } }.getOrNull()
+                          complete(call,state,if(state==null) reason else "",callback)
+                      }
+                  })
+              }
+          }
+          '''
+          nl=chr(10)
+          replace('NativeAccount.kt','val webState:JSONObject?=null)','val webState:JSONObject?=null,val webStateError:String="")')
+          replace('NativeAccount.kt','private var cookie=""','private var cookie=""'+nl+'private val webStateReader=AccountWebStateReader()')
+          method='''@Synchronized fun refreshWebState() {
+          if(!state.value.ready || state.value.busy || !same() || state.value.webState!=null || webStateReader.isRunning()) return
+          val generation=epoch
+          val bound=identity
+          webStateReader.load(bound) { snapshot,reason->
+          synchronized(this@AccountWire) {
+          if(generation==epoch && bound==identity && same() && state.value.webState==null) {
+          state.update { it.copy(webState=snapshot,webStateError=reason) }
+          }
+          }
+          }
+          }
+          '''
+          replace('NativeAccount.kt','@Synchronized fun clearResult()',method+'@Synchronized fun clearResult()')
+          replace('NativeAccount.kt','epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null','webStateReader.cancel(); epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null')
+          replace('NativeAccount.kt','if(first) { timer?.cancel(); send("authcookie") }','if(first) { timer?.cancel(); send("authcookie"); refreshWebState() }')
+          replace('NativeAccount.kt','3->wire.request("previousLogins"); 9->','3->wire.request("previousLogins"); 6->wire.refreshWebState(); 9->')
+          anchor='if(beforeMask==null) Text(t("No se ha recibido el estado web. Guardar permanece deshabilitado para no sobrescribir otros ajustes.","Web state has not been received. Saving remains disabled to avoid overwriting other settings."),style=MaterialTheme.typography.bodySmall)'
+          replace('NativeAccount.kt',anchor,anchor+'''
+          if(beforeMask==null) {
+          if(state.webStateError.isNotBlank()) Text(t("Detalle de lectura: ","Read detail: ")+state.webStateError,style=MaterialTheme.typography.bodySmall)
+          TextButton(enabled=!state.busy,onClick=wire::refreshWebState) { Text(t("Volver a consultar estado web","Reload web state")) }
+          }''')
+          replace('NoticeInbox.kt','private var webMask:Long?=null','private var webMask:Long?=null'+nl+'private val webStateReader=AccountWebStateReader()')
+          replace('NoticeInbox.kt','if(identity!=connection || actor!=userId) {','if(identity!=connection || actor!=userId) {'+nl+'webStateReader.cancel()')
+          replace('NoticeInbox.kt','NoticeNavigation.bind(notificationScope)'+nl+'reloadPreferences()'+nl+'}','NoticeNavigation.bind(notificationScope)'+nl+'reloadPreferences()'+nl+'if(webMask==null) refreshWebState()'+nl+'}')
+          inbox_method='''@Synchronized private fun refreshWebState() {
+          if(!matchesCurrentSource() || webMask!=null || webStateReader.isRunning()) return
+          val bound=identity ?: return
+          val boundScope=notificationScope
+          webStateReader.load(bound) { snapshot,_->
+          synchronized(this@NoticeInbox) {
+          if(snapshot!=null && matchesCurrentSource() && identity==bound && notificationScope==boundScope && webMask==null) {
+          webMask=webNoticeMask(snapshot); reloadPreferences()
+          }
+          }
+          }
+          }
+          '''
+          replace('NoticeInbox.kt','@Synchronized private fun reloadPreferences()',inbox_method+'@Synchronized private fun reloadPreferences()')
+          replace('NoticeInbox.kt','@Synchronized fun clear() { NoticeNavigation.release','@Synchronized fun clear() { webStateReader.cancel(); NoticeNavigation.release')
+          replace('WebNoticeProtocol.kt','text.toByteArray(Charsets.UTF_8).size>10000','text.length>10000')
+          replace('WebNoticeProtocol.kt','it.toString().toByteArray(Charsets.UTF_8).size<=10000','it.toString().length<=10000')
+          tests='''package iecxiv.meshfabric.ui.management
+
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.net.URLEncoder
+
+          @RunWith(AndroidJUnit4::class)
+          class AccountWebStateBootstrapTest {
+              @Test fun readsEncodedStateWithoutExecutingScripts() {
+                  val original=JSONObject().put("notifications","31").put("search","a+b")
+                  val encoded=URLEncoder.encode(original.toString(),"UTF-8").replace("+","%20")
+                  val result=embeddedWebState("<script>var webState = '"+encoded+"';</script>")!!
+                  assertEquals(31L,webNoticeMask(result))
+                  assertEquals("a+b",result.getString("search"))
+              }
+              @Test fun onlyExplicitEmptyObjectIsKnownEmpty() {
+                  assertEquals(0L,webNoticeMask(embeddedWebState("var webState = '%7B%7D';")!!))
+                  assertNull(embeddedWebState("<html>Login required</html>"))
+                  assertNull(embeddedWebState("var webState = '';"))
+              }
+              @Test fun rejectsMalformedEncodingAndInvalidFlags() {
+                  assertNull(embeddedWebState("var webState = '%ZZ';"))
+                  val encoded=URLEncoder.encode(JSONObject().put("notifications",false).toString(),"UTF-8")
+                  assertNull(embeddedWebState("var webState = '"+encoded+"';"))
+              }
+          }
+          '''
+          new={base/'AccountWebStateReader.kt':reader,Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/AccountWebStateBootstrapTest.kt'):tests}
+          for path in new:
+              if path.exists(): raise RuntimeError('New file already exists: '+str(path))
+          for name,text in sources.items(): (base/name).write_text(text)
+          for path,text in new.items():
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-state-bootstrap-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated bootstrap
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/management/NativeAccount.kt app/src/main/java/iecxiv/meshfabric/ui/management/NoticeInbox.kt app/src/main/java/iecxiv/meshfabric/ui/management/WebNoticeProtocol.kt app/src/main/java/iecxiv/meshfabric/ui/management/AccountWebStateReader.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/AccountWebStateBootstrapTest.kt
+          git commit -m 'fix(profile): bootstrap missing web state from authenticated server page'
+          git push origin HEAD:dev
