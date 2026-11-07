@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import iecxiv.meshfabric.MainActivity
+import iecxiv.meshfabric.R
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -79,13 +80,13 @@ internal class AndroidNoticePublisher(context: Context) {
         val pending = PendingIntent.getActivity(app, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val id = note.serial.toInt()
         val notification = NotificationCompat.Builder(app, channel(options.sound))
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_stat_remote)
             .setContentTitle(title).setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(pending).setAutoCancel(true).setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(NotificationCompat.Builder(app, "meshfabric_notices_silent_v1")
-                .setSmallIcon(android.R.drawable.ic_dialog_info).setContentTitle("MeshFabric").build())
+                .setSmallIcon(R.drawable.ic_stat_remote).setContentTitle("MeshFabric").build())
             .build()
         runCatching { manager.notify(scope, id, notification) }.onSuccess { posted.add(scope to id) }
     }
