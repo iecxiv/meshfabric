@@ -110,6 +110,7 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     }
     @Synchronized fun timeout(token:Long) { if(state.value.pending.isNotEmpty() && state.value.token==token) fail(generation) }
     @Synchronized fun connectionTimeout() { if(!state.value.ready && !state.value.failed) fail(generation) }
+    @Synchronized fun dismissNotice() { state.update { it.copy(notice="") } }
     @Synchronized private fun fail(epoch:Long) {
         if(epoch!=generation) return
         generation++; val old=socket; socket=null
@@ -135,7 +136,7 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     LaunchedEffect(state.ready,retry) { if(!state.ready) { traceMenu=false; delay(20000); channel?.connectionTimeout() } }
     LaunchedEffect(state.token,state.pending) { if(state.pending.isNotEmpty()) { delay(25000); channel?.timeout(state.token) } }
     val enabled=state.ready && state.admin && state.pending.isEmpty()
-    Text(label("Canal de administración independiente", "Independent administration channel"),style=MaterialTheme.typography.titleSmall)
+    if(traceView) Text(label("Canal de administración independiente", "Independent administration channel"),style=MaterialTheme.typography.titleSmall)
     Text(when { state.failed->label("Sin conexión. Reconecta manualmente.","Disconnected. Reconnect manually."); !state.ready->label("Conectando…","Connecting…"); !state.admin->label("Se requiere administrador completo del servidor.","Full server administrator required."); else->label("Administrador conectado. El servidor valida también sus restricciones.","Administrator connected. Server restrictions still apply.") })
     if(state.failed) TextButton(onClick={ retry++ }) { Text(label("Reconectar","Reconnect")) }
     val privacy=label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not saved to disk or diagnostic logs; cleared on exit or background. May contain sensitive data.")

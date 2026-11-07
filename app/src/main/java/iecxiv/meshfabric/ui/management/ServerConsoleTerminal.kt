@@ -297,7 +297,6 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
             TextButton(enabled=font<20,onClick={ font++ },contentPadding=PaddingValues(6.dp)) { Text("A+") }
             TextButton(enabled=snapshot.isNotEmpty(),onClick={ clipboard.setText(AnnotatedString(snapshot)) }) { Text(label("Copiar salida","Copy output")) }
             TextButton(onClick=onClear) { Text(label("Limpiar","Clear")) }
-            TextButton(enabled=active && loaded && enabled && !failed,onClick={ renderer.focusInput() }) { Text(label("Teclado","Keyboard")) }
             TextButton(enabled=active && loaded && enabled && !failed,onClick={ clipboard.getText()?.text?.let { renderer.paste(it) } }) { Text(label("Pegar","Paste")) }
         }
         Text(label("Búfer local: ${output.size} entradas · ${snapshot.length} caracteres","Local buffer: ${output.size} entries · ${snapshot.length} characters"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -319,6 +318,6 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
                     style=MaterialTheme.typography.bodySmall.copy(fontSize=font.sp,lineHeight=(font+5).sp))
             }
         }
-        Text(label("Toca la consola o Teclado para escribir en >. Enter envía el comando; Pegar solo inserta texto. Arrastra para recorrer la salida. El borrador se borra al salir, pausar o recrear el visor. No es una shell del dispositivo.","Tap the console or Keyboard to type at >. Enter sends the command; Paste only inserts text. Drag to scroll output. The draft is cleared on exit, pause or view recreation. This is not a device shell."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label("Toca la consola para abrir el teclado.","Tap the console to open the keyboard."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
