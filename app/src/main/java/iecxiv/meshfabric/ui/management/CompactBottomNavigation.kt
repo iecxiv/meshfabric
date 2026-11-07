@@ -24,7 +24,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
 
-@Composable internal fun CompactBottomNavigation(page:Int,onSelect:(Int)->Unit) { ProfileNavigationBar(page,onSelect) }
+@Composable internal fun CompactBottomNavigation(page:Int,onSelect:(Int)->Unit) {
+val request by NoticeNavigation.request.collectAsState()
+val activeScope by NoticeNavigation.activeScope.collectAsState()
+val select by rememberUpdatedState(onSelect)
+LaunchedEffect(request,activeScope) {
+val requested=request ?: return@LaunchedEffect
+val current=activeScope ?: return@LaunchedEffect
+if(requested==current) select(4)
+NoticeNavigation.consume(requested)
+}
+ProfileNavigationBar(page,onSelect)
+}
 
 @Composable internal fun ProfileNavigationBar(page:Int,onSelect:(Int)->Unit) {
 val scheme=MaterialTheme.colorScheme
