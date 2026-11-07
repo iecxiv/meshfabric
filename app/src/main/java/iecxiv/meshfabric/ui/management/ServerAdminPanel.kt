@@ -136,7 +136,6 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     LaunchedEffect(state.ready,retry) { if(!state.ready) { traceMenu=false; delay(20000); channel?.connectionTimeout() } }
     LaunchedEffect(state.token,state.pending) { if(state.pending.isNotEmpty()) { delay(25000); channel?.timeout(state.token) } }
     val enabled=state.ready && state.admin && state.pending.isEmpty()
-    if(traceView) Text(label("Canal de administración independiente", "Independent administration channel"),style=MaterialTheme.typography.titleSmall)
     Text(when { state.failed->label("Sin conexión. Reconecta manualmente.","Disconnected. Reconnect manually."); !state.ready->label("Conectando…","Connecting…"); !state.admin->label("Se requiere administrador completo del servidor.","Full server administrator required."); else->label("Administrador conectado. El servidor valida también sus restricciones.","Administrator connected. Server restrictions still apply.") })
     if(state.failed) TextButton(onClick={ retry++ }) { Text(label("Reconectar","Reconnect")) }
     val privacy=label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not saved to disk or diagnostic logs; cleared on exit or background. May contain sensitive data.")
@@ -154,9 +153,8 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         Text(privacy,style=MaterialTheme.typography.bodySmall)
         if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     } else {
-        Text(privacy,style=MaterialTheme.typography.bodySmall)
         if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(label("Marcar o desmarcar una fuente aplica el cambio directamente, sin revisión ni confirmación. Las fuentes son globales y afectan a otros administradores. Cerrar esta vista no las desactiva.","Checking or unchecking a source applies the change directly, without review or confirmation. Sources are global and affect other administrators. Closing this view does not disable them."),style=MaterialTheme.typography.bodySmall)
+        Text(label("Marcar o desmarcar una fuente aplica el cambio directamente","Checking or unchecking a source applies the change directly"),style=MaterialTheme.typography.bodySmall)
         val current=state.sources
         val options=availableTraceOptions(current.orEmpty())
         val allSelected=options.isNotEmpty() && options.all { it in current.orEmpty() }
@@ -199,6 +197,7 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
                 }
             }
         }
+        Text(privacy,style=MaterialTheme.typography.bodySmall)
     }
     if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
     if(traceView) {
