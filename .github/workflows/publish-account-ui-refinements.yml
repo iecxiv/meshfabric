@@ -1,0 +1,343 @@
+name: Validate and publish account UI refinements
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-account-ui-refinements.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-account-ui-refinements-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded account UI patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'NativeAccount.kt':'92a097f137ff0b5cd5b5ce602c39a08e3ad91773','ProfileScreen.kt':'12ec9893cd33b965383fe23ab30a861d25f7abb0','ServerGeneralPresentation.kt':'95276758e39d309204377a9131ef2733d7173b82','MeshFabricDialogs.kt':'a17497dfec45c73d67aba82fbf8640fdcd0fb7da','UserAdministration.kt':'12e66bfadec096e603b60c180559a5ca61c0b588','NoticeInbox.kt':'e3d4cb4bda84468b2fe7199f1e19af719388a13a'}
+          sources={}
+          for name,sha in expected.items():
+              path=base/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:
+                  raise RuntimeError('Base changed: '+name)
+              sources[name]=path.read_text()
+          def change(name,old,new,count=1):
+              if sources[name].count(old)!=count:
+                  raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:100])
+              sources[name]=sources[name].replace(old,new,count)
+          policy=r'''package iecxiv.meshfabric.ui.management
+
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.time.Instant
+          import java.util.Locale
+
+          internal fun accountAdvertisedLanguages(value:Any?):List<String> {
+              val values=when(value) {
+                  is JSONArray -> (0 until value.length()).mapNotNull { value.opt(it) as? String }
+                  is String -> {
+                      val array=runCatching { JSONArray(value) }.getOrNull()
+                      if(array!=null) (0 until array.length()).mapNotNull { array.opt(it) as? String }
+                      else value.split(',',';').map { it.trim() }
+                  }
+                  else -> emptyList()
+              }
+              return values.filter(::accountLanguageValid).distinct()
+          }
+          internal fun accountLanguageCandidates(value:Any?):List<String> = accountAdvertisedLanguages(value).ifEmpty {
+              Locale.getAvailableLocales().map { it.toLanguageTag() }.filter(::accountLanguageValid).distinct().sorted()
+          }
+          internal fun securityKeyId(key:JSONObject?):Long? {
+              val number=(key?.opt("i") as? Number)?.toDouble() ?: return null
+              if(!number.isFinite() || number<0 || number>9007199254740991.0 || number%1.0!=0.0) return null
+              return number.toLong()
+          }
+          internal fun securityKeyIds(array:JSONArray):List<Long>? {
+              val ids=(0 until array.length()).map { securityKeyId(array.optJSONObject(it)) ?: return null }
+              return ids.takeIf { it.distinct().size==it.size }
+          }
+          internal fun accountLoginOutcome(value:Any?):Boolean? {
+              val code=when(value) {
+                  is Number -> value.toDouble().takeIf { it.isFinite() && it%1.0==0.0 && it in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble() }?.toInt()
+                  is String -> value.toIntOrNull()
+                  else -> null
+              }
+              return when(code) { 107->true; 108,109,110->false; else->null }
+          }
+          internal fun accountTokenExpiry(token:JSONObject,locale:String,hours24:Boolean,es:Boolean):String {
+              val value=token.opt("expire")
+              val instant=runCatching {
+                  when(value) {
+                      is Number -> {
+                          val n=value.toDouble()
+                          if(!n.isFinite() || n%1.0!=0.0) null else when(n.toLong()) {
+                              in 946684800L..4102444800L -> Instant.ofEpochSecond(n.toLong())
+                              in 946684800000L..4102444800000L -> Instant.ofEpochMilli(n.toLong())
+                              else -> null
+                          }
+                      }
+                      is String -> Instant.parse(value)
+                      else -> null
+                  }
+              }.getOrNull()
+              if(instant!=null) return (if(es) "Caduca: " else "Expires: ")+accountTime(instant,locale,hours24)
+              val minutes=token.optInt("_requestedExpiryMinutes",0)
+              if(minutes in 1..43200) return (if(es) "Caducidad solicitada: " else "Requested lifetime: ")+minutes+" min"
+              return if(es) "Caducidad no informada por el servidor" else "Expiry not supplied by the server"
+          }
+          '''
+          visual=r'''package iecxiv.meshfabric.ui.management
+
+          import androidx.compose.foundation.BorderStroke
+          import androidx.compose.foundation.border
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.selection.selectable
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.foundation.text.selection.SelectionContainer
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.graphics.Shape
+          import androidx.compose.ui.graphics.luminance
+          import androidx.compose.ui.graphics.vector.ImageVector
+          import androidx.compose.ui.semantics.Role
+          import androidx.compose.ui.text.font.FontFamily
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.unit.Dp
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.window.DialogProperties
+          import org.json.JSONObject
+
+          @Composable internal fun ManagementDialog(
+              onDismissRequest:()->Unit,confirmButton:@Composable ()->Unit,modifier:Modifier=Modifier,
+              dismissButton:(@Composable ()->Unit)?=null,icon:(@Composable ()->Unit)?=null,
+              title:(@Composable ()->Unit)?=null,text:(@Composable ()->Unit)?=null,
+              shape:Shape=RoundedCornerShape(16.dp),containerColor:Color=MaterialTheme.colorScheme.surface,
+              iconContentColor:Color=MaterialTheme.colorScheme.primary,titleContentColor:Color=MaterialTheme.colorScheme.onSurface,
+              textContentColor:Color=MaterialTheme.colorScheme.onSurfaceVariant,tonalElevation:Dp=6.dp,
+              properties:DialogProperties=DialogProperties()
+          ) {
+              AlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,
+                  modifier=modifier.border(BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape),
+                  dismissButton=dismissButton,icon=icon,title={
+                      if(title!=null) Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                          CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.titleMedium.copy(fontWeight=FontWeight.SemiBold)) { title() }
+                          HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+                      }
+                  },text=text,shape=shape,containerColor=containerColor,iconContentColor=iconContentColor,
+                  titleContentColor=titleContentColor,textContentColor=textContentColor,tonalElevation=tonalElevation,properties=properties)
+          }
+          @Composable internal fun AccountActionsCard(content:@Composable ColumnScope.()->Unit) {
+              Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,
+                  border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                  Column(Modifier.padding(horizontal=12.dp,vertical=2.dp),verticalArrangement=Arrangement.spacedBy(0.dp),content=content)
+              }
+          }
+          @Composable internal fun CompactAccountActionRow(label:String,icon:ImageVector,enabled:Boolean,dangerous:Boolean=false,onClick:()->Unit) {
+              TextButton(onClick=onClick,enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp),
+                  shape=MaterialTheme.shapes.small,contentPadding=PaddingValues(horizontal=4.dp,vertical=4.dp),
+                  colors=ButtonDefaults.textButtonColors(contentColor=if(dangerous) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)) {
+                  Icon(icon,null,Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                  Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium)
+                  Icon(Icons.Default.ChevronRight,null,Modifier.size(18.dp))
+              }
+          }
+          @Composable internal fun AccountLoginHistoryRow(item:JSONObject,date:String,details:String,es:Boolean) {
+              val outcome=accountLoginOutcome(item.opt("m"))
+              val dark=MaterialTheme.colorScheme.surface.luminance()<0.5f
+              val background=when(outcome) {
+                  true->if(dark) Color(0xFF173B25) else Color(0xFFE2F4E7)
+                  false->if(dark) Color(0xFF4A2025) else Color(0xFFFCE5E7)
+                  null->MaterialTheme.colorScheme.surfaceVariant
+              }
+              val foreground=when(outcome) {
+                  true->if(dark) Color(0xFFC5F2D1) else Color(0xFF163B24)
+                  false->if(dark) Color(0xFFFFDADD) else Color(0xFF64232B)
+                  null->MaterialTheme.colorScheme.onSurfaceVariant
+              }
+              Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=background,contentColor=foreground) {
+                  Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                      Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                          Icon(when(outcome) { true->Icons.Default.CheckCircle; false->Icons.Default.ErrorOutline; null->Icons.Default.Info },null,Modifier.size(18.dp))
+                          Text(loginHistoryLabel(item.opt("m"),es),style=MaterialTheme.typography.labelLarge)
+                      }
+                      if(date.isNotBlank()) Text(date,style=MaterialTheme.typography.bodySmall)
+                      if(details.isNotBlank()) Text(details,style=MaterialTheme.typography.bodySmall)
+                  }
+              }
+          }
+          @Composable internal fun AccountCredentialRow(label:String,value:String,copyLabel:String,onCopy:()->Unit) {
+              Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceVariant) {
+                  Row(Modifier.fillMaxWidth().padding(start=12.dp,end=4.dp,top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
+                      Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                          Text(label,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                          SelectionContainer { Text(value,style=MaterialTheme.typography.bodyMedium,fontFamily=FontFamily.Monospace) }
+                      }
+                      IconButton(onClick=onCopy,modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp)) { Icon(Icons.Default.ContentCopy,contentDescription=copyLabel) }
+                  }
+              }
+          }
+          @Composable internal fun AccountTokenChoice(token:JSONObject,selected:Boolean,enabled:Boolean,locale:String,hours24:Boolean,es:Boolean,onSelect:()->Unit,onCopy:()->Unit) {
+              val id=token.optString("tokenUser")
+              Surface(Modifier.fillMaxWidth().selectable(selected=selected,enabled=enabled,role=Role.RadioButton,onClick=onSelect),
+                  shape=MaterialTheme.shapes.small,color=if(selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                  border=BorderStroke(1.dp,if(selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)) {
+                  Row(Modifier.padding(8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                      RadioButton(selected=selected,onClick=null,enabled=enabled)
+                      Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                          Text(token.optString("name").ifBlank { if(es) "Sin nombre" else "Unnamed" },style=MaterialTheme.typography.titleSmall)
+                          Text(accountTokenExpiry(token,locale,hours24,es),style=MaterialTheme.typography.bodySmall)
+                          Text(id,style=MaterialTheme.typography.bodySmall,fontFamily=FontFamily.Monospace)
+                      }
+                      IconButton(onClick=onCopy,enabled=enabled,modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp)) {
+                          Icon(Icons.Default.ContentCopy,contentDescription=if(es) "Copiar ID del token" else "Copy token ID")
+                      }
+                  }
+              }
+          }
+          '''
+          change('ProfileScreen.kt','t("Mi Usuario","My user")','t("Mi cuenta","My account")')
+          change('ProfileScreen.kt','val name=row.optString("name").ifBlank { id }','val name=row.optString("name").ifBlank { if(users) id else t("Grupo sin nombre","Unnamed group") }')
+          change('ProfileScreen.kt','Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)','if(users) Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)')
+          change('NativeAccount.kt','Text(t("Mi cuenta","My account"),style=MaterialTheme.typography.titleMedium)','Text(t("Detalles de la cuenta","Account details"),style=MaterialTheme.typography.titleMedium)')
+          change('NativeAccount.kt','ManagementCard {\n(0..2).forEach','AccountActionsCard {\n(0..2).forEach')
+          change('NativeAccount.kt','ManagementCard {\n(3..9).forEach','AccountActionsCard {\n(3..9).forEach')
+          change('NativeAccount.kt','ManagementActionRow(labels[index],icons[index]','CompactAccountActionRow(labels[index],icons[index]',2)
+          change('NativeAccount.kt','Column(Modifier.heightIn(max=380.dp).verticalScroll(rememberScrollState())','Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState())')
+          change('NativeAccount.kt','accountLanguageTags(s.server?.optJSONArray("languages"))','accountLanguageCandidates(s.server?.opt("languages"))')
+          change('NativeAccount.kt','val tags=accountLanguageTags(state.server?.optJSONArray("languages"))','val tags=accountLanguageCandidates(state.server?.opt("languages"))')
+          change('NativeAccount.kt','if(tags.isEmpty()) Text(t("El servidor no anunció su lista de idiomas. No se enviarán idiomas arbitrarios.","The server did not advertise its language list. Arbitrary languages will not be sent."),style=MaterialTheme.typography.bodySmall)','if(accountAdvertisedLanguages(state.server?.opt("languages")).isEmpty()) Text(t("Catálogo local de idiomas y locales: el servidor no ha facilitado una lista. Se comprobará el idioma guardado mediante userinfo; esto no garantiza que exista traducción web para cada locale.","Local language and locale catalogue: the server has not supplied a list. The stored language will be checked through userinfo; this does not guarantee a web translation for every locale."),style=MaterialTheme.typography.bodySmall)')
+          change('NativeAccount.kt','private val keys=mutableSetOf<Int>()','private val keys=mutableSetOf<Long>()')
+          change('NativeAccount.kt','''private fun validKeys(a:JSONArray):Boolean {
+          val ids=mutableSetOf<Int>()
+          for(i in 0 until a.length()) {
+          val value=a.optJSONObject(i)?.opt("i") as? Number ?: return false
+          val id=value.toLong()
+          if(id !in 0..Int.MAX_VALUE.toLong() || value.toDouble()!=id.toDouble() || !ids.add(id.toInt())) return false
+          }
+          return true
+          }''','private fun validKeys(a:JSONArray):Boolean=securityKeyIds(a)!=null')
+          change('NativeAccount.kt','if((0 until list.length()).none { list.optJSONObject(it).optInt("i")==args.optInt("index") }) { keys.remove(args.optInt("index")); finish(p,"confirmed") }','if((0 until list.length()).none { securityKeyId(list.optJSONObject(it))==args.optLong("index",-1L) }) { keys.remove(args.optLong("index",-1L)); finish(p,"confirmed") }')
+          change('NativeAccount.kt','if(action=="otp-hkey-get") { keys.clear(); val a=p.getJSONArray("keys"); for(i in 0 until a.length()) keys.add(a.getJSONObject(i).getInt("i")) }','if(action=="otp-hkey-get") { keys.clear(); keys.addAll(securityKeyIds(p.getJSONArray("keys")) ?: emptyList()) }')
+          change('NativeAccount.kt','if(action=="otp-hkey-remove" && fields.optInt("index",-1) !in keys)','if(action=="otp-hkey-remove" && fields.optLong("index",-1L) !in keys)')
+          change('NativeAccount.kt','${item.optInt("i")}','${item.optLong("i")}')
+          change('NativeAccount.kt','confirmation && first.toIntOrNull()!=null) { run("otp-hkey-remove",JSONObject().put("index",first.toInt())) }','confirmation && first.toLongOrNull()!=null) { run("otp-hkey-remove",JSONObject().put("index",first.toLong())) }')
+          change('NativeAccount.kt','if(!valid) { finish(null,"rejected"); return }','if(!valid) { finish(null,"incompatible"); return }')
+          change('NativeAccount.kt','"rejected"->t("Solicitud rechazada o respuesta incompatible. No se considera completada.","Rejected request or unsupported response. Not considered completed.")','''"rejected"->t("El servidor rechazó la solicitud. No se considera completada.","The server rejected the request. Not considered completed.")
+          "incompatible"->t("La respuesta del servidor tiene un formato no compatible. No se considera completada.","The server response has an unsupported format. Not considered completed.")''')
+          change('NativeAccount.kt',r'Text("$date · ${loginHistoryLabel(item.opt("m"),es)}\n$details"); HorizontalDivider()','AccountLoginHistoryRow(item,date,details,es)')
+          change('NativeAccount.kt','if(action=="createLoginToken") {\nval id=p.getString("tokenUser")','''if(action=="createLoginToken") {
+          p.put("_requestedExpiryMinutes",args.optInt("expire",0))
+          if(p.optString("name").isBlank()) p.put("name",args.optString("name"))
+          val id=p.getString("tokenUser")''')
+          change('NativeAccount.kt','list.put(JSONObject().put("tokenUser",id).put("name",p.optString("name").ifBlank { args.optString("name") }))','list.put(JSONObject().put("tokenUser",id).put("name",p.optString("name").ifBlank { args.optString("name") }).put("_requestedExpiryMinutes",args.optInt("expire",0)).apply { if(p.has("expire")) put("expire",p.get("expire")) })')
+          change('NativeAccount.kt',r'''if(tokenPass.isNotEmpty()) { Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar credenciales del token","Show token credentials")) }; if(reveal) { SelectionContainer { Text("$tokenUser\n$tokenPass") }; action("Copiar credenciales","Copy credentials") { copy("$tokenUser\n$tokenPass") } } }''',r'''if(tokenPass.isNotEmpty() && reply!=null) ManagementCard {
+          Text(reply.optString("name").ifBlank { t("Sin nombre","Unnamed") },style=MaterialTheme.typography.titleSmall)
+          Text(accountTokenExpiry(reply,dateLocale,hours24,es),style=MaterialTheme.typography.bodySmall)
+          Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar credenciales del token","Show token credentials")) }
+          if(reveal) {
+          AccountCredentialRow(t("Usuario del token","Token username"),tokenUser,t("Copiar usuario del token","Copy token username")) { copy(tokenUser) }
+          AccountCredentialRow(t("Contraseña del token","Token password"),tokenPass,t("Copiar contraseña del token","Copy token password")) { copy(tokenPass) }
+          action("Copiar credenciales","Copy credentials") { copy("$tokenUser\n$tokenPass") }
+          }
+          }''')
+          change('NativeAccount.kt','''TextButton(enabled=!state.busy,onClick={ third=id; confirmation=false }) {
+          RadioButton(selected=third==id,onClick=null)
+          Column(Modifier.weight(1f)) { Text(token.optString("name").ifBlank { t("Sin nombre","Unnamed") }); Text(id,style=MaterialTheme.typography.bodySmall) }
+          }''','AccountTokenChoice(token,third==id,!state.busy,dateLocale,hours24,es,onSelect={ third=id; confirmation=false },onCopy={ copy(id) })')
+          change('NativeAccount.kt','if(third.isNotBlank()) Text(t("Token seleccionado: ","Selected token: ")+third,style=MaterialTheme.typography.bodySmall)','if(third.isNotBlank()) ManagementCard { ManagementInfoRow(t("Token seleccionado","Selected token"),third) }')
+          change('ServerGeneralPresentation.kt','modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)\n        Box(Modifier.weight(1f),contentAlignment=Alignment.TopCenter)','modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,textAlign=TextAlign.Center)\n        Box(Modifier.weight(1f),contentAlignment=Alignment.TopCenter)')
+          for name in ['NativeAccount.kt','ProfileScreen.kt','MeshFabricDialogs.kt','UserAdministration.kt','NoticeInbox.kt','ServerGeneralPresentation.kt']:
+              sources[name],count=re.subn(r'(?<![\w.])AlertDialog\(', 'ManagementDialog(',sources[name])
+              if not 1<=count<=20: raise RuntimeError('Unexpected dialog count: '+name)
+          tests=r'''package iecxiv.meshfabric.ui.management
+
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+
+          @RunWith(AndroidJUnit4::class)
+          class AccountPresentationPolicyTest {
+              @Test fun languagesAcceptAdvertisedArrayAndString() {
+                  assertEquals(listOf("en","es"),accountAdvertisedLanguages(JSONArray().put("en").put("es")))
+                  assertEquals(listOf("en","es"),accountAdvertisedLanguages("en,es"))
+                  assertTrue(accountLanguageCandidates(null).isNotEmpty())
+                  assertTrue(accountLanguageCandidates(null).all(::accountLanguageValid))
+              }
+              @Test fun largeSecurityKeyIdsRemainExact() {
+                  for(id in listOf(0L,2147483648L,4294967295L)) assertEquals(id,securityKeyId(JSONObject().put("i",id)))
+                  assertNull(securityKeyId(JSONObject().put("i",1.5)))
+                  assertNull(securityKeyId(JSONObject().put("i",-1)))
+                  assertNull(securityKeyIds(JSONArray().put(JSONObject().put("i",1)).put(JSONObject().put("i",1))))
+              }
+              @Test fun unknownLoginEventsAreNotMarkedInvalid() {
+                  assertEquals(true,accountLoginOutcome(107))
+                  for(code in listOf(108,109,110)) assertEquals(false,accountLoginOutcome(code))
+                  assertNull(accountLoginOutcome(999)); assertNull(accountLoginOutcome(null))
+              }
+              @Test fun requestedTokenLifetimeIsNotAnObservedExpiryDate() {
+                  val token=JSONObject().put("_requestedExpiryMinutes",60)
+                  assertTrue(accountTokenExpiry(token,"en",true,false).startsWith("Requested lifetime:"))
+                  assertTrue(accountTokenExpiry(JSONObject(),"en",true,false).startsWith("Expiry not supplied"))
+              }
+          }
+          '''
+          new={base/'AccountDisplayPolicy.kt':policy,base/'AccountUiComponents.kt':visual,Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/AccountPresentationPolicyTest.kt'):tests}
+          for path in new:
+              if path.exists(): raise RuntimeError('New file already exists: '+str(path))
+          for name,text in sources.items(): (base/name).write_text(text)
+          for path,text in new.items():
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: account-ui-refinements-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated account refinements
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/management/NativeAccount.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/ServerGeneralPresentation.kt app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricDialogs.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/NoticeInbox.kt app/src/main/java/iecxiv/meshfabric/ui/management/AccountDisplayPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/AccountUiComponents.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/AccountPresentationPolicyTest.kt
+          git commit -m 'fix(profile): refine account dialogs tokens login history and locale selection'
+          git push origin HEAD:dev
