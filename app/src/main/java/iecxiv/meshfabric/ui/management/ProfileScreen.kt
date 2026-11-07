@@ -8,7 +8,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
@@ -41,8 +40,9 @@ if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth())
 val message=when(state.notice) {
 "ready"->""
 "confirmed"->t("Solicitud confirmada por el servidor; actualizando.","Server acknowledged the request; refreshing.")
+"observed"->t("Se observó el cambio solicitado en el servidor.","The requested change was observed on the server.")
 "sent"->t("Enviada; ejecución sin confirmar.","Sent; execution unconfirmed.")
-"unknown"->t("Resultado sin confirmar. Actualiza antes de reintentar. Sin reenvíos automáticos.","Outcome unconfirmed. Refresh before retrying. No automatic resends.")
+"unknown"->t("Resultado sin confirmar. Reconecta y comprueba antes de reintentar. Sin reenvíos automáticos.","Outcome unconfirmed. Reconnect and check before retrying. No automatic resends.")
 "rejected"->t("El servidor rechazó la solicitud.","The server rejected the request.")
 "readFailed"->t("Listado incompleto. Modificaciones bloqueadas hasta actualizar.","Incomplete list. Changes blocked until refresh.")
 else->t("Sin conexión o cargando.","Offline or loading.")
@@ -51,19 +51,17 @@ val users=tab==1
 val permitted=!users || ProfilePermissions.manageUsers(state.site)
 val rows=if(users) state.users else state.groups
 LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-item {
-Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+item { Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 ServerGeneralActions {
 TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
-TextButton(enabled=state.canWrite && permitted && (users || ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
+TextButton(enabled=state.canWrite && permitted && (if(users) state.canCreateUser else ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
 }
 Text(if(users) t("Usuarios","Users") else t("Grupos de dispositivos","Device groups"),style=MaterialTheme.typography.titleMedium)
-}
-}
-if(!permitted) item { ManagementCard { Text(t("Sin permiso para administrar usuarios.","No permission to manage users."),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant) } } else {
-if(rows.isEmpty() && !state.loading) item { ManagementCard { Text(if(state.ready && !state.readError) t("No hay elementos.","No items.") else t("Listado no disponible.","List unavailable."),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
+} }
+if(!permitted) item { ManagementCard { Text(t("Sin permiso para administrar usuarios.","No permission to manage users.")) } } else {
+if(rows.isEmpty() && !state.loading) item { ManagementCard { Text(if(state.ready && !state.readError) t("No hay elementos.","No items.") else t("Listado no disponible.","List unavailable.")) } }
 items(rows,key={ it.optString("_id") }) { row->
 val id=row.optString("_id")
 val name=row.optString("name").ifBlank { id }
@@ -72,10 +70,12 @@ Text(name,style=MaterialTheme.typography.titleSmall)
 Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 val detail=row.optString(if(users) "email" else "desc")
 if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium)
+if(users && userIsLocked(row.optLong("siteadmin",0))) Text(t("Bloqueado","Locked"),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelMedium)
 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
-TextButton(enabled=state.canWrite && (if(users) ProfilePermissions.manageUsers(state.site) else ProfilePermissions.editGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"edit",id,name,row.optString("email"),row.optString("desc")) }) { Text(t("Editar","Edit")) }
-TextButton(enabled=state.canWrite && (if(users) ProfilePermissions.manageUsers(state.site) && id!=state.id else ProfilePermissions.deleteGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"delete",id,name) },colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)) { Text(t("Eliminar","Delete")) }
+if(users) TextButton(enabled=state.canWrite && canLockUser(state,row),onClick={ form=ProfileForm(true,if(userIsLocked(row.optLong("siteadmin",0))) "unlock" else "lock",id,name) }) { Text(if(userIsLocked(row.optLong("siteadmin",0))) t("Desbloquear","Unlock") else t("Bloquear","Lock")) }
+TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) else ProfilePermissions.editGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"edit",id,name,row.optString("email"),row.optString("desc")) }) { Text(t("Editar","Edit")) }
+TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && id!=state.id else ProfilePermissions.deleteGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"delete",id,name) },colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)) { Text(t("Eliminar","Delete")) }
 }
 }
 }
@@ -83,49 +83,33 @@ TextButton(enabled=state.canWrite && (if(users) ProfilePermissions.manageUsers(s
 }
 }
 }
-form?.let { selected->key(selected) {
+form?.let { selected->
+if(selected.users) UserAdministrationDialog(session,state,selected) { form=null } else key(selected) {
 var name by remember { mutableStateOf(selected.name) }
-var email by remember { mutableStateOf(selected.email) }
 var description by remember { mutableStateOf(selected.description) }
-var password by remember { mutableStateOf("") }
 var confirmation by remember { mutableStateOf("") }
 var error by remember { mutableStateOf("") }
 val creating=selected.operation=="create"
 val deleting=selected.operation=="delete"
-val target=(if(selected.users) state.users else state.groups).firstOrNull { it.optString("_id")==selected.id }
-val allowed=state.canWrite && when {
-selected.users->ProfilePermissions.manageUsers(state.site) && (creating || target!=null) && (!deleting || selected.id!=state.id)
-creating->ProfilePermissions.createGroup(state.site)
-target==null->false
-deleting->ProfilePermissions.deleteGroup(state.site,state.rights(target))
-else->ProfilePermissions.editGroup(state.site,state.rights(target))
-}
-val valid=if(deleting) confirmation==selected.id else if(selected.users && !creating) email.length<=320 else name.isNotBlank() && name.length<=256 && (!selected.users || (!name.contains('/') && password.isNotEmpty() && password.length<=256 && email.length<=320))
-AlertDialog(onDismissRequest={ form=null },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear","Create") else t("Editar","Edit")) },text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+val target=state.groups.firstOrNull { it.optString("_id")==selected.id }
+val allowed=state.canWrite && when { creating->ProfilePermissions.createGroup(state.site); target==null->false; deleting->ProfilePermissions.deleteGroup(state.site,state.rights(target)); else->ProfilePermissions.editGroup(state.site,state.rights(target)) }
+val valid=if(deleting) confirmation==selected.id else name.isNotBlank() && name.length<=256
+AlertDialog(onDismissRequest={ form=null },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear grupo","Create group") else t("Editar grupo","Edit group")) },text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
 if(!creating) { Text(selected.name); Text(selected.id) }
 if(deleting) {
-Text(t("Acción irreversible desde la app. Si es un grupo, puede afectar al acceso a sus dispositivos.","Cannot be undone from the app. Deleting a group can affect access to its devices."))
+Text(t("Acción irreversible desde la app. Puede afectar al acceso a sus dispositivos.","Cannot be undone from the app. May affect access to its devices."))
 OutlinedTextField(confirmation,{ if(it.length<=1024) confirmation=it },label={ Text(t("Escribe el ID completo","Type the complete ID")) },singleLine=true)
 } else {
-if(!selected.users || creating) OutlinedTextField(name,{ if(it.length<=256) name=it },label={ Text(t("Nombre","Name")) },singleLine=true)
-if(selected.users) {
-OutlinedTextField(email,{ if(it.length<=320) email=it },label={ Text(t("Correo electrónico","Email")) },singleLine=true)
-if(creating) OutlinedTextField(password,{ if(it.length<=256) password=it },label={ Text(t("Contraseña","Password")) },singleLine=true,visualTransformation=PasswordVisualTransformation())
-} else {
+OutlinedTextField(name,{ if(it.length<=256) name=it },label={ Text(t("Nombre","Name")) },singleLine=true)
 if(creating) Text(t("Grupo de dispositivos con agente.","Agent-based device group."))
 OutlinedTextField(description,{ if(it.length<=1024) description=it },label={ Text(t("Descripción","Description")) },maxLines=3)
 }
-}
 if(error.isNotBlank()) Text(error,color=MaterialTheme.colorScheme.error)
 } },confirmButton={ TextButton(enabled=allowed && valid,onClick={
-val action=if(selected.users) when { deleting->"deleteuser"; creating->"adduser"; else->"edituser" } else when { deleting->"deletemesh"; creating->"createmesh"; else->"editmesh" }
-val p=JSONObject().put("action",action)
-if(!creating) p.put(if(selected.users) "userid" else "meshid",selected.id)
-if(!deleting) {
-if(selected.users) { p.put("email",email); if(creating) p.put("username",name.trim()).put("pass",password) }
-else { p.put("meshname",name.trim()).put("desc",description); if(creating) p.put("meshtype",2) }
-}
-if(session.submit(p)) { password=""; form=null } else error=t("No se ha enviado. Comprueba conexión y permisos.","Not sent. Check connection and permissions.")
-}) { Text(if(deleting) t("Eliminar","Delete") else t("Enviar","Send")) } },dismissButton={ TextButton(onClick={ password=""; form=null }) { Text(t("Cancelar","Cancel")) } })
+val p=JSONObject().put("action",when { deleting->"deletemesh"; creating->"createmesh"; else->"editmesh" })
+if(!creating) p.put("meshid",selected.id)
+if(!deleting) { p.put("meshname",name.trim()).put("desc",description); if(creating) p.put("meshtype",2) }
+if(session.submit(p)) form=null else error=t("No se ha enviado. Comprueba conexión y permisos.","Not sent. Check connection and permissions.")
+}) { Text(if(deleting) t("Eliminar","Delete") else t("Enviar","Send")) } },dismissButton={ TextButton(onClick={ form=null }) { Text(t("Cancelar","Cancel")) } })
 } }
 }
