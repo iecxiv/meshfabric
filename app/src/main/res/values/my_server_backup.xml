@@ -1,0 +1,29 @@
+<resources>
+    <string name="my_server_backup_title">Server backup</string>
+    <string name="my_server_backup_start">Download backup…</string>
+    <string name="my_server_backup_checking">Checking permissions…</string>
+    <string name="my_server_backup_sending">Sending password and preparing the backup. The server can take up to 2 minutes.</string>
+    <string name="my_server_backup_working">Downloading… %1$s</string>
+    <string name="my_server_backup_done">Backup saved (%1$s). Only the ZIP header was checked; password and contents were not verified.</string>
+    <string name="my_server_backup_cancel_download">Cancel download</string>
+    <string name="my_server_backup_cancelled">Download cancelled. Nothing was saved.</string>
+    <string name="my_server_backup_restore_pending">Restore is not implemented yet.</string>
+    <string name="my_server_backup_dialog_title">Download server backup</string>
+    <string name="my_server_backup_dialog_text">Enter an optional password to encrypt the backup. It can contain server certificates and secrets: store it securely.</string>
+    <string name="my_server_backup_password">Password</string>
+    <string name="my_server_backup_system_password">Use system password</string>
+    <string name="my_server_backup_no_encryption">Without a password the backup will not be encrypted.</string>
+    <string name="my_server_backup_other_sessions">Do not start another backup or restore from another session while this one is prepared: the server keeps the password in one shared setting.</string>
+    <string name="my_server_backup_choose">Choose destination</string>
+    <string name="my_server_backup_failed_access">Could not confirm backup permission with the server.</string>
+    <string name="my_server_backup_failed_denied">You do not have backup permission on this server.</string>
+    <string name="my_server_backup_failed_session">Session not available. Reconnect and try again.</string>
+    <string name="my_server_backup_failed_password">Could not send the backup password. Nothing was downloaded.</string>
+    <string name="my_server_backup_failed_disabled">The server has backups disabled (403).</string>
+    <string name="my_server_backup_failed_unauthorized">The server rejected the web session or permission (401).</string>
+    <string name="my_server_backup_failed_http">The server answered with HTTP %1$d. Nothing was saved.</string>
+    <string name="my_server_backup_failed_invalid">The response was not a valid ZIP archive. Nothing was saved.</string>
+    <string name="my_server_backup_failed_network">Connection interrupted or no response. No backup was saved.</string>
+    <string name="my_server_backup_failed_write">Could not write the selected file. No backup was saved.</string>
+    <string name="my_server_backup_failed_lost">The selection was interrupted. Nothing was sent.</string>
+</resources>

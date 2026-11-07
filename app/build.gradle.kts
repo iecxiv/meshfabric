@@ -12,7 +12,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "1.2.9"
+        versionName = "1.3.0"
         //20261023
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -58,6 +58,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.gson)
     implementation(libs.security.crypto)
+    implementation("net.lingala.zip4j:zip4j:2.11.6")
 
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)

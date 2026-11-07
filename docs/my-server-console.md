@@ -1,0 +1,13 @@
+# Bundled xterm server console
+
+The administrative console now renders its output with the app's existing xterm.js, xterm.css and xterm-fit.js assets. The device terminal files/libraries are not modified. This does not add a PTY, OS shell, SSH session, or device terminal connection to MeshCentral.
+
+Input deliberately remains a native editor followed by exact-command/server confirmation. The read-only xterm renderer has disableStdin enabled and no JavaScript-to-Android bridge. It never sends commands. The existing administrative WebSocket and full-admin guard still send serverconsole only after native confirmation; no operation is automatically resent. A local > command echo means queued locally, not successful execution.
+
+The WebView receives only a JSON-encoded, control-filtered display snapshot and static localized labels/font size, never credentials or cookies. It intercepts only five fixed bundled asset paths under appassets.androidplatform.net; other resources return 403. Network loads, file/content access, mixed content, DOM storage, downloads and popups are disabled/blocked. The local page has a restrictive CSP and no HTML rendering of server output. JavaScript console messages are swallowed, not added to diagnostic logs.
+
+ANSI CSI and OSC/DCS-like sequences are removed from displayed output. Server text cannot clear earlier terminal output or request OSC clipboard operations. Consequently server-supplied ANSI coloring/cursor behavior is not preserved; this is a plain-text administrative console rendered by xterm, not a raw VT stream. Copy output copies this displayed text only after an explicit user press.
+
+Native output history remains bounded to 200 entries/64000 characters. The rendered snapshot is independently bounded to 64000 characters including its truncation marker. The JavaScript render queue retains only the latest pending snapshot and serializes writes; it approximately restores scroll position when the user was not at the bottom. Replacing snapshots can clear an active terminal selection; use the native copy button for a stable displayed snapshot. Font size is adjustable from 10 to 20. Output is not saved to disk; background/exit clears the administrative buffers as before.
+
+A failed WebView can be recreated locally without reconnecting the administrative channel or resending commands. No CDN or new dependency is added. Four policy tests are added but not executed here. Build, unit tests, offline asset loading, WebView process-loss handling, touch scrolling, keyboard/insets, clipboard and live/disposable-server integration remain unvalidated. No server commands were executed during this delivery.
