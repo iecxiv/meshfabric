@@ -28,7 +28,7 @@ import iecxiv.meshfabric.R
             HorizontalDivider(color=scheme.outlineVariant)
             Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal+WindowInsetsSides.Bottom)).selectableGroup(),
                 verticalAlignment=Alignment.CenterVertically) {
-                listOf(stringResource(R.string.my_server_devices),stringResource(R.string.my_server_activity),stringResource(R.string.my_server_title)).forEachIndexed { index,label->
+                listOf(stringResource(R.string.my_server_devices),stringResource(R.string.my_server_activity),stringResource(R.string.navigation_server)).forEachIndexed { index,label->
                     val selected=page==index
                     val color=if(selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant
                     Row(Modifier.weight(1f).padding(horizontal=4.dp,vertical=4.dp).heightIn(min=48.dp).clip(MaterialTheme.shapes.small)

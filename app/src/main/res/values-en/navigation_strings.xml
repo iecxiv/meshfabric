@@ -1,3 +1,4 @@
 <resources>
     <string name="navigation_unavailable">This view cannot be opened. Go back and try again.</string>
+    <string name="navigation_server">Server</string>
 </resources>
