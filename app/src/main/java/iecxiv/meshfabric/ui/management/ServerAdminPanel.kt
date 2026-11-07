@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.ui.management
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -9,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.state.ToggleableState
@@ -38,7 +40,7 @@ internal fun boundedAdminOutput(previous:List<String>,text:String):List<String> 
 internal val serverTraceSources=listOf("cookie","dispatch","main","peer","agent","agentupdate","cert","db","email","web","webrequest","relay","httpheaders","authlog","amt","webrelay","mps","mpscmd")
 internal fun validTraceSelection(current:Set<String>,desired:Set<String>)=desired.all { it in serverTraceSources || it in current }
 private data class AdminState(val ready:Boolean=false,val admin:Boolean=false,val failed:Boolean=false,val sources:Set<String>?=null,
-    val console:List<String> = emptyList(),val trace:List<String> = emptyList(),val pending:String="",val token:Long=0,val desired:Set<String> = emptySet(),val notice:String="")
+    val console:List<String> = emptyList(),val trace:List<ServerTraceCsvEntry> = emptyList(),val pending:String="",val token:Long=0,val desired:Set<String> = emptySet(),val notice:String="")
 private data class TraceProposal(val base:Set<String>,val desired:Set<String>)
 private class ServerAdminChannel(private val source:MeshCentralClient) {
     val state=MutableStateFlow(AdminState())
@@ -74,7 +76,7 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
                         }
                         "traceinfo"->receiveSources(packet)
                         "event"->packet.optJSONObject("event")?.let { if(it.optString("action")=="traceinfo") receiveSources(it) }
-                        "trace"->if(state.value.admin) state.update { it.copy(trace=boundedAdminOutput(it.trace,readableServerTrace(packet.toString()))) }
+                        "trace"->if(state.value.admin) state.update { it.copy(trace=boundedServerTrace(it.trace,serverTraceCsvEntry(packet.toString()))) }
                         "close","stopped"->fail(epoch)
                     }
                 } }
@@ -138,7 +140,7 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     val enabled=state.ready && state.admin && state.pending.isEmpty()
     Text(when { state.failed->label("Sin conexión. Reconecta manualmente.","Disconnected. Reconnect manually."); !state.ready->label("Conectando…","Connecting…"); !state.admin->label("Se requiere administrador completo del servidor.","Full server administrator required."); else->label("Administrador conectado. El servidor valida también sus restricciones.","Administrator connected. Server restrictions still apply.") })
     if(state.failed) TextButton(onClick={ retry++ }) { Text(label("Reconectar","Reconnect")) }
-    val privacy=label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not saved to disk or diagnostic logs; cleared on exit or background. May contain sensitive data.")
+    val privacy=label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda automáticamente en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. La descarga CSV guarda una copia donde elijas. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not automatically saved to disk or diagnostic logs; cleared on exit or background. CSV download saves a copy at your chosen location. May contain sensitive data.")
     val notice=when(state.notice) {
         "sent"->label("Solicitud enviada; resultado pendiente.","Request sent; result pending.")
         "reply"->label("Respuesta recibida del servidor. Revisa su contenido.","Server reply received. Review its contents.")
@@ -201,15 +203,22 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     }
     if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
     if(traceView) {
-        TextButton(onClick={ channel?.clear(true) }) { Text(label("Limpiar solo la salida local","Clear local output only")) }
         val output=remember(state.trace) { state.trace.asReversed() }
+        val selectedSources=state.sources.orEmpty()
+        val exportable=output.any { it.source in selectedSources }
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                TextButton(onClick={ channel?.clear(true) }) { Text(label("Limpiar solo la salida local","Clear local output only")) }
+            }
+            ServerCsvDownload(enabled=enabled && exportable,fileName="servertrace.csv",create={ serverTraceCsv(output,selectedSources) })
+        }
         Text(label("Más recientes primero","Newest received first"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             SelectionContainer {
                 Column(Modifier.fillMaxWidth().heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     if(output.isEmpty()) Text(label("Sin salida recibida.","No output received."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     output.forEachIndexed { index,entry->
-                        Text(entry,fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodySmall)
+                        Text(entry.display,fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodySmall)
                         if(index<output.lastIndex) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                     }
                 }
