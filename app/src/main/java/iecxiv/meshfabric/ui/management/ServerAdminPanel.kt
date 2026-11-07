@@ -101,8 +101,9 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     @Synchronized fun apply(proposal:TraceProposal):Boolean {
         if(!available()) return false
         if(state.value.sources!=proposal.base || !validTraceSelection(proposal.base,proposal.desired)) { state.update { it.copy(notice="changed") }; return false }
+        if(proposal.base==proposal.desired) return false
         state.update { it.copy(pending="trace",token=it.token+1,desired=proposal.desired,notice="sent") }
-        if(socket?.send(JSONObject().put("action","traceinfo").put("traceSources",JSONArray(proposal.desired.sorted())).toString())!=true) fail(generation)
+        if(socket?.send(JSONObject().put("action","traceinfo").put("traceSources",JSONArray(proposal.desired.sorted())).toString())!=true) { fail(generation); return false }
         return true
     }
     @Synchronized fun timeout(token:Long) { if(state.value.pending.isNotEmpty() && state.value.token==token) fail(generation) }
@@ -125,16 +126,13 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var retry by remember { mutableIntStateOf(0) }
     var command by remember { mutableStateOf("") }
-    var traceProposal by remember { mutableStateOf<TraceProposal?>(null) }
-    var selected by remember { mutableStateOf(emptySet<String>()) }
     var traceMenu by remember { mutableStateOf(false) }
     LaunchedEffect(channel,lifecycle,retry) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
         try { channel?.connect(); awaitCancellation() } finally { channel?.close() }
     } }
     DisposableEffect(channel) { onDispose { channel?.close() } }
-    LaunchedEffect(state.ready,retry) { if(!state.ready) { traceProposal=null; traceMenu=false; delay(20000); channel?.connectionTimeout() } }
-    LaunchedEffect(state.token,state.pending) { if(state.pending.isNotEmpty()) { traceMenu=false; delay(25000); channel?.timeout(state.token) } }
-    LaunchedEffect(state.sources) { selected=state.sources.orEmpty(); traceProposal=null; traceMenu=false }
+    LaunchedEffect(state.ready,retry) { if(!state.ready) { traceMenu=false; delay(20000); channel?.connectionTimeout() } }
+    LaunchedEffect(state.token,state.pending) { if(state.pending.isNotEmpty()) { delay(25000); channel?.timeout(state.token) } }
     val enabled=state.ready && state.admin && state.pending.isEmpty()
     Text(label("Canal de administración independiente", "Independent administration channel"),style=MaterialTheme.typography.titleSmall)
     Text(when { state.failed->label("Sin conexión. Reconecta manualmente.","Disconnected. Reconnect manually."); !state.ready->label("Conectando…","Connecting…"); !state.admin->label("Se requiere administrador completo del servidor.","Full server administrator required."); else->label("Administrador conectado. El servidor valida también sus restricciones.","Administrator connected. Server restrictions still apply.") })
@@ -144,7 +142,7 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         "sent"->label("Solicitud enviada; resultado pendiente.","Request sent; result pending.")
         "reply"->label("Respuesta recibida del servidor. Revisa su contenido.","Server reply received. Review its contents.")
         "confirmed"->label("El estado global recibido coincide con las fuentes solicitadas.","Received global state matches the requested sources.")
-        "changed"->label("Las fuentes han cambiado. Revisa el estado actual antes de aplicar.","Sources changed. Review current state before applying.")
+        "changed"->label("Las fuentes han cambiado. Se muestra el estado recibido del servidor.","Sources changed. Showing the state received from the server.")
         "unknown"->label("Conexión interrumpida o sin respuesta. Resultado desconocido; no se reenviará la operación.","Interrupted or no response. Result unknown; the operation will not be resent.")
         else->""
     }
@@ -159,31 +157,39 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     } else {
         Text(privacy,style=MaterialTheme.typography.bodySmall)
         if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(label("Las fuentes de seguimiento son globales: afectan a otros administradores. Cerrar esta vista no envía una orden de desactivación.","Trace sources are global and affect other administrators. Closing this view sends no disable command."),style=MaterialTheme.typography.bodySmall)
+        Text(label("Marcar o desmarcar una fuente aplica el cambio directamente, sin revisión ni confirmación. Las fuentes son globales y afectan a otros administradores. Cerrar esta vista no las desactiva.","Checking or unchecking a source applies the change directly, without review or confirmation. Sources are global and affect other administrators. Closing this view does not disable them."),style=MaterialTheme.typography.bodySmall)
         val current=state.sources
         Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(label("Fuentes de rastreo","Trace sources"),style=MaterialTheme.typography.titleSmall)
                 Box {
                     OutlinedButton(onClick={ traceMenu=true },enabled=enabled && current!=null,modifier=Modifier.fillMaxWidth()) {
-                        Text(label("Seleccionar fuentes (${selected.size})","Select sources (${selected.size})"),Modifier.weight(1f))
+                        Text(label("Seleccionar fuentes (${current?.size ?: 0})","Select sources (${current?.size ?: 0})"),Modifier.weight(1f))
                         Icon(Icons.Default.ArrowDropDown,null,Modifier.size(20.dp))
                     }
-                    DropdownMenu(expanded=traceMenu && enabled && current!=null,onDismissRequest={ traceMenu=false },modifier=Modifier.heightIn(max=320.dp).widthIn(min=240.dp,max=360.dp),
+                    DropdownMenu(expanded=traceMenu && state.ready && state.admin && current!=null,onDismissRequest={ traceMenu=false },modifier=Modifier.heightIn(max=320.dp).widthIn(min=240.dp,max=360.dp),
                         shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                        if(state.pending=="trace") {
+                            Text(label("Aplicando cambios…","Applying changes…"),Modifier.padding(horizontal=16.dp,vertical=8.dp),style=MaterialTheme.typography.bodySmall)
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
                         availableTraceOptions(current.orEmpty()).forEach { name->
-                            DropdownMenuItem(text={ Column {
+                            DropdownMenuItem(enabled=enabled,text={ Column {
                                 Text(traceSourceName(name,es),style=MaterialTheme.typography.bodyMedium)
                                 if(traceSourceName(name,es)!=name) Text(name,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            } },leadingIcon={ Checkbox(checked=name in selected,onCheckedChange=null) },onClick={ selected=if(name in selected) selected-name else selected+name })
+                            } },leadingIcon={ Checkbox(checked=name in current.orEmpty(),onCheckedChange=null) },onClick={
+                                if(enabled && current!=null) {
+                                    val desired=if(name in current) current-name else current+name
+                                    channel?.apply(TraceProposal(current,desired))
+                                }
+                            })
                         }
                     }
                 }
                 if(current==null) Text(label("Esperando fuentes actuales del servidor. No se modificarán hasta recibirlas.","Waiting for current server sources. No changes allowed until received."),style=MaterialTheme.typography.bodySmall) else {
                     Text(label("Activas en el servidor: ","Active on server: ")+current.sorted().joinToString { traceSourceName(it,es) }.ifBlank { label("ninguna","none") },style=MaterialTheme.typography.bodySmall)
-                    if(selected!=current) Text(label("Selección sin aplicar: ","Unapplied selection: ")+selected.sorted().joinToString { traceSourceName(it,es) }.ifBlank { label("ninguna","none") },style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
-                    TextButton(onClick={ traceMenu=false; traceProposal=TraceProposal(current,selected.toSet()) },enabled=enabled && selected!=current) { Text(label("Revisar cambios globales","Review global changes")) }
-                    TextButton(onClick={ traceMenu=false; traceProposal=TraceProposal(current,emptySet()) },enabled=enabled && current.isNotEmpty()) { Text(label("Desactivar todas…","Disable all…")) }
+                    if(state.pending=="trace") Text(label("Cambio enviado; esperando el estado del servidor. Las casillas muestran el último estado recibido.","Change sent; waiting for server state. Checkboxes show the last received state."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
+                    TextButton(onClick={ channel?.apply(TraceProposal(current,emptySet())) },enabled=enabled && current.isNotEmpty()) { Text(label("Desactivar todas","Disable all")) }
                 }
             }
         }
@@ -204,7 +210,4 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
             }
         }
     }
-    traceProposal?.let { proposal->AlertDialog(onDismissRequest={ traceProposal=null },title={ Text(label("Cambiar seguimiento global","Change global tracing")) },
-        text={ Column { Text(source?.serverUrl.orEmpty()); Text(label("Esto reemplaza las fuentes para todo el servidor.","This replaces sources for the entire server.")); Text(label("Actuales: ","Current: ")+proposal.base.sorted().joinToString { traceSourceName(it,es)+" ("+it+")" }.ifBlank { "—" }); Text(label("Nuevas: ","New: ")+proposal.desired.sorted().joinToString { traceSourceName(it,es)+" ("+it+")" }.ifBlank { label("ninguna: desactivar todas","none: disable all") }) } },
-        confirmButton={ TextButton(enabled=enabled,onClick={ traceProposal=null; channel?.apply(proposal) }) { Text(label("Aplicar globalmente","Apply globally")) } },dismissButton={ TextButton(onClick={ traceProposal=null }) { Text(label("Cancelar","Cancel")) } }) }
 }
