@@ -39,7 +39,7 @@ import java.util.UUID
 
 internal fun nativePasswordResult(id:Int):Boolean? = when(id) { 20->true; 17,18,19,21->false; else->null }
 internal fun nativeTotpValid(secret:String,token:String)=secret.matches(Regex("[A-Z2-7]{16,128}")) && token.matches(Regex("[0-9]{6}"))
-private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val status:String="offline",val alert:String="")
+private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val alert:String="")
 private class AccountWire(private val source:MeshCentralClient,private val actor:String) {
 val state=MutableStateFlow(AccountState())
 private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -53,6 +53,7 @@ private var args=JSONObject()
 private var secret=""
 private var cookie=""
 private var retired=false
+private var tokenReadback=false
 private var identity=Triple("","",false)
 private val keys=mutableSetOf<Int>()
 private val tokens=mutableSetOf<String>()
@@ -85,14 +86,14 @@ timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generati
 @Synchronized fun pause(reason:String="offline") {
 val notice=if(retired) "deleteUnknown" else if(pending.isNotBlank() && reason=="offline") "unknown" else reason
 epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null
-pending=""; rid=""; args=JSONObject(); secret=""; cookie=""; keys.clear(); tokens.clear()
+pending=""; rid=""; args=JSONObject(); secret=""; cookie=""; tokenReadback=false; keys.clear(); tokens.clear()
 state.value=AccountState(status=notice)
 }
 @Synchronized fun dispose() { pause(); scope.cancel() }
-@Synchronized fun clearResult() { if(state.value.busy) pause("unknown") else { secret=""; state.update { it.copy(reply=null) } } }
+@Synchronized fun clearResult() { if(state.value.busy) pause("unknown") else { secret=""; keys.clear(); tokens.clear(); state.update { it.copy(reply=null,tokenList=null) } } }
 private fun send(action:String)=socket?.send(JSONObject().put("action",action).toString())==true
 private fun finish(reply:JSONObject?,status:String) {
-timer?.cancel(); pending=""; rid=""; args=JSONObject()
+timer?.cancel(); pending=""; rid=""; args=JSONObject(); tokenReadback=false
 state.update { it.copy(busy=false,reply=reply,status=status) }
 if(status=="confirmed") { send("userinfo"); source.requestServerData() }
 }
@@ -106,6 +107,12 @@ if(id !in 0..Int.MAX_VALUE.toLong() || value.toDouble()!=id.toDouble() || !ids.a
 return true
 }
 private fun objectArray(a:JSONArray?)=a!=null && (0 until a.length()).all { a.optJSONObject(it)!=null }
+private fun backupValues(a:JSONArray?):List<String>?=a?.let { nativeBackupValues((0 until it.length()).map(it::opt)) }
+private fun tokenIds(a:JSONArray?):Set<String>? {
+if(a==null) return null
+val ids=(0 until a.length()).map { (a.optJSONObject(it)?.opt("tokenUser") as? String) ?: return null }
+return nativeTokenIds(ids)
+}
 private fun receive(p:JSONObject) {
 val action=p.optString("action")
 if(action=="ping") { send("pong"); return }
@@ -146,22 +153,44 @@ if(p.has("err") || p.has("error") || p.opt("success")==false || (p.has("result")
 return
 }
 if(p.has("err") || p.has("error") || (p.has("result") && !p.optString("result").equals("ok",true))) { finish(null,"rejected"); return }
+if(action=="loginTokens" && args.has("remove") && !p.has("loginTokens")) {
+if(p.optString("result").equals("ok",true) && !tokenReadback) {
+tokenReadback=true
+if(socket?.send(JSONObject().put("action","loginTokens").put("responseid",rid).toString())!=true) pause("unknown")
+}
+return
+}
 val valid=when(action) {
 "otpauth-request"->p.optString("secret").matches(Regex("[A-Z2-7]{16,128}"))
 "otpauth-setup","otpauth-clear"->p.opt("success")==true
-"otpauth-getpasswords"->p.optJSONArray("passwords")?.let { a->(0 until a.length()).all { a.opt(it) is String || a.opt(it) is Number } }==true
+"otpauth-getpasswords"->backupValues(p.optJSONArray("passwords"))!=null
 "otp-hkey-get"->p.optJSONArray("keys")?.let(::validKeys)==true
 "previousLogins"->objectArray(p.optJSONArray("events"))
-"loginTokens"->objectArray(p.optJSONArray("loginTokens"))
-"createLoginToken"->p.optString("tokenUser").isNotBlank() && p.optString("tokenPass").isNotEmpty()
+"loginTokens"->tokenIds(p.optJSONArray("loginTokens"))!=null
+"createLoginToken"->nativeTokenIds(listOf(p.optString("tokenUser")))!=null && p.optString("tokenPass").isNotEmpty()
 else->false
 }
 if(!valid) { finish(null,"rejected"); return }
 if(action=="otpauth-request") secret=p.optString("secret")
 if(action=="otpauth-setup" || action=="otpauth-clear") secret=""
 if(action=="otp-hkey-get") { keys.clear(); val a=p.getJSONArray("keys"); for(i in 0 until a.length()) keys.add(a.getJSONObject(i).getInt("i")) }
-if(action=="loginTokens") { tokens.clear(); val a=p.getJSONArray("loginTokens"); for(i in 0 until a.length()) a.optJSONObject(i)?.optString("tokenUser")?.takeIf { it.isNotBlank() }?.let(tokens::add) }
-finish(p,if(action in setOf("otpauth-setup","otpauth-clear") || (action=="otpauth-getpasswords" && args.has("subaction"))) "confirmed" else "received")
+var resultStatus=if(action in setOf("otpauth-setup","otpauth-clear") || (action=="otpauth-getpasswords" && args.has("subaction"))) "confirmed" else "received"
+if(action=="loginTokens") {
+val a=p.getJSONArray("loginTokens")
+val ids=tokenIds(a) ?: return
+val removed=args.optJSONArray("remove")?.optString(0)
+tokens.clear(); tokens.addAll(ids)
+state.update { it.copy(tokenList=JSONArray(a.toString())) }
+if(removed!=null) resultStatus=if(removed !in ids) "confirmed" else "notRevoked"
+}
+if(action=="createLoginToken") {
+val id=p.getString("tokenUser")
+val list=state.value.tokenList?.let { JSONArray(it.toString()) } ?: JSONArray()
+if(id !in tokens) list.put(JSONObject().put("tokenUser",id).put("name",p.optString("name").ifBlank { args.optString("name") }))
+tokens.add(id)
+state.update { it.copy(tokenList=list) }
+}
+finish(p,resultStatus)
 }
 @Synchronized fun request(action:String,fields:JSONObject=JSONObject()):Boolean {
 val s=state.value
@@ -179,7 +208,7 @@ if(action=="changepassword" && (fields.optString("oldpass").isEmpty() || fields.
 if(action=="changelang" && !fields.optString("lang").matches(Regex("([a-z]{2}(-[A-Za-z]{2})?)?"))) return false
 if(action=="loginTokens" && fields.has("remove") && fields.optJSONArray("remove")?.let { a->a.length()==1 && a.optString(0) in tokens }!=true) return false
 if(action=="deleteaccount" && (cookie.isBlank() || fields.optString("password").isEmpty() || fields.optString("confirmation")!=actor)) return false
-pending=action; args=JSONObject(fields.toString()); rid=UUID.randomUUID().toString()
+pending=action; args=JSONObject(fields.toString()); rid=UUID.randomUUID().toString(); tokenReadback=false
 state.update { it.copy(busy=true,reply=null,status="sent") }
 val generation=epoch
 timer?.cancel(); timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generation==epoch && pending.isNotBlank()) pause("unknown") } }
@@ -223,6 +252,7 @@ val labels=listOf(t("Administrar la aplicación de autenticación","Manage authe
 val status=when(state.status) {
 "ready","received"->""
 "confirmed"->t("El servidor confirmó el cambio o se observó el estado solicitado.","The server acknowledged the change or the requested state was observed.")
+"notRevoked"->t("El servidor sigue incluyendo el token en la lista. La revocación no se considera completada.","The server still includes the token in its list. Revocation is not considered completed.")
 "sent"->t("Solicitud enviada; resultado pendiente.","Request sent; outcome pending.")
 "unknown"->t("Resultado sin confirmar. Reconecta y comprueba antes de reintentar. No hay reenvíos automáticos.","Outcome unconfirmed. Reconnect and check before retrying. No automatic resends.")
 "deleteUnknown"->t("Borrado solicitado, sin confirmación de eliminación. Una redirección no acredita éxito. Cierra sesión desde Ajustes antes de volver a acceder; no se reintentará.","Deletion requested, but deletion is unconfirmed. A redirect is not proof of success. Sign out from Settings before signing in again; no retry will occur.")
@@ -240,7 +270,7 @@ when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"
 }
 val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
 Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https","notRevoked") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 if(alerts && state.alert.isNotBlank()) Text(state.alert,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 if(!state.ready) TextButton(enabled=state.status!="deleteUnknown",onClick=wire::start) { Text(t("Reconectar cuenta","Reconnect account")) }
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -316,9 +346,14 @@ action("Eliminar clave","Remove key",confirmation && first.toIntOrNull()!=null) 
 2->{
 Text(t("Cada código es de un solo uso. Generar otros invalida los anteriores.","Each code is single-use. Generating new codes invalidates the previous ones."))
 val list=reply?.optJSONArray("passwords")
-val codes=if(list==null) "" else (0 until list.length()).joinToString("\n") { list.optString(it) }
-Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar códigos","Show codes")) }
-if(reveal && list!=null) { SelectionContainer { Text(codes.ifBlank { t("Sin códigos.","No codes.") }) }; action("Copiar códigos","Copy codes",codes.isNotBlank()) { copy(codes) } }
+val values=list?.let { nativeBackupValues((0 until it.length()).map(it::opt)) }
+when {
+state.busy->Text(t("Consultando códigos…","Loading codes…"))
+values==null->Text(t("No se recibió una lista válida de códigos. Puede que la función no esté disponible para esta cuenta o servidor.","No valid code list was received. The feature may be unavailable for this account or server."),style=MaterialTheme.typography.bodySmall)
+values.isEmpty()->Text(t("El servidor devolvió una lista vacía: no hay códigos de respaldo.","The server returned an empty list: no backup codes."))
+else->{ SelectionContainer { Text(values.joinToString("\n"),style=MaterialTheme.typography.bodyLarge) }; action("Copiar códigos","Copy codes") { copy(values.joinToString("\n")) } }
+}
+action("Volver a consultar","Reload codes",state.ready) { run("otpauth-getpasswords") }
 Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo invalidar los códigos anteriores.","I confirm invalidating the previous codes.")) }
 action("Generar nuevos","Generate new",confirmation) { run("otpauth-getpasswords",JSONObject().put("subaction",1)) }
 action("Eliminar códigos","Clear codes",confirmation) { run("otpauth-getpasswords",JSONObject().put("subaction",2)) }
@@ -368,12 +403,21 @@ action("Crear token","Create token",first.isNotBlank() && (second.toIntOrNull()?
 val tokenUser=reply?.optString("tokenUser").orEmpty()
 val tokenPass=reply?.optString("tokenPass").orEmpty()
 if(tokenPass.isNotEmpty()) { Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar credenciales del token","Show token credentials")) }; if(reveal) { SelectionContainer { Text("$tokenUser\n$tokenPass") }; action("Copiar credenciales","Copy credentials") { copy("$tokenUser\n$tokenPass") } } }
-val list=reply?.optJSONArray("loginTokens")
-if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { token->Text("${token.optString("name")} · ${token.optString("tokenUser")}") }
-field(third,{ third=it },t("Usuario exacto del token a revocar","Exact token username to revoke"))
-Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo revocar ese token.","I confirm revoking that token.")) }
+Text(t("Selecciona el token exacto que quieres revocar. Actualiza para consultar de nuevo la lista del servidor.","Select the exact token to revoke. Refresh to query the server list again."),style=MaterialTheme.typography.bodySmall)
+val list=state.tokenList
+if(list==null && !state.busy) Text(t("Lista de tokens no disponible.","Token list unavailable."))
+if(list!=null && list.length()==0) Text(t("El servidor no devuelve tokens.","The server returned no tokens."))
+if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { token->
+val id=token.optString("tokenUser")
+TextButton(enabled=!state.busy,onClick={ third=id; confirmation=false }) {
+RadioButton(selected=third==id,onClick=null)
+Column(Modifier.weight(1f)) { Text(token.optString("name").ifBlank { t("Sin nombre","Unnamed") }); Text(id,style=MaterialTheme.typography.bodySmall) }
+}
+}
+if(third.isNotBlank()) Text(t("Token seleccionado: ","Selected token: ")+third,style=MaterialTheme.typography.bodySmall)
+Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo revocar el token seleccionado.","I confirm revoking the selected token.")) }
 action("Revocar token","Revoke token",confirmation && third.isNotBlank()) { run("loginTokens",JSONObject().put("remove",JSONArray().put(third))) }
-action("Actualizar lista","Refresh list") { run("loginTokens") }
+action("Actualizar lista","Refresh list") { third=""; confirmation=false; run("loginTokens") }
 }
 }
 if(feedback.isNotBlank()) Text(feedback)

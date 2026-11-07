@@ -27,7 +27,8 @@ val lifecycle=LocalLifecycleOwner.current.lifecycle
 val session=remember(source) { ProfileSession(source) }
 val state by session.state.collectAsState()
 val connected by source.connectionState.collectAsState()
-var tab by rememberSaveable { mutableIntStateOf(0) }
+var section by rememberSaveable { mutableStateOf("account") }
+val tab=profileSectionKeys.indexOf(section).coerceAtLeast(0)
 var form by remember { mutableStateOf<ProfileForm?>(null) }
 DisposableEffect(session) { onDispose { session.close() } }
 LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -35,7 +36,7 @@ if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation
 } }
 LaunchedEffect(state.ready) { if(!state.ready) form=null }
 Column(modifier) {
-ManagementSectionTabs(listOf(t("Mi usuario","My user"),t("Usuarios","Users"),t("Grupos de dispositivos","Device groups")),tab) { tab=it }
+ManagementSectionTabs(listOf(t("Mi Usuario","My user"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null }
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else {
 val message=when(state.notice) {
 "ready"->""
@@ -47,7 +48,7 @@ val message=when(state.notice) {
 "readFailed"->t("Listado incompleto. Modificaciones bloqueadas hasta actualizar.","Incomplete list. Changes blocked until refresh.")
 else->t("Sin conexión o cargando.","Offline or loading.")
 }
-val users=tab==1
+val users=section=="users"
 val permitted=!users || ProfilePermissions.manageUsers(state.site)
 val rows=if(users) state.users else state.groups
 LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
