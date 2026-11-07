@@ -36,10 +36,13 @@ import java.util.Locale
 import kotlin.math.ceil
 
 private val generalJson=GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()
-internal data class ServerReadableResult(val text:String,val missing:Boolean=false,val invalidJson:Boolean=false)
+internal data class ServerReadableResult(val text:String,val missing:Boolean=false,val invalidJson:Boolean=false,val noErrorLog:Boolean=false)
 internal fun serverReadableResult(raw:String,action:String):ServerReadableResult = runCatching {
     val packet=JsonParser.parseString(raw).asJsonObject
     if(action !in setOf("serverconfig","servererrors")) return ServerReadableResult(generalJson.toJson(packet))
+    if(action=="servererrors" && packet.entrySet().size==1 && packet.get("action")?.asString=="servererrors") {
+        return ServerReadableResult("",noErrorLog=true)
+    }
     if(!packet.has("data")) return ServerReadableResult(generalJson.toJson(packet),missing=true)
     val data=packet.get("data")
     if(action=="servererrors") {
@@ -190,6 +193,11 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
     var wrap by remember(raw,action) { mutableStateOf(true) }
     var font by remember(raw,action) { mutableIntStateOf(12) }
     val title=stringResource(when(action) { "serverconfig"->R.string.my_server_config; "servererrors"->R.string.my_server_errors; "serverversion"->R.string.my_server_version; else->R.string.my_server_result })
+    if(result.noErrorLog) {
+        AlertDialog(onDismissRequest=onClose,title={ Text(title) },text={ Text(label("El servidor no tiene registro de errores.","The server has no error log.")) },
+            confirmButton={ TextButton(onClick=onClose) { Text(stringResource(R.string.my_server_close)) } })
+        return
+    }
     AlertDialog(onDismissRequest=onClose,title={ Text(title) },text={
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(result.missing) Text(label("Respuesta inesperada: falta el contenido solicitado. Se muestra la respuesta recibida.","Unexpected response: requested content missing. Showing the received response."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
