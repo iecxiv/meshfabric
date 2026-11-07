@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -159,6 +160,9 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
         if(notice.isNotBlank()) Text(notice,color=if(state.notice=="unknown" || state.notice=="changed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         Text(label("Marcar o desmarcar una fuente aplica el cambio directamente, sin revisión ni confirmación. Las fuentes son globales y afectan a otros administradores. Cerrar esta vista no las desactiva.","Checking or unchecking a source applies the change directly, without review or confirmation. Sources are global and affect other administrators. Closing this view does not disable them."),style=MaterialTheme.typography.bodySmall)
         val current=state.sources
+        val options=availableTraceOptions(current.orEmpty())
+        val allSelected=options.isNotEmpty() && options.all { it in current.orEmpty() }
+        val allState=when { allSelected->ToggleableState.On; current.isNullOrEmpty()->ToggleableState.Off; else->ToggleableState.Indeterminate }
         Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(label("Fuentes de rastreo","Trace sources"),style=MaterialTheme.typography.titleSmall)
@@ -169,11 +173,16 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
                     }
                     DropdownMenu(expanded=traceMenu && state.ready && state.admin && current!=null,onDismissRequest={ traceMenu=false },modifier=Modifier.heightIn(max=320.dp).widthIn(min=240.dp,max=360.dp),
                         shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                        DropdownMenuItem(enabled=enabled && current!=null,text={ Text(if(allSelected) label("Desmarcar todas","Uncheck all") else label("Marcar todas","Check all")) },
+                            leadingIcon={ TriStateCheckbox(state=allState,onClick=null,enabled=enabled) },onClick={
+                                if(enabled && current!=null) channel?.apply(TraceProposal(current,if(allSelected) emptySet() else options.toSet()))
+                            })
+                        HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                         if(state.pending=="trace") {
                             Text(label("Aplicando cambios…","Applying changes…"),Modifier.padding(horizontal=16.dp,vertical=8.dp),style=MaterialTheme.typography.bodySmall)
                             LinearProgressIndicator(Modifier.fillMaxWidth())
                         }
-                        availableTraceOptions(current.orEmpty()).forEach { name->
+                        options.forEach { name->
                             DropdownMenuItem(enabled=enabled,text={ Column {
                                 Text(traceSourceName(name,es),style=MaterialTheme.typography.bodyMedium)
                                 if(traceSourceName(name,es)!=name) Text(name,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -189,7 +198,6 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
                 if(current==null) Text(label("Esperando fuentes actuales del servidor. No se modificarán hasta recibirlas.","Waiting for current server sources. No changes allowed until received."),style=MaterialTheme.typography.bodySmall) else {
                     Text(label("Activas en el servidor: ","Active on server: ")+current.sorted().joinToString { traceSourceName(it,es) }.ifBlank { label("ninguna","none") },style=MaterialTheme.typography.bodySmall)
                     if(state.pending=="trace") Text(label("Cambio enviado; esperando el estado del servidor. Las casillas muestran el último estado recibido.","Change sent; waiting for server state. Checkboxes show the last received state."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
-                    TextButton(onClick={ channel?.apply(TraceProposal(current,emptySet())) },enabled=enabled && current.isNotEmpty()) { Text(label("Desactivar todas","Disable all")) }
                 }
             }
         }
@@ -197,7 +205,8 @@ private class ServerAdminChannel(private val source:MeshCentralClient) {
     if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
     if(traceView) {
         TextButton(onClick={ channel?.clear(true) }) { Text(label("Limpiar solo la salida local","Clear local output only")) }
-        val output=state.trace
+        val output=remember(state.trace) { state.trace.asReversed() }
+        Text(label("Más recientes primero","Newest received first"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             SelectionContainer {
                 Column(Modifier.fillMaxWidth().heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
