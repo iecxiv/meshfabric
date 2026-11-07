@@ -35,8 +35,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 internal fun nativePasswordResult(id:Int):Boolean? = when(id) { 20->true; 17,18,19,21->false; else->null }
@@ -50,7 +48,7 @@ val value=a.opt(index)
 if(value is JSONObject) mapOf("p" to value.opt("p"),"u" to value.opt("u")) else value
 })
 }
-private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val alert:String="")
+private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val server:JSONObject?=null,val notice:AccountNotice?=null)
 private class AccountWire(private val source:MeshCentralClient,private val actor:String) {
 val state=MutableStateFlow(AccountState())
 private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -65,13 +63,38 @@ private var secret=""
 private var cookie=""
 private var retired=false
 private var tokenReadback=false
+private var noticeSerial=0L
+private val connectivity=mutableMapOf<String,Int>()
 private var identity=Triple("","",false)
 private val keys=mutableSetOf<Int>()
 private val tokens=mutableSetOf<String>()
 private fun same()=identity==Triple(source.serverUrl,source.authCookie,source.ignoreSsl) && source.connectionState.value && !source.isUserLogout
+private fun announce(kind:String,e:JSONObject,channels:Int=0) {
+val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
+val match=source.groupedDevices.value.firstNotNullOfOrNull { (group,nodes)->nodes.firstOrNull { it.id==id }?.let { group to it } }
+val name=match?.second?.name.orEmpty().ifBlank { e.optString("nodename").ifBlank { id } }.take(200)
+val group=match?.first?.name.orEmpty().ifBlank { e.optString("meshname") }.take(200)
+val text=if(kind=="general") e.optString("value").ifBlank { e.optString("msg") }.take(1000) else if(kind=="amt") e.optString("msg").take(600) else ""
+val entry=AccountNotice(++noticeSerial,kind,text,name,group,channels)
+state.update { it.copy(notice=entry) }
+}
+private fun noticeEvent(e:JSONObject) {
+val action=e.optString("action")
+if(action=="nodeconnect" || action=="nodedisconnect") {
+val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
+val number=e.opt("conn") as? Number
+val next=if(number!=null && number.toDouble()>=0 && number.toDouble()<=Int.MAX_VALUE && number.toDouble()%1.0==0.0) number.toInt() else if(action=="nodedisconnect") 0 else return
+if(id.isBlank()) return
+val before=connectivity.put(id,next)
+val (gained,lost)=accountConnectionChange(before,next)
+if(gained!=0) announce("connect",e,gained)
+if(lost!=0) announce("disconnect",e,lost)
+} else if(action=="relaylog" && e.optInt("protocol")==101) announce("amt",e)
+}
 @Synchronized fun start() {
 if(retired || socket!=null || actor.isBlank() || !source.connectionState.value || source.isUserLogout) return
 identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
+connectivity.clear(); source.groupedDevices.value.forEach { (_,nodes)->nodes.forEach { connectivity[it.id]=it.conn } }
 val generation=++epoch
 state.value=AccountState(status="connecting")
 runCatching {
@@ -97,7 +120,7 @@ timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generati
 @Synchronized fun pause(reason:String="offline") {
 val notice=if(retired) "deleteUnknown" else if(pending.isNotBlank() && reason=="offline") "unknown" else reason
 epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null
-pending=""; rid=""; args=JSONObject(); secret=""; cookie=""; tokenReadback=false; keys.clear(); tokens.clear()
+pending=""; rid=""; args=JSONObject(); secret=""; cookie=""; tokenReadback=false; keys.clear(); tokens.clear(); connectivity.clear()
 state.value=AccountState(status=notice)
 }
 @Synchronized fun dispose() { pause(); scope.cancel() }
@@ -128,24 +151,29 @@ val action=p.optString("action")
 if(action=="ping") { send("pong"); return }
 if(action=="close" || action=="stopped") { pause(); return }
 if(action=="authcookie") { cookie=p.optString("cookie"); return }
+if(action=="serverinfo") { state.update { it.copy(server=JSONObject(p.toString())) }; return }
+if(action=="nodeconnect" || action=="nodedisconnect") { noticeEvent(p); return }
 if(action=="userinfo") {
 val user=p.optJSONObject("userinfo") ?: return
 if(user.optString("_id")!=actor) { pause("identity"); return }
 val first=!state.value.ready
 state.update { it.copy(ready=true,user=JSONObject(user.toString()),status=if(first) "ready" else it.status) }
 if(first) { timer?.cancel(); send("authcookie") }
-if(pending=="changelang" && (if(user.isNull("lang")) "" else user.optString("lang"))==args.optString("lang")) finish(JSONObject(),"confirmed")
+val lang=if(user.isNull("lang")) "" else user.optString("lang")
+if(pending=="changelang" && accountDefaultLanguage(lang)==accountDefaultLanguage(args.optString("lang"))) finish(JSONObject(),"confirmed")
 return
 }
 if(action=="event") {
-val account=p.optJSONObject("event")?.optJSONObject("account")
+val event=p.optJSONObject("event") ?: return
+val account=event.optJSONObject("account")
 if(account?.optString("_id")==actor) { state.update { it.copy(user=JSONObject(account.toString())) }; send("userinfo") }
+noticeEvent(event)
 return
 }
 if(action=="msg" && p.optString("type")=="notify") {
 val result=nativePasswordResult(p.optInt("msgid",-1))
 if(pending=="changepassword" && result!=null) { finish(null,if(result) "confirmed" else "password:${p.optInt("msgid")}"); return }
-state.update { it.copy(alert=p.optString("value").take(1000)) }
+announce("general",p)
 return
 }
 if(pending.isBlank()) return
@@ -215,7 +243,7 @@ if(action=="otpauth-setup" && (fields.optString("secret")!=secret || !nativeTotp
 if(action=="otp-hkey-remove" && fields.optInt("index",-1) !in keys) return false
 if(action=="createLoginToken" && (fields.optString("name").isBlank() || fields.optString("name").length>128 || fields.optInt("expire") !in 1..43200)) return false
 if(action=="changepassword" && (fields.optString("oldpass").isEmpty() || fields.optString("newpass").isEmpty() || fields.optString("newpass").length>256)) return false
-if(action=="changelang" && !fields.optString("lang").matches(Regex("([a-z]{2}(-[A-Za-z]{2})?)?"))) return false
+if(action=="changelang" && fields.optString("lang")!="*" && fields.optString("lang") !in accountLanguageTags(s.server?.optJSONArray("languages"))) return false
 if(action=="loginTokens" && fields.has("remove") && fields.optJSONArray("remove")?.let { a->a.length()==1 && a.optString(0) in tokens }!=true) return false
 if(action=="deleteaccount" && (cookie.isBlank() || fields.optString("password").isEmpty() || fields.optString("confirmation")!=actor)) return false
 pending=action; args=JSONObject(fields.toString()); rid=UUID.randomUUID().toString(); tokenReadback=false
@@ -251,14 +279,16 @@ val state by wire.state.collectAsState()
 val prefs=remember(context) { context.getSharedPreferences("native_account_view",Context.MODE_PRIVATE) }
 val prefKey=remember(source.serverUrl,actor) { MessageDigest.getInstance("SHA-256").digest((source.serverUrl+"\u0000"+actor).toByteArray()).joinToString("") { "%02x".format(it) } }
 var hours24 by remember(prefKey) { mutableStateOf(prefs.getBoolean("${prefKey}_24",true)) }
+var dateLocale by remember(prefKey) { mutableStateOf(prefs.getString("${prefKey}_locale","").orEmpty()) }
 var alerts by remember(prefKey) { mutableStateOf(prefs.getBoolean("${prefKey}_alerts",false)) }
+var options by remember(prefKey) { mutableStateOf(AccountNoticeOptions(prefs.getBoolean("${prefKey}_sound",false),prefs.getBoolean("${prefKey}_groupname",true),prefs.getBoolean("${prefKey}_connect",false),prefs.getBoolean("${prefKey}_disconnect",false),prefs.getBoolean("${prefKey}_amt",false))) }
 var mode by remember { mutableStateOf<Int?>(null) }
 DisposableEffect(wire) { onDispose { wire.dispose() } }
 LaunchedEffect(wire,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
 if(connected) { wire.start(); try { awaitCancellation() } finally { wire.pause() } } else wire.pause()
 } }
 LaunchedEffect(state.ready) { if(!state.ready) mode=null }
-val labels=listOf(t("Administrar la aplicación de autenticación","Manage authenticator app"),t("Administrar claves de seguridad","Manage security keys"),t("Administrar códigos de respaldo","Manage backup codes"),t("Ver inicios de sesión anteriores","View previous logins"),t("Habilitar notificaciones","Enable notifications"),t("Opciones de hora e idioma","Time and language options"),t("Opciones de notificación","Notification options"),t("Cambiar contraseña","Change password"),t("Eliminar cuenta","Delete account"),t("Crear token de inicio de sesión","Create login token"))
+val labels=listOf(t("Administrar la aplicación de autenticación","Manage authenticator app"),t("Administrar claves de seguridad","Manage security keys"),t("Administrar códigos de respaldo","Manage backup codes"),t("Ver inicios de sesión anteriores","View previous logins"),t("Habilitar notificaciones en la app","Enable in-app notifications"),t("Opciones de hora e idioma","Time and language options"),t("Opciones de notificación","Notification options"),t("Cambiar contraseña","Change password"),t("Eliminar cuenta","Delete account"),t("Crear token de inicio de sesión","Create login token"))
 val status=when(state.status) {
 "ready","received"->""
 "confirmed"->t("El servidor confirmó el cambio o se observó el estado solicitado.","The server acknowledged the change or the requested state was observed.")
@@ -281,7 +311,7 @@ when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"
 val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
 Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https","notRevoked") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-if(alerts && state.alert.isNotBlank()) Text(state.alert,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+AccountNoticeBanner(state.notice,options,alerts,es,dateLocale,hours24)
 if(!state.ready) TextButton(enabled=state.status!="deleteUnknown",onClick=wire::start) { Text(t("Reconectar cuenta","Reconnect account")) }
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 Text(t("Mi cuenta","My account"),style=MaterialTheme.typography.titleMedium)
@@ -322,6 +352,7 @@ if(!wire.request(action,fields)) feedback=t("No se ha enviado. Comprueba permiso
 OutlinedTextField(value,{ if(it.length<=4096) onChange(it) },label={ Text(label) },singleLine=true,visualTransformation=if(password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,modifier=Modifier.fillMaxWidth())
 }
 @Composable fun action(s:String,e:String,enabled:Boolean=true,onClick:()->Unit) { TextButton(enabled=enabled && !state.busy,onClick=onClick) { Text(t(s,e)) } }
+@Composable fun option(label:String,value:Boolean,change:(Boolean)->Unit) { Row { Checkbox(value,change); Text(label,Modifier.weight(1f)) } }
 fun copy(value:String) {
 val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
 val clip=ClipData.newPlainText("MeshFabric",value).apply { description.extras=PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE",true) } }
@@ -346,9 +377,7 @@ action("Desactivar autenticador","Disable authenticator",confirmation) { run("ot
 Text(t("Consulta y eliminación nativas. El alta de nuevas claves FIDO2 no está implementada; no se abrirá un navegador.","Native listing and removal. New FIDO2 key registration is not implemented; no browser will open."))
 val list=reply?.optJSONArray("keys")
 if(list!=null && list.length()==0) Text(t("No hay claves registradas.","No registered keys."))
-if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { item->
-Text("${item.optString("name")} · ID ${item.optInt("i")}")
-}
+if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { item-> Text("${item.optString("name")} · ID ${item.optInt("i")}") }
 field(first,{ first=it },t("ID de la clave que quieres eliminar","ID of key to remove"))
 Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo eliminar esa clave de seguridad.","I confirm removing that security key.")) }
 action("Eliminar clave","Remove key",confirmation && first.toIntOrNull()!=null) { run("otp-hkey-remove",JSONObject().put("index",first.toInt())) }
@@ -356,10 +385,7 @@ action("Eliminar clave","Remove key",confirmation && first.toIntOrNull()!=null) 
 2->{
 Text(t("Cada código es de un solo uso. Generar otros invalida los anteriores.","Each code is single-use. Generating new codes invalidates the previous ones."))
 val values=parseNativeBackupResponse(reply)
-Row {
-Checkbox(checked=reveal,onCheckedChange={ reveal=it },enabled=!state.busy && values?.isNotEmpty()==true)
-Text(t("Mostrar códigos","Show codes"))
-}
+Row { Checkbox(checked=reveal,onCheckedChange={ reveal=it },enabled=!state.busy && values?.isNotEmpty()==true); Text(t("Mostrar códigos","Show codes")) }
 when {
 state.busy->Text(t("Consultando códigos…","Loading codes…"))
 values==null->Text(t("No se recibió una lista válida de códigos. Puede que la función no esté disponible para esta cuenta o servidor.","No valid code list was received. The feature may be unavailable for this account or server."),style=MaterialTheme.typography.bodySmall)
@@ -387,20 +413,42 @@ if(list!=null && list.length()==0) Text(t("No hay registros.","No records."))
 val rows=if(list==null) emptyList() else (0 until list.length()).mapNotNull { list.optJSONObject(it) }
 fun instant(item:JSONObject):Instant? { val value=item.opt("t"); return runCatching { (if(value is Number) Instant.ofEpochMilli(if(value.toLong()<100000000000L) Math.multiplyExact(value.toLong(),1000L) else value.toLong()) else Instant.parse(value.toString())).also { it.toEpochMilli() } }.getOrNull() }
 for(item in rows.sortedByDescending { instant(it)?.toEpochMilli() ?: Long.MIN_VALUE }.take(200)) {
-val date=instant(item)?.atZone(ZoneId.systemDefault())?.format(DateTimeFormatter.ofPattern(if(hours24) "yyyy-MM-dd HH:mm:ss" else "yyyy-MM-dd hh:mm:ss a")).orEmpty()
+val date=instant(item)?.let { accountTime(it,dateLocale,hours24) }.orEmpty()
 val details=item.optJSONArray("a")?.let { a->(0 until a.length()).joinToString(" · ") { a.optString(it) } }.orEmpty()
 Text("$date · ${loginHistoryLabel(item.opt("m"),es)}\n$details"); HorizontalDivider()
 }
 }
-4,6->{
-Text(t("Preferencias locales de esta cuenta en este servidor. Solo afectan a los avisos recibidos mientras Mi usuario está abierto. No activan push en segundo plano ni cambian las preferencias de notificación del servidor.","Local preferences for this account on this server. They affect notices received while My user is open. They do not enable background push or change server notification preferences."))
-Row { Checkbox(alerts,{ alerts=it; prefs.edit().putBoolean("${prefKey}_alerts",it).apply() }); Text(t("Mostrar avisos recibidos","Show received notices")) }
+4->{
+Text(t("Activa los avisos dentro de Mi Usuario mientras esta vista esté abierta y en primer plano. No activa notificaciones del sistema, push, ni una bandeja global.","Enables notices within My user while this view is open and foregrounded. Does not enable system notifications, push, or a global inbox."))
+option(t("Habilitar notificaciones en la app","Enable in-app notifications"),alerts,{ alerts=it; prefs.edit().putBoolean("${prefKey}_alerts",it).apply() })
 }
 5->{
-Row { Checkbox(hours24,{ hours24=it; prefs.edit().putBoolean("${prefKey}_24",it).apply() }); Text(t("Formato local de 24 horas","Local 24-hour format")) }
-Text(t("El formato horario solo afecta al historial de esta vista. El idioma siguiente es el de la cuenta del servidor, no cambia todo el idioma de Android.","Time format affects this view's history only. The language below is the server account's language; it does not change Android's language."))
-field(first,{ first=it },t("Idioma de la cuenta: es, en…; vacío = predeterminado","Account language: es, en…; empty = default"))
-action("Guardar idioma de cuenta","Save account language") { run("changelang",JSONObject().put("lang",first.trim())) }
+var localeDraft by remember { mutableStateOf(dateLocale) }
+var hoursDraft by remember { mutableStateOf(hours24) }
+val locales=remember(es) { accountLocaleChoices(es) }
+AccountChoiceDropdown(t("Configuración regional de fecha y hora","Date and time locale"),localeDraft,locales,es=es,onSelect={ localeDraft=it })
+Text(t("Ejemplo: ","Example: ")+accountTime(Instant.now(),localeDraft,hoursDraft),style=MaterialTheme.typography.bodySmall)
+option(t("Formato de 24 horas","24-hour format"),hoursDraft,{ hoursDraft=it })
+action("Guardar formato local","Save local format") { dateLocale=localeDraft; hours24=hoursDraft; prefs.edit().putString("${prefKey}_locale",localeDraft).putBoolean("${prefKey}_24",hoursDraft).apply(); feedback=t("Formato local guardado.","Local format saved.") }
+val current=accountDefaultLanguage(state.user?.let { if(it.isNull("lang")) "" else it.optString("lang") }.orEmpty())
+var languageDraft by remember(current) { mutableStateOf(current) }
+val tags=accountLanguageTags(state.server?.optJSONArray("languages"))
+val languages=listOf("*" to t("Predeterminado del servidor/navegador","Server/browser default"))+(tags+listOf(current).filter { it!="*" }).distinct().map { it to accountLocaleLabel(it,es) }
+AccountChoiceDropdown(t("Idioma de la cuenta","Account language"),languageDraft,languages,enabled=tags.isNotEmpty() && !state.busy,es=es,onSelect={ languageDraft=it })
+if(tags.isEmpty()) Text(t("El servidor no anunció su lista de idiomas. No se enviarán idiomas arbitrarios.","The server did not advertise its language list. Arbitrary languages will not be sent."),style=MaterialTheme.typography.bodySmall)
+action("Guardar idioma de cuenta","Save account language",tags.isNotEmpty() && languageDraft!=current && (languageDraft=="*" || languageDraft in tags)) { run("changelang",JSONObject().put("lang",languageDraft)) }
+Text(t("El formato regional se guarda localmente para las fechas de Mi Usuario y no cambia la zona horaria. El idioma se solicita al servidor y se comprueba mediante userinfo; no cambia el idioma global de Android ni de toda la app.","The locale is stored locally for My user dates and does not change the time zone. Account language is requested from the server and checked through userinfo; it does not change Android or app-wide language."),style=MaterialTheme.typography.bodySmall)
+}
+6->{
+var draft by remember { mutableStateOf(options) }
+Text(t("Preferencias locales de esta cuenta y servidor. Se aplican a los avisos recibidos mientras Mi Usuario está abierto; deben estar habilitadas las notificaciones en la app.","Local preferences for this account and server. Apply to notices received while My user is open; in-app notifications must be enabled."),style=MaterialTheme.typography.bodySmall)
+option(t("Sonido de notificación","Notification sound"),draft.sound,{ draft=draft.copy(sound=it) })
+option(t("Mostrar el nombre de grupo de dispositivos","Display device group name"),draft.groupName,{ draft=draft.copy(groupName=it) })
+option(t("Conexiones de dispositivo","Device connections"),draft.connections,{ draft=draft.copy(connections=it) })
+option(t("Desconexiones de dispositivo","Device disconnections"),draft.disconnections,{ draft=draft.copy(disconnections=it) })
+option(t("Eventos de escritorio y serial de Intel(R) AMT","Intel(R) AMT desktop and serial events"),draft.amt,{ draft=draft.copy(amt=it) })
+action("Guardar opciones","Save options") { options=draft; prefs.edit().putBoolean("${prefKey}_sound",draft.sound).putBoolean("${prefKey}_groupname",draft.groupName).putBoolean("${prefKey}_connect",draft.connections).putBoolean("${prefKey}_disconnect",draft.disconnections).putBoolean("${prefKey}_amt",draft.amt).apply(); feedback=t("Opciones locales guardadas.","Local options saved.") }
+Text(t("AMT filtra eventos de redirección que el servidor emita con protocolo 101. El sonido usa el tono de notificación y depende de los ajustes del sistema. Estas opciones no modifican las preferencias web del servidor ni habilitan recepción en segundo plano.","AMT filters redirection events emitted by the server with protocol 101. Sound uses the notification tone and depends on system settings. These options do not modify server web preferences or enable background reception."),style=MaterialTheme.typography.bodySmall)
 }
 7->{
 field(first,{ first=it },t("Contraseña actual","Current password"),true)
