@@ -1,0 +1,156 @@
+name: Validate and publish group mesh rights edit UI
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-edit-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-edit-ui-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded group edit UI and offline Compose tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          template=base/'UserMeshEditDialog.kt'
+          testTemplate=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshEditDialogTest.kt')
+          pane=base/'UserGroupsDirectoryPane.kt'
+          for path in [template,testTemplate,pane,base/'GroupMeshEditPolicy.kt',base/'ProfileSession.kt']:
+              expected=subprocess.check_output(['git','rev-parse','da1e402674f9937514d8ec0ab6c8bcbc1ab40a2c:'+str(path)],text=True).strip()
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=expected:raise RuntimeError('Source changed: '+str(path))
+          dialog=base/'GroupMeshEditDialog.kt'
+          test=testTemplate.with_name('GroupMeshEditDialogTest.kt')
+          for path in (dialog,test):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          def replace(text,old,new):
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              return text.replace(old,new,1)
+          s=template.read_text()
+          for old,new in [('UserMeshEditDialog','GroupMeshEditDialog'),('profileUserMeshEdit','profileGroupMeshEdit'),('submitUserMeshEdit','submitGroupMeshEdit'),('_userEdit','_groupEdit'),('userMeshEditedObserved','groupMeshEditedObserved'),('editedDirectUser','editedGroup'),('editedDirectMesh','editedDeviceGroup'),('direct-edit-','group-edit-'),('editMask','groupEditMask')]:s=s.replace(old,new)
+          s=re.sub(r'\buid\b','gid',s)
+          s=re.sub(r'(?<!\.)\buser\b','subject',s)
+          s=replace(s,'s.users.singleOrNull','s.listedUserGroups?.singleOrNull')
+          s=replace(s,'t("Usuario: ","User: ")+gid','t("Grupo de usuarios: ","User group: ")+gid')
+          s=replace(s,'t("Editar derechos directos","Edit direct rights")','t("Editar derechos de asignación","Edit assignment rights")')
+          s=replace(s,'Solo modifica un acceso directo existente y coherente en ambos enlaces. No modifica los accesos heredados ni calcula todos los permisos efectivos.','Solo modifica una asignación existente y coherente entre este grupo de usuarios y este grupo de dispositivos. Puede cambiar el acceso heredado de sus miembros. No modifica sus enlaces directos ni calcula todos los permisos efectivos.')
+          s=replace(s,'Only edits an existing direct assignment consistent in both links. Does not modify inherited assignments or calculate all effective rights.','Only edits an existing consistent assignment between this user group and this device group. May change inherited access for its members. Does not modify their direct links or calculate all effective rights.')
+          s=replace(s,'Confirmo sustituir los derechos directos anteriores por esta máscara, conservando los bits no editables.','Confirmo sustituir los derechos de esta asignación entre grupos por esta máscara, conservando los bits no editables.')
+          s=replace(s,'I confirm replacing the previous direct rights with this mask, preserving noneditable bits.','I confirm replacing the rights of this group assignment with this mask, preserving noneditable bits.')
+          s=replace(s,'t("Guardar derechos directos","Save direct rights")','t("Guardar derechos de asignación","Save assignment rights")')
+          s=replace(s,'session.refresh();onDismiss()','session.refresh();session.loadUserGroupDirectory();onDismiss()')
+          s=replace(s,'if(s.loading || s.detailsBusy || (submitted && s.busy))','if(s.loading || s.detailsBusy || s.userGroupPhase=="loading" || (submitted && s.busy))')
+          s=s.replace('enabled=bound && s.canWrite && !s.detailsBusy','enabled=bound && s.canWrite && !s.detailsBusy && s.userGroupPhase=="ready"')
+          dialog.write_text(s)
+          p=pane.read_text()
+          p=replace(p,'var reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}','var reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}\nvar editingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}')
+          p=replace(p,'reviewingMesh=null;grantingMesh=null}}','reviewingMesh=null;grantingMesh=null;editingMesh=null}}')
+          anchor='if(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready",onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=group.optString("_id") to id;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Revisar asignación: ","Review assignment: ")+id)}'
+          button='''
+          if(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && !s.detailsBusy && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=group.optString("_id") to id}) {Text(t("Editar derechos de asignación: ","Edit assignment rights: ")+id)}'''
+          p=replace(p,anchor,anchor+button)
+          anchor='OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())'
+          p=replace(p,anchor,'''if(s.notice=="groupMeshEditedObserved") Text(t("Máscara exacta editada y observada en ambos enlaces. Grupo de usuarios: ","Edited exact mask observed in both links. User group: ")+s.editedGroup+t("; grupo de dispositivos: ","; device group: ")+s.editedDeviceGroup,style=MaterialTheme.typography.bodySmall)
+          '''+anchor)
+          anchor='reviewingMesh?.let {(gid,mid)->GroupMeshAssignmentReview(session,s,gid,mid) {reviewingMesh=null}}'
+          p=replace(p,anchor,anchor+'\neditingMesh?.let {(gid,mid)->key(gid,mid) {GroupMeshEditDialog(session,s,gid,mid) {editingMesh=null}}}')
+          pane.write_text(p)
+          t=testTemplate.read_text().replace('UserMeshEditDialogTest','GroupMeshEditDialogTest').replace('UserMeshEditDialog(','GroupMeshEditDialog(').replace('direct-edit-','group-edit-')
+          t=re.sub(r'\buid\b','gid',t)
+          t=replace(t,'private val gid="user//target"','private val gid="ugrp//group"')
+          lines=[line for line in t.splitlines() if line.strip().startswith('private fun state(')]
+          if len(lines)!=1:raise RuntimeError('Unexpected fixture')
+          fixture='''    private fun state(rights:Long=0x80000008L)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",256L),listedUserGroups=listOf(JSONObject().put("_id",gid).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("links",JSONObject().put(gid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))),userGroupPhase="ready")'''
+          t=replace(t,lines[0],fixture)
+          t=replace(t,'initial.users.single()','initial.listedUserGroups!!.single()')
+          t=t.replace('fullAdministratorAndInheritedOnlyAssignmentsCannotEdit','fullAdministratorAssignmentCannotEdit')
+          extra='''    @Test fun directoryFailureMissingRecordsAndWrongRoleBlockPreparation() {Fixture().use {f->
+                  chooseEdit()
+                  for(s in listOf(state().copy(userGroupPhase="loading"),state().copy(userGroupPhase="failed"),state().copy(listedUserGroups=null),state().copy(listedUserGroups=emptyList()),state().copy(groups=emptyList()),state().copy(user=JSONObject().put("_id",actor).put("siteadmin",2)))) {
+                      compose.runOnIdle {f.current.value=s}
+                      compose.onNodeWithTag("group-edit-prepare").assertIsNotEnabled()
+                  }
+              }}
+              @Test fun administrativeBitsArePreservedInTheProposedMask() {Fixture(state(0x8000000aL)).use {
+                  chooseEdit()
+                  compose.onNodeWithTag("group-edit-before").assertTextEquals("0x8000000A")
+                  compose.onNodeWithTag("group-edit-after").assertTextEquals("0x80000012")
+              }}
+              @Test fun missingBothAssignmentLinksCannotBecomeAnInitialGrant() {
+                  val initial=state()
+                  initial.listedUserGroups!!.single().getJSONObject("links").remove(mid)
+                  initial.groups.single().getJSONObject("links").remove(gid)
+                  Fixture(initial).use {chooseEdit();compose.onNodeWithTag("group-edit-prepare").assertIsNotEnabled()}
+              }
+              @Test fun checkboxChangesOnlyTheEditablePortion() {Fixture().use {
+                  compose.onNode(hasText("Seleccionar permisos y restricciones") or hasText("Select rights and restrictions")).performScrollTo().performClick()
+                  compose.onNodeWithTag("group-edit-bit-16").performScrollTo().performClick()
+                  compose.onNodeWithTag("group-edit-after").assertTextEquals("0x80000018")
+                  compose.onNodeWithTag("group-edit-bit-8").performScrollTo().performClick()
+                  compose.onNodeWithTag("group-edit-after").assertTextEquals("0x80000010")
+                  compose.onNodeWithTag("group-edit-prepare").assertIsEnabled()
+              }}
+          '''
+          t=t.rstrip()
+          if not t.endswith('}'):raise RuntimeError('Unexpected test structure')
+          test.write_text(t[:-1]+extra+'}\n')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline group edit UI, policy and transport regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.GroupMeshEditDialogTest,iecxiv.meshfabric.ui.management.GroupMeshEditRequestTest,iecxiv.meshfabric.ui.management.GroupMeshEditSessionTest,iecxiv.meshfabric.ui.management.GroupMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshEditDialogTest,iecxiv.meshfabric.ui.management.UserMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-edit-ui-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated UI only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshEditDialog.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshEditDialogTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add confirmed group mesh rights edit UI'
+          git push origin HEAD:dev
