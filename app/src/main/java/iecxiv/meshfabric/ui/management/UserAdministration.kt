@@ -58,7 +58,7 @@ val labels=if(es) listOf("Copia de seguridad","Administrar usuarios","Restaurar 
 return labels.mapIndexedNotNull { i,label->label.takeIf { mask and (1L shl i)!=0L } }.joinToString(", ").ifBlank { if(es) "Permisos adicionales" else "Additional rights" }
 }
 
-@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onOpenGroup:(String)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onDismiss:()->Unit) {
+@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onOpenGroup:(String)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onOpenUserGroup:((String)->Unit)?=null,canOpenUserGroup:(String)->Boolean={false},onDismiss:()->Unit) {
 key(form) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(a:String,b:String)=if(es) a else b
@@ -194,6 +194,19 @@ val common=s.groups.filter { group->s.user?.let { userAccess(s,it,group.optStrin
 if(common.isEmpty()) Text(t("No se observan grupos en común en los datos disponibles.","No common groups observed in available data."))
 for(group in common) ManagementCard { ManagementInfoRow(group.optString("name"),userRights(userAccess(s,user,group.optString("_id")),es,true)); TextButton(enabled=contactReady,onClick={onOpenGroup(group.optString("_id"))}) {Text(t("Abrir grupo","Open group"))} }
 }
+}
+ProfileDisclosure(t("Grupos de usuarios recibidos","Received user groups")) {
+Text(t("Enlaces encontrados en la cuenta o en grupos recibidos. No son los reinos administrativos ni un cálculo de permisos efectivos.","Links found in the account or received groups. These are not administrative realms or a calculation of effective rights."),style=MaterialTheme.typography.bodySmall)
+val membershipIds=profileUserMembershipGroupIds(s,user)
+if(membershipIds==null) Text(t("Datos de membresía no disponibles.","Membership data unavailable.")) else if(membershipIds.isEmpty()) Text(t("No se han recibido enlaces de membresía.","No membership links received.")) else for(gid in membershipIds) {
+val received=profileReceivedUserGroup(s,gid)
+ManagementCard {
+Text(received?.optString("name").orEmpty().ifBlank {gid},style=MaterialTheme.typography.titleSmall)
+Text(gid,style=MaterialTheme.typography.bodySmall)
+if(onOpenUserGroup!=null && canOpenUserGroup(gid)) TextButton(onClick={onOpenUserGroup(gid)}) {Text(t("Abrir grupo de usuarios","Open user group"))} else Text(t("Ficha no recibida o temporalmente no disponible.","Entry not received or temporarily unavailable."),style=MaterialTheme.typography.bodySmall)
+}
+}
+TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy && s.userGroupPhase!="loading",onClick={session.refresh();session.loadDetails();session.loadUserGroupDirectory()}) {Text(t("Actualizar membresías recibidas","Refresh received memberships"))}
 }
 ProfileDisclosure(t("Dispositivos en común","Devices in common")) {
 if(s.nodes==null || s.userGroups==null) Text(missing) else {

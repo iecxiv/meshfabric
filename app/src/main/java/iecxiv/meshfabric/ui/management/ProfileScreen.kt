@@ -108,9 +108,8 @@ TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && 
 }
 if(broadcast && form==null && groupDetails==null) ProfileBroadcastDialog(session,state) {broadcast=false}
 groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
-userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid) {userGroupDetails=null}}
 form?.let { selected->
-if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {origins=profilePushOrigin(origins,ProfileOrigin(user=selected));groupDetailTab=0;groupDetails=id;form=null}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onDismiss=closeProfileDialog) else key(selected) {
+if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {origins=profilePushOrigin(origins,ProfileOrigin(user=selected));groupDetailTab=0;groupDetails=id;form=null}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onOpenUserGroup={gid->state.users.singleOrNull {it.optString("_id")==selected.id}?.let {u->if(gid in profileUserMembershipGroupIds(state,u).orEmpty() && profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}}},canOpenUserGroup={gid->profileReceivedUserGroup(state,gid)!=null},onDismiss=closeProfileDialog) else key(selected) {
 var name by remember { mutableStateOf(selected.name) }
 var description by remember { mutableStateOf(selected.description) }
 var confirmation by remember { mutableStateOf("") }
@@ -138,5 +137,6 @@ if(!deleting) { p.put("meshname",name.trim()).put("desc",description); if(creati
 if(session.submit(p)) form=null else error=t("No se ha enviado. Comprueba conexión y permisos.","Not sent. Check connection and permissions.")
 }) { Text(if(deleting) t("Eliminar","Delete") else t("Enviar","Send")) } },dismissButton={ TextButton(onClick={ form=null }) { Text(t("Cancelar","Cancel")) } })
 } }
+userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}
 deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}
 }

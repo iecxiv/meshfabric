@@ -19,7 +19,7 @@ internal fun profileReceivedUserGroup(s:ProfileState,id:String):JSONObject? {
     val records=s.listedUserGroups ?: s.userGroups ?: return null
     return records.singleOrNull {it.optString("_id")==id}
 }
-@Composable internal fun ReceivedUserGroupDialog(session:ProfileSession,s:ProfileState,id:String,onDismiss:()->Unit) {
+@Composable internal fun ReceivedUserGroupDialog(session:ProfileSession,s:ProfileState,id:String,dismissLabel:String?=null,onDismiss:()->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     val group=profileReceivedUserGroup(s,id)
@@ -51,5 +51,5 @@ internal fun profileReceivedUserGroup(s:ProfileState,id:String):JSONObject? {
             }
             if(s.readError) Text(t("Datos generales incompletos; esta ficha no habilita modificaciones.","General data is incomplete; this entry does not enable changes."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
         }
-    },confirmButton={TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy && s.userGroupPhase!="loading",onClick={session.refresh();session.loadUserGroupDirectory()}) {Text(t("Actualizar","Refresh"))}},dismissButton={TextButton(onClick=onDismiss) {Text(t("Volver a Accesos","Back to Access"))}})
+    },confirmButton={TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy && s.userGroupPhase!="loading",onClick={session.refresh();session.loadUserGroupDirectory()}) {Text(t("Actualizar","Refresh"))}},dismissButton={TextButton(onClick=onDismiss) {Text(dismissLabel ?: t("Volver a Accesos","Back to Access"))}})
 }
