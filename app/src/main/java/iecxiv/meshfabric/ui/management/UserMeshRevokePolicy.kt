@@ -30,3 +30,5 @@ internal fun profileUserMeshRevokeReadbackReady(s:ProfileState,uid:String,mid:St
     if(!ack || !userRead || !meshRead || !s.ready || s.readError || !profileUserMeshRevokeSubject(s.id,uid) || !profileGroupMeshId(s.id,mid)) return false
     return profileGroupMeshRevokeObserved(s.users.singleOrNull {it.optString("_id")==uid},s.groups.singleOrNull {it.optString("_id")==mid},uid,mid,true)
 }
+
+internal fun profileUserMeshRevokeChannel(action:String,direct:Boolean)=action=="removemeshuser" && direct
