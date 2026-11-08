@@ -20,11 +20,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-          log-accepted-android-sdk-licenses: false
-      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          sdkmanager --licenses </dev/null >/dev/null
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v4
       - name: Link existing inventory viewer without changing device actions
         run: |
@@ -47,7 +48,7 @@ jobs:
           anchor='var userGroupDetails by remember {mutableStateOf<String?>(null)}'
           change('ProfileScreen.kt',anchor,anchor+'\nvar deviceDetails by remember {mutableStateOf<String?>(null)}')
           anchor='val closeProfileDialog:()->Unit={'
-          callbacks="""val canOpenProfileDevice:(String)->Boolean={nodeId->profileReceivedDevice(state,source.groupedDevices.value.values.flatten(),nodeId,session.broadcastServerLabel().isNotBlank())!=null}
+          callbacks="""val canOpenProfileDevice:(String)->Boolean={nodeId->profileReceivedDevice(state,source.groupedDevices.value.flatMap { it.second },nodeId,session.broadcastServerLabel().isNotBlank())!=null}
           val openProfileDevice:(String)->Unit={nodeId->if(canOpenProfileDevice(nodeId)) deviceDetails=nodeId}
           """
           change('ProfileScreen.kt',anchor,callbacks+anchor)
@@ -61,7 +62,7 @@ jobs:
           change('ProfileScreen.kt',anchor,'onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,'+anchor)
           text=sources['ProfileScreen.kt'].rstrip()
           if not text.endswith('\n}'):raise RuntimeError('Unexpected ProfileScreen ending')
-          sources['ProfileScreen.kt']=text[:-2]+'\ndeviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileDeviceGroups.values.flatten(),id) {deviceDetails=null}}\n}\n'
+          sources['ProfileScreen.kt']=text[:-2]+'\ndeviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileDeviceGroups.flatMap { it.second },id) {deviceDetails=null}}\n}\n'
           anchor='onTabChanged:(Int)->Unit={})'
           change('CompactProfileGroups.kt',anchor,'onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false})')
           anchor='for(node in nodes.take(100)) ListItem(headlineContent={Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis)},leadingContent={Icon(Icons.Default.Computer,null)})'
