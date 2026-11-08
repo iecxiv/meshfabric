@@ -21,7 +21,8 @@ var creating by remember(s.id) {mutableStateOf(false)}
 var deleting by remember(s.id) {mutableStateOf<JSONObject?>(null)}
 var removing by remember(s.id) {mutableStateOf<Pair<JSONObject,String>?>(null)}
 var adding by remember(s.id) {mutableStateOf<JSONObject?>(null)}
-LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null}}
+var reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
+LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null}}
     LaunchedEffect(s.ready,s.id,s.site,s.userGroupPhase) { if(s.ready && s.userGroupPhase=="idle") session.loadUserGroupDirectory() }
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
     LazyColumn(modifier,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -63,6 +64,7 @@ val matchingIds=ids.filter {linkQuery.isBlank() || it.contains(linkQuery,true) |
 if(profileUserGroupMemberId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site) && memberGroupUsable && group.isNull("membershipType") && links.opt(id) is JSONObject,onClick={editing=null;creating=false;deleting=null;removing=JSONObject(group.toString()) to id;session.loadUserGroupDirectory()}) {Text(t("Retirar del grupo: ","Remove from group: ")+id)}
                             val user=s.users.firstOrNull {it.optString("_id")==id}
                             val mesh=s.groups.firstOrNull {it.optString("_id")==id}
+if(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready",onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=group.optString("_id") to id;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Revisar asignación: ","Review assignment: ")+id)}
                             when {
                                 user!=null && canAdministerUser(s,user)->TextButton(enabled=s.canWrite,onClick={onOpenUser(id)}) {Text(t("Usuario: ","User: ")+user.optString("name"))}
                                 mesh!=null->TextButton(enabled=s.ready && !s.busy,onClick={onOpenDeviceGroup(id)}) {Text(t("Grupo de dispositivos: ","Device group: ")+mesh.optString("name"))}
@@ -80,4 +82,5 @@ if(creating && editing==null) UserGroupCreateDialog(session,s) {creating=false}
 deleting?.let {UserGroupDeleteDialog(session,s,it) {deleting=null}}
 removing?.let {(group,id)->UserGroupMemberRemoveDialog(session,s,group,id) {removing=null}}
 adding?.let {UserGroupMemberAddDialog(session,s,it) {adding=null}}
+reviewingMesh?.let {(gid,mid)->GroupMeshAssignmentReview(session,s,gid,mid) {reviewingMesh=null}}
 }
