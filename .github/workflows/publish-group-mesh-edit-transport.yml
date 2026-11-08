@@ -1,0 +1,257 @@
+name: Validate and publish group mesh edit transport
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-edit-transport.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-edit-transport-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded isolated group edit transport and receiver tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          session=base/'ProfileSession.kt'
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshEditSessionTest.kt')
+          guards={str(session):'b0189e35a328b2563aa76084abf3eb4cbd413435',str(base/'GroupMeshEditPolicy.kt'):'e34f14c70be69da2b491728f288832f2e89768fd'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+          if test.exists():raise RuntimeError('Test already exists')
+          def replace(text,old,new):
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              return text.replace(old,new,1)
+          s=session.read_text()
+          submit=s[s.index('@Synchronized fun submitUserMeshEdit('):s.index('@Synchronized fun submitUserMeshRevoke(')]
+          for old,new in [('submitUserMeshEdit','submitGroupMeshEdit'),('profileUserMeshEdit','profileGroupMeshEdit'),('directEdit','groupEdit'),('directUser','meshSubject'),('directTarget','meshTarget'),('directRights','meshRights'),('directAck','meshAck'),('directUserRead','meshGroupRead'),('directMeshRead','meshDeviceRead'),('editedDirectUser','editedGroup'),('editedDirectMesh','editedDeviceGroup')]:submit=submit.replace(old,new)
+          observe='''private fun observeGroupMeshEdit() {
+          if(!groupMeshEdit()) return
+          val gid=expected.optString("meshSubject");val mid=expected.optString("meshTarget");val rights=expected.optLong("meshRights",-1)
+          val ack=expected.optBoolean("meshAck");val gr=expected.optBoolean("meshGroupRead");val mr=expected.optBoolean("meshDeviceRead")
+          val snapshots=state.value.copy(listedUserGroups=listOfNotNull(expected.optJSONObject("editGroupRecord")),groups=listOfNotNull(expected.optJSONObject("editDeviceRecord")))
+          if(!profileGroupMeshEditReadbackReady(snapshots,gid,mid,rights,ack,gr,mr) || !profileGroupMeshEditReadbackReady(state.value,gid,mid,rights,ack,gr,mr)) return
+          state.update {it.copy(editedGroup=gid,editedDeviceGroup=mid)}
+          finish("groupMeshEditedObserved",false);source.requestServerData()
+          }
+          '''
+          s=replace(s,'val editedDirectUser:String="",val editedDirectMesh:String=""','val editedDirectUser:String="",val editedDirectMesh:String="",val editedGroup:String="",val editedDeviceGroup:String=""')
+          s=replace(s,'private fun directMeshOperation()=','private fun groupMeshEdit()=pendingAction=="addmeshuser" && expected.optBoolean("groupEdit")\nprivate fun directMeshOperation()=')
+          s=replace(s,'private fun observeGroupMeshRevocation() {\nif(directMeshOperation()) return',observe+'private fun observeGroupMeshRevocation() {\nif(groupMeshEdit()) {observeGroupMeshEdit();return}\nif(directMeshOperation()) return')
+          anchor='state.update {it.copy(listedUserGroups=list,userGroupPhase=if(list==null) "failed" else "ready")}'
+          s=replace(s,anchor,anchor+'\nif(groupMeshEdit() && expected.optBoolean("meshAck")) {val record=list?.singleOrNull {it.optString("_id")==expected.optString("meshSubject")};expected.put("editGroupRecord",record?.let {JSONObject(it.toString())})}')
+          anchor='if((directMeshGrant() || directMeshEdit()) && expected.optBoolean("directAck")) {'
+          s=replace(s,anchor,'if(action=="meshes" && groupMeshEdit() && expected.optBoolean("meshAck")) {val record=list?.singleOrNull {it.optString("_id")==expected.optString("meshTarget")};expected.put("editDeviceRecord",record?.let {JSONObject(it.toString())})}\n'+anchor)
+          s=replace(s,'if(action=="meshes") observeGroupMeshRevocation()','if(action=="meshes" || groupMeshEdit()) observeGroupMeshRevocation()')
+          anchor='if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {'
+          ack='''
+          if(groupMeshEdit()) {
+          if(profileGroupMeshEditAck(p,pendingId)) {expected.put("meshAck",true).put("meshGroupRead",false).put("meshDeviceRead",false);loadLists();requestUserGroupDirectory(true)}
+          else if(profileGroupMeshGrantReplyRejected(p)) finish("rejected",false)
+          return
+          }
+          '''
+          s=replace(s,anchor,anchor+ack)
+          s=replace(s,'@Synchronized fun submitUserMeshRevoke(',submit+'@Synchronized fun submitUserMeshRevoke(')
+          session.write_text(s)
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import okhttp3.Request
+          import okhttp3.WebSocket
+          import okio.ByteString
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class)
+          class GroupMeshEditSessionTest {
+              private val actor="user//admin";private val gid="ugrp//group";private val mid="mesh//one"
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private fun set(target:Any,name:String,value:Any?) {field(target,name).set(target,value)}
+              private fun get(target:Any,name:String)=field(target,name).get(target)
+              private fun group(rights:Long,linked:Boolean=true)=JSONObject().put("_id",gid).put("links",JSONObject().put("user//member",JSONObject().put("rights",1)).apply {if(linked) put(mid,JSONObject().put("rights",rights))})
+              private fun mesh(rights:Long,linked:Boolean=true)=JSONObject().put("_id",mid).put("links",JSONObject().put(actor,JSONObject().put("rights",0xffffffffL)).put("user//direct",JSONObject().put("rights",8)).apply {if(linked) put(gid,JSONObject().put("rights",rights))})
+              private class MemorySocket:WebSocket {
+                  val sent=mutableListOf<JSONObject>()
+                  override fun request():Request=Request.Builder().url("https://example.invalid/").build()
+                  override fun queueSize():Long=0L
+                  override fun send(text:String):Boolean {sent.add(JSONObject(text));return true}
+                  override fun send(bytes:ByteString):Boolean=false
+                  override fun close(code:Int,reason:String?):Boolean=true
+                  override fun cancel() {}
+              }
+              private inner class Harness(val role:Long=256L):AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client);val wire=MemorySocket()
+                  val oldTags:Map<String,String>
+                  lateinit var operation:JSONObject
+                  init {
+                      set(client,"serverUrl","https://example.invalid/");set(client,"authCookie","offline-test")
+                      @Suppress("UNCHECKED_CAST")
+                      val connected=get(client,"_connectionState") as MutableStateFlow<Boolean>
+                      connected.value=true
+                      set(session,"binding",Triple(client.serverUrl,client.authCookie,false));set(session,"socket",wire)
+                      session.state.value=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",role),listedUserGroups=listOf(group(0x80000008L)),groups=listOf(mesh(0x80000008L)),userGroupPhase="ready")
+                      assertNull(get(client,"webSocket"))
+                      session.refresh();session.loadUserGroupDirectory();oldTags=tags()
+                      reply("meshes",oldTags.getValue("meshes"),0x80000008L)
+                      oldTags["users"]?.let {reply("users",it)}
+                      reply("usergroups",oldTags.getValue("usergroups"),0x80000008L)
+                      assertTrue(session.state.value.canWrite)
+                  }
+                  fun receive(p:JSONObject) {synchronized(session) {session.javaClass.getDeclaredMethod("receive",JSONObject::class.java).apply {isAccessible=true}.invoke(session,p)}}
+                  fun tags()=wire.sent.filter {it.optString("action") in setOf("users","meshes","usergroups")}.associate {it.getString("action") to it.getString("tag")}
+                  fun begin() {
+                      val s=session.state.value
+                      val p=profileGroupMeshEditPacket(actor,session.broadcastServerLabel(),s.listedUserGroups!!.single(),s.groups.single(),0x80000010L,true)
+                      assertFalse(session.submit(p));assertFalse(session.submitUserMeshEdit(p));assertFalse(session.submitUserMeshGrant(p))
+                      assertTrue(session.submitGroupMeshEdit(p));operation=wire.sent.last()
+                      assertEquals(setOf("action","userids","meshid","meshadmin","responseid"),operation.keys().asSequence().toSet())
+                      assertEquals(gid,operation.getJSONArray("userids").getString(0));assertEquals(0x80000010L,operation.getLong("meshadmin"))
+                  }
+                  fun ack(id:String=operation.getString("responseid"))=receive(JSONObject().put("action","addmeshuser").put("responseid",id).put("result","Updated group rights").put("success",1).put("failed",0))
+                  fun reply(action:String,tag:String?,rights:Long=0x80000010L,linked:Boolean=true) {
+                      val data=JSONArray()
+                      if(action!="users") data.put(if(action=="usergroups") group(rights,linked) else mesh(rights,linked))
+                      val p=JSONObject().put("action",action).put(if(action=="usergroups") "ugroups" else action,data)
+                      if(tag!=null) p.put("tag",tag)
+                      receive(p)
+                  }
+                  fun unobserved() {val s=session.state.value;assertNotEquals("groupMeshEditedObserved",s.notice);assertEquals("",s.editedGroup);assertEquals("",s.grantedGroup);assertEquals("",s.revokedGroup);assertEquals("",s.editedDirectUser)}
+                  fun observed() {val s=session.state.value;assertEquals("groupMeshEditedObserved",s.notice);assertEquals(gid,s.editedGroup);assertEquals(mid,s.editedDeviceGroup);assertFalse(s.busy);assertEquals(1,wire.sent.count {it.optString("action")=="addmeshuser"})}
+                  override fun close() {session.close();assertNull(get(client,"webSocket"));(get(client,"scope") as CoroutineScope).cancel()}
+              }
+              @Test fun eitherReadOrderNeedsAcknowledgementAndExactBilateralRights() {for(order in listOf(listOf("meshes","usergroups"),listOf("usergroups","meshes"))) Harness().use {h->
+                  h.begin();h.reply("meshes",h.oldTags.getValue("meshes"));h.reply("usergroups",h.oldTags.getValue("usergroups"));h.unobserved()
+                  h.ack();val tags=h.tags();h.reply(order[0],tags.getValue(order[0]));h.unobserved();assertTrue(h.session.state.value.busy)
+                  h.reply(order[1],tags.getValue(order[1]));h.observed()
+              }}
+              @Test fun manageUsersReadCanFinishLastWithoutLosingObservation() {Harness(258L).use {h->
+                  h.begin();h.ack();val tags=h.tags()
+                  h.reply("meshes",tags.getValue("meshes"));h.reply("usergroups",tags.getValue("usergroups"));h.unobserved()
+                  h.reply("users",tags.getValue("users"));h.observed()
+              }}
+              @Test fun wrongAckOldUntaggedAndDuplicateRepliesCannotConfirm() {Harness().use {h->
+                  h.begin();val count=h.wire.sent.size;h.ack("wrong");assertEquals(count,h.wire.sent.size);h.unobserved()
+                  h.ack();val tags=h.tags();assertNotEquals(h.oldTags,tags)
+                  h.reply("usergroups",h.oldTags.getValue("usergroups"));h.reply("meshes",null)
+                  h.receive(JSONObject().put("action","meshes").put("responseid",tags.getValue("meshes")).put("meshes",JSONArray().put(mesh(0x80000010L))))
+                  h.unobserved();h.reply("meshes",tags.getValue("meshes"));h.reply("meshes",tags.getValue("meshes"));h.unobserved()
+                  h.reply("usergroups",tags.getValue("usergroups"));h.observed()
+              }}
+              @Test fun missingOrWrongRightsIncludingUnknownBitsCannotConfirm() {for(side in listOf("meshes","usergroups")) for(wrong in listOf(16L,0x80000008L,-1L)) Harness().use {h->
+                  h.begin();h.ack();val tags=h.tags()
+                  for(action in listOf("meshes","usergroups")) h.reply(action,tags.getValue(action),if(action==side && wrong>=0L) wrong else 0x80000010L,!(action==side && wrong<0L))
+                  h.unobserved();assertTrue(h.session.state.value.busy)
+              }}
+              @Test fun mutableStateCannotReplaceTheCorrelatedGroupSnapshot() {Harness().use {h->
+                  h.begin();h.ack();val tags=h.tags();h.reply("usergroups",tags.getValue("usergroups"),0x80000008L)
+                  synchronized(h.session) {h.session.state.value=h.session.state.value.copy(listedUserGroups=listOf(group(0x80000010L)))}
+                  h.reply("meshes",tags.getValue("meshes"));h.unobserved();assertTrue(h.session.state.value.busy)
+              }}
+              @Test fun identityRefreshOrDuplicateAckStartsANewRound() {for(identity in listOf(false,true)) Harness().use {h->
+                  h.begin();h.ack();val first=h.tags();h.reply("usergroups",first.getValue("usergroups"))
+                  if(identity) h.receive(JSONObject().put("action","userinfo").put("userinfo",JSONObject().put("_id",actor).put("siteadmin",256))) else h.ack()
+                  val latest=h.tags();assertNotEquals(first,latest)
+                  h.reply("meshes",first.getValue("meshes"));h.reply("meshes",latest.getValue("meshes"));h.unobserved()
+                  h.reply("usergroups",latest.getValue("usergroups"));h.observed()
+              }}
+              @Test fun directoryAndMeshDenialsAreNeverSuccessfulReads() {for(action in listOf("meshes","usergroups")) Harness().use {h->
+                  h.begin();h.ack();val tags=h.tags()
+                  h.receive(JSONObject().put("action",action).put("tag",tags.getValue(action)).put("responseid",tags.getValue(action)).put("result","Access denied"))
+                  val other=if(action=="meshes") "usergroups" else "meshes";h.reply(other,tags.getValue(other))
+                  h.unobserved();assertTrue(h.session.state.value.busy)
+              }}
+              @Test fun submissionRevalidatesFrozenStateAndBinding() {Harness().use {h->
+                  val s=h.session.state.value;val p=profileGroupMeshEditPacket(actor,h.session.broadcastServerLabel(),s.listedUserGroups!!.single(),s.groups.single(),0x80000010L,true)
+                  s.listedUserGroups!!.single().getJSONObject("links").getJSONObject(mid).put("rights",0x80000020L)
+                  s.groups.single().getJSONObject("links").getJSONObject(gid).put("rights",0x80000020L)
+                  assertFalse(h.session.submitGroupMeshEdit(p))
+                  set(h.client,"serverUrl","https://other.invalid/");assertFalse(h.session.submitGroupMeshEdit(p))
+                  assertTrue(h.wire.sent.none {it.optString("action")=="addmeshuser"})
+              }}
+              @Test fun rejectionAndRoleLossNeverRetry() {for(roleLoss in listOf(false,true)) Harness().use {h->
+                  h.begin();val count=h.wire.sent.size
+                  if(roleLoss) h.receive(JSONObject().put("action","userinfo").put("userinfo",JSONObject().put("_id",actor).put("siteadmin",2)))
+                  else h.receive(JSONObject().put("action","addmeshuser").put("responseid",h.operation.getString("responseid")).put("failed",1).put("success",0))
+                  assertEquals(if(roleLoss) "unknown" else "rejected",h.session.state.value.notice);h.unobserved();assertFalse(h.session.state.value.busy)
+                  assertEquals(count,h.wire.sent.size)
+              }}
+              @Test fun disconnectIgnoresLateRepliesAndNeverRetries() {Harness().use {h->
+                  h.begin();h.ack();val tags=h.tags();val count=h.wire.sent.size;h.session.stop()
+                  h.reply("meshes",tags.getValue("meshes"));h.reply("usergroups",tags.getValue("usergroups"))
+                  assertEquals("unknown",h.session.state.value.notice);h.unobserved();assertEquals(count,h.wire.sent.size)
+              }}
+              @Test fun realOperationTimeoutLeavesOutcomeUnknownWithoutRetry() {Harness().use {h->
+                  h.begin();h.ack();val count=h.wire.sent.size
+                  val deadline=System.nanoTime()+26_000_000_000L
+                  while(h.session.state.value.busy && System.nanoTime()<deadline) Thread.sleep(100)
+                  assertFalse(h.session.state.value.busy);assertEquals("unknown",h.session.state.value.notice)
+                  h.unobserved();assertEquals(count,h.wire.sent.size);assertEquals(1,h.wire.sent.count {it.optString("action")=="addmeshuser"})
+              }}
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline group edit and direct transport regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.GroupMeshEditSessionTest,iecxiv.meshfabric.ui.management.GroupMeshEditRequestTest,iecxiv.meshfabric.ui.management.GroupMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-edit-transport-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated transport only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshEditSessionTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): connect isolated group mesh rights edit transport'
+          git push origin HEAD:dev
