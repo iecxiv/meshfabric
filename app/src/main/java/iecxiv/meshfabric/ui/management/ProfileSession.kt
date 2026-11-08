@@ -49,6 +49,7 @@ private val reads=mutableSetOf<String>()
 private val details=mutableSetOf<String>()
 private fun valid()=!source.isUserLogout && source.connectionState.value && binding==Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
 private fun send(action:String,fields:JSONObject=JSONObject()):Boolean=socket?.send(JSONObject(fields.toString()).put("action",action).toString())==true
+@Synchronized fun broadcastServerLabel():String=if(!valid()) "" else runCatching { profileBroadcastServerLabel(OkHttpHelper.toWebSocketUrl(binding.first,"/control.ashx")) }.getOrDefault("")
 @Synchronized fun start() {
 if(closed || socket!=null || source.isUserLogout || !source.connectionState.value || source.authCookie.isBlank()) return
 binding=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
@@ -172,7 +173,7 @@ directoryTimer?.cancel();directoryId=""
 state.update { it.copy(ready=true,user=JSONObject(u.toString()),listedUserGroups=null,userGroupPhase="idle",notice=if(first) "ready" else it.notice) }
 if(first) { timer?.cancel(); loadLists() }
 if(!ProfilePermissions.manageUsers(state.value.site)) {
-if(pendingAction in setOf("adduser","edituser","deleteuser","changeuserpass","adddeviceuser")) { stop(); return }
+if(pendingAction in setOf("adduser","edituser","deleteuser","changeuserpass","adddeviceuser","userbroadcast")) { stop(); return }
 reads.remove("users"); details.clear(); clearHistory()
 state.update { it.copy(users=emptyList(),nodes=null,userGroups=null,sessions=null,detailsBusy=false,loading=reads.isNotEmpty()) }
 }
@@ -224,6 +225,7 @@ if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pen
 val ok=p.optString("result").equals("ok",true) && !p.has("error") && !p.has("err")
 val rejected=p.has("error") || p.has("err") || (p.has("result") && !ok)
 if(rejected) finish("rejected",false)
+else if(ok && action=="userbroadcast") finish("broadcastAccepted",false)
 else if(ok && action in setOf("edituser","adddeviceuser","changeuserpass")) { if(action=="edituser") loadLists() else if(action=="adddeviceuser") loadDetails() }
 else if(ok) finish("confirmed")
 }
@@ -237,6 +239,7 @@ val target=s.users.firstOrNull { it.optString("_id")==id }
 val group=s.groups.firstOrNull { it.optString("_id")==id }
 val node=s.nodes?.firstOrNull { it.optString("_id")==p.optString("nodeid") }
 val allowed=when(action) {
+"userbroadcast"->profileBroadcastAllowed(s,p,broadcastServerLabel())
 "adduser"->s.canCreateUser && validUserCreation(p.optString("username"),p.optString("email"),p.optString("pass"),p.optString("pass")) && p.opt("removeEvents") is Boolean && p.opt("resetNextLogin") is Boolean
 "edituser"->if(p.has("_contactBefore")) userContactAllowed(s,target,p) else if(p.has("_advancedBefore")) userAdvancedAllowed(s,target,p) else (target!=null && canAdministerUser(s,target) && (if(p.has("siteadmin")) canLockUser(s,target) && p.optLong("_previousSite",-1)==ProfilePermissions.normalized(target.optLong("siteadmin",0)) && p.optLong("siteadmin",-1)==userLockMask(target.optLong("siteadmin",0),!userIsLocked(target.optLong("siteadmin",0))) else (p.has("email") || p.has("realname")) && (!p.has("email") || (!s.emailIdentity && (p.optString("email").isEmpty() || validUserEmail(p.optString("email"))) && p.optString("_beforeEmail")==target.optString("email"))) && (!p.has("realname") || (p.optString("realname").length<=256 && p.optString("_beforeRealname")==target.optString("realname"))))) && p.keys().asSequence().all { it in setOf("action","id","email","realname","siteadmin","_previousSite","_beforeEmail","_beforeRealname") }
 "deleteuser"->target!=null && canAdministerUser(s,target) && id!=s.id
@@ -253,6 +256,7 @@ val current=requireNotNull(target)
 if(p.has("_advancedBefore")) userQuotaForEdit(if(p.isNull("quota")) null else p.opt("quota")) else userQuotaForEdit(if(current.isNull("quota")) null else current.opt("quota"))
 }.getOrElse { return false } else null
 val keys=when(action) {
+"userbroadcast"->listOf("msg")
 "adduser"->listOf("username","email","pass","removeEvents","resetNextLogin")
 "edituser"->listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota","phone","emailVerified")
 "deleteuser"->listOf("userid","username")

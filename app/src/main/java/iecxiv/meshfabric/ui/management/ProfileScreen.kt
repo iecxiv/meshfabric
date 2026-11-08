@@ -35,16 +35,18 @@ var form by remember { mutableStateOf<ProfileForm?>(null) }
 var groupDetails by remember { mutableStateOf<String?>(null) }
 var returnUser by remember { mutableStateOf<ProfileForm?>(null) }
 var groupSearch by rememberSaveable { mutableStateOf("") }
+var broadcast by remember { mutableStateOf(false) }
 DisposableEffect(session) { onDispose { session.close() } }
 LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
 if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation() } finally { session.stop() } } else session.stop()
 } }
-LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; returnUser=null } }
+LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; returnUser=null; broadcast=false } }
 Column(modifier) {
-ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null }
+ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null; broadcast=false }
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;returnUser=null;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
+"broadcastAccepted"->t("El servidor aceptó la difusión. No confirma recepción ni lectura.","The server accepted the broadcast. Receipt and reading are not confirmed.")
 "confirmed"->t("Solicitud confirmada por el servidor; actualizando.","Server acknowledged the request; refreshing.")
 "observed"->t("Se observó el cambio solicitado en el servidor.","The requested change was observed on the server.")
 "sent"->t("Enviada; ejecución sin confirmar.","Sent; execution unconfirmed.")
@@ -61,6 +63,7 @@ item { Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 ServerGeneralActions {
+if(users) TextButton(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={form=null;groupDetails=null;returnUser=null;broadcast=true}) {Text("Broadcast")}
 TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
 TextButton(enabled=state.canWrite && permitted && (if(users) state.canCreateUser else ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
 }
@@ -91,6 +94,7 @@ TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && 
 }
 }
 }
+if(broadcast && form==null && groupDetails==null) ProfileBroadcastDialog(session,state) {broadcast=false}
 groupDetails?.takeIf { form==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,returnUser!=null,onDismiss={val previous=returnUser;val restored=profileReturnUserId(previous?.id,state.users.map {it.optString("_id")}.toSet(),state.ready);groupDetails=null;returnUser=null;form=previous?.takeIf {it.id==restored}},onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
 form?.let { selected->
 if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {returnUser=selected;groupDetails=id;form=null}}) { form=null } else key(selected) {
