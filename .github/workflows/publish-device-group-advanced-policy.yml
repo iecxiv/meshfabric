@@ -1,0 +1,251 @@
+name: Validate and publish device group advanced settings policy
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-device-group-advanced-policy.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-device-group-advanced-policy-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add isolated advanced settings policy and offline tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          refs=Path('docs/reference/meshcentral-1.3.1-device-groups')
+          for path in [base/'ProfileSession.kt',base/'ProfilePermissions.kt',base/'UserAdvancedPolicy.kt',refs/'server-editmesh-2441-01.txt',refs/'server-editmesh-2441-03.txt',refs/'web-context-2-04.txt',refs/'web-context-2-05.txt',refs/'web-context-2-06.txt']:
+              expected=subprocess.check_output(['git','rev-parse','639be45b97d521d1da7c8bf96a2b8b596ec39881:'+str(path)],text=True).strip()
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=expected:raise RuntimeError('Source changed: '+str(path))
+          policy=base/'DeviceGroupAdvancedPolicy.kt'
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedPolicyTest.kt')
+          android=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedRequestTest.kt')
+          for path in (policy,unit,android):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          policy.write_text('''package iecxiv.meshfabric.ui.management
+          import org.json.JSONObject
+          
+          internal val DEVICE_GROUP_ADVANCED_FIELDS=setOf("flags","consent","expireDevs")
+          internal fun deviceGroupAdvancedFlagMask(type:Int,recording:Boolean):Long {
+              require(type in 1..4)
+              return (when(type) {2->27L;4->3L;else->0L}) or (if(recording && type!=4) 4L else 0L)
+          }
+          internal fun deviceGroupAdvancedMergeMask(before:Long,selected:Long,allowed:Long):Long? {
+              if(before !in 0L..0xffffffffL || allowed !in 0L..0xffffffffL || selected<0L || selected and allowed!=selected) return null
+              return (before and allowed.inv() and 0xffffffffL) or selected
+          }
+          private fun advancedInteger(raw:Any?,max:Long):Long {
+              require(raw is Int || raw is Long || raw is Double)
+              val n=(raw as Number).toDouble()
+              require(n.isFinite() && n%1.0==0.0 && n>=0.0 && n<=max.toDouble())
+              return n.toLong()
+          }
+          internal fun deviceGroupAdvancedValue(mesh:JSONObject,key:String):Long=when(key) {
+              "flags","consent"->if(!mesh.has(key)) 0L else userAdvancedMask(mesh.get(key))
+              "expireDevs"->if(!mesh.has(key)) 0L else advancedInteger(mesh.get(key),2000L)
+              "mtype"->advancedInteger(mesh.get(key),4L).also {require(it>=1L)}
+              else->error("Unsupported field")
+          }
+          internal fun deviceGroupAdvancedSnapshot(mesh:JSONObject)=JSONObject().put("_id",mesh.getString("_id")).apply {
+              for(key in listOf("mtype","flags","consent","expireDevs")) put(key,deviceGroupAdvancedValue(mesh,key))
+          }.toString()
+          private fun advancedRecording(s:ProfileState)=(s.server?.opt("devGroupSessionRecording") as? Number)?.toDouble()==1.0
+          internal fun deviceGroupAdvancedContext(s:ProfileState)=JSONObject().put("recording",advancedRecording(s)).put("consent",userAdvancedMask(s.server?.opt("consent"))).put("autoRemove",s.server?.opt("autoremoveinactivedevices") ?: JSONObject.NULL).toString()
+          internal fun deviceGroupAdvancedPacket(s:ProfileState,mesh:JSONObject,changes:JSONObject,server:String,confirmed:Boolean=false):JSONObject {
+              require(changes.length()>0 && changes.keys().asSequence().all {it in DEVICE_GROUP_ADVANCED_FIELDS})
+              return JSONObject().put("action","editmesh").put("meshid",mesh.getString("_id")).put("_advancedActor",s.id).put("_advancedServer",server).put("_advancedBefore",deviceGroupAdvancedSnapshot(mesh)).put("_advancedContext",deviceGroupAdvancedContext(s)).put("_advancedConfirmed",confirmed).apply {
+                  for(key in changes.keys()) put(key,deviceGroupAdvancedValue(changes,key))
+              }
+          }
+          internal fun deviceGroupAdvancedAllowed(s:ProfileState,p:JSONObject,server:String):Boolean=runCatching {
+              val metadata=setOf("action","meshid","_advancedActor","_advancedServer","_advancedBefore","_advancedContext","_advancedConfirmed")
+              val keys=p.keys().asSequence().toSet()
+              require(keys.containsAll(metadata) && keys.all {it in metadata || it in DEVICE_GROUP_ADVANCED_FIELDS})
+              require(s.canWrite && !s.detailsBusy && s.user!=null && p.opt("_advancedConfirmed")==true && p.optString("action")=="editmesh")
+              require(server.isNotBlank() && p.getString("_advancedServer")==server && p.getString("_advancedActor")==s.id)
+              val mid=p.getString("meshid");require(profileGroupMeshId(s.id,mid))
+              val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==mid})
+              require(p.getString("_advancedBefore")==deviceGroupAdvancedSnapshot(mesh) && p.getString("_advancedContext")==deviceGroupAdvancedContext(s))
+              val authority=mesh.optJSONObject("links")?.optJSONObject(s.id)?.opt("rights")
+              val rights=if(authority is Number) userAdvancedMask(authority) else 0L
+              require(ProfilePermissions.editGroup(userAdvancedMask(s.user.opt("siteadmin")),rights))
+              val fields=keys.intersect(DEVICE_GROUP_ADVANCED_FIELDS);require(fields.isNotEmpty())
+              require(fields.any {deviceGroupAdvancedValue(mesh,it)!=deviceGroupAdvancedValue(p,it)})
+              if("flags" in fields || "expireDevs" in fields) {
+                  require("flags" in fields && "expireDevs" in fields)
+                  val type=deviceGroupAdvancedValue(mesh,"mtype").toInt()
+                  val before=deviceGroupAdvancedValue(mesh,"flags");val next=deviceGroupAdvancedValue(p,"flags")
+                  require((before xor next) and deviceGroupAdvancedFlagMask(type,advancedRecording(s)).inv() and 0xffffffffL==0L)
+                  if(type==2) require(next and 24L==0L || next and 2L!=0L)
+                  require(next and 1L==0L || deviceGroupAdvancedValue(p,"expireDevs")==0L)
+              }
+              if("consent" in fields) {
+                  val before=deviceGroupAdvancedValue(mesh,"consent");val next=deviceGroupAdvancedValue(p,"consent")
+                  require((before xor next) and 511L.inv() and 0xffffffffL==0L)
+                  val mandatory=userAdvancedMask(s.server?.opt("consent")) and 511L
+                  require(next and mandatory==mandatory)
+              }
+              true
+          }.getOrDefault(false)
+          internal fun deviceGroupAdvancedWire(p:JSONObject)=JSONObject().put("action","editmesh").put("meshid",p.getString("meshid")).apply {
+              for(key in DEVICE_GROUP_ADVANCED_FIELDS) if(p.has(key)) put(key,deviceGroupAdvancedValue(p,key))
+          }
+          internal fun deviceGroupAdvancedAck(p:JSONObject,request:String)=request.isNotBlank() && p.optString("action")=="editmesh" && p.optString("responseid")==request && p.optString("result").equals("ok",true) && !p.has("error") && !p.has("err")
+          internal fun deviceGroupAdvancedReadbackReady(s:ProfileState,p:JSONObject,ack:Boolean,meshRead:Boolean):Boolean=runCatching {
+              require(ack && meshRead && s.ready && !s.loading && !s.readError)
+              val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==p.getString("meshid")})
+              require(deviceGroupAdvancedValue(mesh,"mtype")==JSONObject(p.getString("_advancedBefore")).getLong("mtype"))
+              val fields=DEVICE_GROUP_ADVANCED_FIELDS.filter {p.has(it)};require(fields.isNotEmpty())
+              fields.all {deviceGroupAdvancedValue(mesh,it)==deviceGroupAdvancedValue(p,it)}
+          }.getOrDefault(false)
+          ''')
+          unit.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceGroupAdvancedPolicyTest {
+              @Test fun flagsDependOnTypeAndRecordingCapability() {
+                  assertEquals(27L,deviceGroupAdvancedFlagMask(2,false));assertEquals(31L,deviceGroupAdvancedFlagMask(2,true))
+                  assertEquals(3L,deviceGroupAdvancedFlagMask(4,true));assertEquals(0L,deviceGroupAdvancedFlagMask(3,false));assertEquals(4L,deviceGroupAdvancedFlagMask(3,true))
+              }
+              @Test fun mergesPreserveUnknownAndUnavailableBits() {
+                  assertEquals(0x80000004L,deviceGroupAdvancedMergeMask(0x80000006L,0L,27L))
+                  assertEquals(0x800001ffL,deviceGroupAdvancedMergeMask(0x80000000L,511L,511L))
+                  assertNull(deviceGroupAdvancedMergeMask(0L,32L,31L));assertNull(deviceGroupAdvancedMergeMask(-1L,0L,31L))
+                  assertNull(deviceGroupAdvancedMergeMask(0L,-1L,31L));assertNull(deviceGroupAdvancedMergeMask(0x100000000L,0L,31L))
+              }
+          }
+          ''')
+          android.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class)
+          class DeviceGroupAdvancedRequestTest {
+              private val actor="user//admin";private val mid="mesh//group";private val server="https://example.invalid/"
+              private fun state(type:Int=2,flags:Long=0x80000002L,consent:Long=0x80000000L)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",0),server=JSONObject().put("devGroupSessionRecording",1).put("consent",0).put("autoremoveinactivedevices",90),groups=listOf(JSONObject().put("_id",mid).put("mtype",type).put("flags",flags).put("consent",consent).put("links",JSONObject().put(actor,JSONObject().put("rights",1)))))
+              private fun changes(flags:Long=0x80000002L,days:Int=30)=JSONObject().put("flags",flags).put("expireDevs",days)
+              private fun packet(s:ProfileState,c:JSONObject=changes(),confirmed:Boolean=true)=deviceGroupAdvancedPacket(s,s.groups.single(),c,server,confirmed)
+              @Test fun exactFieldsExplicitConfirmationAndScopeAreRequired() {
+                  val s=state();val p=packet(s);assertTrue(deviceGroupAdvancedAllowed(s,p,server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,packet(s,confirmed=false),server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,p,"https://other.invalid/"))
+                  assertFalse(deviceGroupAdvancedAllowed(s,JSONObject(p.toString()).put("_advancedActor","user//other"),server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,JSONObject(p.toString()).put("relayid","node//relay"),server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,JSONObject(p.toString()).put("meshid","mesh/other/group"),server))
+                  val wire=deviceGroupAdvancedWire(p);assertEquals(setOf("action","meshid","flags","expireDevs"),wire.keys().asSequence().toSet())
+                  assertEquals(0x80000002L,wire.getLong("flags"));assertEquals(30L,wire.getLong("expireDevs"))
+              }
+              @Test fun unknownBitsAndRecordingRestrictionsArePreserved() {
+                  val s=state();assertFalse(deviceGroupAdvancedAllowed(s,packet(s,changes(2L)),server))
+                  val off=state().copy(server=JSONObject().put("devGroupSessionRecording",0).put("consent",0))
+                  assertFalse(deviceGroupAdvancedAllowed(off,packet(off,changes(0x80000006L)),server))
+                  val existing=state(flags=0x80000006L).copy(server=JSONObject().put("devGroupSessionRecording",0))
+                  assertTrue(deviceGroupAdvancedAllowed(existing,packet(existing,changes(0x80000006L)),server))
+                  val type4=state(4);assertFalse(deviceGroupAdvancedAllowed(type4,packet(type4,changes(0x80000006L)),server))
+              }
+              @Test fun dependenciesAndExpiryBoundsAreStrictAndDoNotInventDefaults() {
+                  val s=state()
+                  assertFalse(deviceGroupAdvancedAllowed(s,packet(s,changes(0x80000008L)),server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,packet(s,changes(0x80000003L,30)),server))
+                  assertTrue(deviceGroupAdvancedAllowed(s,packet(s,changes(0x80000003L,0)),server))
+                  assertTrue(deviceGroupAdvancedAllowed(s,packet(s,changes(days=2000)),server))
+                  for(value in listOf<Any>(-1,2001,1.5,"30",JSONObject.NULL)) {
+                      val p=JSONObject(packet(s).toString()).put("expireDevs",value)
+                      assertFalse(deviceGroupAdvancedAllowed(s,p,server))
+                  }
+                  assertFalse(deviceGroupAdvancedAllowed(s,JSONObject(packet(s).toString()).apply {remove("flags")},server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,JSONObject(packet(s).toString()).apply {remove("expireDevs")},server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,packet(s,changes(days=0)),server))
+              }
+              @Test fun nineConsentBitsCannotRemoveUnknownOrMandatoryServerBits() {
+                  val s=state().copy(server=JSONObject().put("consent",8).put("devGroupSessionRecording",1))
+                  assertTrue(deviceGroupAdvancedAllowed(s,packet(s,JSONObject().put("consent",0x800001ffL)),server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,packet(s,JSONObject().put("consent",0x80000001L)),server))
+                  assertFalse(deviceGroupAdvancedAllowed(s,packet(s,JSONObject().put("consent",511)),server))
+                  assertEquals(setOf("action","meshid","consent"),deviceGroupAdvancedWire(packet(s,JSONObject().put("consent",0x800001ffL))).keys().asSequence().toSet())
+              }
+              @Test fun staleSettingsCapabilitiesOrInsufficientAuthorityBlock() {
+                  val s=state();val p=packet(s);s.groups.single().put("consent",0x80000008L)
+                  assertFalse(deviceGroupAdvancedAllowed(s,p,server))
+                  val role=state();role.groups.single().getJSONObject("links").getJSONObject(actor).put("rights",8)
+                  assertFalse(deviceGroupAdvancedAllowed(role,packet(role),server))
+                  val fresh=state();val frozen=packet(fresh)
+                  for(blocked in listOf(fresh.copy(loading=true),fresh.copy(busy=true),fresh.copy(readError=true),fresh.copy(detailsBusy=true),fresh.copy(groups=emptyList()),fresh.copy(server=JSONObject().put("consent",8)))) assertFalse(deviceGroupAdvancedAllowed(blocked,frozen,server))
+              }
+              @Test fun exactReadbackNeedsAckAndFreshMeshReadAndZeroMayBeAbsent() {
+                  val s=state();val p=packet(s)
+                  s.groups.single().put("expireDevs",30)
+                  for(ack in listOf(false,true)) for(read in listOf(false,true)) assertEquals(ack && read,deviceGroupAdvancedReadbackReady(s,p,ack,read))
+                  s.groups.single().put("flags",2);assertFalse(deviceGroupAdvancedReadbackReady(s,p,true,true))
+                  val inherited=state();inherited.groups.single().put("expireDevs",30)
+                  val zero=packet(inherited,changes(days=0));inherited.groups.single().remove("expireDevs")
+                  assertTrue(deviceGroupAdvancedReadbackReady(inherited,zero,true,true))
+                  assertFalse(deviceGroupAdvancedReadbackReady(inherited.copy(readError=true),zero,true,true))
+                  val reply=JSONObject().put("action","editmesh").put("responseid","request").put("result","ok")
+                  assertTrue(deviceGroupAdvancedAck(reply,"request"));assertFalse(deviceGroupAdvancedAck(reply,"other"))
+                  assertFalse(deviceGroupAdvancedAck(JSONObject(reply.toString()).put("error","denied"),"request"))
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline advanced settings and access policy regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.DeviceGroupAdvancedRequestTest,iecxiv.meshfabric.ui.management.GroupMeshEditRequestTest,iecxiv.meshfabric.ui.management.UserMeshEditRequestTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-group-advanced-policy-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish isolated policy only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedPolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add isolated device group advanced settings policy'
+          git push origin HEAD:dev
