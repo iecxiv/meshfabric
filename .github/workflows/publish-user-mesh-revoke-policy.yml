@@ -1,0 +1,175 @@
+name: Validate direct user mesh revocation policy without transport
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-revoke-policy.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-revoke-policy-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add policy and tests only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          for name,sha in {'GroupMeshRevokePolicy.kt':'8e891170c7cf678e20baef9a5539f887cdd5c10b','UserGroupDeletePolicy.kt':'2bc54d1e39053b25b5371c6dc2f214aa94474336','UserAdministration.kt':'6cde3be9b6a91b5e774873601c3bd8215ad818f4'}.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Dependency changed: '+name)
+          policy='''package iecxiv.meshfabric.ui.management
+          import org.json.JSONObject
+          
+          internal fun profileUserMeshRevokeSubject(actor:String,uid:String):Boolean {
+              val a=actor.split('/');val u=uid.split('/')
+              return a.size==3 && a[0]=="user" && a[2].isNotBlank() && u.size==3 && u[0]=="user" && u[2].isNotBlank() && u[1]==a[1] && uid.length<=1024 && uid!=actor && !uid.contains('\\u0000')
+          }
+          internal fun profileUserMeshRevokePacket(actor:String,server:String,user:JSONObject,mesh:JSONObject,confirmed:Boolean=false)=JSONObject().put("action","removemeshuser").put("userid",user.getString("_id")).put("meshid",mesh.getString("_id")).put("_directActor",actor).put("_directServer",server).put("_directUserBefore",profileUserGroupDeleteSnapshot(user)).put("_directMeshBefore",profileUserGroupDeleteSnapshot(mesh)).put("_directConfirmed",confirmed)
+          internal fun profileUserMeshRevokeAllowed(s:ProfileState,p:JSONObject,server:String):Boolean=runCatching {
+              require(p.keys().asSequence().toSet()==setOf("action","userid","meshid","_directActor","_directServer","_directUserBefore","_directMeshBefore","_directConfirmed"))
+              require(p.optString("action")=="removemeshuser" && p.opt("_directConfirmed")==true && s.canWrite && !s.detailsBusy)
+              require(p.getString("_directActor")==s.id && server.isNotBlank() && p.getString("_directServer")==server)
+              val uid=p.getString("userid");val mid=p.getString("meshid")
+              require(profileUserMeshRevokeSubject(s.id,uid) && profileGroupMeshId(s.id,mid))
+              val user=requireNotNull(s.users.singleOrNull {it.optString("_id")==uid})
+              val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==mid})
+              require(canAdministerUser(s,user))
+              require(p.getString("_directUserBefore")==profileUserGroupDeleteSnapshot(user) && p.getString("_directMeshBefore")==profileUserGroupDeleteSnapshot(mesh))
+              val a=user.getJSONObject("links").getJSONObject(mid).get("rights")
+              val b=mesh.getJSONObject("links").getJSONObject(uid).get("rights")
+              val authority=mesh.getJSONObject("links").getJSONObject(s.id).get("rights")
+              require(a is Number && b is Number && authority is Number)
+              val rights=userAdvancedMask(a)
+              require(rights==userAdvancedMask(b))
+              profileGroupMeshRevokeAuthority(userAdvancedMask(authority),rights)
+          }.getOrDefault(false)
+          internal fun profileUserMeshRevokeWire(p:JSONObject)=JSONObject().put("action","removemeshuser").put("userid",p.getString("userid")).put("meshid",p.getString("meshid"))
+          internal fun profileUserMeshRevokeAck(p:JSONObject,request:String)=profileGroupMeshRevokeAck(p,request)
+          internal fun profileUserMeshRevokeReadbackReady(s:ProfileState,uid:String,mid:String,ack:Boolean,userRead:Boolean,meshRead:Boolean):Boolean {
+              if(!ack || !userRead || !meshRead || !s.ready || s.readError || !profileUserMeshRevokeSubject(s.id,uid) || !profileGroupMeshId(s.id,mid)) return false
+              return profileGroupMeshRevokeObserved(s.users.singleOrNull {it.optString("_id")==uid},s.groups.singleOrNull {it.optString("_id")==mid},uid,mid,true)
+          }
+          '''
+          unit='''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class UserMeshRevokePolicyTest {
+              @Test fun sameDomainOtherUserOnly() {
+                  assertTrue(profileUserMeshRevokeSubject("user//admin","user//target"))
+                  assertTrue(profileUserMeshRevokeSubject("user/domain/admin","user/domain/target"))
+                  for(uid in listOf("user//admin","user/other/target","ugrp//target","node//target","user//","target","user//a/b")) assertFalse(profileUserMeshRevokeSubject("user//admin",uid))
+                  assertFalse(profileUserMeshRevokeSubject("user//","user//target"))
+              }
+              @Test fun nonAdministratorCannotRemoveAFullGroupAdministrator() {
+                  assertTrue(profileGroupMeshRevokeAuthority(2,8))
+                  assertFalse(profileGroupMeshRevokeAuthority(2,0xffffffffL))
+                  assertTrue(profileGroupMeshRevokeAuthority(0xffffffffL,0xffffffffL))
+                  assertFalse(profileGroupMeshRevokeAuthority(8,8))
+              }
+          }
+          '''
+          android='''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class)
+          class UserMeshRevokeRequestTest {
+              private val actor="user//admin";private val uid="user//target";private val mid="mesh//group";private val server="https://example.invalid/"
+              private fun state():ProfileState {
+                  val user=JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",8)))
+                  val mesh=JSONObject().put("_id",mid).put("links",JSONObject().put(uid,JSONObject().put("rights",8)).put(actor,JSONObject().put("rights",0xffffffffL)))
+                  return ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(user),groups=listOf(mesh))
+              }
+              private fun packet(s:ProfileState,confirmed:Boolean=true)=profileUserMeshRevokePacket(actor,server,s.users.single(),s.groups.single(),confirmed)
+              @Test fun exactWireAndConfirmationAreRequired() {
+                  val s=state();val p=packet(s)
+                  assertTrue(profileUserMeshRevokeAllowed(s,p,server))
+                  assertFalse(profileUserMeshRevokeAllowed(s,packet(s,false),server))
+                  assertEquals(setOf("action","userid","meshid"),profileUserMeshRevokeWire(p).keys().asSequence().toSet())
+                  assertFalse(profileUserMeshRevokeAllowed(s,JSONObject(p.toString()).put("meshadmin",0),server))
+                  assertFalse(profileUserMeshRevokeAllowed(s,p,"https://other.invalid/"))
+              }
+              @Test fun incompleteMismatchedAndStaleRecordsAreBlocked() {
+                  val s=state();val p=packet(s)
+                  assertFalse(profileUserMeshRevokeAllowed(s.copy(busy=true),p,server))
+                  assertFalse(profileUserMeshRevokeAllowed(s.copy(readError=true),p,server))
+                  assertFalse(profileUserMeshRevokeAllowed(s.copy(users=emptyList()),p,server))
+                  s.groups.single().getJSONObject("links").getJSONObject(uid).put("rights",16)
+                  assertFalse(profileUserMeshRevokeAllowed(s,p,server))
+                  assertFalse(profileUserMeshRevokeAllowed(s,packet(s),server))
+              }
+              @Test fun unknownRightsAreOnlyRemovedAsOneExplicitWholeAssignment() {
+                  val s=state()
+                  s.users.single().getJSONObject("links").getJSONObject(mid).put("rights",0x80000008L)
+                  s.groups.single().getJSONObject("links").getJSONObject(uid).put("rights",0x80000008L)
+                  assertTrue(profileUserMeshRevokeAllowed(s,packet(s),server))
+                  s.groups.single().getJSONObject("links").remove(actor)
+                  assertFalse(profileUserMeshRevokeAllowed(s,packet(s),server))
+              }
+              @Test fun acknowledgementAndTwoReadsAndBothExistingRecordsAreRequired() {
+                  val s=state()
+                  s.users.single().getJSONObject("links").remove(mid)
+                  s.groups.single().getJSONObject("links").remove(uid)
+                  for(ack in listOf(false,true)) for(userRead in listOf(false,true)) for(meshRead in listOf(false,true)) assertEquals(ack && userRead && meshRead,profileUserMeshRevokeReadbackReady(s,uid,mid,ack,userRead,meshRead))
+                  assertFalse(profileUserMeshRevokeReadbackReady(s.copy(users=emptyList()),uid,mid,true,true,true))
+                  assertFalse(profileUserMeshRevokeReadbackReady(s.copy(groups=emptyList()),uid,mid,true,true,true))
+                  s.users.single().getJSONObject("links").put(mid,JSONObject().put("rights",8))
+                  assertFalse(profileUserMeshRevokeReadbackReady(s,uid,mid,true,true,true))
+              }
+              @Test fun responsesMustMatchThePendingRequest() {
+                  val p=JSONObject().put("action","removemeshuser").put("responseid","request").put("result","ok")
+                  assertTrue(profileUserMeshRevokeAck(p,"request"))
+                  assertFalse(profileUserMeshRevokeAck(p,"other"))
+                  assertFalse(profileUserMeshRevokeAck(JSONObject(p.toString()).put("error","denied"),"request"))
+              }
+          }
+          '''
+          updates={base/'UserMeshRevokePolicy.kt':policy,Path('app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshRevokePolicyTest.kt'):unit,Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshRevokeRequestTest.kt'):android}
+          for path in updates:
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          for path,text in updates.items():path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-revoke-policy-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish policy and tests without enabling transport
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshRevokePolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshRevokePolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshRevokeRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'test(profile): validate direct user mesh revocation without transport'
+          git push origin HEAD:dev
