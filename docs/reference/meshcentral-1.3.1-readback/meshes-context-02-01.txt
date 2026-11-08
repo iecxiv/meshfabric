@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: meshes | lines 7086-7135 | window 2 part 1 | not necessarily a complete handler
+
+7086:         // Get the node and the rights for this node
+7087:         parent.GetNodeWithRights(domain, user, command.nodeid, function (node, rights, visible) {
+7088:             if (visible == false) { obj.send({ action: 'lastconnect', nodeid: command.nodeid, tag: command.tag, noinfo: true, result: 'Invalid device id' }); return; }
+7089: 
+7090:             // Query the database for the last time this node connected
+7091:             db.Get('lc' + command.nodeid, function (err, docs) {
+7092:                 if ((docs != null) && (docs.length > 0)) {
+7093:                     obj.send({ action: 'lastconnect', nodeid: command.nodeid, time: docs[0].time, addr: docs[0].addr });
+7094:                 } else {
+7095:                     obj.send({ action: 'lastconnect', nodeid: command.nodeid, tag: command.tag, noinfo: true, result: 'No data' });
+7096:                 }
+7097:             });
+7098:         });
+7099:     }
+7100: 
+7101:     function serverCommandLastConnects(command) {
+7102:         if (obj.visibleDevices == null) {
+7103:             // If we are not paging, get all devices visible to this user
+7104:             const links = parent.GetAllMeshIdWithRights(user);
+7105:             const extraids = getUserExtraIds();
+7106:             db.GetAllTypeNoTypeFieldMeshFiltered(links, extraids, domain.id, 'node', null, obj.deviceSkip, obj.deviceLimit, obj.deviceFilter, function (err, docs) {
+7107:                 if (docs == null) return;
+7108: 
+7109:                 // Create a list of node ids for this user and query them for last device connection time
+7110:                 const ids = []
+7111:                 for (var i in docs) { ids.push('lc' + docs[i]._id); }
+7112: 
+7113:                 // Pull list of last connections only for device owned by this user
+7114:                 db.GetAllIdsOfType(ids, domain.id, 'lastconnect', function (err, docs) {
+7115:                     if (docs == null) return;
+7116:                     const response = {};
+7117:                     for (var j in docs) { response[docs[j]._id.substring(2)] = docs[j].time; }
+7118:                     obj.send({ action: 'lastconnects', lastconnects: response, tag: command.tag });
+7119:                 });
+7120:             });
+7121:         } else {
+7122:             // If we are paging, we know what devices the user is look at
+7123:             // Create a list of node ids for this user and query them for last device connection time
+7124:             const ids = []
+7125:             for (var i in obj.visibleDevices) { ids.push('lc' + i); }
+7126: 
+7127:             // Pull list of last connections only for device owned by this user
+7128:             db.GetAllIdsOfType(ids, domain.id, 'lastconnect', function (err, docs) {
+7129:                 if (docs == null) return;
+7130:                 const response = {};
+7131:                 for (var j in docs) { response[docs[j]._id.substring(2)] = docs[j].time; }
+7132:                 obj.send({ action: 'lastconnects', lastconnects: response, tag: command.tag });
+7133:             });
+7134:         }
+7135:     }

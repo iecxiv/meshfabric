@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: meshes | lines 5930-5979 | window 1 part 1 | not necessarily a complete handler
+
+5930:                             if ((importDev.tls === true) || (importDev.tls === 1)) { device.intelamt.tls = 1; }
+5931:                             if (typeof importDev.version == 'string') { device.intelamt.ver = importDev.version; }
+5932:                             if (typeof importDev.digestrealm == 'string') { device.intelamt.realm = importDev.digestrealm; }
+5933:                             if (typeof importDev.uuid == 'string') { device.intelamt.uuid = importDev.uuid; }
+5934:                             if (typeof importDev.pstate == 'number') { device.intelamt.state = importDev.pstate; }
+5935:                             if (typeof importDev.tlscerthash == 'string') { device.intelamt.hash = importDev.tlscerthash; }
+5936:                             if (typeof importDev.icon == 'number') { device.icon = importDev.icon; }
+5937:                             if (typeof importDev.desc == 'string') { device.desc = importDev.desc; }
+5938: 
+5939:                             // Check if we are already adding a device with the same hostname, if so, skip it.
+5940:                             var skip = false;
+5941:                             for (var i in amtDevices) { if (amtDevices[i].host.toLowerCase() == device.host.toLowerCase()) { skip = true; } }
+5942:                             if (skip == false) { amtDevices.push(device); }
+5943:                         }
+5944:                     }
+5945:                 }
+5946: 
+5947:                 // Add all the correctly parsed devices to the database and event them
+5948:                 // TODO: We may want to remove any devices with duplicate hostnames
+5949:                 if (amtDevices.length == 0) return;
+5950:                 for (var i in amtDevices) {
+5951:                     // Save the device to the database
+5952:                     db.Set(amtDevices[i]);
+5953:                     // Event the new node
+5954:                     parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(command.meshid, [nodeid]), obj, { etype: 'node', userid: user._id, username: user.name, action: 'addnode', node: parent.CloneSafeNode(amtDevices[i]), msgid: 84, msgArgs: [amtDevices[i].name, mesh.name], msg: 'Added device ' + amtDevices[i].name + ' to device group ' + mesh.name, domain: domain.id });
+5955:                 }
+5956:                 break;
+5957:             }
+5958:             default: {
+5959:                 // Unknown user action
+5960:                 console.log('Unknown action from user ' + user.name + ': ' + command.action + '.');
+5961:                 break;
+5962:             }
+5963:         }
+5964:     }
+5965: 
+5966:     const serverCommands = {
+5967:         'adddeviceuser': serverCommandAddDeviceUser,
+5968:         'addmeshuser': serverCommandAddMeshUser,
+5969:         'adduser': serverCommandAddUser,
+5970:         'adduserbatch': serverCommandAddUserBatch,
+5971:         'addusertousergroup': serverCommandAddUserToUserGroup,
+5972:         'agentdisconnect': serverCommandAgentDisconnect,
+5973:         'authcookie': serverCommandAuthCookie,
+5974:         'changeemail': serverCommandChangeEmail,
+5975:         'changelang': serverCommandChangeLang,
+5976:         'close': serverCommandClose,
+5977:         'confirmPhone': serverCommandConfirmPhone,
+5978:         'confirmMessaging': serverCommandConfirmMessaging,
+5979:         'emailuser': serverCommandEmailUser,

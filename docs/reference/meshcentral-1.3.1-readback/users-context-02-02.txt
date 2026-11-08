@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: users | lines 7531-7580 | window 2 part 2 | not necessarily a complete handler
+
+7531:         }
+7532:     }
+7533: 
+7534:     function serverCommandUrlArgs(command) {
+7535:         console.log(req.query);
+7536:         console.log(command.args);
+7537:     }
+7538: 
+7539:     function serverCommandUsers(command) {
+7540:         // Request a list of all users
+7541:         if ((user.siteadmin & 2) == 0) { if (command.responseid != null) { obj.send({ action: 'users', responseid: command.responseid, result: 'Access denied' }); } return; }
+7542:         var docs = [];
+7543:         for (i in parent.users) {
+7544:             if (((obj.crossDomain === true) || (parent.users[i].domain == domain.id)) && (parent.users[i].name != '~')) {
+7545:                 // If we are part of a user group, we can only see other members of our own group
+7546:                 if ((obj.crossDomain === true) || (user.groups == null) || (user.groups.length == 0) || ((parent.users[i].groups != null) && (findOne(parent.users[i].groups, user.groups)))) {
+7547:                     docs.push(parent.CloneSafeUser(parent.users[i]));
+7548:                 }
+7549:             }
+7550:         }
+7551:         obj.send({ action: 'users', users: docs, tag: command.tag });
+7552:     }
+7553: 
+7554:     function serverCommandVerifyEmail(command) {
+7555:         // Do not allow this command when logged in using a login token
+7556:         if (req.session.loginToken != null) return;
+7557: 
+7558:         // If this account is settings locked, return here.
+7559:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return;
+7560: 
+7561:         // Send a account email verification email
+7562:         if ((domain.auth == 'sspi') || (domain.auth == 'ldap')) return;
+7563:         if (common.validateString(command.email, 3, 1024) == false) return;
+7564: 
+7565:         // Always lowercase the email address
+7566:         command.email = command.email.toLowerCase();
+7567: 
+7568:         if ((domain.mailserver != null) && (obj.user.email.toLowerCase() == command.email)) {
+7569:             // Send the verification email
+7570:             domain.mailserver.sendAccountCheckMail(domain, user.name, user._id, user.email, parent.getLanguageCodes(req), req.query.key);
+7571:         }
+7572:     }
+7573: 
+7574:     function serverCommandVerifyPhone(command) {
+7575:         // Do not allow this command when logged in using a login token
+7576:         if (req.session.loginToken != null) return;
+7577: 
+7578:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return; // If this account is settings locked, return here.
+7579:         if (parent.parent.smsserver == null) return;
+7580:         if (common.validateString(command.phone, 1, 18) == false) return; // Check phone length

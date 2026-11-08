@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: users | lines 7481-7530 | window 2 part 1 | not necessarily a complete handler
+
+7481:         obj.trafficStats = stats.current;
+7482:         obj.send({ action: 'trafficdelta', delta: stats.delta });
+7483:     }
+7484: 
+7485:     function serverCommandTrafficStats(command) {
+7486:         obj.send({ action: 'trafficstats', stats: parent.getTrafficStats() });
+7487:     }
+7488: 
+7489:     function serverCommandUpdateAgents(command) {
+7490:         // Update agents for selected devices
+7491:         if (common.validateStrArray(command.nodeids, 1) == false) return; // Check nodeids
+7492:         for (var i in command.nodeids) { routeCommandToNode({ action: 'msg', type: 'console', nodeid: command.nodeids[i], value: 'agentupdate' }, MESHRIGHT_ADMIN, 0); }
+7493:     }
+7494: 
+7495:     function serverCommandUpdateUserImage(command) {
+7496:         if (req.session.loginToken != null) return; // Do not allow this command when logged in using a login token
+7497: 
+7498:         var uid = user._id;
+7499:         if ((typeof command.userid == 'string') && ((user.siteadmin & SITERIGHT_MANAGEUSERS) != 0)) { uid = command.userid; }
+7500: 
+7501:         var chguser = parent.users[uid], flags = 0, change = 0;
+7502:         if (chguser == null) return;
+7503:         if (typeof chguser.flags == 'number') { flags = chguser.flags; }
+7504: 
+7505:         if (command.image == 0) {
+7506:             // Delete the image
+7507:             db.Remove('im' + uid);
+7508:             if ((flags & 1) != 0) { flags -= 1; change = 1; }
+7509:         } else if ((typeof command.image == 'string') && (command.image.length < 600000) && ((command.image.startsWith('data:image/png;base64,') || (command.image.startsWith('data:image/jpeg;base64,'))))) {
+7510:             // Save the new image
+7511:             db.Set({ _id: 'im' + uid, image: command.image });
+7512:             if ((flags & 1) == 0) { flags += 1; }
+7513:             change = 1;
+7514:         }
+7515: 
+7516:         // Update the user if needed
+7517:         if (change == 1) {
+7518:             chguser.flags = flags;
+7519:             db.SetUser(chguser);
+7520: 
+7521:             // Event the change
+7522:             var targets = ['*', 'server-users', user._id, chguser._id];
+7523:             var allTargetGroups = chguser.groups;
+7524:             if (allTargetGroups) { for (var i in allTargetGroups) { targets.push('server-users:' + i); } }
+7525:             var event = { etype: 'user', userid: uid, username: chguser.name, account: parent.CloneSafeUser(chguser), action: 'accountchange', msgid: 66, msgArgs: [chguser.name], msg: 'Account changed: ' + chguser.name, domain: domain.id, accountImageChange: 1 };
+7526:             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7527:                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7528:             }
+7529:             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+7530:             parent.parent.DispatchEvent(targets, obj, event);
