@@ -1,0 +1,97 @@
+name: Validate and publish assignment review link from device group access
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-access-assignment-navigation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-access-assignment-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Reuse existing assignment review and verified transport
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileScreen.kt':'d699b27512ef72c6da2ff59a08b17fb008a7ff47','CompactProfileGroups.kt':'7d800f861f3e380f106067365c6ec125adb40502','GroupMeshAssignmentReview.kt':'c0590204668948edd7b89337521302ca9301842d','GroupMeshRevokePolicy.kt':'8e891170c7cf678e20baef9a5539f887cdd5c10b','ProfileSession.kt':'9e9158971abb1ceaef20e110ffae53d55a088d03'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          anchor='var deviceDetails by remember {mutableStateOf<String?>(null)}'
+          change('ProfileScreen.kt',anchor,anchor+'\nvar deviceAssignment by remember {mutableStateOf<Pair<String,String>?>(null)}')
+          anchor='origins=restored.second;form=null;groupDetails=null;userGroupDetails=null;deviceDetails=null'
+          change('ProfileScreen.kt',anchor,anchor+';deviceAssignment=null')
+          anchor='form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false'
+          if sources['ProfileScreen.kt'].count(anchor)!=2:raise RuntimeError('Unexpected cleanup count')
+          sources['ProfileScreen.kt']=sources['ProfileScreen.kt'].replace(anchor,'form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false')
+          anchor='"broadcastAccepted"->'
+          change('ProfileScreen.kt',anchor,'"groupMeshRevokedObserved"->t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+state.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+state.revokedDeviceGroup\n'+anchor)
+          anchor='onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null)'
+          change('ProfileScreen.kt',anchor,'onReviewUserGroupAssignment={gid->profileAccessAssignmentPair(state,gid,id)?.let {pair->deviceAssignment=pair;session.refresh();session.loadUserGroupDirectory()}},'+anchor)
+          anchor='deviceDetails?.let {id->ProfileDeviceDetailsOverlay'
+          change('ProfileScreen.kt',anchor,'deviceAssignment?.let {(gid,mid)->GroupMeshAssignmentReview(session,state,gid,mid) {deviceAssignment=null}}\n'+anchor)
+          anchor='canOpenDevice:(String)->Boolean={false})'
+          change('CompactProfileGroups.kt',anchor,'canOpenDevice:(String)->Boolean={false},onReviewUserGroupAssignment:((String)->Unit)?=null)')
+          anchor='if(onOpenUserGroup!=null && profileReceivedUserGroup(s,member)!=null) TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy,onClick={onOpenUserGroup(member)}) {Text(t("Abrir grupo de usuarios","Open user group"))}'
+          change('CompactProfileGroups.kt',anchor,anchor+'\nif(onReviewUserGroupAssignment!=null && profileAccessAssignmentPair(s,member,id)!=null) TextButton(onClick={onReviewUserGroupAssignment(member)}) {Text(t("Revisar asignación","Review assignment"))}')
+          anchor='val observed=submitted && s.notice=="groupMeshRevokedObserved" && s.revokedGroup==gid && s.revokedDeviceGroup==mid'
+          change('GroupMeshAssignmentReview.kt',anchor,anchor+'\n    LaunchedEffect(session,gid,mid,s.ready,s.busy,s.userGroupPhase) {if(s.ready && !s.busy && s.userGroupPhase=="idle") session.loadUserGroupDirectory()}')
+          sources.pop('GroupMeshRevokePolicy.kt');sources.pop('ProfileSession.kt')
+          hashes={'.github/patches/profile-access-assignment-navigation/ProfileAccessAssignmentNavigation.kt.txt': 'c93e47895f090e91e44839a5be632072c54ec91a80010410d1c2944316d64fd8', '.github/patches/profile-access-assignment-navigation/ProfileAccessAssignmentNavigationTest.kt.txt': '8e864bde6b032b59b85185d0d709a65d3df948a0919353c304474d163fa4d6a1'}
+          targets={'.github/patches/profile-access-assignment-navigation/ProfileAccessAssignmentNavigation.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileAccessAssignmentNavigation.kt', '.github/patches/profile-access-assignment-navigation/ProfileAccessAssignmentNavigationTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileAccessAssignmentNavigationTest.kt'}
+          updates={base/name:text for name,text in sources.items()}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();target=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if target.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[target]=data.decode()
+          for target,content in updates.items():
+              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-access-assignment-navigation-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated assignment navigation
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReview.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileAccessAssignmentNavigation.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileAccessAssignmentNavigationTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): reuse assignment review and revocation from device group access'
+          git push origin HEAD:dev
