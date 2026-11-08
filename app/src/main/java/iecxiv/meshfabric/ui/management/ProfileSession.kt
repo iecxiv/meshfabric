@@ -109,8 +109,9 @@ detailsTimer?.cancel(); detailsTimer=scope.launch { delay(20_000); synchronized(
 if(epoch==generation) { details.clear(); state.update { it.copy(detailsBusy=false) } }
 } }
 }
-@Synchronized fun loadUserGroupDirectory() {
-if(!state.value.ready || !valid() || state.value.busy) return
+@Synchronized fun loadUserGroupDirectory() {requestUserGroupDirectory()}
+private fun requestUserGroupDirectory(verify:Boolean=false) {
+if(!state.value.ready || !valid() || (state.value.busy && (!verify || pendingAction!="editusergroup"))) return
 directoryTimer?.cancel(); directoryId="profile-user-groups:"+UUID.randomUUID().toString()
 val request=directoryId; val epoch=generation
 state.update {it.copy(listedUserGroups=null,userGroupPhase="loading")}
@@ -158,6 +159,7 @@ directoryTimer?.cancel();directoryId=""
 val raw=if(p.has("ugroups") && p.isNull("ugroups")) emptyList<JSONObject>() else records(p.opt("ugroups"))
 val list=raw?.takeIf {all->all.all {it.optString("_id").startsWith("ugrp/") && it.optString("_id").split('/').size==3}}?.filter {profileUserGroupDomainAllowed(state.value.id,it.optString("_id"))}
 state.update {it.copy(listedUserGroups=list,userGroupPhase=if(list==null) "failed" else "ready")}
+if(pendingAction=="editusergroup" && list?.singleOrNull {it.optString("_id")==pendingTarget}?.let {profileUserGroupEditObserved(it,expected)}==true) finish("userGroupObserved",false)
 return
 }
 when(action) {
@@ -172,6 +174,7 @@ val first=!state.value.ready
 directoryTimer?.cancel();directoryId=""
 state.update { it.copy(ready=true,user=JSONObject(u.toString()),listedUserGroups=null,userGroupPhase="idle",notice=if(first) "ready" else it.notice) }
 if(first) { timer?.cancel(); loadLists() }
+if(pendingAction=="editusergroup") {if(!profileUserGroupEditRole(state.value.site)) {stop();return};requestUserGroupDirectory(true)}
 if(!ProfilePermissions.manageUsers(state.value.site)) {
 if(pendingAction in setOf("adduser","edituser","deleteuser","changeuserpass","adddeviceuser","userbroadcast")) { stop(); return }
 reads.remove("users"); details.clear(); clearHistory()
@@ -210,6 +213,7 @@ historyTimer?.cancel(); state.update { it.copy(history=a,historyBusy=false,histo
 }
 "event"->{
 val e=p.optJSONObject("event") ?: return
+if(pendingAction=="editusergroup" && e.optString("action")=="usergroupchange" && e.optString("ugrpid")==pendingTarget && state.value.userGroupPhase!="loading") requestUserGroupDirectory(true)
 val account=e.optJSONObject("account")
 if(e.optString("action") in setOf("accountchange","accountcreate") && account!=null && ProfilePermissions.manageUsers(state.value.site)) {
 val id=account.optString("_id")
@@ -225,6 +229,7 @@ if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pen
 val ok=p.optString("result").equals("ok",true) && !p.has("error") && !p.has("err")
 val rejected=p.has("error") || p.has("err") || (p.has("result") && !ok)
 if(rejected) finish("rejected",false)
+else if(ok && action=="editusergroup") requestUserGroupDirectory(true)
 else if(ok && action=="userbroadcast") finish("broadcastAccepted",false)
 else if(ok && action in setOf("edituser","adddeviceuser","changeuserpass")) { if(action=="edituser") loadLists() else if(action=="adddeviceuser") loadDetails() }
 else if(ok) finish("confirmed")
@@ -234,11 +239,12 @@ else if(ok) finish("confirmed")
 val s=state.value
 if(!s.canWrite || !valid()) return false
 val action=p.optString("action")
-val id=p.optString("id").ifBlank { p.optString("userid").ifBlank { p.optString("meshid") } }
+val id=p.optString("id").ifBlank { p.optString("userid").ifBlank { p.optString("meshid").ifBlank {p.optString("ugrpid")} } }
 val target=s.users.firstOrNull { it.optString("_id")==id }
 val group=s.groups.firstOrNull { it.optString("_id")==id }
 val node=s.nodes?.firstOrNull { it.optString("_id")==p.optString("nodeid") }
 val allowed=when(action) {
+"editusergroup"->profileUserGroupEditAllowed(s,p)
 "userbroadcast"->profileBroadcastAllowed(s,p,broadcastServerLabel())
 "adduser"->s.canCreateUser && validUserCreation(p.optString("username"),p.optString("email"),p.optString("pass"),p.optString("pass")) && p.opt("removeEvents") is Boolean && p.opt("resetNextLogin") is Boolean
 "edituser"->if(p.has("_contactBefore")) userContactAllowed(s,target,p) else if(p.has("_advancedBefore")) userAdvancedAllowed(s,target,p) else (target!=null && canAdministerUser(s,target) && (if(p.has("siteadmin")) canLockUser(s,target) && p.optLong("_previousSite",-1)==ProfilePermissions.normalized(target.optLong("siteadmin",0)) && p.optLong("siteadmin",-1)==userLockMask(target.optLong("siteadmin",0),!userIsLocked(target.optLong("siteadmin",0))) else (p.has("email") || p.has("realname")) && (!p.has("email") || (!s.emailIdentity && (p.optString("email").isEmpty() || validUserEmail(p.optString("email"))) && p.optString("_beforeEmail")==target.optString("email"))) && (!p.has("realname") || (p.optString("realname").length<=256 && p.optString("_beforeRealname")==target.optString("realname"))))) && p.keys().asSequence().all { it in setOf("action","id","email","realname","siteadmin","_previousSite","_beforeEmail","_beforeRealname") }
@@ -266,18 +272,20 @@ val keys=when(action) {
 "editmesh"->listOf("meshid","meshname","desc")
 else->listOf("meshid")
 }
-val payload=JSONObject().put("action",action)
-keys.filter(p::has).forEach { payload.put(it,p.get(it)) }
+val payload=if(action=="editusergroup") profileUserGroupEditWire(p) else JSONObject().put("action",action)
+if(action!="editusergroup") keys.filter(p::has).forEach { payload.put(it,p.get(it)) }
 if(action=="edituser") payload.put("id",id).put("quota",preservedQuota ?: JSONObject.NULL)
 pendingId=UUID.randomUUID().toString(); pendingAction=action; pendingTarget=if(action=="adddeviceuser") p.getJSONArray("userids").getString(0) else id; pendingNode=p.optString("nodeid")
 expected=JSONObject()
 if(action=="edituser") listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota","phone","emailVerified").filter(payload::has).forEach { expected.put(it,payload.get(it)) }
 if(action=="adddeviceuser") expected.put("rights",p.getLong("rights"))
+if(action=="editusergroup") listOf("name","desc").filter(payload::has).forEach {expected.put(it,payload.getString(it))}
 payload.put("responseid",pendingId)
 if(socket?.send(payload.toString())!=true) { stop("unknown"); return false }
 state.update { it.copy(busy=true,notice="sent") }
 val epoch=generation
 timer?.cancel(); timer=scope.launch { delay(20_000); synchronized(this@ProfileSession) { if(epoch==generation && pendingId.isNotBlank()) stop("unknown") } }
+if(action=="editusergroup") requestUserGroupDirectory(true)
 return true
 }
 }
