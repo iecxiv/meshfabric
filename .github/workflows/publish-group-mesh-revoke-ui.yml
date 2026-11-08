@@ -1,0 +1,116 @@
+name: Validate and publish confirmed two-sided assignment revocation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-revoke-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-revoke-ui-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply confirmed revocation and two-sided verification
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'ab0ed2c7510345114fa058a380d0956dba37dba0','UserGroupsDirectoryPane.kt':'f4c0e7185c64c3016870b8ddbd395fc6d6f0cc2b','GroupMeshAssignmentReview.kt':'a7b56415eeefdd835820fbb73ff39f16fcc3e455','GroupMeshRevokePolicy.kt':'8e891170c7cf678e20baef9a5539f887cdd5c10b'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileSession.kt','val addedMemberGroup:String=""','val addedMemberGroup:String="",val revokedGroup:String="",val revokedDeviceGroup:String=""')
+          anchor='private fun loadLists() {\nreads.clear(); reads.add("meshes")'
+          change('ProfileSession.kt',anchor,'private fun loadLists() {\nif(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",false)\nreads.clear(); reads.add("meshes")')
+          change('ProfileSession.kt','!(pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck"))','!(pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck")) && !(pendingAction=="removemeshuser" && expected.optBoolean("meshAck"))')
+          anchor='directoryTimer?.cancel(); directoryId="profile-user-groups:"+UUID.randomUUID().toString()'
+          change('ProfileSession.kt',anchor,'if(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) expected.put("meshGroupRead",false)\n'+anchor)
+          anchor='private fun receive(p:JSONObject) {'
+          method="""private fun observeGroupMeshRevocation() {
+          if(pendingAction!="removemeshuser" || !profileGroupMeshReadbackReady(state.value,expected.optString("meshSubject"),expected.optString("meshTarget"),expected.optBoolean("meshAck"),expected.optBoolean("meshGroupRead"),expected.optBoolean("meshDeviceRead"))) return
+          val subject=expected.optString("meshSubject");val device=expected.optString("meshTarget")
+          state.update {it.copy(revokedGroup=subject,revokedDeviceGroup=device)}
+          finish("groupMeshRevokedObserved",false);source.requestServerData()
+          }
+          """
+          change('ProfileSession.kt',anchor,method+anchor)
+          anchor='state.update {it.copy(listedUserGroups=list,userGroupPhase=if(list==null) "failed" else "ready")}'
+          change('ProfileSession.kt',anchor,anchor+'\nif(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) {expected.put("meshGroupRead",list!=null && profileUserGroupMemberReadValid(p));observeGroupMeshRevocation()}')
+          change('ProfileSession.kt','if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup"))','if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"))')
+          anchor='if(pendingAction=="addusertousergroup" && !ProfilePermissions.manageUsers(state.value.site))'
+          change('ProfileSession.kt',anchor,'if(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) {loadLists();requestUserGroupDirectory(true)}\n'+anchor)
+          anchor='val list=records(p.opt(action)); reads.remove(action)'
+          change('ProfileSession.kt',anchor,anchor+'\nif(action=="meshes" && pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",list!=null && profileUserGroupMemberReadValid(p))')
+          anchor='if(reads.isEmpty()) readTimer?.cancel()'
+          change('ProfileSession.kt',anchor,anchor+'\nif(action=="meshes") observeGroupMeshRevocation()')
+          anchor='else if(ok && action=="addusertousergroup")'
+          change('ProfileSession.kt',anchor,'else if(ok && action=="removemeshuser") {if(profileGroupMeshRevokeAck(p,pendingId)) {expected.put("meshAck",true).put("meshGroupRead",false).put("meshDeviceRead",false);loadLists();requestUserGroupDirectory(true)}}\n'+anchor)
+          anchor='val allowed=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'\n"removemeshuser"->profileGroupMeshRevokeAllowed(s,p,broadcastServerLabel())')
+          anchor='val payload=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'"removemeshuser"->profileGroupMeshRevokeWire(p);')
+          change('ProfileSession.kt','if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup"))','if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"))')
+          anchor='expected=JSONObject()\nif(action in setOf("removeuserfromusergroup","addusertousergroup"))'
+          change('ProfileSession.kt',anchor,'expected=JSONObject()\nif(action=="removemeshuser") expected.put("meshSubject",p.getString("userid")).put("meshTarget",p.getString("meshid")).put("meshAck",false).put("meshGroupRead",false).put("meshDeviceRead",false)\nif(action in setOf("removeuserfromusergroup","addusertousergroup"))')
+          anchor='addedMemberGroup=if(action=="addusertousergroup") "" else it.addedMemberGroup)'
+          change('ProfileSession.kt',anchor,'addedMemberGroup=if(action=="addusertousergroup") "" else it.addedMemberGroup,revokedGroup=if(action=="removemeshuser") "" else it.revokedGroup,revokedDeviceGroup=if(action=="removemeshuser") "" else it.revokedDeviceGroup)')
+          anchor='OutlinedTextField(query,{query=it.take(256)}'
+          change('UserGroupsDirectoryPane.kt',anchor,'if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+s.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+s.revokedDeviceGroup,style=MaterialTheme.typography.bodySmall)\n'+anchor)
+          sources.pop('GroupMeshAssignmentReview.kt');sources.pop('GroupMeshRevokePolicy.kt')
+          hashes={'.github/patches/group-mesh-revoke-ui/GroupMeshAssignmentReview.kt.txt': '56fe2e6e86f415a4b80b3c9e0f2415c90284097a7cd79e305326a2fdd77c382d', '.github/patches/group-mesh-revoke-ui/GroupMeshRevokeIntegrationTest.kt.txt': '0194e2bd17b2b9b184204bbca6fae71e9e2efa2309c49c67155fb806714a4624'}
+          targets={'.github/patches/group-mesh-revoke-ui/GroupMeshAssignmentReview.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReview.kt', '.github/patches/group-mesh-revoke-ui/GroupMeshRevokeIntegrationTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshRevokeIntegrationTest.kt'}
+          updates={base/name:text for name,text in sources.items()}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();target=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if target.exists() and target!=base/'GroupMeshAssignmentReview.kt':raise RuntimeError('Unexpected existing target: '+dest)
+              updates[target]=data.decode()
+          for target,content in updates.items():
+              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-revoke-ui-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated assignment revocation
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReview.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshRevokeIntegrationTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(user-groups): confirm assignment revocation and verify both returned links'
+          git push origin HEAD:dev
