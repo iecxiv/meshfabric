@@ -19,7 +19,8 @@ internal fun profileUserGroupDomainAllowed(actor:String,group:String)=actor.star
 var editing by remember(s.id) { mutableStateOf<JSONObject?>(null) }
 var creating by remember(s.id) {mutableStateOf(false)}
 var deleting by remember(s.id) {mutableStateOf<JSONObject?>(null)}
-LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null}}
+var removing by remember(s.id) {mutableStateOf<Pair<JSONObject,String>?>(null)}
+LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null}}
     LaunchedEffect(s.ready,s.id,s.site,s.userGroupPhase) { if(s.ready && s.userGroupPhase=="idle") session.loadUserGroupDirectory() }
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
     LazyColumn(modifier,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -27,9 +28,10 @@ LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null
             Text(t("Grupos de usuarios","User groups"),style=MaterialTheme.typography.titleMedium)
             Text(t("Grupos del dominio actual; son distintos de los grupos de dispositivos.","Groups in the current domain; these are separate from device groups."),style=MaterialTheme.typography.bodySmall)
             TextButton(enabled=s.ready && !s.busy && s.userGroupPhase!="loading",onClick={session.loadUserGroupDirectory()}) {Text(t("Actualizar","Refresh"))}
-TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;deleting=null;creating=true}) {Text(t("Crear grupo de usuarios","Create user group"))}
+TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;deleting=null;removing=null;creating=true}) {Text(t("Crear grupo de usuarios","Create user group"))}
 if(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El servidor confirmó la creación: ","The server confirmed creation: ")+s.createdUserGroup,style=MaterialTheme.typography.bodySmall)
             if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El servidor confirmó la eliminación: ","The server confirmed deletion: ")+s.deletedUserGroup,style=MaterialTheme.typography.bodySmall)
+if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta del grupo. Usuario: ","Link absent in the group read. User: ")+s.removedMember+t("; grupo: ","; group: ")+s.removedMemberGroup,style=MaterialTheme.typography.bodySmall)
 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
             if(s.userGroupPhase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)
@@ -49,8 +51,13 @@ ProfileDisclosure(t("Miembros y accesos recibidos","Received members and access"
                     val links=group.optJSONObject("links")
                     if(links==null) Text(t("El servidor no ha informado detalles de accesos para esta ficha.","The server has not provided access details for this entry."),style=MaterialTheme.typography.bodySmall) else {
                         val ids=links.keys().asSequence().sorted().toList()
+val memberGroupUsable=remember(group) {runCatching {profileUserGroupDeleteSnapshot(group)}.isSuccess}
+var linkQuery by remember(group.optString("_id")) {mutableStateOf("")}
+OutlinedTextField(linkQuery,{linkQuery=it.take(256)},label={Text(t("Buscar enlace recibido","Search received links"))},singleLine=true,modifier=Modifier.fillMaxWidth())
+val matchingIds=ids.filter {linkQuery.isBlank() || it.contains(linkQuery,true) || links.optJSONObject(it)?.optString("name")?.contains(linkQuery,true)==true}
                         if(ids.isEmpty()) Text(t("Sin asignaciones recibidas.","No assignments received."))
-                        for(id in ids.take(100)) {
+                        for(id in matchingIds.take(100)) {
+if(profileUserGroupMemberId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site) && memberGroupUsable && group.isNull("membershipType") && links.opt(id) is JSONObject,onClick={editing=null;creating=false;deleting=null;removing=JSONObject(group.toString()) to id;session.loadUserGroupDirectory()}) {Text(t("Retirar del grupo: ","Remove from group: ")+id)}
                             val user=s.users.firstOrNull {it.optString("_id")==id}
                             val mesh=s.groups.firstOrNull {it.optString("_id")==id}
                             when {
@@ -59,7 +66,7 @@ ProfileDisclosure(t("Miembros y accesos recibidos","Received members and access"
                                 else->Text(id,style=MaterialTheme.typography.bodySmall)
                             }
                         }
-                        if(ids.size>100) Text(t("Se muestran los primeros 100 enlaces recibidos.","Showing the first 100 received links."),style=MaterialTheme.typography.bodySmall)
+                        if(matchingIds.size>100) Text(t("Se muestran los primeros 100 enlaces coincidentes; busca para acotar.","Showing the first 100 matching links; search to narrow them down."),style=MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -68,4 +75,5 @@ ProfileDisclosure(t("Miembros y accesos recibidos","Received members and access"
 editing?.let {UserGroupEditDialog(session,s,it) {editing=null}}
 if(creating && editing==null) UserGroupCreateDialog(session,s) {creating=false}
 deleting?.let {UserGroupDeleteDialog(session,s,it) {deleting=null}}
+removing?.let {(group,id)->UserGroupMemberRemoveDialog(session,s,group,id) {removing=null}}
 }
