@@ -1,0 +1,108 @@
+name: Fix Profile device navigation groupedDevices type
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-profile-device-navigation-collection.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-device-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply pinned navigation and fix only collection handling
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          workflow=Path('.github/workflows/publish-profile-device-navigation.yml')
+          client=Path('app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt')
+          for path,sha in {workflow:'f1d732effc8102948a6dc395b79ad03014d4600c',client:'f20dfe3e56f9b7d46e1b8ca6ff4ef333d9460d62'}.items():
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:raise RuntimeError('Reviewed input changed: '+str(path))
+          lines=workflow.read_text().splitlines();blocks=[];i=0
+          while i<len(lines):
+              line=lines[i]
+              if line.strip()!="python3 - <<'PY'":i+=1;continue
+              prefix=line[:len(line)-len(line.lstrip())];body=[];i+=1
+              while i<len(lines) and lines[i]!=prefix+'PY':
+                  current=lines[i]
+                  if not current.strip():body.append('')
+                  elif current.startswith(prefix):body.append(current[len(prefix):])
+                  else:raise RuntimeError('Unexpected heredoc indentation')
+                  i+=1
+              if i==len(lines):raise RuntimeError('Unclosed heredoc')
+              code='\n'.join(body)+'\n';compile(code,'pinned-original-applier','exec');blocks.append(code);i+=1
+          if len(blocks)!=1:raise RuntimeError('Expected exactly one reviewed original applier')
+          exec(compile(blocks[0],'pinned-original-applier','exec'),{'__name__':'__main__'})
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          root=base/'ProfileScreen.kt';text=root.read_text()
+          for old,new in {
+              'source.groupedDevices.value.values.flatten()':'profileFlattenReceivedDevices(source.groupedDevices.value)',
+              'profileDeviceGroups.values.flatten()':'profileFlattenReceivedDevices(profileDeviceGroups)'
+          }.items():
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique bad collection expression: '+old)
+              text=text.replace(old,new,1)
+          if '.values.flatten()' in text:raise RuntimeError('Unexpected map expression remains')
+          root.write_text(text)
+          helper=base/'ProfileDeviceNavigation.kt';text=helper.read_text()
+          anchor='import iecxiv.meshfabric.data.model.MeshNode'
+          if text.count(anchor)!=1:raise RuntimeError('Unexpected helper imports')
+          text=text.replace(anchor,'import iecxiv.meshfabric.data.model.MeshGroup\n'+anchor,1)
+          text+='\ninternal fun profileFlattenReceivedDevices(groups:List<Pair<MeshGroup,List<MeshNode>>>):List<MeshNode> = groups.flatMap {it.second}\n'
+          helper.write_text(text)
+          test=Path('app/src/test/java/iecxiv/meshfabric/ui/management/ProfileDeviceGroupedDataTest.kt')
+          if test.exists():raise RuntimeError('Regression test already exists')
+          test.write_text("""package iecxiv.meshfabric.ui.management
+
+          import iecxiv.meshfabric.data.model.MeshGroup
+          import iecxiv.meshfabric.data.model.MeshNode
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class ProfileDeviceGroupedDataTest {
+              @Test fun emptyGroupedListHasNoNodes() {assertTrue(profileFlattenReceivedDevices(emptyList()).isEmpty())}
+              @Test fun actualPairShapePreservesOrderAndNodeIdentity() {val a=MeshNode(id="node//one",meshid="mesh//one");val b=MeshNode(id="node//two",meshid="mesh//two");val groups=listOf(MeshGroup(id="mesh//one") to listOf(a),MeshGroup(id="mesh//empty") to emptyList(),MeshGroup(id="mesh//two") to listOf(b));val result=profileFlattenReceivedDevices(groups);assertEquals(listOf(a,b),result);assertSame(a,result[0]);assertSame(b,result[1])}
+              @Test fun duplicatesAreRetainedForTheAmbiguityGuard() {val node=MeshNode(id="node//one",meshid="mesh//one");val result=profileFlattenReceivedDevices(listOf(MeshGroup(id="mesh//one") to listOf(node,node)));assertEquals(2,result.size)}
+          }
+          """)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-device-navigation-collection-fix-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish corrected navigation and regression together
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigation.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigationPolicyTest.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileDeviceGroupedDataTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileReceivedDeviceNavigationTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): handle grouped devices as list of pairs and publish validated navigation'
+          git push origin HEAD:dev
