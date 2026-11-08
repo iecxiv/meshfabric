@@ -521,17 +521,17 @@ AccountCredentialRow(t("Contraseña del token","Token password"),tokenPass,t("Co
 action("Copiar credenciales","Copy credentials") { copy("$tokenUser\n$tokenPass") }
 }
 }
-Text(t("Selecciona el token exacto que quieres revocar. Actualiza para consultar de nuevo la lista del servidor.","Select the exact token to revoke. Refresh to query the server list again."),style=MaterialTheme.typography.bodySmall)
+Text(t("Pulsa la papelera del token que quieras revocar y confirma en el diálogo. Actualiza para consultar de nuevo la lista del servidor.","Tap the trash icon of the token to revoke and confirm in the dialog. Refresh to query the server list again."),style=MaterialTheme.typography.bodySmall)
 val list=state.tokenList
 if(list==null && !state.busy) Text(t("Lista de tokens no disponible.","Token list unavailable."))
 if(list!=null && list.length()==0) Text(t("El servidor no devuelve tokens.","The server returned no tokens."))
 if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { token->
 val id=token.optString("tokenUser")
-AccountTokenChoice(token,third==id,!state.busy,dateLocale,hours24,es,onSelect={ third=id; confirmation=false },onCopy={ copy(id) })
+AccountTokenRow(token,!state.busy,dateLocale,hours24,es,onRevoke={ run("loginTokens",JSONObject().put("remove",JSONArray().put(id))) })
 }
-if(third.isNotBlank()) ManagementCard { ManagementInfoRow(t("Token seleccionado","Selected token"),third) }
-Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo revocar el token seleccionado.","I confirm revoking the selected token.")) }
-action("Revocar token","Revoke token",confirmation && third.isNotBlank()) { run("loginTokens",JSONObject().put("remove",JSONArray().put(third))) }
+
+
+
 action("Actualizar lista","Refresh list") { third=""; confirmation=false; run("loginTokens") }
 }
 }

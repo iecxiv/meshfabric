@@ -3,7 +3,6 @@ package iecxiv.meshfabric.ui.management
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -16,12 +15,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.SecureFlagPolicy
 import org.json.JSONObject
 
 @Composable internal fun ManagementDialog(
@@ -93,21 +92,38 @@ import org.json.JSONObject
         }
     }
 }
-@Composable internal fun AccountTokenChoice(token:JSONObject,selected:Boolean,enabled:Boolean,locale:String,hours24:Boolean,es:Boolean,onSelect:()->Unit,onCopy:()->Unit) {
+@Composable internal fun AccountTokenRow(token:JSONObject,enabled:Boolean,locale:String,hours24:Boolean,es:Boolean,onRevoke:()->Unit) {
     val id=token.optString("tokenUser")
-    Surface(Modifier.fillMaxWidth().selectable(selected=selected,enabled=enabled,role=Role.RadioButton,onClick=onSelect),
-        shape=MaterialTheme.shapes.small,color=if(selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        border=BorderStroke(1.dp,if(selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)) {
-        Row(Modifier.padding(8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            RadioButton(selected=selected,onClick=null,enabled=enabled)
+    val name=token.optString("name").ifBlank { if(es) "Sin nombre" else "Unnamed" }
+    var confirm by remember(id) { mutableStateOf(false) }
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceVariant,
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+        Row(Modifier.padding(start=12.dp,end=4.dp,top=8.dp,bottom=8.dp),verticalAlignment=Alignment.CenterVertically,
+            horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-                Text(token.optString("name").ifBlank { if(es) "Sin nombre" else "Unnamed" },style=MaterialTheme.typography.titleSmall)
+                Text(name,style=MaterialTheme.typography.titleSmall)
                 Text(accountTokenExpiry(token,locale,hours24,es),style=MaterialTheme.typography.bodySmall)
                 Text(id,style=MaterialTheme.typography.bodySmall,fontFamily=FontFamily.Monospace)
             }
-            IconButton(onClick=onCopy,enabled=enabled,modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp)) {
-                Icon(Icons.Default.ContentCopy,contentDescription=if(es) "Copiar ID del token" else "Copy token ID")
+            IconButton(onClick={ confirm=true },enabled=enabled && id.isNotBlank(),modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp)) {
+                Icon(Icons.Default.Delete,contentDescription=if(es) "Revocar token $name" else "Revoke token $name",tint=MaterialTheme.colorScheme.error)
             }
         }
     }
+    if(confirm) ManagementDialog(
+        onDismissRequest={ confirm=false },
+        properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),
+        icon={ Icon(Icons.Default.Delete,null,tint=MaterialTheme.colorScheme.error) },
+        title={ Text(if(es) "Revocar token" else "Revoke token") },
+        text={ Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Text(if(es) "Se solicitará al servidor revocar únicamente este token." else "The server will be asked to revoke only this token.")
+            Text(name,style=MaterialTheme.typography.titleSmall)
+            Text(id,style=MaterialTheme.typography.bodySmall,fontFamily=FontFamily.Monospace)
+            Text(accountTokenExpiry(token,locale,hours24,es),style=MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton={ Button(enabled=enabled && id.isNotBlank(),onClick={ confirm=false; onRevoke() },
+            colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error,contentColor=MaterialTheme.colorScheme.onError)) {
+            Text(if(es) "Revocar" else "Revoke")
+        } },
+        dismissButton={ TextButton(onClick={ confirm=false }) { Text(if(es) "Cancelar" else "Cancel") } })
 }
