@@ -1,0 +1,92 @@
+name: Validate and publish access to received user group details
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-access-user-group-navigation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-access-user-group-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply read-only user group details and origin-preserving link
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileScreen.kt':'0029755dee5a9fc19709be109c869345477c1e3a','CompactProfileGroups.kt':'2791412225048bc9f6652fcebd315e27709fc7da'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          anchor='var groupDetails by remember { mutableStateOf<String?>(null) }'
+          change('ProfileScreen.kt',anchor,anchor+'\nvar userGroupDetails by remember {mutableStateOf<String?>(null)}')
+          change('ProfileScreen.kt','origins=restored.second;form=null;groupDetails=null','origins=restored.second;form=null;groupDetails=null;userGroupDetails=null')
+          anchor='form=null; groupDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false'
+          if sources['ProfileScreen.kt'].count(anchor)!=2:raise RuntimeError('Unexpected top-level cleanup count')
+          sources['ProfileScreen.kt']=sources['ProfileScreen.kt'].replace(anchor,'form=null; groupDetails=null; userGroupDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false')
+          change('ProfileScreen.kt','groupDetails?.takeIf { form==null }','groupDetails?.takeIf { form==null && userGroupDetails==null }')
+          anchor='onOpenUser={uid->profileAccessUserTarget(state,uid)?.let'
+          change('ProfileScreen.kt',anchor,'onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},'+anchor)
+          anchor='form?.let { selected->'
+          change('ProfileScreen.kt',anchor,'userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid) {userGroupDetails=null}}\n'+anchor)
+          anchor='onOpenUser:((String)->Unit)?=null,initialTab:Int=0'
+          change('CompactProfileGroups.kt',anchor,'onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0')
+          anchor='if(onOpenUser!=null && profileAccessUserTarget(s,member)!=null) TextButton(enabled=s.canWrite,onClick={onOpenUser(member)}) {Text(t("Abrir usuario","Open user"))}'
+          change('CompactProfileGroups.kt',anchor,anchor+'\nif(onOpenUserGroup!=null && profileReceivedUserGroup(s,member)!=null) TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy,onClick={onOpenUserGroup(member)}) {Text(t("Abrir grupo de usuarios","Open user group"))}')
+          hashes={'.github/patches/profile-access-user-group-navigation/ReceivedUserGroupDialog.kt.txt': '843c00ca93ad3aa6dec861efc1ff4cb34cf49976bd9e2e1cd224b9b0b53c761a', '.github/patches/profile-access-user-group-navigation/ReceivedUserGroupNavigationTest.kt.txt': 'd681cb6a24b815155af5cc26471459ccd554f2b74393421805224fdc6896122a'}
+          targets={'.github/patches/profile-access-user-group-navigation/ReceivedUserGroupDialog.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ReceivedUserGroupDialog.kt', '.github/patches/profile-access-user-group-navigation/ReceivedUserGroupNavigationTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReceivedUserGroupNavigationTest.kt'}
+          updates={base/name:text for name,text in sources.items()}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();target=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if target.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[target]=data.decode()
+          for target,content in updates.items():
+              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-access-user-group-navigation-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated read-only group navigation
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/main/java/iecxiv/meshfabric/ui/management/ReceivedUserGroupDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReceivedUserGroupNavigationTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): open received user group details from device group access'
+          git push origin HEAD:dev
