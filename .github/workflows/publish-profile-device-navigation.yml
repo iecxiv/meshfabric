@@ -23,9 +23,14 @@ jobs:
       - name: Install Android SDK packages
         run: |
           set -euo pipefail
-          command -v sdkmanager
-          sdkmanager --licenses </dev/null >/dev/null
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found or not executable: $SDKMANAGER"
+            exit 1
+          fi
+          echo "Using Android SDK: $SDK_ROOT"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v4
       - name: Link existing inventory viewer without changing device actions
         run: |
