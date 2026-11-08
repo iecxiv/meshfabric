@@ -5,7 +5,7 @@ import org.junit.Test
 
 class BottomNavigationOrderTest {
     @Test fun visualOrderUsesStablePageIds() {
-        assertEquals(listOf(1,4,0,2,3),bottomNavigationPageOrder)
+        assertEquals(listOf(3,2,0,1,4),bottomNavigationPageOrder)
     }
     @Test fun equipmentKeepsItsExistingIdInTheMiddle() {
         assertEquals(0,bottomNavigationPageOrder[2])

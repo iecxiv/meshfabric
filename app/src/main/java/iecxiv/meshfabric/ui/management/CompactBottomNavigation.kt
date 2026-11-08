@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
 
-internal val bottomNavigationPageOrder=listOf(1,4,0,2,3)
+internal val bottomNavigationPageOrder=listOf(3,2,0,1,4)
 
 @Composable internal fun CompactBottomNavigation(page:Int,onSelect:(Int)->Unit) {
 val request by NoticeNavigation.request.collectAsState()
