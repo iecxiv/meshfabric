@@ -16,7 +16,7 @@ val user:JSONObject?=null,val users:List<JSONObject> = emptyList(),val groups:Li
 val notice:String="disconnected",val readError:Boolean=false,val server:JSONObject?=null,
 val nodes:List<JSONObject>?=null,val userGroups:List<JSONObject>?=null,val sessions:JSONObject?=null,
 val detailsBusy:Boolean=false,val historyUser:String="",val history:JSONArray?=null,val historyBusy:Boolean=false,val historyFailed:Boolean=false,
-val listedUserGroups:List<JSONObject>?=null,val userGroupPhase:String="idle",val createdUserGroup:String="",val deletedUserGroup:String="",val removedMember:String="",val removedMemberGroup:String="",val addedMember:String="",val addedMemberGroup:String="",val revokedGroup:String="",val revokedDeviceGroup:String=""
+val listedUserGroups:List<JSONObject>?=null,val userGroupPhase:String="idle",val createdUserGroup:String="",val deletedUserGroup:String="",val removedMember:String="",val removedMemberGroup:String="",val addedMember:String="",val addedMemberGroup:String="",val revokedGroup:String="",val revokedDeviceGroup:String="",val grantedGroup:String="",val grantedDeviceGroup:String=""
 ) {
 val site:Long get()=user?.optLong("siteadmin",0L) ?: 0L
 val id:String get()=user?.optString("_id").orEmpty()
@@ -86,7 +86,7 @@ state.value=ProfileState(notice=if(uncertain) "unknown" else reason)
 @Synchronized fun close() { closed=true; stop(); scope.cancel() }
 @Synchronized fun refresh() { if(state.value.ready && !state.value.busy && valid()) { send("userinfo"); loadLists() } }
 private fun loadLists() {
-if(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",false)
+if(pendingAction in setOf("removemeshuser","addmeshuser") && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",false)
 reads.clear(); reads.add("meshes")
 if(ProfilePermissions.manageUsers(state.value.site)) reads.add("users")
 state.update { it.copy(loading=true,readError=false,users=if("users" in reads) it.users else emptyList()) }
@@ -112,8 +112,8 @@ if(epoch==generation) { details.clear(); state.update { it.copy(detailsBusy=fals
 }
 @Synchronized fun loadUserGroupDirectory() {requestUserGroupDirectory()}
 private fun requestUserGroupDirectory(verify:Boolean=false) {
-if(!state.value.ready || !valid() || (state.value.busy && (!verify || (pendingAction!="editusergroup" && !(pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck")) && !(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")))))) return
-if(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) expected.put("meshGroupRead",false)
+if(!state.value.ready || !valid() || (state.value.busy && (!verify || (pendingAction!="editusergroup" && !(pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck")) && !(pendingAction in setOf("removemeshuser","addmeshuser") && expected.optBoolean("meshAck")))))) return
+if(pendingAction in setOf("removemeshuser","addmeshuser") && expected.optBoolean("meshAck")) expected.put("meshGroupRead",false)
 directoryTimer?.cancel(); directoryId="profile-user-groups:"+UUID.randomUUID().toString()
 val request=directoryId; val epoch=generation
 state.update {it.copy(listedUserGroups=null,userGroupPhase="loading")}
@@ -154,10 +154,13 @@ private fun observeNode(node:JSONObject) {
 if(pendingAction=="adddeviceuser" && node.optString("_id")==pendingNode && directUserRights(node.optJSONObject("links"),pendingTarget)==expected.optLong("rights",-1)) finish("observed")
 }
 private fun observeGroupMeshRevocation() {
-if(pendingAction!="removemeshuser" || !profileGroupMeshReadbackReady(state.value,expected.optString("meshSubject"),expected.optString("meshTarget"),expected.optBoolean("meshAck"),expected.optBoolean("meshGroupRead"),expected.optBoolean("meshDeviceRead"))) return
+val granting=pendingAction=="addmeshuser"
+if(pendingAction !in setOf("removemeshuser","addmeshuser")) return
 val subject=expected.optString("meshSubject");val device=expected.optString("meshTarget")
-state.update {it.copy(revokedGroup=subject,revokedDeviceGroup=device)}
-finish("groupMeshRevokedObserved",false);source.requestServerData()
+val verified=if(granting) profileGroupMeshGrantReadbackReady(state.value,subject,device,expected.optLong("meshRights"),expected.optBoolean("meshAck"),expected.optBoolean("meshGroupRead"),expected.optBoolean("meshDeviceRead")) else profileGroupMeshReadbackReady(state.value,subject,device,expected.optBoolean("meshAck"),expected.optBoolean("meshGroupRead"),expected.optBoolean("meshDeviceRead"))
+if(!verified) return
+state.update {if(granting) it.copy(grantedGroup=subject,grantedDeviceGroup=device) else it.copy(revokedGroup=subject,revokedDeviceGroup=device)}
+finish(if(granting) "groupMeshGrantedObserved" else "groupMeshRevokedObserved",false);source.requestServerData()
 }
 private fun receive(p:JSONObject) {
 val action=p.optString("action")
@@ -167,7 +170,7 @@ directoryTimer?.cancel();directoryId=""
 val raw=if(p.has("ugroups") && p.isNull("ugroups")) emptyList<JSONObject>() else records(p.opt("ugroups"))
 val list=raw?.takeIf {all->all.all {it.optString("_id").startsWith("ugrp/") && it.optString("_id").split('/').size==3}}?.filter {profileUserGroupDomainAllowed(state.value.id,it.optString("_id"))}
 state.update {it.copy(listedUserGroups=list,userGroupPhase=if(list==null) "failed" else "ready")}
-if(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) {expected.put("meshGroupRead",list!=null && profileUserGroupMemberReadValid(p));observeGroupMeshRevocation()}
+if(pendingAction in setOf("removemeshuser","addmeshuser") && expected.optBoolean("meshAck")) {expected.put("meshGroupRead",list!=null && profileUserGroupMemberReadValid(p));observeGroupMeshRevocation()}
 if(pendingAction=="editusergroup" && list?.singleOrNull {it.optString("_id")==pendingTarget}?.let {profileUserGroupEditObserved(it,expected)}==true) finish("userGroupObserved",false)
 if(pendingAction=="addusertousergroup" && profileUserGroupMemberReadValid(p) && list?.singleOrNull {it.optString("_id")==expected.optString("memberGroup")}?.let {profileUserGroupMemberAddObserved(it,pendingTarget,expected.optBoolean("memberAck"))}==true) {val member=pendingTarget;val memberGroup=expected.optString("memberGroup");state.update {it.copy(addedMember=member,addedMemberGroup=memberGroup)};finish("userGroupMemberAddedObserved",false);loadLists();source.requestServerData()}
 if(pendingAction=="removeuserfromusergroup" && profileUserGroupMemberReadValid(p) && list?.singleOrNull {it.optString("_id")==expected.optString("memberGroup")}?.let {profileUserGroupMemberRemovalObserved(it,pendingTarget,expected.optBoolean("memberAck"))}==true) {val member=pendingTarget;val memberGroup=expected.optString("memberGroup");state.update {it.copy(removedMember=member,removedMemberGroup=memberGroup)};finish("userGroupMemberObserved",false);loadLists();source.requestServerData()}
@@ -185,8 +188,8 @@ val first=!state.value.ready
 directoryTimer?.cancel();directoryId=""
 state.update { it.copy(ready=true,user=JSONObject(u.toString()),listedUserGroups=null,userGroupPhase="idle",notice=if(first) "ready" else it.notice) }
 if(first) { timer?.cancel(); loadLists() }
-if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser")) {if(!profileUserGroupEditRole(state.value.site)) {stop();return};if(pendingAction=="editusergroup" || (pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck"))) requestUserGroupDirectory(true)}
-if(pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) {loadLists();requestUserGroupDirectory(true)}
+if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser")) {if(!profileUserGroupEditRole(state.value.site)) {stop();return};if(pendingAction=="editusergroup" || (pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck"))) requestUserGroupDirectory(true)}
+if(pendingAction in setOf("removemeshuser","addmeshuser") && expected.optBoolean("meshAck")) {loadLists();requestUserGroupDirectory(true)}
 if(pendingAction=="addusertousergroup" && !ProfilePermissions.manageUsers(state.value.site)) {stop();return}
 if(!ProfilePermissions.manageUsers(state.value.site)) {
 if(pendingAction in setOf("adduser","edituser","deleteuser","changeuserpass","adddeviceuser","userbroadcast")) { stop(); return }
@@ -197,7 +200,7 @@ state.update { it.copy(users=emptyList(),nodes=null,userGroups=null,sessions=nul
 "users","meshes"->{
 if(action !in reads) return
 val list=records(p.opt(action)); reads.remove(action)
-if(action=="meshes" && pendingAction=="removemeshuser" && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",list!=null && profileUserGroupMemberReadValid(p))
+if(action=="meshes" && pendingAction in setOf("removemeshuser","addmeshuser") && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",list!=null && profileUserGroupMemberReadValid(p))
 state.update { if(list==null) it.copy(loading=reads.isNotEmpty(),readError=true,notice="readFailed") else if(action=="users") it.copy(users=list,loading=reads.isNotEmpty()) else it.copy(groups=list,loading=reads.isNotEmpty()) }
 if(reads.isEmpty()) readTimer?.cancel()
 if(action=="meshes") observeGroupMeshRevocation()
@@ -242,6 +245,11 @@ if(e.optString("action")=="wssessioncount" && e.opt("count") is Number && e.optL
 }
 }
 if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {
+if(action=="addmeshuser") {
+if(profileGroupMeshGrantAck(p,pendingId)) {expected.put("meshAck",true).put("meshGroupRead",false).put("meshDeviceRead",false);loadLists();requestUserGroupDirectory(true)}
+else if(profileGroupMeshGrantReplyRejected(p)) finish("rejected",false)
+return
+}
 val ok=p.optString("result").equals("ok",true) && !p.has("error") && !p.has("err")
 val rejected=p.has("error") || p.has("err") || (p.has("result") && !ok)
 if(rejected) finish("rejected",false)
@@ -270,6 +278,7 @@ val target=s.users.firstOrNull { it.optString("_id")==id }
 val group=s.groups.firstOrNull { it.optString("_id")==id }
 val node=s.nodes?.firstOrNull { it.optString("_id")==p.optString("nodeid") }
 val allowed=when(action) {
+"addmeshuser"->profileGroupMeshGrantAllowed(s,p,broadcastServerLabel())
 "removemeshuser"->profileGroupMeshRevokeAllowed(s,p,broadcastServerLabel())
 "addusertousergroup"->profileUserGroupMemberAddAllowed(s,p,broadcastServerLabel())
 "removeuserfromusergroup"->profileUserGroupMemberRemoveAllowed(s,p,broadcastServerLabel())
@@ -303,11 +312,12 @@ val keys=when(action) {
 "editmesh"->listOf("meshid","meshname","desc")
 else->listOf("meshid")
 }
-val payload=when(action) {"removemeshuser"->profileGroupMeshRevokeWire(p);"addusertousergroup"->profileUserGroupMemberAddWire(p);"removeuserfromusergroup"->profileUserGroupMemberRemoveWire(p);"deleteusergroup"->profileUserGroupDeleteWire(p);"editusergroup"->profileUserGroupEditWire(p);"createusergroup"->profileUserGroupCreateWire(p);else->JSONObject().put("action",action)}
-if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser")) keys.filter(p::has).forEach { payload.put(it,p.get(it)) }
+val payload=when(action) {"addmeshuser"->profileGroupMeshGrantWire(p);"removemeshuser"->profileGroupMeshRevokeWire(p);"addusertousergroup"->profileUserGroupMemberAddWire(p);"removeuserfromusergroup"->profileUserGroupMemberRemoveWire(p);"deleteusergroup"->profileUserGroupDeleteWire(p);"editusergroup"->profileUserGroupEditWire(p);"createusergroup"->profileUserGroupCreateWire(p);else->JSONObject().put("action",action)}
+if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser")) keys.filter(p::has).forEach { payload.put(it,p.get(it)) }
 if(action=="edituser") payload.put("id",id).put("quota",preservedQuota ?: JSONObject.NULL)
 pendingId=UUID.randomUUID().toString(); pendingAction=action; pendingTarget=if(action=="addusertousergroup") p.getString("_addUser") else if(action=="adddeviceuser") p.getJSONArray("userids").getString(0) else id; pendingNode=p.optString("nodeid")
 expected=JSONObject()
+if(action=="addmeshuser") expected.put("meshSubject",p.getJSONArray("userids").getString(0)).put("meshTarget",p.getString("meshid")).put("meshRights",userAdvancedMask(p.get("meshadmin"))).put("meshAck",false).put("meshGroupRead",false).put("meshDeviceRead",false)
 if(action=="removemeshuser") expected.put("meshSubject",p.getString("userid")).put("meshTarget",p.getString("meshid")).put("meshAck",false).put("meshGroupRead",false).put("meshDeviceRead",false)
 if(action in setOf("removeuserfromusergroup","addusertousergroup")) expected.put("memberGroup",p.getString("ugrpid")).put("memberAck",false)
 if(action=="edituser") listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota","phone","emailVerified").filter(payload::has).forEach { expected.put(it,payload.get(it)) }
@@ -315,7 +325,7 @@ if(action=="adddeviceuser") expected.put("rights",p.getLong("rights"))
 if(action=="editusergroup") listOf("name","desc").filter(payload::has).forEach {expected.put(it,payload.getString(it))}
 payload.put("responseid",pendingId)
 if(socket?.send(payload.toString())!=true) { stop("unknown"); return false }
-state.update { it.copy(busy=true,notice="sent",createdUserGroup=if(action=="createusergroup") "" else it.createdUserGroup,deletedUserGroup=if(action=="deleteusergroup") "" else it.deletedUserGroup,removedMember=if(action=="removeuserfromusergroup") "" else it.removedMember,removedMemberGroup=if(action=="removeuserfromusergroup") "" else it.removedMemberGroup,addedMember=if(action=="addusertousergroup") "" else it.addedMember,addedMemberGroup=if(action=="addusertousergroup") "" else it.addedMemberGroup,revokedGroup=if(action=="removemeshuser") "" else it.revokedGroup,revokedDeviceGroup=if(action=="removemeshuser") "" else it.revokedDeviceGroup) }
+state.update { it.copy(busy=true,notice="sent",grantedGroup=if(action=="addmeshuser") "" else it.grantedGroup,grantedDeviceGroup=if(action=="addmeshuser") "" else it.grantedDeviceGroup,createdUserGroup=if(action=="createusergroup") "" else it.createdUserGroup,deletedUserGroup=if(action=="deleteusergroup") "" else it.deletedUserGroup,removedMember=if(action=="removeuserfromusergroup") "" else it.removedMember,removedMemberGroup=if(action=="removeuserfromusergroup") "" else it.removedMemberGroup,addedMember=if(action=="addusertousergroup") "" else it.addedMember,addedMemberGroup=if(action=="addusertousergroup") "" else it.addedMemberGroup,revokedGroup=if(action=="removemeshuser") "" else it.revokedGroup,revokedDeviceGroup=if(action=="removemeshuser") "" else it.revokedDeviceGroup) }
 val epoch=generation
 timer?.cancel(); timer=scope.launch { delay(20_000); synchronized(this@ProfileSession) { if(epoch==generation && pendingId.isNotBlank()) stop("unknown") } }
 if(action=="editusergroup") requestUserGroupDirectory(true)

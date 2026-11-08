@@ -21,4 +21,26 @@ class GroupMeshGrantRequestTest {
     @Test fun confirmationSingleTargetAndExactWhitelistAreRequired() {val s=state();val p=packet(s);assertFalse(profileGroupMeshGrantAllowed(s,JSONObject(p.toString()).put("_grantConfirmed",false),server));assertFalse(profileGroupMeshGrantAllowed(s,JSONObject(p.toString()).put("userid","user//other"),server));assertFalse(profileGroupMeshGrantAllowed(s,JSONObject(p.toString()).put("userids",JSONArray().put(gid).put("ugrp//other")),server))}
     @Test fun successTextIsNotRequiredToBeOkButCountersAreMandatory() {val p=JSONObject().put("action","addmeshuser").put("responseid","request").put("result","Added user group").put("success",1).put("failed",0);assertTrue(profileGroupMeshGrantAck(p,"request"));assertFalse(profileGroupMeshGrantAck(p,"other"));assertFalse(profileGroupMeshGrantAck(JSONObject().put("action","addmeshuser").put("responseid","request").put("result","ok"),"request"));p.put("failed",1);assertFalse(profileGroupMeshGrantAck(p,"request"))}
     @Test fun bothRecordsMustShowTheRequestedRightsAfterAcknowledgement() {val g=JSONObject().put("_id",gid).put("links",JSONObject().put(mid,JSONObject().put("rights",264)));val m=JSONObject().put("_id",mid).put("links",JSONObject().put(gid,JSONObject().put("rights",264)));assertTrue(profileGroupMeshGrantObserved(g,m,gid,mid,264,true));assertFalse(profileGroupMeshGrantObserved(g,m,gid,mid,264,false));assertFalse(profileGroupMeshGrantObserved(null,m,gid,mid,264,true));m.getJSONObject("links").getJSONObject(gid).put("rights",8);assertFalse(profileGroupMeshGrantObserved(g,m,gid,mid,264,true))}
+
+    @Test fun grantReadbackRequiresAckAndBothFreshReads() {
+        val s=state()
+        s.listedUserGroups!!.single().getJSONObject("links").put(mid,JSONObject().put("rights",264))
+        s.groups.single().getJSONObject("links").put(gid,JSONObject().put("rights",264))
+        for(ack in listOf(false,true)) for(groupRead in listOf(false,true)) for(deviceRead in listOf(false,true)) {
+            assertEquals(ack && groupRead && deviceRead,profileGroupMeshGrantReadbackReady(s,gid,mid,264,ack,groupRead,deviceRead))
+        }
+        assertFalse(profileGroupMeshGrantReadbackReady(s,gid,mid,8,true,true,true))
+        assertFalse(profileGroupMeshGrantReadbackReady(s.copy(listedUserGroups=null),gid,mid,264,true,true,true))
+    }
+    @Test fun grantReplyClassificationDoesNotUseGenericOkText() {
+        val reply=JSONObject().put("action","addmeshuser").put("responseid","request").put("result","Added user group").put("success",1).put("failed",0)
+        assertTrue(profileGroupMeshGrantAck(reply,"request"))
+        assertFalse(profileGroupMeshGrantReplyRejected(reply))
+        assertFalse(profileGroupMeshGrantAck(reply,"other"))
+        assertFalse(profileGroupMeshGrantReplyRejected(JSONObject().put("result","ok")))
+        assertFalse(profileGroupMeshGrantAck(JSONObject().put("action","addmeshuser").put("responseid","request").put("result","ok"),"request"))
+        assertTrue(profileGroupMeshGrantReplyRejected(JSONObject(reply.toString()).put("failed",1)))
+        assertTrue(profileGroupMeshGrantReplyRejected(JSONObject(reply.toString()).put("error","denied")))
+        assertFalse(profileGroupMeshGrantAck(JSONObject(reply.toString()).put("error","denied"),"request"))
+    }
 }

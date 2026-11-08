@@ -30,3 +30,6 @@ internal fun profileGroupMeshGrantObserved(group:JSONObject?,mesh:JSONObject?,gi
     val b=mesh.getJSONObject("links").getJSONObject(gid).get("rights")
     a is Number && b is Number && userAdvancedMask(a)==rights && userAdvancedMask(b)==rights
 }.getOrDefault(false)
+
+internal fun profileGroupMeshGrantReplyRejected(p:JSONObject)=p.has("error") || p.has("err") || (p.opt("failed") as? Number)?.toDouble()?.let {it.isFinite() && it>0.0}==true
+internal fun profileGroupMeshGrantReadbackReady(s:ProfileState,gid:String,mid:String,rights:Long,ack:Boolean,groupRead:Boolean,deviceRead:Boolean)=ack && groupRead && deviceRead && profileGroupMeshGrantObserved(s.listedUserGroups?.singleOrNull {it.optString("_id")==gid},s.groups.singleOrNull {it.optString("_id")==mid},gid,mid,rights,true)
