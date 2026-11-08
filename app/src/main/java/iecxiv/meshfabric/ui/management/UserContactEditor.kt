@@ -33,8 +33,8 @@ import org.json.JSONObject
     val packet=userContactPacket(id,initial,field,if(field=="phone") phone else verified)
     val current=s.users.firstOrNull { it.optString("_id")==id }
     val allowed=visible && userContactAllowed(s,current,packet)
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=900.dp).fillMaxWidth(0.96f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(field=="phone") t("Teléfono","Phone") else t("Estado del correo","Email status"))},text={
-        Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.72f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(field=="phone") t("Teléfono","Phone") else t("Estado del correo","Email status"))},text={
+        Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text(user.optString("name"),style=MaterialTheme.typography.titleSmall)
             Text(id,style=MaterialTheme.typography.bodySmall)
             if(visible && field=="phone") {

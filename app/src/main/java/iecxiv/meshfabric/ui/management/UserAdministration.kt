@@ -53,12 +53,12 @@ private fun userRights(value:Long,es:Boolean,mesh:Boolean=false):String {
 val mask=ProfilePermissions.normalized(value)
 if(mask==0xffffffffL) return if(mesh) { if(es) "Todos los permisos" else "All permissions" } else { if(es) "Administrador total" else "Full administrator" }
 if(mask==0L) return if(mesh) { if(es) "Ninguno" else "None" } else { if(es) "Usuario" else "User" }
-if(mesh) return "0x"+mask.toString(16)
+if(mesh) return deviceGroupRightsLabel(mask,es)
 val labels=if(es) listOf("Copia de seguridad","Administrar usuarios","Restaurar servidor","Acceso a archivos","Actualizar servidor","Bloqueado","Sin nuevos grupos","Sin MeshCmd","Grupos de usuarios","Grabaciones","Configuración bloqueada","Todos los eventos","Sin nuevos dispositivos") else listOf("Server backup","Manage users","Server restore","File access","Server update","Locked","No new groups","No MeshCmd","User groups","Recordings","Locked settings","All events","No new devices")
-return labels.mapIndexedNotNull { i,label->label.takeIf { mask and (1L shl i)!=0L } }.joinToString(", ")+" · 0x"+mask.toString(16)
+return labels.mapIndexedNotNull { i,label->label.takeIf { mask and (1L shl i)!=0L } }.joinToString(", ").ifBlank { if(es) "Permisos adicionales" else "Additional rights" }
 }
 
-@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onDismiss:()->Unit) {
+@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onOpenGroup:(String)->Unit={},onDismiss:()->Unit) {
 key(form) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(a:String,b:String)=if(es) a else b
@@ -108,9 +108,9 @@ mode=="history"->false
 else->original!=null && (email.isEmpty() || validUserEmail(email)) && realname.length<=256 && ((!s.emailIdentity && email!=original.optString("email")) || realname!=original.optString("realname"))
 }
 if(contact && user!=null) { UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss,initialField=contactField) } else if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {
-ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=900.dp).fillMaxWidth(0.96f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
-Column(Modifier.fillMaxWidth().heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.72f).dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-if(!creating) { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
+ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
+Column(Modifier.fillMaxWidth().heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.68f).dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+if(!creating) { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); if(deleting || locking) Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) else ProfileDisclosure(t("Identificador","Identifier")) { Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
 when {
 creating->{
 if(!s.emailIdentity) field(t("Nombre de usuario","Username"),name,{ name=it })
@@ -161,14 +161,14 @@ TextButton(onClick={ session.previousLogins(form.id) },enabled=!s.historyBusy) {
 else->{
 val missing=t("No disponible","Not available")
 ManagementCard {
-ManagementInfoRow(t("Dominio","Domain"),userDomain(form.id).ifBlank { t("Por defecto","Default") })
-ManagementInfoRow(t("Identificador de usuario","User ID"),form.id)
 field(t("Correo electrónico","Email"),email,{ email=it },enabled=!s.emailIdentity)
 if(userEmailStatusVisible(s.server?.opt("emailcheck"))) TextButton(enabled=contactReady,onClick={ contactField="emailVerified"; contact=true }) { Text(t("Estado del correo: ","Email status: ")+if(user.optBoolean("emailVerified")) t("Verificado","Verified") else t("No verificado","Not verified")) }
 if(s.emailIdentity) Text(t("El correo identifica la cuenta y no se modifica con esta operación.","Email identifies the account and cannot be changed with this operation."),style=MaterialTheme.typography.bodySmall)
 field(t("Nombre real","Real name"),realname,{ realname=it })
 if(allowed && !contactReady && (userEmailStatusVisible(s.server?.opt("emailcheck")) || userPhoneVisible(s.server?.opt("features"),user.has("phone") && !user.isNull("phone")))) Text(t("Guarda primero los cambios de correo y nombre real antes de editar el contacto.","Save email and real-name changes before editing contact information."),style=MaterialTheme.typography.bodySmall)
 if(userPhoneVisible(s.server?.opt("features"),user.has("phone") && !user.isNull("phone"))) TextButton(enabled=contactReady,onClick={ contactField="phone"; contact=true }) { Text(t("Teléfono: ","Phone: ")+user.optString("phone").ifBlank { t("No establecido","Not set") }) }
+ProfileDisclosure(t("Información adicional","Additional information")) {
+ManagementInfoRow(t("Dominio","Domain"),userDomain(form.id).ifBlank { t("Por defecto","Default") })
 ManagementInfoRow(t("Características","Features"),if(user.has("flags")) user.optLong("flags").let { if(it==0L) t("Ninguno","None") else "0x"+it.toString(16) } else missing)
 ManagementInfoRow(t("Permisos del servidor","Server rights"),userRights(user.optLong("siteadmin",0),es))
 ManagementInfoRow(t("Creación","Created"),userDate(user.opt("creation")).ifBlank { missing })
@@ -183,27 +183,31 @@ val security=buildList { if(present("otpsecret")) add(t("Aplicación de autentic
 ManagementInfoRow(t("Seguridad","Security"),security.joinToString(", ").ifBlank { missing })
 ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(form.id,0)?.toString() ?: missing)
 }
+}
 if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
 TextButton(enabled=allowed,onClick={ advanced=true }) { Text(t("Permisos, características y consentimiento","Permissions, features and consent")) }
 TextButton(onClick=session::loadDetails,enabled=!s.detailsBusy) { Text(t("Actualizar ficha","Refresh details")) }
-Text(t("Grupos de dispositivos en común","Device groups in common"),style=MaterialTheme.typography.titleMedium)
+ProfileDisclosure(t("Grupos de dispositivos en común","Device groups in common")) {
 Text(t("Solo los datos visibles recibidos; los permisos heredados requieren el listado de grupos de usuarios.","Received visible data only; inherited rights require the user-group list."),style=MaterialTheme.typography.bodySmall)
 if(s.userGroups==null) Text(missing) else {
 val common=s.groups.filter { group->s.user?.let { userAccess(s,it,group.optString("_id"))!=0L }==true && userAccess(s,user,group.optString("_id"))!=0L }
 if(common.isEmpty()) Text(t("No se observan grupos en común en los datos disponibles.","No common groups observed in available data."))
-for(group in common) ManagementCard { ManagementInfoRow(group.optString("name"),userRights(userAccess(s,user,group.optString("_id")),es,true)) }
+for(group in common) ManagementCard { ManagementInfoRow(group.optString("name"),userRights(userAccess(s,user,group.optString("_id")),es,true)); TextButton(enabled=contactReady,onClick={onOpenGroup(group.optString("_id"))}) {Text(t("Abrir grupo","Open group"))} }
 }
-Text(t("Dispositivos en común","Devices in common"),style=MaterialTheme.typography.titleMedium)
+}
+ProfileDisclosure(t("Dispositivos en común","Devices in common")) {
 if(s.nodes==null || s.userGroups==null) Text(missing) else {
 val common=s.nodes.filter { userAccess(s,user,it.optString("_id"),it.optString("meshid"))!=0L }
 if(common.isEmpty()) Text(t("No se observan dispositivos en común en los datos disponibles.","No common devices observed in available data."))
 for(node in common.take(100)) ManagementCard { ManagementInfoRow(node.optString("name"),node.optString("_id")) }
 if(common.size>100) Text(t("Se muestran los primeros 100 dispositivos.","Showing the first 100 devices."))
 }
+}
+ProfileDisclosure(t("Acciones y seguridad","Actions and security")) {
 TextButton(enabled=s.canWrite,onClick={ mode="device"; approved=false; session.loadDetails() }) { Text(t("Agregar dispositivo","Add device")) }
 TextButton(enabled=s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" }) { Text(t("Cambiar contraseña","Change password")) }
 TextButton(onClick={ mode="history"; if(!session.previousLogins(form.id)) feedback=t("No se pudo solicitar el historial.","Could not request history.") }) { Text(t("Inicios de sesión anteriores","Previous logins")) }
-Text(t("Dominio, ID, permisos avanzados, consentimiento, reinos y métodos de seguridad se muestran en lectura; aquí se editan correo y nombre real.","Domain, ID, advanced rights, consent, realms and security methods are read-only; this view edits email and real name."),style=MaterialTheme.typography.bodySmall)
+}
 }
 }
 if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.error)

@@ -91,9 +91,13 @@ readTimer?.cancel(); readTimer=scope.launch { delay(20_000); synchronized(this@P
 if(epoch==generation && reads.isNotEmpty()) { reads.clear(); state.update { it.copy(loading=false,readError=true,notice="readFailed") } }
 } }
 }
-@Synchronized fun loadDetails() {
-if(!state.value.ready || !ProfilePermissions.manageUsers(state.value.site) || !valid()) return
-details.clear(); details.addAll(listOf("nodes","usergroups","wssessioncount"))
+@Synchronized fun loadDetails() { loadDetailReads(false) }
+@Synchronized fun loadGroupDetails() { loadDetailReads(true) }
+private fun loadDetailReads(groupView:Boolean) {
+if(!state.value.ready || !valid() || (!groupView && !ProfilePermissions.manageUsers(state.value.site)) || (groupView && state.value.busy)) return
+if(groupView) { loadLists(); if(!state.value.ready || !valid()) return }
+details.clear(); details.add("nodes")
+if(!groupView) details.addAll(listOf("usergroups","wssessioncount")) else if(ProfilePermissions.normalized(state.value.site) and 256L!=0L) details.add("usergroups")
 state.update { it.copy(nodes=null,userGroups=null,sessions=null,detailsBusy=true) }
 if(details.toList().any { !send(it) }) { stop(); return }
 val epoch=generation
