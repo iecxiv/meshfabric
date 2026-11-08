@@ -1,0 +1,212 @@
+name: Validate existing direct user mesh rights edit policy
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-edit-policy.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-edit-policy-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add isolated edit policy and regression tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          guards={str(base/'UserMeshGrantPolicy.kt'):'f66fb6c36a54d479e2ea27d5de10775d14b6ade4',str(base/'UserAdvancedPolicy.kt'):'3962887ec081a35e042cf836681ad1c61acbcf5f'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+          policy=base/'UserMeshEditPolicy.kt'
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshEditPolicyTest.kt')
+          android=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshEditRequestTest.kt')
+          for path in (policy,unit,android):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          policy.write_text('''package iecxiv.meshfabric.ui.management
+          import org.json.JSONArray
+          import org.json.JSONObject
+          
+          internal const val USER_MESH_EDITABLE_MASK=0x00fffff8L
+          internal fun profileUserMeshEditedRights(before:Long,selected:Long):Long? {
+              if(before !in 0L..0xfffffffeL || selected<0L || selected and USER_MESH_EDITABLE_MASK!=selected) return null
+              val result=(before and USER_MESH_EDITABLE_MASK.inv() and 0xffffffffL) or selected
+              return result.takeIf {it in 1L..0xfffffffeL}
+          }
+          internal fun profileUserMeshEditPacket(actor:String,server:String,user:JSONObject,mesh:JSONObject,rights:Long,confirmed:Boolean=false)=JSONObject().put("action","addmeshuser").put("meshid",mesh.getString("_id")).put("userids",JSONArray().put(user.getString("_id"))).put("meshadmin",rights).put("_userEditActor",actor).put("_userEditServer",server).put("_userEditUserBefore",profileUserGroupDeleteSnapshot(user)).put("_userEditMeshBefore",profileUserGroupDeleteSnapshot(mesh)).put("_userEditConfirmed",confirmed)
+          internal fun profileUserMeshEditAllowed(s:ProfileState,p:JSONObject,server:String):Boolean=runCatching {
+              require(p.keys().asSequence().toSet()==setOf("action","meshid","userids","meshadmin","_userEditActor","_userEditServer","_userEditUserBefore","_userEditMeshBefore","_userEditConfirmed"))
+              require(s.canWrite && !s.detailsBusy && p.optString("action")=="addmeshuser" && p.opt("_userEditConfirmed")==true)
+              require(s.user!=null && ProfilePermissions.manageUsers(userAdvancedMask(s.user.opt("siteadmin"))))
+              require(p.getString("_userEditActor")==s.id && server.isNotBlank() && p.getString("_userEditServer")==server)
+              val ids=p.getJSONArray("userids");require(ids.length()==1 && ids.opt(0) is String)
+              val uid=ids.getString(0);val mid=p.getString("meshid")
+              require(uid.length<=128 && profileUserMeshRevokeSubject(s.id,uid) && profileGroupMeshId(s.id,mid))
+              val user=requireNotNull(s.users.singleOrNull {it.optString("_id")==uid})
+              val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==mid})
+              require(canAdministerUser(s,user))
+              require(p.getString("_userEditUserBefore")==profileUserGroupDeleteSnapshot(user) && p.getString("_userEditMeshBefore")==profileUserGroupDeleteSnapshot(mesh))
+              val a=user.getJSONObject("links").getJSONObject(mid).get("rights")
+              val b=mesh.getJSONObject("links").getJSONObject(uid).get("rights")
+              val authority=mesh.getJSONObject("links").getJSONObject(s.id).get("rights")
+              val desired=p.get("meshadmin")
+              require(a is Number && b is Number && authority is Number && desired is Number)
+              val before=userAdvancedMask(a);val next=userAdvancedMask(desired)
+              require(before==userAdvancedMask(b) && userAdvancedMask(authority)==0xffffffffL && before!=next)
+              profileUserMeshEditedRights(before,next and USER_MESH_EDITABLE_MASK)==next
+          }.getOrDefault(false)
+          internal fun profileUserMeshEditWire(p:JSONObject)=JSONObject().put("action","addmeshuser").put("meshid",p.getString("meshid")).put("userids",JSONArray().put(p.getJSONArray("userids").getString(0))).put("meshadmin",userAdvancedMask(p.get("meshadmin")))
+          internal fun profileUserMeshEditAck(p:JSONObject,request:String)=profileUserMeshGrantAck(p,request)
+          internal fun profileUserMeshEditReadbackReady(s:ProfileState,uid:String,mid:String,rights:Long,ack:Boolean,userRead:Boolean,meshRead:Boolean):Boolean=runCatching {
+              require(ack && userRead && meshRead && s.ready && !s.loading && !s.readError && rights in 1L..0xfffffffeL)
+              require(profileUserMeshRevokeSubject(s.id,uid) && profileGroupMeshId(s.id,mid))
+              val user=requireNotNull(s.users.singleOrNull {it.optString("_id")==uid})
+              val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==mid})
+              val a=user.getJSONObject("links").getJSONObject(mid).get("rights")
+              val b=mesh.getJSONObject("links").getJSONObject(uid).get("rights")
+              a is Number && b is Number && userAdvancedMask(a)==rights && userAdvancedMask(b)==rights
+          }.getOrDefault(false)
+          ''')
+          unit.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class UserMeshEditPolicyTest {
+              @Test fun unknownAndAdministrativeBitsArePreserved() {
+                  assertEquals(0x80000010L,profileUserMeshEditedRights(0x80000008L,16L))
+                  assertEquals(0x80000000L,profileUserMeshEditedRights(0x80000008L,0L))
+                  assertEquals(18L,profileUserMeshEditedRights(10L,16L))
+                  assertEquals(21L,profileUserMeshEditedRights(13L,16L))
+              }
+              @Test fun fullAdministratorZeroAndOutOfRangeAreBlocked() {
+                  assertNull(profileUserMeshEditedRights(0xffffffffL,8L))
+                  assertNull(profileUserMeshEditedRights(8L,0L))
+                  assertNull(profileUserMeshEditedRights(-1L,8L))
+                  assertNull(profileUserMeshEditedRights(0x100000000L,8L))
+                  for(value in listOf(-1L,1L,2L,4L,0x80000008L,0xffffffffL)) assertNull(profileUserMeshEditedRights(8L,value))
+              }
+          }
+          ''')
+          android.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class)
+          class UserMeshEditRequestTest {
+              private val actor="user//admin";private val uid="user//target";private val mid="mesh//group";private val server="https://example.invalid/"
+              private fun state(rights:Long=0x80000008L):ProfileState {
+                  val user=JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))
+                  val mesh=JSONObject().put("_id",mid).put("links",JSONObject().put(uid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))
+                  return ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(user),groups=listOf(mesh))
+              }
+              private fun packet(s:ProfileState,next:Long=0x80000010L,confirmed:Boolean=true)=profileUserMeshEditPacket(actor,server,s.users.single(),s.groups.single(),next,confirmed)
+              @Test fun exactEditAndConfirmationPreserveUnknownBits() {
+                  val s=state();val p=packet(s)
+                  assertTrue(profileUserMeshEditAllowed(s,p,server))
+                  assertFalse(profileUserMeshEditAllowed(s,packet(s,confirmed=false),server))
+                  assertFalse(profileUserMeshEditAllowed(s,packet(s,16L),server))
+                  assertFalse(profileUserMeshEditAllowed(s,packet(s,0x80000008L),server))
+                  assertEquals(setOf("action","meshid","userids","meshadmin"),profileUserMeshEditWire(p).keys().asSequence().toSet())
+                  assertEquals(0x80000010L,profileUserMeshEditWire(p).getLong("meshadmin"))
+                  assertFalse(profileUserMeshGrantAllowed(s,p,server));assertFalse(profileGroupMeshGrantAllowed(s,p,server))
+              }
+              @Test fun initialGrantRemovalAndFullAdministratorAreNotEdits() {
+                  for(side in listOf("users","meshes")) {
+                      val s=state()
+                      if(side=="users") s.users.single().getJSONObject("links").remove(mid) else s.groups.single().getJSONObject("links").remove(uid)
+                      assertFalse(profileUserMeshEditAllowed(s,packet(s),server))
+                  }
+                  val s=state(8L)
+                  assertFalse(profileUserMeshEditAllowed(s,packet(s,0L),server))
+                  assertFalse(profileUserMeshEditAllowed(s,packet(s,0xffffffffL),server))
+                  val admin=state(0xffffffffL);assertFalse(profileUserMeshEditAllowed(admin,packet(admin),server))
+              }
+              @Test fun staleOrInconsistentLinksAndInsufficientAuthorityBlock() {
+                  val s=state();val p=packet(s)
+                  s.groups.single().getJSONObject("links").getJSONObject(uid).put("rights",16)
+                  assertFalse(profileUserMeshEditAllowed(s,p,server));assertFalse(profileUserMeshEditAllowed(s,packet(s),server))
+                  val low=state();low.groups.single().getJSONObject("links").getJSONObject(actor).put("rights",2)
+                  assertFalse(profileUserMeshEditAllowed(low,packet(low),server))
+                  val frozen=state();val before=packet(frozen)
+                  frozen.users.single().getJSONObject("links").getJSONObject(mid).put("rights",0x80000020L)
+                  frozen.groups.single().getJSONObject("links").getJSONObject(uid).put("rights",0x80000020L)
+                  assertFalse(profileUserMeshEditAllowed(frozen,before,server))
+              }
+              @Test fun scopeBindingAndIncompleteStateAreEnforced() {
+                  val s=state();val p=packet(s)
+                  assertFalse(profileUserMeshEditAllowed(s,p,"https://other.invalid/"))
+                  for(blocked in listOf(s.copy(ready=false),s.copy(loading=true),s.copy(busy=true),s.copy(readError=true),s.copy(detailsBusy=true),s.copy(users=emptyList()),s.copy(groups=emptyList()))) assertFalse(profileUserMeshEditAllowed(blocked,p,server))
+                  for(id in listOf(actor,"user/other/target","ugrp//target")) assertFalse(profileUserMeshEditAllowed(s,JSONObject(p.toString()).put("userids",JSONArray().put(id)),server))
+                  assertFalse(profileUserMeshEditAllowed(s,JSONObject(p.toString()).put("remove",true),server))
+              }
+              @Test fun ackAndTwoReadsNeedExactRightsIncludingUnknownBits() {
+                  val s=state(0x80000010L)
+                  for(ack in listOf(false,true)) for(ur in listOf(false,true)) for(mr in listOf(false,true)) assertEquals(ack && ur && mr,profileUserMeshEditReadbackReady(s,uid,mid,0x80000010L,ack,ur,mr))
+                  assertFalse(profileUserMeshEditReadbackReady(s.copy(readError=true),uid,mid,0x80000010L,true,true,true))
+                  assertFalse(profileUserMeshEditReadbackReady(s.copy(users=emptyList()),uid,mid,0x80000010L,true,true,true))
+                  s.groups.single().getJSONObject("links").getJSONObject(uid).put("rights",16)
+                  assertFalse(profileUserMeshEditReadbackReady(s,uid,mid,0x80000010L,true,true,true))
+                  val ack=JSONObject().put("action","addmeshuser").put("responseid","request").put("success",1).put("failed",0)
+                  assertTrue(profileUserMeshEditAck(ack,"request"));assertFalse(profileUserMeshEditAck(ack,"old"))
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute edit, grant and revocation policy tests offline
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMeshEditRequestTest,iecxiv.meshfabric.ui.management.UserMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshRevokeRequestTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-edit-policy-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish isolated policy and tests only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshEditPolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshEditPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshEditRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add isolated direct user mesh rights edit policy'
+          git push origin HEAD:dev
