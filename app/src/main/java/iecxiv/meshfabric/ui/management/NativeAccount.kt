@@ -375,7 +375,7 @@ if(!wire.request(action,fields)) feedback=t("No se ha enviado. Comprueba permiso
 OutlinedTextField(value,{ if(it.length<=4096) onChange(it) },label={ Text(label) },singleLine=true,visualTransformation=if(password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,modifier=Modifier.fillMaxWidth())
 }
 @Composable fun action(s:String,e:String,enabled:Boolean=true,onClick:()->Unit) { TextButton(enabled=enabled && !state.busy,onClick=onClick) { Text(t(s,e)) } }
-@Composable fun option(label:String,value:Boolean,change:(Boolean)->Unit) { Row { Checkbox(value,change); Text(label,Modifier.weight(1f)) } }
+@Composable fun option(label:String,value:Boolean,change:(Boolean)->Unit) { Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(value,change); Text(label,Modifier.weight(1f)) } }
 fun copy(value:String) {
 val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
 val clip=ClipData.newPlainText("MeshFabric",value).apply { description.extras=PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE",true) } }
@@ -389,11 +389,11 @@ when(selected) {
 0->{
 val value=reply?.optString("secret").orEmpty()
 Text(t("Introduce esta clave manualmente en tu autenticador y confirma con su código de seis dígitos. No se activa hasta que el servidor lo confirme.","Enter this key manually in your authenticator and confirm with its six-digit code. It is not enabled until the server confirms."))
-Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar clave","Show key")) }
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar clave","Show key")) }
 if(reveal && value.isNotBlank()) { SelectionContainer { Text(value) }; action("Copiar clave","Copy key") { copy(value) } }
 field(first,{ first=it },t("Código TOTP","TOTP code"))
 action("Activar autenticador","Enable authenticator",nativeTotpValid(value,first)) { run("otpauth-setup",JSONObject().put("secret",value).put("token",first)) }
-Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo desactivar el autenticador de esta cuenta.","I confirm disabling this account's authenticator.")) }
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo desactivar el autenticador de esta cuenta.","I confirm disabling this account's authenticator.")) }
 action("Desactivar autenticador","Disable authenticator",confirmation) { run("otpauth-clear") }
 }
 1->{
@@ -402,13 +402,13 @@ val list=reply?.optJSONArray("keys")
 if(list!=null && list.length()==0) Text(t("No hay claves registradas.","No registered keys."))
 if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { item-> Text("${item.optString("name")} · ID ${item.optLong("i")}") }
 field(first,{ first=it },t("ID de la clave que quieres eliminar","ID of key to remove"))
-Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo eliminar esa clave de seguridad.","I confirm removing that security key.")) }
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo eliminar esa clave de seguridad.","I confirm removing that security key.")) }
 action("Eliminar clave","Remove key",confirmation && first.toLongOrNull()!=null) { run("otp-hkey-remove",JSONObject().put("index",first.toLong())) }
 }
 2->{
 Text(t("Cada código es de un solo uso. Generar otros invalida los anteriores.","Each code is single-use. Generating new codes invalidates the previous ones."))
 val values=parseNativeBackupResponse(reply)
-Row { Checkbox(checked=reveal,onCheckedChange={ reveal=it },enabled=!state.busy && values?.isNotEmpty()==true); Text(t("Mostrar códigos","Show codes")) }
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(checked=reveal,onCheckedChange={ reveal=it },enabled=!state.busy && values?.isNotEmpty()==true); Text(t("Mostrar códigos","Show codes")) }
 when {
 state.busy->Text(t("Consultando códigos…","Loading codes…"))
 values==null->Text(t("No se recibió una lista válida de códigos. Puede que la función no esté disponible para esta cuenta o servidor.","No valid code list was received. The feature may be unavailable for this account or server."),style=MaterialTheme.typography.bodySmall)
@@ -425,7 +425,7 @@ action("Copiar códigos disponibles","Copy available codes",copyable.isNotEmpty(
 }
 }
 action("Volver a consultar","Reload codes",state.ready) { run("otpauth-getpasswords") }
-Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo invalidar los códigos anteriores.","I confirm invalidating the previous codes.")) }
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo invalidar los códigos anteriores.","I confirm invalidating the previous codes.")) }
 action("Generar nuevos","Generate new",confirmation) { run("otpauth-getpasswords",JSONObject().put("subaction",1)) }
 action("Eliminar códigos","Clear codes",confirmation) { run("otpauth-getpasswords",JSONObject().put("subaction",2)) }
 }
@@ -501,7 +501,7 @@ Text(t("Operación irreversible. La respuesta HTTP puede ser ambigua: no se most
 field(first,{ first=it },t("Escribe el ID completo de tu cuenta","Type your complete account ID"))
 field(second,{ second=it },t("Contraseña actual","Current password"),true)
 field(third,{ third=it },t("Repetir contraseña","Repeat password"),true)
-Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo solicitar la eliminación de esta cuenta.","I confirm requesting deletion of this account.")) }
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo solicitar la eliminación de esta cuenta.","I confirm requesting deletion of this account.")) }
 action("Solicitar eliminación","Request deletion",confirmation && first==actor && second.isNotEmpty() && second==third) { run("deleteaccount",JSONObject().put("confirmation",first).put("password",second)) }
 }
 9->{
@@ -514,7 +514,7 @@ val tokenPass=reply?.optString("tokenPass").orEmpty()
 if(tokenPass.isNotEmpty() && reply!=null) ManagementCard {
 Text(reply.optString("name").ifBlank { t("Sin nombre","Unnamed") },style=MaterialTheme.typography.titleSmall)
 Text(accountTokenExpiry(reply,dateLocale,hours24,es),style=MaterialTheme.typography.bodySmall)
-Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar credenciales del token","Show token credentials")) }
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar credenciales del token","Show token credentials")) }
 if(reveal) {
 AccountCredentialRow(t("Usuario del token","Token username"),tokenUser,t("Copiar usuario del token","Copy token username")) { copy(tokenUser) }
 AccountCredentialRow(t("Contraseña del token","Token password"),tokenPass,t("Copiar contraseña del token","Copy token password")) { copy(tokenPass) }

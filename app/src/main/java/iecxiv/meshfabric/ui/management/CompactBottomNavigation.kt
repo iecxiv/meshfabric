@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
 
+internal val bottomNavigationPageOrder=listOf(1,4,0,2,3)
+
 @Composable internal fun CompactBottomNavigation(page:Int,onSelect:(Int)->Unit) {
 val request by NoticeNavigation.request.collectAsState()
 val activeScope by NoticeNavigation.activeScope.collectAsState()
@@ -45,7 +47,9 @@ Surface(color=scheme.surface,tonalElevation=0.dp,shadowElevation=0.dp) {
 Column {
 HorizontalDivider(color=scheme.outlineVariant)
 Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal+WindowInsetsSides.Bottom)).selectableGroup(),verticalAlignment=Alignment.CenterVertically) {
-listOf(stringResource(R.string.my_server_devices),stringResource(R.string.my_server_activity),stringResource(R.string.navigation_server),if(es) "Perfil" else "Profile",if(es) "Avisos" else "Notices").forEachIndexed { index,label->
+val labels=listOf(if(es) "Equipos" else "Devices",stringResource(R.string.my_server_activity),stringResource(R.string.navigation_server),if(es) "Perfil" else "Profile",if(es) "Avisos" else "Notices")
+bottomNavigationPageOrder.forEach { index->
+val label=labels[index]
 val selected=page==index
 val color=if(selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant
 Column(Modifier.weight(1f).padding(horizontal=3.dp,vertical=4.dp).heightIn(min=52.dp).clip(MaterialTheme.shapes.small)
