@@ -1070,10 +1070,10 @@ LinearProgressIndicator(
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showCreateFolderDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -1122,10 +1122,10 @@ LinearProgressIndicator(
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showCreateFileDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -1185,10 +1185,10 @@ LinearProgressIndicator(
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showGoToDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -1242,10 +1242,10 @@ LinearProgressIndicator(
                 },
                 properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier
                         .fillMaxWidth(0.96f)
                         .fillMaxHeight(0.85f)
@@ -1326,10 +1326,10 @@ LinearProgressIndicator(
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showRenameDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
                 ) {
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -1387,7 +1387,7 @@ LinearProgressIndicator(
         if (showRenameOverwriteConfirmDialog && pendingRenameItem != null) {
             val target = pendingRenameItem
             val newName = pendingRenameNewName
-            AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = {
                     showRenameOverwriteConfirmDialog = false
                 },
@@ -1436,7 +1436,7 @@ LinearProgressIndicator(
         // Delete Confirmation Dialog
         if (showDeleteConfirmDialog && itemToDelete != null) {
             val target = itemToDelete
-            AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = {
                     showDeleteConfirmDialog = false
                     itemToDelete = null
@@ -1480,7 +1480,7 @@ LinearProgressIndicator(
         // ZIP Compression Dialog
         if (showZipDialog && itemToZip != null) {
             val target = itemToZip
-            AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = {
                     showZipDialog = false
                     itemToZip = null
@@ -1559,7 +1559,7 @@ LinearProgressIndicator(
         // ZIP Overwrite Confirmation Dialog
         if (showZipOverwriteConfirmDialog && itemToZip != null) {
             val target = itemToZip
-            AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = {
                     showZipOverwriteConfirmDialog = false
                 },
@@ -1599,7 +1599,7 @@ LinearProgressIndicator(
             val target = pendingZipTarget
             val finalZipName = pendingZipFinalName
 
-            AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = {
                     showZipWarningDialog = false
                     pendingZipTarget = null
@@ -1643,7 +1643,7 @@ LinearProgressIndicator(
         // Paste Conflict Overwrite Confirmation Dialog
         if (showPasteConflictConfirmDialog && clipboardItem != null) {
             val origName = clipboardItem!!.name
-            AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = {
                     showPasteConflictConfirmDialog = false
                 },
@@ -1687,7 +1687,7 @@ LinearProgressIndicator(
 
         // Paste Rename Dialog
         if (showPasteRenameDialog && clipboardItem != null) {
-            AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = {
                     showPasteRenameDialog = false
                 },
@@ -1732,7 +1732,7 @@ LinearProgressIndicator(
         if (downloadConflictItem != null) {
             val conflictItem = downloadConflictItem!!
             if (!downloadConflictRenameMode) {
-                AlertDialog(
+                iecxiv.meshfabric.ui.components.AppAlertDialog(
                     onDismissRequest = { downloadConflictItem = null },
                     title = { Text(stringResource(R.string.file_exists_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                     text = { Text(stringResource(R.string.file_exists_download_msg, conflictItem.name)) },
@@ -1769,7 +1769,7 @@ LinearProgressIndicator(
                     }
                 )
             } else {
-                AlertDialog(
+                iecxiv.meshfabric.ui.components.AppAlertDialog(
                     onDismissRequest = { downloadConflictItem = null },
                     title = { Text(stringResource(R.string.rename_download_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                     text = {
@@ -1817,7 +1817,7 @@ LinearProgressIndicator(
         if (uploadConflictUri != null) {
             val fileName = uploadConflictFileName
             if (!uploadConflictRenameMode) {
-                AlertDialog(
+                iecxiv.meshfabric.ui.components.AppAlertDialog(
                     onDismissRequest = { uploadConflictUri = null },
                     title = { Text(stringResource(R.string.file_exists_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                     text = { Text(stringResource(R.string.file_exists_overwrite_confirm, fileName)) },
@@ -1855,7 +1855,7 @@ LinearProgressIndicator(
                     }
                 )
             } else {
-                AlertDialog(
+                iecxiv.meshfabric.ui.components.AppAlertDialog(
                     onDismissRequest = { uploadConflictUri = null },
                     title = { Text(stringResource(R.string.rename_item_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                     text = {

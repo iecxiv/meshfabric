@@ -27,13 +27,13 @@ import org.json.JSONObject
     onDismissRequest:()->Unit,confirmButton:@Composable ()->Unit,modifier:Modifier=Modifier,
     dismissButton:(@Composable ()->Unit)?=null,icon:(@Composable ()->Unit)?=null,
     title:(@Composable ()->Unit)?=null,text:(@Composable ()->Unit)?=null,
-    shape:Shape=RoundedCornerShape(16.dp),containerColor:Color=MaterialTheme.colorScheme.surface,
+    shape:Shape=iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,containerColor:Color=iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
     iconContentColor:Color=MaterialTheme.colorScheme.primary,titleContentColor:Color=MaterialTheme.colorScheme.onSurface,
-    textContentColor:Color=MaterialTheme.colorScheme.onSurfaceVariant,tonalElevation:Dp=6.dp,
+    textContentColor:Color=MaterialTheme.colorScheme.onSurfaceVariant,tonalElevation:Dp=iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
     properties:DialogProperties=DialogProperties()
 ) {
-    AlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,
-        modifier=modifier.border(BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape),
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,
+        modifier=modifier,
         dismissButton=dismissButton,icon=icon,title={
             if(title!=null) Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.titleMedium.copy(fontWeight=FontWeight.SemiBold)) { title() }

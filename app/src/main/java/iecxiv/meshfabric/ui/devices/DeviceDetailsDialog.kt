@@ -108,8 +108,8 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
     }
     LaunchedEffect(feedbackVersion) { if (feedbackVersion > 0) { delay(2500); feedback = "" } }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
+        iecxiv.meshfabric.ui.components.AppDialogSurface(shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape, color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+            tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation, modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
                 .widthIn(max = 600.dp).fillMaxWidth().heightIn(max = (configuration.screenHeightDp * 0.88f).dp)) {
             Column {
                 Column(Modifier.padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

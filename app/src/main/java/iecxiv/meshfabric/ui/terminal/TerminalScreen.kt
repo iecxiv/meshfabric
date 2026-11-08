@@ -407,7 +407,7 @@ fun TerminalScreen(
         }
 
         if (showRecoveryDialog) {
-            androidx.compose.material3.AlertDialog(
+            iecxiv.meshfabric.ui.components.AppAlertDialog(
                 onDismissRequest = { showRecoveryDialog = false },
                 title = { Text(stringResource(R.string.terminal_recreate_title)) },
                 text = { Text(stringResource(R.string.terminal_recreate_warning)) },
@@ -451,10 +451,10 @@ fun TerminalScreen(
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showCommandDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 4.dp, vertical = 8.dp)

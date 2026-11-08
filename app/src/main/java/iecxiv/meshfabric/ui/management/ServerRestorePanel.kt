@@ -163,7 +163,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
     TextButton(enabled=enabled && source!=null && !intro && !busy && !selecting && candidate==null && proposal==null,onClick={
         note=""; intro=true
     }) { Text(label("Restaurar servidor desde copia…","Restore server from backup…")) }
-    if(intro) AlertDialog(onDismissRequest={ intro=false },title={ Text(label("Restaurar servidor desde copia","Restore server from backup")) },
+    if(intro) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ intro=false },title={ Text(label("Restaurar servidor desde copia","Restore server from backup")) },
         text={ Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(label("Restauración web de copias NeDB con config.json y meshcentral.db. No es una restauración de MongoDB/SQL. Límite: 256 MiB ZIP, 1 GiB expandido, 20 000 entradas.","Web restore of NeDB backups containing config.json and meshcentral.db. Not MongoDB/SQL restore. Limits: 256 MiB ZIP, 1 GiB expanded, 20,000 entries."))
             Text(label("Continuar abre el selector de archivos. La restauración se confirmará después de validar la copia.","Continue opens the file picker. Restore will be confirmed after validating the backup."))
@@ -188,7 +188,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
     }
     if(status.isNotEmpty()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(note in setOf("unknown","invalid","rejected","prepare-failed")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
     if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-    candidate?.let { frozen->AlertDialog(onDismissRequest={ if(!busy) clearFiles() },title={ Text(label("Preparar restauración","Prepare restore")) },
+    candidate?.let { frozen->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ if(!busy) clearFiles() },title={ Text(label("Preparar restauración","Prepare restore")) },
         text={ Column(Modifier.heightIn(max=400.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(frozen.identity.url); Text(frozen.name); Text("${frozen.file.length()} bytes")
             Text(label("Sustituye datos existentes y reinicia el servidor. No hagas copias/restauraciones simultáneas desde otras sesiones: la contraseña temporal es global.","Replaces existing data and restarts the server. Do not run concurrent backup/restore from other sessions: the temporary password is global."),color=MaterialTheme.colorScheme.error)
@@ -208,7 +208,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
                 finally { busy=false }
             }
         }) { Text(label("Validar y revisar","Validate and review")) } },dismissButton={ TextButton(enabled=!busy,onClick={ clearFiles() }) { Text(label("Cancelar","Cancel")) } }) }
-    proposal?.let { reviewed->AlertDialog(onDismissRequest={ if(!busy) clearFiles() },title={ Text(label("Confirmar restauración destructiva","Confirm destructive restore")) },
+    proposal?.let { reviewed->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ if(!busy) clearFiles() },title={ Text(label("Confirmar restauración destructiva","Confirm destructive restore")) },
         text={ Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(reviewed.candidate.identity.url); Text(reviewed.candidate.name); Text("${reviewed.candidate.file.length()} bytes")
             SelectionContainer { Text("SHA-256: ${reviewed.candidate.sha}",style=MaterialTheme.typography.bodySmall) }

@@ -230,7 +230,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
             if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
     }
-    if(confirmConfig) AlertDialog(onDismissRequest={ confirmConfig=false },title={ Text(stringResource(R.string.my_server_config)) },text={ Text(stringResource(R.string.my_server_sensitive)) },
+    if(confirmConfig) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ confirmConfig=false },title={ Text(stringResource(R.string.my_server_config)) },text={ Text(stringResource(R.string.my_server_sensitive)) },
         confirmButton={ TextButton(onClick={ confirmConfig=false; reader?.request("serverconfig") }) { Text(stringResource(R.string.my_server_view)) } },dismissButton={ TextButton(onClick={ confirmConfig=false }) { Text(stringResource(R.string.my_server_cancel)) } })
     if(state.result.isNotEmpty()) ServerReadResultDialog(state.result,state.resultKind) { reader?.dismiss() }
 }
