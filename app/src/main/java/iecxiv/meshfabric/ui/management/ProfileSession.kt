@@ -46,6 +46,7 @@ private var historyId=""
 private var directoryId=""
 private var directoryTimer:Job?=null
 private val reads=mutableSetOf<String>()
+private val listTags=mutableMapOf<String,String>()
 private val details=mutableSetOf<String>()
 private fun directMeshRevocation()=profileUserMeshRevokeChannel(pendingAction,expected.optBoolean("directMesh"))
 private fun valid()=!source.isUserLogout && source.connectionState.value && binding==Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
@@ -81,7 +82,7 @@ timer=scope.launch { delay(20_000); synchronized(this@ProfileSession) { if(epoch
 val uncertain=pendingId.isNotBlank()
 generation++; socket?.cancel(); socket=null
 listOf(timer,readTimer,detailsTimer,historyTimer,directoryTimer).forEach { it?.cancel() }
-reads.clear(); details.clear(); pendingId=""; pendingAction=""; pendingTarget=""; pendingNode=""; expected=JSONObject(); historyId=""; directoryId=""
+reads.clear(); listTags.clear(); details.clear(); pendingId=""; pendingAction=""; pendingTarget=""; pendingNode=""; expected=JSONObject(); historyId=""; directoryId=""
 state.value=ProfileState(notice=if(uncertain) "unknown" else reason)
 }
 @Synchronized fun close() { closed=true; stop(); scope.cancel() }
@@ -89,13 +90,17 @@ state.value=ProfileState(notice=if(uncertain) "unknown" else reason)
 private fun loadLists() {
 if(directMeshRevocation() && expected.optBoolean("directAck")) expected.put("directUserRead",false).put("directMeshRead",false)
 if((pendingAction in setOf("removemeshuser","addmeshuser") && !directMeshRevocation()) && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",false)
-reads.clear(); reads.add("meshes")
+reads.clear(); listTags.clear(); reads.add("meshes")
 if(ProfilePermissions.manageUsers(state.value.site)) reads.add("users")
 state.update { it.copy(loading=true,readError=false,users=if("users" in reads) it.users else emptyList()) }
-if(reads.toList().any { !send(it) }) { stop(); return }
+for(action in reads.toList()) {
+val tag="profile-list:"+UUID.randomUUID().toString()
+listTags[action]=tag
+if(!send(action,JSONObject().put("tag",tag).put("responseid",tag))) {stop();return}
+}
 val epoch=generation
 readTimer?.cancel(); readTimer=scope.launch { delay(20_000); synchronized(this@ProfileSession) {
-if(epoch==generation && reads.isNotEmpty()) { reads.clear(); state.update { it.copy(loading=false,readError=true,notice="readFailed") } }
+if(epoch==generation && reads.isNotEmpty()) { reads.clear(); listTags.clear(); state.update { it.copy(loading=false,readError=true,notice="readFailed") } }
 } }
 }
 @Synchronized fun loadDetails() { loadDetailReads(false) }
@@ -209,8 +214,9 @@ state.update { it.copy(users=emptyList(),nodes=null,userGroups=null,sessions=nul
 }
 }
 "users","meshes"->{
-if(action !in reads) return
-val list=records(p.opt(action)); reads.remove(action)
+if(action !in reads || !profileListReadMatches(action,listTags[action],p.opt("tag"),p.opt("responseid"),p.has(action))) return
+val replyError=p.has("error") || p.has("err") || (p.has("result") && !p.optString("result").equals("ok",true))
+val list=if(replyError) null else records(p.opt(action)); reads.remove(action);listTags.remove(action)
 if(directMeshRevocation() && expected.optBoolean("directAck")) expected.put(if(action=="users") "directUserRead" else "directMeshRead",list!=null && profileUserGroupMemberReadValid(p))
 if(action=="meshes" && (pendingAction in setOf("removemeshuser","addmeshuser") && !directMeshRevocation()) && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",list!=null && profileUserGroupMemberReadValid(p))
 state.update { if(list==null) it.copy(loading=reads.isNotEmpty(),readError=true,notice="readFailed") else if(action=="users") it.copy(users=list,loading=reads.isNotEmpty()) else it.copy(groups=list,loading=reads.isNotEmpty()) }
