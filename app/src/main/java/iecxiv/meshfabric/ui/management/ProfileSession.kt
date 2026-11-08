@@ -125,7 +125,7 @@ else->return null
 if(result.any { it.optString("_id").isBlank() } || result.map { it.optString("_id") }.distinct().size!=result.size) return null
 return result.sortedBy { it.optString("name").lowercase() }
 }
-private fun matches(account:JSONObject)=expected.length()>0 && expected.keys().asSequence().all { key->userEditFieldMatches(key,account,expected) }
+private fun matches(account:JSONObject)=expected.length()>0 && expected.keys().asSequence().all { key->if(key in setOf("phone","emailVerified")) userContactFieldMatches(key,account,expected) else userEditFieldMatches(key,account,expected) }
 private fun finish(notice:String,reload:Boolean=true) {
 timer?.cancel(); pendingId=""; pendingAction=""; pendingTarget=""; pendingNode=""; expected=JSONObject()
 state.update { it.copy(busy=false,notice=notice) }
@@ -214,7 +214,7 @@ val group=s.groups.firstOrNull { it.optString("_id")==id }
 val node=s.nodes?.firstOrNull { it.optString("_id")==p.optString("nodeid") }
 val allowed=when(action) {
 "adduser"->s.canCreateUser && validUserCreation(p.optString("username"),p.optString("email"),p.optString("pass"),p.optString("pass")) && p.opt("removeEvents") is Boolean && p.opt("resetNextLogin") is Boolean
-"edituser"->if(p.has("_advancedBefore")) userAdvancedAllowed(s,target,p) else (target!=null && canAdministerUser(s,target) && (if(p.has("siteadmin")) canLockUser(s,target) && p.optLong("_previousSite",-1)==ProfilePermissions.normalized(target.optLong("siteadmin",0)) && p.optLong("siteadmin",-1)==userLockMask(target.optLong("siteadmin",0),!userIsLocked(target.optLong("siteadmin",0))) else (p.has("email") || p.has("realname")) && (!p.has("email") || (!s.emailIdentity && (p.optString("email").isEmpty() || validUserEmail(p.optString("email"))) && p.optString("_beforeEmail")==target.optString("email"))) && (!p.has("realname") || (p.optString("realname").length<=256 && p.optString("_beforeRealname")==target.optString("realname"))))) && p.keys().asSequence().all { it in setOf("action","id","email","realname","siteadmin","_previousSite","_beforeEmail","_beforeRealname") }
+"edituser"->if(p.has("_contactBefore")) userContactAllowed(s,target,p) else if(p.has("_advancedBefore")) userAdvancedAllowed(s,target,p) else (target!=null && canAdministerUser(s,target) && (if(p.has("siteadmin")) canLockUser(s,target) && p.optLong("_previousSite",-1)==ProfilePermissions.normalized(target.optLong("siteadmin",0)) && p.optLong("siteadmin",-1)==userLockMask(target.optLong("siteadmin",0),!userIsLocked(target.optLong("siteadmin",0))) else (p.has("email") || p.has("realname")) && (!p.has("email") || (!s.emailIdentity && (p.optString("email").isEmpty() || validUserEmail(p.optString("email"))) && p.optString("_beforeEmail")==target.optString("email"))) && (!p.has("realname") || (p.optString("realname").length<=256 && p.optString("_beforeRealname")==target.optString("realname"))))) && p.keys().asSequence().all { it in setOf("action","id","email","realname","siteadmin","_previousSite","_beforeEmail","_beforeRealname") }
 "deleteuser"->target!=null && canAdministerUser(s,target) && id!=s.id
 "changeuserpass"->target!=null && canAdministerUser(s,target) && id!=s.id && p.optString("pass").isNotEmpty() && p.optString("pass").length<=256 && p.opt("resetNextLogin") is Boolean && p.opt("removeMultiFactor")==false
 "adddeviceuser"->p.optJSONArray("userids")?.let { a->a.length()==1 && s.users.any { it.optString("_id")==a.optString(0) && canAdministerUser(s,it) } }==true && node!=null && canGrantDevice(s,node) && p.optLong("rights",-1) in 1..0xffffffffL && p.optLong("rights") and 7L == 0L
@@ -230,7 +230,7 @@ if(p.has("_advancedBefore")) userQuotaForEdit(if(p.isNull("quota")) null else p.
 }.getOrElse { return false } else null
 val keys=when(action) {
 "adduser"->listOf("username","email","pass","removeEvents","resetNextLogin")
-"edituser"->listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota")
+"edituser"->listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota","phone","emailVerified")
 "deleteuser"->listOf("userid","username")
 "changeuserpass"->listOf("userid","pass","resetNextLogin","removeMultiFactor")
 "adddeviceuser"->listOf("nodeid","nodename","userids","rights")
@@ -243,7 +243,7 @@ keys.filter(p::has).forEach { payload.put(it,p.get(it)) }
 if(action=="edituser") payload.put("id",id).put("quota",preservedQuota ?: JSONObject.NULL)
 pendingId=UUID.randomUUID().toString(); pendingAction=action; pendingTarget=if(action=="adddeviceuser") p.getJSONArray("userids").getString(0) else id; pendingNode=p.optString("nodeid")
 expected=JSONObject()
-if(action=="edituser") listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota").filter(payload::has).forEach { expected.put(it,payload.get(it)) }
+if(action=="edituser") listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota","phone","emailVerified").filter(payload::has).forEach { expected.put(it,payload.get(it)) }
 if(action=="adddeviceuser") expected.put("rights",p.getLong("rights"))
 payload.put("responseid",pendingId)
 if(socket?.send(payload.toString())!=true) { stop("unknown"); return false }

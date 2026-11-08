@@ -79,6 +79,7 @@ var approved by remember { mutableStateOf(false) }
 var typedId by remember { mutableStateOf("") }
 var mode by remember { mutableStateOf("profile") }
 var advanced by remember { mutableStateOf(false) }
+var contact by remember { mutableStateOf(false) }
 var nodeId by remember { mutableStateOf("") }
 var search by remember { mutableStateOf("") }
 var deviceRights by remember { mutableLongStateOf(264L) }
@@ -104,7 +105,7 @@ mode=="device"->approved && selectedNode!=null && canGrantDevice(s,selectedNode)
 mode=="history"->false
 else->original!=null && (email.isEmpty() || validUserEmail(email)) && realname.length<=256 && ((!s.emailIdentity && email!=original.optString("email")) || realname!=original.optString("realname"))
 }
-if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {
+if(contact && user!=null) { UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss) } else if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {
 ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=900.dp).fillMaxWidth(0.96f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
 Column(Modifier.fillMaxWidth().heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.72f).dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(!creating) { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -178,6 +179,7 @@ ManagementInfoRow(t("Seguridad","Security"),security.joinToString(", ").ifBlank 
 ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(form.id,0)?.toString() ?: missing)
 }
 if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+TextButton(enabled=allowed,onClick={ contact=true }) { Text(t("Teléfono y estado del correo","Phone and email status")) }
 TextButton(enabled=allowed,onClick={ advanced=true }) { Text(t("Permisos, características y consentimiento","Permissions, features and consent")) }
 TextButton(onClick=session::loadDetails,enabled=!s.detailsBusy) { Text(t("Actualizar ficha","Refresh details")) }
 Text(t("Grupos de dispositivos en común","Device groups in common"),style=MaterialTheme.typography.titleMedium)
