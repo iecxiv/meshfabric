@@ -2,6 +2,9 @@ package iecxiv.meshfabric.ui.management
 
 import org.json.JSONObject
 
+internal fun userPhoneVisible(features:Any?,hasPhone:Boolean)=hasPhone || (runCatching { userAdvancedMask(features) }.getOrDefault(0L) and 0x02000000L!=0L)
+internal fun userEmailStatusVisible(emailcheck:Any?)=emailcheck==true
+
 internal val USER_CONTACT_FIELDS=listOf("email","emailVerified","phone","quota")
 internal fun userPhoneInputAllowed(value:String)=value.isEmpty() || Regex("[+]?[0-9]{5,17}").matches(value)
 internal fun userVerificationAllowed(email:String,enabled:Boolean,next:Boolean)=enabled && (!next || email.isNotBlank())
@@ -25,7 +28,7 @@ internal fun userContactAllowed(s:ProfileState,target:JSONObject?,p:JSONObject):
     require(USER_CONTACT_FIELDS.all { userContactFieldMatches(it,target,before) })
     require(userContactFieldMatches("quota",target,p))
     require(!userContactFieldMatches(field,target,p))
-    if(field=="phone") require(userPhoneInputAllowed(userContactValue(p,field) as String))
-    else require(userVerificationAllowed(userContactValue(target,"email") as String,s.server?.opt("emailcheck")==true,userContactValue(p,field) as Boolean))
+    if(field=="phone") { require(userPhoneVisible(s.server?.opt("features"),target.has("phone") && !target.isNull("phone"))); require(userPhoneInputAllowed(userContactValue(p,field) as String)) }
+    else require(userVerificationAllowed(userContactValue(target,"email") as String,userEmailStatusVisible(s.server?.opt("emailcheck")),userContactValue(p,field) as Boolean))
     true
 }.getOrDefault(false)
