@@ -1,0 +1,90 @@
+name: Validate and publish user contact editor
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-contact-editor.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-contact-editor-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded phone and email status editor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'92ff74af6052a02dec601ed04ca687495a980316','UserAdministration.kt':'bac34813c4c6defe6b4951a2a16cb57ba9cdea1f'}
+          sources={}
+          for name,sha in expected.items():
+              path=base/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=path.read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name)
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileSession.kt','key->userEditFieldMatches(key,account,expected)','key->if(key in setOf("phone","emailVerified")) userContactFieldMatches(key,account,expected) else userEditFieldMatches(key,account,expected)')
+          change('ProfileSession.kt','"edituser"->if(p.has("_advancedBefore"))','"edituser"->if(p.has("_contactBefore")) userContactAllowed(s,target,p) else if(p.has("_advancedBefore"))')
+          change('ProfileSession.kt','"edituser"->listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota")','"edituser"->listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota","phone","emailVerified")')
+          change('ProfileSession.kt','if(action=="edituser") listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota")','if(action=="edituser") listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota","phone","emailVerified")')
+          change('UserAdministration.kt','var advanced by remember { mutableStateOf(false) }','var advanced by remember { mutableStateOf(false) }\nvar contact by remember { mutableStateOf(false) }')
+          marker='if(advanced && user!=null) { UserAdvancedEditor('
+          change('UserAdministration.kt',marker,'if(contact && user!=null) { UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss) } else '+marker)
+          marker='TextButton(enabled=allowed,onClick={ advanced=true })'
+          change('UserAdministration.kt',marker,'TextButton(enabled=allowed,onClick={ contact=true }) { Text(t("Teléfono y estado del correo","Phone and email status")) }\n'+marker)
+          if 'return@key' in sources['UserAdministration.kt']:raise RuntimeError('Unsupported return inside composable key')
+          hashes={'.github/patches/user-contact-editor/UserContactPolicy.kt.txt': '2b4dd4dc6837cf0da4ce0f5e2a4d7d890dd09cc49fc0e844197740ea8f3de4a6', '.github/patches/user-contact-editor/UserContactEditor.kt.txt': 'f74a99c4fe74ae2347f756788dbe39eb0b732f872bb8d78cfe65ee84d9cf9533', '.github/patches/user-contact-editor/UserContactPolicyTest.kt.txt': '6107ff3103d07ce69cc9ee92c4624921c47f0c7bdfa6ec6b12f248ea8b94470b', '.github/patches/user-contact-editor/UserContactRequestTest.kt.txt': 'daa5ccea7d1f90e36064a32a95f864b6855ec41629bba6d10af3139e80092058'}
+          targets={'.github/patches/user-contact-editor/UserContactPolicy.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserContactPolicy.kt', '.github/patches/user-contact-editor/UserContactEditor.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserContactEditor.kt', '.github/patches/user-contact-editor/UserContactPolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/UserContactPolicyTest.kt', '.github/patches/user-contact-editor/UserContactRequestTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserContactRequestTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-contact-editor-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated contact editor
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserContactPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserContactEditor.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserContactPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserContactRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(users): edit phone and administrative email verification status'
+          git push origin HEAD:dev
