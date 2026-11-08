@@ -125,7 +125,7 @@ else->return null
 if(result.any { it.optString("_id").isBlank() } || result.map { it.optString("_id") }.distinct().size!=result.size) return null
 return result.sortedBy { it.optString("name").lowercase() }
 }
-private fun matches(account:JSONObject)=expected.length()>0 && expected.keys().asSequence().all { key->if(key=="siteadmin") ProfilePermissions.normalized(account.optLong(key,0))==expected.optLong(key) else account.optString(key)==expected.optString(key) }
+private fun matches(account:JSONObject)=expected.length()>0 && expected.keys().asSequence().all { key->if(key=="quota") userQuotaValuesMatch(if(account.isNull(key)) null else account.opt(key),if(expected.isNull(key)) null else expected.opt(key)) else if(key=="siteadmin") ProfilePermissions.normalized(account.optLong(key,0))==expected.optLong(key) else account.optString(key)==expected.optString(key) }
 private fun finish(notice:String,reload:Boolean=true) {
 timer?.cancel(); pendingId=""; pendingAction=""; pendingTarget=""; pendingNode=""; expected=JSONObject()
 state.update { it.copy(busy=false,notice=notice) }
@@ -224,6 +224,10 @@ val allowed=when(action) {
 else->false
 }
 if(!allowed) return false
+val preservedQuota=if(action=="edituser") runCatching {
+val current=requireNotNull(target)
+userQuotaForEdit(if(current.isNull("quota")) null else current.opt("quota"))
+}.getOrElse { return false } else null
 val keys=when(action) {
 "adduser"->listOf("username","email","pass","removeEvents","resetNextLogin")
 "edituser"->listOf("email","realname","siteadmin")
@@ -236,10 +240,10 @@ else->listOf("meshid")
 }
 val payload=JSONObject().put("action",action)
 keys.filter(p::has).forEach { payload.put(it,p.get(it)) }
-if(action=="edituser") payload.put("id",id)
+if(action=="edituser") payload.put("id",id).put("quota",preservedQuota ?: JSONObject.NULL)
 pendingId=UUID.randomUUID().toString(); pendingAction=action; pendingTarget=if(action=="adddeviceuser") p.getJSONArray("userids").getString(0) else id; pendingNode=p.optString("nodeid")
 expected=JSONObject()
-if(action=="edituser") listOf("email","realname","siteadmin").filter(payload::has).forEach { expected.put(it,payload.get(it)) }
+if(action=="edituser") listOf("email","realname","siteadmin","quota").filter(payload::has).forEach { expected.put(it,payload.get(it)) }
 if(action=="adddeviceuser") expected.put("rights",p.getLong("rights"))
 payload.put("responseid",pendingId)
 if(socket?.send(payload.toString())!=true) { stop("unknown"); return false }

@@ -65,6 +65,7 @@ fun t(a:String,b:String)=if(es) a else b
 val creating=form.operation=="create"
 val deleting=form.operation=="delete"
 val locking=form.operation in setOf("lock","unlock")
+val editing=!creating && !deleting && !locking
 val user=s.users.firstOrNull { it.optString("_id")==form.id }
 val original=remember { user?.let { JSONObject(it.toString()) } }
 var name by remember { mutableStateOf("") }
@@ -102,8 +103,8 @@ mode=="device"->approved && selectedNode!=null && canGrantDevice(s,selectedNode)
 mode=="history"->false
 else->original!=null && (email.isEmpty() || validUserEmail(email)) && realname.length<=256 && ((!s.emailIdentity && email!=original.optString("email")) || realname!=original.optString("realname"))
 }
-ManagementDialog(onDismissRequest=onDismiss,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
-Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=900.dp).fillMaxWidth(0.96f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
+Column(Modifier.fillMaxWidth().heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.72f).dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(!creating) { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
 when {
 creating->{
