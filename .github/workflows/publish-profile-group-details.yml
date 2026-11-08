@@ -1,0 +1,131 @@
+name: Validate compact profile dialogs and linked group details
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-group-details.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-group-details-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply compact profile and group navigation changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileScreen.kt':'9f67f16033b21ada43367ff735cfef073c7a6647','ProfileSession.kt':'85559e34b9701837cf5d731fc6d6a79f29574982','UserAdministration.kt':'65c1b7bbc41168ce3fb467be770bd08175ec90de','UserAdvancedEditor.kt':'b926a21fb79aa1266348ed4776c3efb0e6cde8bf','UserContactEditor.kt':'9b7633778c43daef4b0651a47c0078606d8667e7'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new,count=1):
+              if sources[name].count(old)!=count:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new)
+          for name in ['UserAdministration.kt','UserAdvancedEditor.kt','UserContactEditor.kt']:
+              change(name,'max=900.dp','max=640.dp')
+              change(name,'fillMaxWidth(0.96f)','fillMaxWidth(0.94f)')
+              change(name,'screenHeightDp*0.72f','screenHeightDp*0.68f')
+          change('UserAdministration.kt','form:ProfileForm,onDismiss:()->Unit)','form:ProfileForm,onOpenGroup:(String)->Unit={},onDismiss:()->Unit)')
+          change('UserAdministration.kt','if(mesh) return "0x"+mask.toString(16)','if(mesh) return deviceGroupRightsLabel(mask,es)')
+          change('UserAdministration.kt','}.joinToString(", ")+" · 0x"+mask.toString(16)','}.joinToString(", ").ifBlank { if(es) "Permisos adicionales" else "Additional rights" }')
+          start='Text(t("Grupos de dispositivos en común","Device groups in common"),style=MaterialTheme.typography.titleMedium)'
+          change('UserAdministration.kt',start,'ProfileDisclosure(t("Grupos de dispositivos en común","Device groups in common")) {')
+          old='for(group in common) ManagementCard { ManagementInfoRow(group.optString("name"),userRights(userAccess(s,user,group.optString("_id")),es,true)) }'
+          new='for(group in common) ManagementCard { ManagementInfoRow(group.optString("name"),userRights(userAccess(s,user,group.optString("_id")),es,true)); TextButton(enabled=contactReady,onClick={onOpenGroup(group.optString("_id"))}) {Text(t("Abrir grupo","Open group"))} }'
+          change('UserAdministration.kt',old,new)
+          change('UserAdministration.kt','Text(t("Dispositivos en común","Devices in common"),style=MaterialTheme.typography.titleMedium)','}\nProfileDisclosure(t("Dispositivos en común","Devices in common")) {')
+          change('UserAdministration.kt','TextButton(enabled=s.canWrite,onClick={ mode="device";','}\nProfileDisclosure(t("Acciones y seguridad","Actions and security")) {\nTextButton(enabled=s.canWrite,onClick={ mode="device";')
+          old='Text(t("Dominio, ID, permisos avanzados, consentimiento, reinos y métodos de seguridad se muestran en lectura; aquí se editan correo y nombre real.","Domain, ID, advanced rights, consent, realms and security methods are read-only; this view edits email and real name."),style=MaterialTheme.typography.bodySmall)'
+          change('UserAdministration.kt',old,'}')
+          domain='ManagementInfoRow(t("Dominio","Domain"),userDomain(form.id).ifBlank { t("Por defecto","Default") })'
+          identifier='ManagementInfoRow(t("Identificador de usuario","User ID"),form.id)'
+          change('UserAdministration.kt',domain+'\n','')
+          change('UserAdministration.kt',identifier+'\n','')
+          anchor='ManagementInfoRow(t("Características","Features"),'
+          change('UserAdministration.kt',anchor,'ProfileDisclosure(t("Información adicional","Additional information")) {\n'+domain+'\n'+anchor)
+          anchor='ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(form.id,0)?.toString() ?: missing)'
+          change('UserAdministration.kt',anchor,anchor+'\n}')
+          anchor='Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)'
+          change('UserAdministration.kt',anchor,'if(deleting || locking) '+anchor+' else ProfileDisclosure(t("Identificador","Identifier")) { '+anchor+' }')
+          for title,en in [('Características','Features'),('Permisos del servidor','Server rights'),('Consentimiento del usuario','User consent'),('Reinos administrativos','Administrative realms')]:
+              anchor='Text(t("'+title+'","'+en+'"),style=MaterialTheme.typography.titleMedium)'
+              if title=='Características':change('UserAdvancedEditor.kt',anchor,'ProfileDisclosure(t("'+title+'","'+en+'")) {')
+              else:change('UserAdvancedEditor.kt','HorizontalDivider()\n            '+anchor,'}\n            ProfileDisclosure(t("'+title+'","'+en+'")) {')
+          change('UserAdvancedEditor.kt','            if(!allowed) Text(','            }\n            if(dirty && !allowed) Text(')
+          change('UserAdvancedEditor.kt','    val current=s.users.firstOrNull','    val dirty=packet?.let { p->USER_ADVANCED_FIELDS.any { p.has(it) && !userEditFieldMatches(it,initial,p) } }==true\n    val current=s.users.firstOrNull')
+          change('UserAdvancedEditor.kt','            check(t("Confirmo aplicar los cambios','            if(dirty) check(t("Confirmo aplicar los cambios')
+          change('ProfileSession.kt','@Synchronized fun loadDetails() {\nif(!state.value.ready || !ProfilePermissions.manageUsers(state.value.site) || !valid()) return\ndetails.clear(); details.addAll(listOf("nodes","usergroups","wssessioncount"))','@Synchronized fun loadDetails() { loadDetailReads(false) }\n@Synchronized fun loadGroupDetails() { loadDetailReads(true) }\nprivate fun loadDetailReads(groupView:Boolean) {\nif(!state.value.ready || !valid() || (!groupView && !ProfilePermissions.manageUsers(state.value.site)) || (groupView && state.value.busy)) return\nif(groupView) { loadLists(); if(!state.value.ready || !valid()) return }\ndetails.clear(); details.add("nodes")\nif(!groupView) details.addAll(listOf("usergroups","wssessioncount")) else if(ProfilePermissions.normalized(state.value.site) and 256L!=0L) details.add("usergroups")')
+          change('ProfileScreen.kt','import androidx.compose.foundation.layout.*','import androidx.compose.foundation.layout.*\nimport androidx.compose.foundation.rememberScrollState\nimport androidx.compose.foundation.verticalScroll')
+          change('ProfileScreen.kt','var form by remember { mutableStateOf<ProfileForm?>(null) }','var form by remember { mutableStateOf<ProfileForm?>(null) }\nvar groupDetails by remember { mutableStateOf<String?>(null) }\nvar returnUser by remember { mutableStateOf<ProfileForm?>(null) }\nvar groupSearch by rememberSaveable { mutableStateOf("") }')
+          change('ProfileScreen.kt','if(!state.ready) form=null','if(!state.ready) { form=null; groupDetails=null; returnUser=null }')
+          change('ProfileScreen.kt','section=profileSectionKeys.getOrNull(it) ?: "account"; form=null','section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null')
+          change('ProfileScreen.kt','val rows=if(users) state.users else state.groups','val rows=if(users) state.users else state.groups.filter { deviceGroupMatches(groupSearch,it.optString("name"),it.optString("desc")) }')
+          anchor='Text(if(users) t("Usuarios","Users") else t("Grupos de dispositivos","Device groups"),style=MaterialTheme.typography.titleMedium)'
+          change('ProfileScreen.kt',anchor,anchor+'\nif(!users) OutlinedTextField(groupSearch,{groupSearch=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())')
+          anchor='TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) else ProfilePermissions.editGroup(state.site,state.rights(row)))'
+          change('ProfileScreen.kt',anchor,'if(!users) TextButton(enabled=state.ready && !state.busy,onClick={groupDetails=id;returnUser=null;form=null}) {Text(t("Abrir","Open"))}\n'+anchor)
+          change('ProfileScreen.kt','if(selected.users) UserAdministrationDialog(session,state,selected) { form=null }','if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {returnUser=selected;groupDetails=id;form=null}}) { form=null }')
+          anchor='form?.let { selected->'
+          insert='groupDetails?.takeIf { form==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,returnUser!=null,onDismiss={val previous=returnUser;val restored=profileReturnUserId(previous?.id,state.users.map {it.optString("_id")}.toSet(),state.ready);groupDetails=null;returnUser=null;form=previous?.takeIf {it.id==restored}},onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }\n'
+          change('ProfileScreen.kt',anchor,insert+anchor)
+          change('ProfileScreen.kt','ManagementDialog(onDismissRequest={ form=null },properties=','ManagementDialog(onDismissRequest={ form=null },modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=')
+          change('ProfileScreen.kt','properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn)','properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false)')
+          change('ProfileScreen.kt','text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp))','text={ Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp))')
+          change('ProfileScreen.kt','if(!creating) { Text(selected.name); Text(selected.id) }','if(!creating) { Text(selected.name); if(deleting) Text(selected.id) else ProfileDisclosure(t("Identificador","Identifier")) {Text(selected.id)} }')
+          if 'return@key' in sources['UserAdministration.kt']:raise RuntimeError('Unsupported return inside key')
+          hashes={'.github/patches/profile-group-details/CompactProfileGroups.kt.txt': '868ac8d6e250b1ef78f2da674e5cabd4cabfb5948f839b88265b92b4022c9364', '.github/patches/profile-group-details/ProfileGroupNavigationTest.kt.txt': 'd235623d9bbdef2d7cc1a9746476bcc36abb4676b7c21d105fcdc8d0f2c0d50d'}
+          targets={'.github/patches/profile-group-details/CompactProfileGroups.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt', '.github/patches/profile-group-details/ProfileGroupNavigationTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/ProfileGroupNavigationTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-group-details-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated compact dialogs and group details
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdvancedEditor.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserContactEditor.kt app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileGroupNavigationTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): compact user dialogs and link searchable group details'
+          git push origin HEAD:dev
