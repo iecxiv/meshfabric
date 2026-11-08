@@ -208,5 +208,5 @@ TextButton(onClick={ inbox.setRead(n.serial,!entry.read) }) { Text(if(entry.read
 }
 }
 }
-if(confirmClear) AlertDialog(onDismissRequest={ confirmClear=false },title={ Text(t("Vaciar Avisos","Clear Notices")) },text={ Text(t("Solo se vacía esta bandeja local de la sesión. No se borran eventos ni mensajes del servidor.","Only this local session inbox is cleared. Server events and messages are not deleted.")) },confirmButton={ TextButton(onClick={ inbox.clearEntries(); confirmClear=false }) { Text(t("Vaciar","Clear")) } },dismissButton={ TextButton(onClick={ confirmClear=false }) { Text(t("Cancelar","Cancel")) } })
+if(confirmClear) ManagementDialog(onDismissRequest={ confirmClear=false },title={ Text(t("Vaciar Avisos","Clear Notices")) },text={ Text(t("Solo se vacía esta bandeja local de la sesión. No se borran eventos ni mensajes del servidor.","Only this local session inbox is cleared. Server events and messages are not deleted.")) },confirmButton={ TextButton(onClick={ inbox.clearEntries(); confirmClear=false }) { Text(t("Vaciar","Clear")) } },dismissButton={ TextButton(onClick={ confirmClear=false }) { Text(t("Cancelar","Cancel")) } })
 }

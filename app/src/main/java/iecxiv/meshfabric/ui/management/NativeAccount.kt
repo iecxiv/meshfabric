@@ -67,7 +67,7 @@ private var tokenReadback=false
 private var noticeSerial=0L
 private val connectivity=mutableMapOf<String,Int>()
 private var identity=Triple("","",false)
-private val keys=mutableSetOf<Int>()
+private val keys=mutableSetOf<Long>()
 private val tokens=mutableSetOf<String>()
 private fun same()=identity==Triple(source.serverUrl,source.authCookie,source.ignoreSsl) && source.connectionState.value && !source.isUserLogout
 private fun announce(kind:String,e:JSONObject,channels:Int=0) {
@@ -137,15 +137,7 @@ timer?.cancel(); pending=""; rid=""; args=JSONObject(); tokenReadback=false
 state.update { it.copy(busy=false,reply=reply,status=status) }
 if(status=="confirmed") { send("userinfo"); source.requestServerData() }
 }
-private fun validKeys(a:JSONArray):Boolean {
-val ids=mutableSetOf<Int>()
-for(i in 0 until a.length()) {
-val value=a.optJSONObject(i)?.opt("i") as? Number ?: return false
-val id=value.toLong()
-if(id !in 0..Int.MAX_VALUE.toLong() || value.toDouble()!=id.toDouble() || !ids.add(id.toInt())) return false
-}
-return true
-}
+private fun validKeys(a:JSONArray):Boolean=securityKeyIds(a)!=null
 private fun objectArray(a:JSONArray?)=a!=null && (0 until a.length()).all { a.optJSONObject(it)!=null }
 private fun tokenIds(a:JSONArray?):Set<String>? {
 if(a==null) return null
@@ -194,7 +186,7 @@ if(responseId.isNotBlank() && responseId!=rid) return
 if(pending=="otp-hkey-remove" && action=="otp-hkey-get") {
 val list=p.optJSONArray("keys") ?: return
 if(!validKeys(list)) return
-if((0 until list.length()).none { list.optJSONObject(it).optInt("i")==args.optInt("index") }) { keys.remove(args.optInt("index")); finish(p,"confirmed") }
+if((0 until list.length()).none { securityKeyId(list.optJSONObject(it))==args.optLong("index",-1L) }) { keys.remove(args.optLong("index",-1L)); finish(p,"confirmed") }
 return
 }
 if(action!=pending) return
@@ -220,10 +212,10 @@ val valid=when(action) {
 "createLoginToken"->nativeTokenIds(listOf(p.optString("tokenUser")))!=null && p.optString("tokenPass").isNotEmpty()
 else->false
 }
-if(!valid) { finish(null,"rejected"); return }
+if(!valid) { finish(null,"incompatible"); return }
 if(action=="otpauth-request") secret=p.optString("secret")
 if(action=="otpauth-setup" || action=="otpauth-clear") secret=""
-if(action=="otp-hkey-get") { keys.clear(); val a=p.getJSONArray("keys"); for(i in 0 until a.length()) keys.add(a.getJSONObject(i).getInt("i")) }
+if(action=="otp-hkey-get") { keys.clear(); keys.addAll(securityKeyIds(p.getJSONArray("keys")) ?: emptyList()) }
 var resultStatus=if(action in setOf("otpauth-setup","otpauth-clear") || (action=="otpauth-getpasswords" && args.has("subaction"))) "confirmed" else "received"
 if(action=="loginTokens") {
 val a=p.getJSONArray("loginTokens")
@@ -234,9 +226,11 @@ state.update { it.copy(tokenList=JSONArray(a.toString())) }
 if(removed!=null) resultStatus=if(removed !in ids) "confirmed" else "notRevoked"
 }
 if(action=="createLoginToken") {
+p.put("_requestedExpiryMinutes",args.optInt("expire",0))
+if(p.optString("name").isBlank()) p.put("name",args.optString("name"))
 val id=p.getString("tokenUser")
 val list=state.value.tokenList?.let { JSONArray(it.toString()) } ?: JSONArray()
-if(id !in tokens) list.put(JSONObject().put("tokenUser",id).put("name",p.optString("name").ifBlank { args.optString("name") }))
+if(id !in tokens) list.put(JSONObject().put("tokenUser",id).put("name",p.optString("name").ifBlank { args.optString("name") }).put("_requestedExpiryMinutes",args.optInt("expire",0)).apply { if(p.has("expire")) put("expire",p.get("expire")) })
 tokens.add(id)
 state.update { it.copy(tokenList=list) }
 }
@@ -268,10 +262,10 @@ val site=ProfilePermissions.normalized(s.user?.optLong("siteadmin",0L) ?: 0L)
 val mutation=action !in reads || fields.has("subaction") || fields.has("remove")
 if(mutation && site!=0xffffffffL && site and 1024L != 0L) return false
 if(action=="otpauth-setup" && (fields.optString("secret")!=secret || !nativeTotpValid(secret,fields.optString("token")))) return false
-if(action=="otp-hkey-remove" && fields.optInt("index",-1) !in keys) return false
+if(action=="otp-hkey-remove" && fields.optLong("index",-1L) !in keys) return false
 if(action=="createLoginToken" && (fields.optString("name").isBlank() || fields.optString("name").length>128 || fields.optInt("expire") !in 1..43200)) return false
 if(action=="changepassword" && (fields.optString("oldpass").isEmpty() || fields.optString("newpass").isEmpty() || fields.optString("newpass").length>256)) return false
-if(action=="changelang" && fields.optString("lang")!="*" && fields.optString("lang") !in accountLanguageTags(s.server?.optJSONArray("languages"))) return false
+if(action=="changelang" && fields.optString("lang")!="*" && fields.optString("lang") !in accountLanguageCandidates(s.server?.opt("languages"))) return false
 if(action=="loginTokens" && fields.has("remove") && fields.optJSONArray("remove")?.let { a->a.length()==1 && a.optString(0) in tokens }!=true) return false
 if(action=="deleteaccount" && (cookie.isBlank() || fields.optString("password").isEmpty() || fields.optString("confirmation")!=actor)) return false
 pending=action; args=JSONObject(fields.toString()); rid=UUID.randomUUID().toString(); tokenReadback=false
@@ -324,7 +318,8 @@ val status=when(state.status) {
 "sent"->t("Solicitud enviada; resultado pendiente.","Request sent; outcome pending.")
 "unknown"->t("Resultado sin confirmar. Reconecta y comprueba antes de reintentar. No hay reenvíos automáticos.","Outcome unconfirmed. Reconnect and check before retrying. No automatic resends.")
 "deleteUnknown"->t("Borrado solicitado, sin confirmación de eliminación. Una redirección no acredita éxito. Cierra sesión desde Ajustes antes de volver a acceder; no se reintentará.","Deletion requested, but deletion is unconfirmed. A redirect is not proof of success. Sign out from Settings before signing in again; no retry will occur.")
-"rejected"->t("Solicitud rechazada o respuesta incompatible. No se considera completada.","Rejected request or unsupported response. Not considered completed.")
+"rejected"->t("El servidor rechazó la solicitud. No se considera completada.","The server rejected the request. Not considered completed.")
+"incompatible"->t("La respuesta del servidor tiene un formato no compatible. No se considera completada.","The server response has an unsupported format. Not considered completed.")
 "password:21"->t("Contraseña actual incorrecta.","Current password is incorrect.")
 "password:17"->t("La nueva contraseña no cumple los requisitos.","The new password does not meet requirements.")
 "password:18"->t("Esa contraseña ya fue utilizada.","That password was used previously.")
@@ -342,7 +337,7 @@ if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,col
 AccountNoticeBanner(state.notice,options,alerts,es,dateLocale,hours24)
 if(!state.ready) TextButton(enabled=state.status!="deleteUnknown",onClick=wire::start) { Text(t("Reconectar cuenta","Reconnect account")) }
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-Text(t("Mi cuenta","My account"),style=MaterialTheme.typography.titleMedium)
+Text(t("Detalles de la cuenta","Account details"),style=MaterialTheme.typography.titleMedium)
 ManagementCard {
 ManagementInfoRow(t("Nombre de usuario","Username"),state.user?.optString("name").orEmpty())
 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
@@ -351,16 +346,16 @@ HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
 ManagementInfoRow(t("ID de cuenta","Account ID"),actor)
 }
 Text(t("Seguridad de la cuenta","Account security"),style=MaterialTheme.typography.titleMedium)
-ManagementCard {
+AccountActionsCard {
 (0..2).forEach { index->
-ManagementActionRow(labels[index],icons[index],state.ready && !state.busy,onClick={ openAction(index) })
+CompactAccountActionRow(labels[index],icons[index],state.ready && !state.busy,onClick={ openAction(index) })
 if(index<2) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
 }
 }
 Text(t("Acciones","Actions"),style=MaterialTheme.typography.titleMedium)
-ManagementCard {
+AccountActionsCard {
 (3..9).forEach { index->
-ManagementActionRow(labels[index],icons[index],state.ready && !state.busy,dangerous=index==8,onClick={ openAction(index) })
+CompactAccountActionRow(labels[index],icons[index],state.ready && !state.busy,dangerous=index==8,onClick={ openAction(index) })
 if(index<9) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
 }
 }
@@ -386,8 +381,8 @@ val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardM
 val clip=ClipData.newPlainText("MeshFabric",value).apply { description.extras=PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE",true) } }
 feedback=if(runCatching { checkNotNull(clipboard).setPrimaryClip(clip) }.isSuccess) t("Copiado.","Copied.") else t("No se pudo copiar.","Could not copy.")
 }
-AlertDialog(onDismissRequest={ if(!state.busy) { wire.clearResult(); mode=null } },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(labels[selected]) },text={
-Column(Modifier.heightIn(max=380.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+ManagementDialog(onDismissRequest={ if(!state.busy) { wire.clearResult(); mode=null } },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(labels[selected]) },text={
+Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
 if(status.isNotBlank()) Text(status)
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 when(selected) {
@@ -405,10 +400,10 @@ action("Desactivar autenticador","Disable authenticator",confirmation) { run("ot
 Text(t("Consulta y eliminación nativas. El alta de nuevas claves FIDO2 no está implementada; no se abrirá un navegador.","Native listing and removal. New FIDO2 key registration is not implemented; no browser will open."))
 val list=reply?.optJSONArray("keys")
 if(list!=null && list.length()==0) Text(t("No hay claves registradas.","No registered keys."))
-if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { item-> Text("${item.optString("name")} · ID ${item.optInt("i")}") }
+if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { item-> Text("${item.optString("name")} · ID ${item.optLong("i")}") }
 field(first,{ first=it },t("ID de la clave que quieres eliminar","ID of key to remove"))
 Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo eliminar esa clave de seguridad.","I confirm removing that security key.")) }
-action("Eliminar clave","Remove key",confirmation && first.toIntOrNull()!=null) { run("otp-hkey-remove",JSONObject().put("index",first.toInt())) }
+action("Eliminar clave","Remove key",confirmation && first.toLongOrNull()!=null) { run("otp-hkey-remove",JSONObject().put("index",first.toLong())) }
 }
 2->{
 Text(t("Cada código es de un solo uso. Generar otros invalida los anteriores.","Each code is single-use. Generating new codes invalidates the previous ones."))
@@ -451,7 +446,7 @@ parsed.also { it.toEpochMilli() }
 for(item in rows.sortedByDescending { instant(it)?.toEpochMilli() ?: Long.MIN_VALUE }.take(200)) {
 val date=instant(item)?.let { accountTime(it,dateLocale,hours24) }.orEmpty()
 val details=item.optJSONArray("a")?.let { a->(0 until a.length()).joinToString(" · ") { a.optString(it) } }.orEmpty()
-Text("$date · ${loginHistoryLabel(item.opt("m"),es)}\n$details"); HorizontalDivider()
+AccountLoginHistoryRow(item,date,details,es)
 }
 }
 4->{
@@ -468,10 +463,10 @@ option(t("Formato de 24 horas","24-hour format"),hoursDraft,{ hoursDraft=it })
 action("Guardar formato local","Save local format") { dateLocale=localeDraft; hours24=hoursDraft; prefs.edit().putString("${prefKey}_locale",localeDraft).putBoolean("${prefKey}_24",hoursDraft).apply(); feedback=t("Formato local guardado.","Local format saved.") }
 val current=accountDefaultLanguage(state.user?.let { if(it.isNull("lang")) "" else it.optString("lang") }.orEmpty())
 var languageDraft by remember(current) { mutableStateOf(current) }
-val tags=accountLanguageTags(state.server?.optJSONArray("languages"))
+val tags=accountLanguageCandidates(state.server?.opt("languages"))
 val languages=listOf("*" to t("Predeterminado del servidor/navegador","Server/browser default"))+(tags+listOf(current).filter { it!="*" }).distinct().map { it to accountLocaleLabel(it,es) }
 AccountChoiceDropdown(t("Idioma de la cuenta","Account language"),languageDraft,languages,enabled=tags.isNotEmpty() && !state.busy,es=es,onSelect={ languageDraft=it })
-if(tags.isEmpty()) Text(t("El servidor no anunció su lista de idiomas. No se enviarán idiomas arbitrarios.","The server did not advertise its language list. Arbitrary languages will not be sent."),style=MaterialTheme.typography.bodySmall)
+if(accountAdvertisedLanguages(state.server?.opt("languages")).isEmpty()) Text(t("Catálogo local de idiomas y locales: el servidor no ha facilitado una lista. Se comprobará el idioma guardado mediante userinfo; esto no garantiza que exista traducción web para cada locale.","Local language and locale catalogue: the server has not supplied a list. The stored language will be checked through userinfo; this does not guarantee a web translation for every locale."),style=MaterialTheme.typography.bodySmall)
 action("Guardar idioma de cuenta","Save account language",tags.isNotEmpty() && languageDraft!=current && (languageDraft=="*" || languageDraft in tags)) { run("changelang",JSONObject().put("lang",languageDraft)) }
 Text(t("El formato regional se guarda localmente para las fechas de Mi Usuario y no cambia la zona horaria. El idioma se solicita al servidor y se comprueba mediante userinfo; no cambia el idioma global de Android ni de toda la app.","The locale is stored locally for My user dates and does not change the time zone. Account language is requested from the server and checked through userinfo; it does not change Android or app-wide language."),style=MaterialTheme.typography.bodySmall)
 }
@@ -516,19 +511,25 @@ field(second,{ second=it },t("Caducidad en minutos (1–43200)","Expiry in minut
 action("Crear token","Create token",first.isNotBlank() && (second.toIntOrNull()?.let { it in 1..43200 }==true)) { run("createLoginToken",JSONObject().put("name",first.trim()).put("expire",second.toInt())) }
 val tokenUser=reply?.optString("tokenUser").orEmpty()
 val tokenPass=reply?.optString("tokenPass").orEmpty()
-if(tokenPass.isNotEmpty()) { Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar credenciales del token","Show token credentials")) }; if(reveal) { SelectionContainer { Text("$tokenUser\n$tokenPass") }; action("Copiar credenciales","Copy credentials") { copy("$tokenUser\n$tokenPass") } } }
+if(tokenPass.isNotEmpty() && reply!=null) ManagementCard {
+Text(reply.optString("name").ifBlank { t("Sin nombre","Unnamed") },style=MaterialTheme.typography.titleSmall)
+Text(accountTokenExpiry(reply,dateLocale,hours24,es),style=MaterialTheme.typography.bodySmall)
+Row { Checkbox(reveal,{ reveal=it }); Text(t("Mostrar credenciales del token","Show token credentials")) }
+if(reveal) {
+AccountCredentialRow(t("Usuario del token","Token username"),tokenUser,t("Copiar usuario del token","Copy token username")) { copy(tokenUser) }
+AccountCredentialRow(t("Contraseña del token","Token password"),tokenPass,t("Copiar contraseña del token","Copy token password")) { copy(tokenPass) }
+action("Copiar credenciales","Copy credentials") { copy("$tokenUser\n$tokenPass") }
+}
+}
 Text(t("Selecciona el token exacto que quieres revocar. Actualiza para consultar de nuevo la lista del servidor.","Select the exact token to revoke. Refresh to query the server list again."),style=MaterialTheme.typography.bodySmall)
 val list=state.tokenList
 if(list==null && !state.busy) Text(t("Lista de tokens no disponible.","Token list unavailable."))
 if(list!=null && list.length()==0) Text(t("El servidor no devuelve tokens.","The server returned no tokens."))
 if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { token->
 val id=token.optString("tokenUser")
-TextButton(enabled=!state.busy,onClick={ third=id; confirmation=false }) {
-RadioButton(selected=third==id,onClick=null)
-Column(Modifier.weight(1f)) { Text(token.optString("name").ifBlank { t("Sin nombre","Unnamed") }); Text(id,style=MaterialTheme.typography.bodySmall) }
+AccountTokenChoice(token,third==id,!state.busy,dateLocale,hours24,es,onSelect={ third=id; confirmation=false },onCopy={ copy(id) })
 }
-}
-if(third.isNotBlank()) Text(t("Token seleccionado: ","Selected token: ")+third,style=MaterialTheme.typography.bodySmall)
+if(third.isNotBlank()) ManagementCard { ManagementInfoRow(t("Token seleccionado","Selected token"),third) }
 Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo revocar el token seleccionado.","I confirm revoking the selected token.")) }
 action("Revocar token","Revoke token",confirmation && third.isNotBlank()) { run("loginTokens",JSONObject().put("remove",JSONArray().put(third))) }
 action("Actualizar lista","Refresh list") { third=""; confirmation=false; run("loginTokens") }

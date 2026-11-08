@@ -159,7 +159,7 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
         }
     }
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.Top) {
-        Text(label("Carga: medias de 1/5/15 min, no porcentaje de CPU. El círculo representa 1 min con escala automática 0–","Load: 1/5/15-minute averages, not CPU percent. The ring shows 1 minute on automatic scale 0–")+generalDecimal(stats?.loadScale,0),modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label("Carga: medias de 1/5/15 min, no porcentaje de CPU. El círculo representa 1 min con escala automática 0–","Load: 1/5/15-minute averages, not CPU percent. The ring shows 1 minute on automatic scale 0–")+generalDecimal(stats?.loadScale,0),modifier=Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,textAlign=TextAlign.Center)
         Box(Modifier.weight(1f),contentAlignment=Alignment.TopCenter) {
             Column(Modifier.width(IntrinsicSize.Max)) {
                 ServerMemoryNoteRow(label("Libre","Free"),stats?.free)
@@ -207,11 +207,11 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
     var font by remember(raw,action) { mutableIntStateOf(12) }
     val title=stringResource(when(action) { "serverconfig"->R.string.my_server_config; "servererrors"->R.string.my_server_errors; "serverversion"->R.string.my_server_version; else->R.string.my_server_result })
     if(result.noErrorLog) {
-        AlertDialog(onDismissRequest=onClose,title={ Text(title) },text={ Text(label("El servidor no tiene registro de errores.","The server has no error log.")) },
+        ManagementDialog(onDismissRequest=onClose,title={ Text(title) },text={ Text(label("El servidor no tiene registro de errores.","The server has no error log.")) },
             confirmButton={ TextButton(onClick=onClose) { Text(stringResource(R.string.my_server_close)) } })
         return
     }
-    AlertDialog(onDismissRequest=onClose,title={ Text(title) },text={
+    ManagementDialog(onDismissRequest=onClose,title={ Text(title) },text={
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(result.missing) Text(label("Respuesta inesperada: falta el contenido solicitado. Se muestra la respuesta recibida.","Unexpected response: requested content missing. Showing the received response."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(result.invalidJson) Text(label("El contenido recibido no es una configuración JSON válida.","Received content is not a valid JSON configuration."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)

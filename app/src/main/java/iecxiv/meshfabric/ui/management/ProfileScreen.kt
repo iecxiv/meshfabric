@@ -36,7 +36,7 @@ if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation
 } }
 LaunchedEffect(state.ready) { if(!state.ready) form=null }
 Column(modifier) {
-ManagementSectionTabs(listOf(t("Mi Usuario","My user"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null }
+ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null }
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else {
 val message=when(state.notice) {
 "ready"->""
@@ -65,10 +65,10 @@ if(!permitted) item { ManagementCard { Text(t("Sin permiso para administrar usua
 if(rows.isEmpty() && !state.loading) item { ManagementCard { Text(if(state.ready && !state.readError) t("No hay elementos.","No items.") else t("Listado no disponible.","List unavailable.")) } }
 items(rows,key={ it.optString("_id") }) { row->
 val id=row.optString("_id")
-val name=row.optString("name").ifBlank { id }
+val name=row.optString("name").ifBlank { if(users) id else t("Grupo sin nombre","Unnamed group") }
 ManagementCard {
 Text(name,style=MaterialTheme.typography.titleSmall)
-Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+if(users) Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 val detail=row.optString(if(users) "email" else "desc")
 if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium)
 if(users && userIsLocked(row.optLong("siteadmin",0))) Text(t("Bloqueado","Locked"),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelMedium)
@@ -95,7 +95,7 @@ val deleting=selected.operation=="delete"
 val target=state.groups.firstOrNull { it.optString("_id")==selected.id }
 val allowed=state.canWrite && when { creating->ProfilePermissions.createGroup(state.site); target==null->false; deleting->ProfilePermissions.deleteGroup(state.site,state.rights(target)); else->ProfilePermissions.editGroup(state.site,state.rights(target)) }
 val valid=if(deleting) confirmation==selected.id else name.isNotBlank() && name.length<=256
-AlertDialog(onDismissRequest={ form=null },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear grupo","Create group") else t("Editar grupo","Edit group")) },text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+ManagementDialog(onDismissRequest={ form=null },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear grupo","Create group") else t("Editar grupo","Edit group")) },text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
 if(!creating) { Text(selected.name); Text(selected.id) }
 if(deleting) {
 Text(t("Acción irreversible desde la app. Puede afectar al acceso a sus dispositivos.","Cannot be undone from the app. May affect access to its devices."))
