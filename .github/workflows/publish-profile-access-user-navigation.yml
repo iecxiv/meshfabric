@@ -1,0 +1,103 @@
+name: Validate and publish device group to user navigation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-access-user-navigation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-access-user-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply authorized user navigation and bounded return history
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileScreen.kt':'842145f0db07c28b858a5999b9dfaa3022ddcbfc','CompactProfileGroups.kt':'34ca226d4a37540ba9c11c55ea7c296b3577378f'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileScreen.kt','var returnUser by remember { mutableStateOf<ProfileForm?>(null) }','var origins by remember {mutableStateOf<List<ProfileOrigin>>(emptyList())}\nvar groupDetailTab by remember {mutableIntStateOf(0)}')
+          anchor='var broadcast by remember { mutableStateOf(false) }'
+          callback="""
+          val closeProfileDialog:()->Unit={
+          val restored=profilePopOrigin(origins,state.users.filter {canAdministerUser(state,it)}.map {it.optString("_id")}.toSet(),state.groups.map {it.optString("_id")}.toSet(),state.ready)
+          origins=restored.second;form=null;groupDetails=null
+          restored.first?.let {destination->if(destination.user!=null) form=destination.user else {groupDetails=destination.groupId;groupDetailTab=destination.groupTab}}
+          }
+          """
+          change('ProfileScreen.kt',anchor,anchor+callback)
+          old='returnUser!=null,onDismiss={val previous=returnUser;val restored=profileReturnUserId(previous?.id,state.users.map {it.optString("_id")}.toSet(),state.ready);groupDetails=null;returnUser=null;form=previous?.takeIf {it.id==restored}},onEdit='
+          new='origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onEdit='
+          change('ProfileScreen.kt',old,new)
+          old='if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {returnUser=selected;groupDetails=id;form=null}}) { form=null } else key(selected) {'
+          new='if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {origins=profilePushOrigin(origins,ProfileOrigin(user=selected));groupDetailTab=0;groupDetails=id;form=null}},onDismiss=closeProfileDialog) else key(selected) {'
+          change('ProfileScreen.kt',old,new)
+          if sources['ProfileScreen.kt'].count('returnUser=null')!=5:raise RuntimeError('Unexpected origin reset count')
+          sources['ProfileScreen.kt']=sources['ProfileScreen.kt'].replace('returnUser=null','origins=emptyList();groupDetailTab=0')
+          if 'returnUser' in sources['ProfileScreen.kt']:raise RuntimeError('Unconverted old navigation state')
+          anchor='returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit)'
+          change('CompactProfileGroups.kt',anchor,'returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={})')
+          change('CompactProfileGroups.kt','var tab by remember(id) { mutableIntStateOf(0) }','var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }')
+          change('CompactProfileGroups.kt','tab) {tab=it}','tab) {tab=it;onTabChanged(it)}')
+          change('CompactProfileGroups.kt','LaunchedEffect(session,id) { if(group!=null) session.loadGroupDetails() }','LaunchedEffect(session,id,s.ready,s.busy) { if(group!=null && s.ready && !s.busy) session.loadGroupDetails() }')
+          anchor='ListItem(headlineContent={Text(name,maxLines=2,overflow=TextOverflow.Ellipsis)},supportingContent={Text(rights?.let { deviceGroupRightsLabel(it,es) } ?: t("Permisos no informados","Rights not reported"))},leadingContent={Icon(Icons.Default.Group,null)})'
+          change('CompactProfileGroups.kt',anchor,anchor+'\nif(onOpenUser!=null && profileAccessUserTarget(s,member)!=null) TextButton(enabled=s.canWrite,onClick={onOpenUser(member)}) {Text(t("Abrir usuario","Open user"))}')
+          hashes={'.github/patches/profile-access-user-navigation/ProfileNavigationOrigins.kt.txt': 'c1999e4b6a36833b3bcae6b4f1dfdd053db98b936f7b9d6e9f7e896eefb4c193', '.github/patches/profile-access-user-navigation/ProfileNavigationOriginsTest.kt.txt': '9f9170dc2f1dfdb353a2c749de3f48265586917e2603df38f4ac54108fbf092c', '.github/patches/profile-access-user-navigation/ProfileAccessUserNavigationTest.kt.txt': '5607f46a9bedd64da15d33ff3c9eafd287b5872552c901d64d0bfa3206f51470'}
+          targets={'.github/patches/profile-access-user-navigation/ProfileNavigationOrigins.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileNavigationOrigins.kt', '.github/patches/profile-access-user-navigation/ProfileNavigationOriginsTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/ProfileNavigationOriginsTest.kt', '.github/patches/profile-access-user-navigation/ProfileAccessUserNavigationTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileAccessUserNavigationTest.kt'}
+          updates={base/name:text for name,text in sources.items()}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();target=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if target.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[target]=data.decode()
+          for target,content in updates.items():
+              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-access-user-navigation-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated navigation without changing permissions
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileNavigationOrigins.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileNavigationOriginsTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileAccessUserNavigationTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): open authorized users from device group access and restore origins'
+          git push origin HEAD:dev
