@@ -46,6 +46,7 @@ internal fun profileGroupMeshReadbackReady(s:ProfileState,gid:String,mid:String,
     val reviewCurrent=packet!=null && profileGroupMeshRevokeAllowed(s,JSONObject(packet.toString()).put("_meshConfirmed",true),server)
     val canSend=!submitted && packet!=null && profileGroupMeshRevokeAllowed(s,packet,server)
     val observed=submitted && s.notice=="groupMeshRevokedObserved" && s.revokedGroup==gid && s.revokedDeviceGroup==mid
+    LaunchedEffect(session,gid,mid,s.ready,s.busy,s.userGroupPhase) {if(s.ready && !s.busy && s.userGroupPhase=="idle") session.loadUserGroupDirectory()}
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar asignación","Review assignment"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(beforeServer,style=MaterialTheme.typography.bodySmall)

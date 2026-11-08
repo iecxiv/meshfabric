@@ -36,6 +36,7 @@ var form by remember { mutableStateOf<ProfileForm?>(null) }
 var groupDetails by remember { mutableStateOf<String?>(null) }
 var userGroupDetails by remember {mutableStateOf<String?>(null)}
 var deviceDetails by remember {mutableStateOf<String?>(null)}
+var deviceAssignment by remember {mutableStateOf<Pair<String,String>?>(null)}
 var origins by remember {mutableStateOf<List<ProfileOrigin>>(emptyList())}
 var groupDetailTab by remember {mutableIntStateOf(0)}
 var groupSearch by rememberSaveable { mutableStateOf("") }
@@ -44,7 +45,7 @@ val canOpenProfileDevice:(String)->Boolean={nodeId->profileReceivedDevice(state,
 val openProfileDevice:(String)->Unit={nodeId->if(canOpenProfileDevice(nodeId)) deviceDetails=nodeId}
 val closeProfileDialog:()->Unit={
 val restored=profilePopOrigin(origins,state.users.filter {canAdministerUser(state,it)}.map {it.optString("_id")}.toSet(),state.groups.map {it.optString("_id")}.toSet(),state.ready)
-origins=restored.second;form=null;groupDetails=null;userGroupDetails=null;deviceDetails=null
+origins=restored.second;form=null;groupDetails=null;userGroupDetails=null;deviceDetails=null;deviceAssignment=null
 restored.first?.let {destination->if(destination.user!=null) form=destination.user else {groupDetails=destination.groupId;groupDetailTab=destination.groupTab}}
 }
 
@@ -52,12 +53,13 @@ DisposableEffect(session) { onDispose { session.close() } }
 LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
 if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation() } finally { session.stop() } } else session.stop()
 } }
-LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false } }
+LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false } }
 Column(modifier) {
-ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false }
+ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false }
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
+"groupMeshRevokedObserved"->t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+state.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+state.revokedDeviceGroup
 "broadcastAccepted"->t("El servidor aceptó la difusión. No confirma recepción ni lectura.","The server accepted the broadcast. Receipt and reading are not confirmed.")
 "confirmed"->t("Solicitud confirmada por el servidor; actualizando.","Server acknowledged the request; refreshing.")
 "observed"->t("Se observó el cambio solicitado en el servidor.","The requested change was observed on the server.")
@@ -107,7 +109,7 @@ TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && 
 }
 }
 if(broadcast && form==null && groupDetails==null) ProfileBroadcastDialog(session,state) {broadcast=false}
-groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
+groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onReviewUserGroupAssignment={gid->profileAccessAssignmentPair(state,gid,id)?.let {pair->deviceAssignment=pair;session.refresh();session.loadUserGroupDirectory()}},onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
 form?.let { selected->
 if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {origins=profilePushOrigin(origins,ProfileOrigin(user=selected));groupDetailTab=0;groupDetails=id;form=null}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onOpenUserGroup={gid->state.users.singleOrNull {it.optString("_id")==selected.id}?.let {u->if(gid in profileUserMembershipGroupIds(state,u).orEmpty() && profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}}},canOpenUserGroup={gid->profileReceivedUserGroup(state,gid)!=null},onDismiss=closeProfileDialog) else key(selected) {
 var name by remember { mutableStateOf(selected.name) }
@@ -138,5 +140,6 @@ if(session.submit(p)) form=null else error=t("No se ha enviado. Comprueba conexi
 }) { Text(if(deleting) t("Eliminar","Delete") else t("Enviar","Send")) } },dismissButton={ TextButton(onClick={ form=null }) { Text(t("Cancelar","Cancel")) } })
 } }
 userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}
+deviceAssignment?.let {(gid,mid)->GroupMeshAssignmentReview(session,state,gid,mid) {deviceAssignment=null}}
 deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}
 }
