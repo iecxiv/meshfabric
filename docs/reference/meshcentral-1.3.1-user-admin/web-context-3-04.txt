@@ -1,0 +1,72 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 17216-17479 | part 4/4 (may continue a source line)
+
+    element.children[0].children[0].classList.remove('sbar');
+17413:             if (over == 1) {
+17414:                 e.children[2].classList.add('g1s');
+17415:                 e.children[3].classList.add('g2s');
+17416:                 element.children[0].children[0].classList.add('sbar');
+17417:             }
+17418:         }
+17419: 
+17420:         function userChat(e, userid, name) {
+17421:             if (xxdialogMode) return;
+17422:             haltEvent(e);
+17423:             var url = '/messenger?id=meshmessenger/' + userid + '/' + encodeURIComponentEx(userinfo._id) + '&title=' + name;
+17424:             if ((authCookie != null) && (authCookie != '')) { url += '&auth=' + authCookie; }
+17425:             if (urlargs.key) { url += '&key=' + urlargs.key; }
+17426:             safeNewWindow(url, 'meshmessenger:' + userid);
+17427:             meshserver.send({ action: 'meshmessenger', userid: decodeURIComponent(userid) });
+17428:             return false;
+17429:         }
+17430: 
+17431:         function altUserChat(e, userid, name, i) {
+17432:             if (xxdialogMode) return;
+17433:             haltEvent(e);
+17434:             var url = serverinfo.altmessenging[i].url;
+17435:             var ruserid = decodeURIComponent(userid);
+17436:             var userid1 = encodeURIComponentEx(ruserid.split('/')[2]); // userid
+17437:             var userid2 = encodeURIComponentEx(ruserid.split('/').join('-')); // user-domain-userid
+17438:             var userid3 = userid1, userid4 = userid2;
+17439:             var ruser = users[ruserid];
+17440:             if ((ruser != null) && (ruser.realname != null)) {
+17441:                 userid3 = encodeURIComponentEx(ruser.realname.split(' ').join('')); // real name with no empty spaces
+17442:                 userid4 = encodeURIComponentEx(ruser.realname.split(' ').join('-')); // real name with - instead of spaces
+17443:             }
+17444:             url = url.split('{0}').join(userid1).split('{1}').join(userid2).split('{2}').join(userid3).split('{3}').join(userid4);
+17445:             if (urlargs.key) { url += '&key=' + urlargs.key; }
+17446:             safeNewWindow(url, 'altmessenger:' + userid);
+17447:             meshserver.send({ action: 'notifyuser', userid: decodeURIComponent(userid), msg: serverinfo.altmessenging[i].name, msgid: 11, url: url });
+17448:             return false;
+17449:         }
+17450: 
+17451:         function showSendSMS(userid) {
+17452:             if (xxdialogMode) return;
+17453:             setDialogMode(2, "Send SMS", 3, showSendSMSEx, '<textarea id=d2smsText maxlength=160 style=background-color:#fcf3cf;width:100%;height:100px;resize:none onKeyUp=showSendSMSValidate()></textarea><span style=font-size:10px><span>', userid);
+17454:             Q('d2smsText').focus();
+17455:             showSendSMSValidate();
+17456:         }
+17457: 
+17458:         function showSendSMSValidate() { QE('idx_dlgOkButton', Q('d2smsText').value.length > 0); }
+17459:         function showSendSMSEx(b, tag) { if (Q('d2smsText').value.length > 0) { meshserver.send({ action: 'smsuser', userid: decodeURIComponent(tag), msg: Q('d2smsText').value }); } }
+17460: 
+17461:         function showSendMessage(userid) {
+17462:             if (xxdialogMode) return;
+17463:             setDialogMode(2, "Send Message", 3, showSendMessageEx, '<textarea id=d2smsText maxlength=160 style=background-color:#fcf3cf;width:100%;height:100px;resize:none onKeyUp=showSendSMSValidate()></textarea><span style=font-size:10px><span>', userid);
+17464:             Q('d2smsText').focus();
+17465:             showSendSMSValidate();
+17466:         }
+17467: 
+17468:         function showSendMessageEx(b, tag) { if (Q('d2smsText').value.length > 0) { meshserver.send({ action: 'msguser', userid: decodeURIComponent(tag), msg: Q('d2smsText').value }); } }
+17469: 
+17470:         function showSendEmail(userid) {
+17471:             if (xxdialogMode) return;
+17472:             var x = '<input id=d2emailSubject style=background-color:#fcf3cf;width:100% placeholder="' + "Subject" + '"></input>';
+17473:             x += '<textarea id=d2emailText maxlength=10000 style="background-color:#fcf3cf;width:100%;height:200px;resize:none;overflow-y:auto" onKeyUp=showSendEmailValidate()></textarea>';
+17474:             setDialogMode(2, "Send Email", 3, showSendEmailEx, x, userid);
+17475:             Q('d2emailSubject').focus();
+17476:             showSendEmailValidate();
+17477:         }
+17478: 
+17479:         function showSendEmailValidate() { QE('idx_dlgOkButton', (Q('d2emailSubject').value.length > 0) && (Q('d2emailText').value.length > 0)); }

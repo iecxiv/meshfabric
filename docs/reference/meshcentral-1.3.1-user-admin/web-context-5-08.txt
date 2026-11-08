@@ -1,0 +1,78 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 8/11 (may continue a source line)
+
++ ((removeRights & 0x00008000) ? 'checked' : '') + '>' + "No Uninstall" + '</label><br></div>';
+18669:             x += '<div><label><input type=checkbox id=d20flag9 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00020000) ? 'checked' : '') + '>' + "No Remote Command" + '</label><br></div>';
+18670:             x += '<div><label><input type=checkbox id=d20flag10 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00000040) ? 'checked' : '') + '>' + "No Wake" + '</label><br></div>';
+18671:             x += '<div><label><input type=checkbox id=d20flag11 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00040000) ? 'checked' : '') + '>' + "No Reset/Off" + '</label><br></div>';
+18672:             setDialogMode(2, "Edit User Features", 3, p20edituserfeaturesEx, x);
+18673:             p20edituserfeaturesValidate();
+18674:         }
+18675: 
+18676:         function p20edituserfeaturesValidate() {
+18677:             QE('d20flag2', !Q('d20flag7').checked);
+18678:             QE('d20flag3', !Q('d20flag7').checked && !Q('d20flag2').checked);
+18679:             QE('d20flag4', !Q('d20flag7').checked);
+18680:             QE('d20flag5', !Q('d20flag7').checked);
+18681:             QE('d20flag12', !Q('d20flag7').checked);
+18682:             QE('d20flag13', !Q('d20flag7').checked);
+18683:         }
+18684: 
+18685:         // Send to the server the new user's real name
+18686:         function p20edituserfeaturesEx() {
+18687:             // Setup user flags
+18688:             var flags = (currentUser.flags)?currentUser.flags:0; // Flags: 1 = Account Image, 2 = Session Recording
+18689:             var f = flags & 1;
+18690:             if ((serverinfo.usersSessionRecording == 1) && Q('d20flag1').checked) { f += 2; }
+18691: 
+18692:             // Setup user permission removal
+18693:             var r = 0;
+18694:             if (Q('d20flag7').checked) { r += 0x00000008; } else {
+18695:                 if (Q('d20flag2').checked) { r += 0x00010000; }
+18696:                 else if (Q('d20flag3').checked) { r += 0x00000100; }
+18697:                 if (Q('d20flag4').checked) { r += 0x00000200; }
+18698:                 if (Q('d20flag5').checked) { r += 0x00000400; }
+18699:                 if (Q('d20flag12').checked) { r += 0x00400000; }
+18700:                 if (Q('d20flag13').checked) { r += 0x00800000; }
+18701:             }
+18702:             if (Q('d20flag6').checked) { r += 0x00000010; }
+18703:             if (Q('d20flag8').checked) { r += 0x00008000; }
+18704:             if (Q('d20flag9').checked) { r += 0x00020000; }
+18705:             if (Q('d20flag10').checked) { r += 0x00000040; }
+18706:             if (Q('d20flag11').checked) { r += 0x00040000; }
+18707:             meshserver.send({ action: 'edituser', id: currentUser._id, flags: f, removeRights: r });
+18708:         }
+18709: 
+18710:         function p30editPhoneValidate(x) {
+18711:             var ok = (Q('d2phoneinput').value == '') || (isPhoneNumber(Q('d2phoneinput').value));
+18712:             QE('idx_dlgOkButton', ok);
+18713:             if ((x == 1) && ok) { dialogclose(1); }
+18714:         }
+18715: 
+18716:         // Send to the server the user's new phone number
+18717:         function p30editPhoneEx() { meshserver.send({ action: 'edituser', id: currentUser._id, phone: Q('d2phoneinput').value }); }
+18718: 
+18719:         // Display the user's real name change dialog box
+18720:         function p30showUserRealNameChangeDialog(event) {
+18721:             if (xxdialogMode) return false;
+18722:             var x = '';
+18723:             x += addHtmlValue("Real Name", '<input id=dp30realname style=width:230px maxlength=256 />');
+18724:             setDialogMode(2, format("Change Real Name for {0}", EscapeHtml(currentUser.name)), 3, p30showUserRealNameChangeDialogEx, x);
+18725:             Q('dp30realname').focus();
+18726:             Q('dp30realname').value = (currentUser.realname?currentUser.realname:'');
+18727:             return false;
+18728:         }
+18729: 
+18730:         // Send to the server the new user's real name
+18731:         function p30showUserRealNameChangeDialogEx() {
+18732:             meshserver.send({ action: 'edituser', id: currentUser._id, realname: Q('dp30realname').value });
+18733:         }
+18734: 
+18735:         // Display the user's email change dialog box
+18736:         function p30showUserEmailChangeDialog(event) {
+18737:             if (xxdialogMode) return false;
+18738:             var x = '';
+18739:             x += addHtmlValue("Email", '<input id=dp30email style=width:230px maxlength=256 onchange=p30validateEmail() onkeyup=p30validateEmail() />');
+18740:             if (serverinfo.emailcheck) { x += addHtmlValue("Status", '<select id=dp30verified style=width:230px onchange=p30validateEmail()><option value=0>' + "Not verified" + '</option><option value=1>' + "Verified" + '</option></select>'); }
+18741:             setDialogMode(2, format("Change Email for {0}", EscapeHtml(currentUser.name)), 3, p30showUs

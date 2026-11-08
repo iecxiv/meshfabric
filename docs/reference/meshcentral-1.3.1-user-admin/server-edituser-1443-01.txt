@@ -1,0 +1,71 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1443-1593 | part 1/3 (may continue a source line)
+
+1443:             case 'edituser':
+1444:                 {
+1445:                     // Must be user administrator or edit self.
+1446:                     if (((user.siteadmin & 2) == 0) && (user._id != command.id)) break;
+1447: 
+1448:                     // User the username as userid if needed
+1449:                     if ((typeof command.username == 'string') && (command.userid == null)) { command.userid = command.username; }
+1450:                     if ((typeof command.id == 'string') && (command.userid == null)) { command.userid = command.id; }
+1451: 
+1452:                     // Edit a user account
+1453:                     var err = null, editusersplit, edituserid, edituser, edituserdomain;
+1454:                     try {
+1455:                         if ((user.siteadmin & 2) == 0) { err = 'Permission denied'; }
+1456:                         else if (common.validateString(command.userid, 1, 2048) == false) { err = 'Invalid userid'; }
+1457:                         else {
+1458:                             if (command.userid.indexOf('/') < 0) { command.userid = 'user/' + domain.id + '/' + command.userid; }
+1459:                             editusersplit = command.userid.split('/');
+1460:                             edituserid = command.userid;
+1461:                             edituser = parent.users[edituserid];
+1462:                             if (edituser == null) { err = 'User does not exists'; }
+1463:                             else if ((obj.crossDomain !== true) && ((editusersplit.length != 3) || (editusersplit[1] != domain.id))) { err = 'Invalid domain'; } // Invalid domain, operation only valid for current domain
+1464:                             else if ((edituser.siteadmin === SITERIGHT_ADMIN) && (user.siteadmin != SITERIGHT_ADMIN)) { err = 'Permission denied'; } // Need full admin to remote another administrator
+1465:                             else if ((obj.crossDomain !== true) && (user.groups != null) && (user.groups.length > 0) && ((edituser.groups == null) || (findOne(edituser.groups, user.groups) == false))) { err = 'Invalid user group'; } // Can only perform this operation on other users of our group.
+1466:                         }
+1467:                     } catch (ex) { err = 'Validation exception: ' + ex; }
+1468: 
+1469:                     // Handle any errors
+1470:                     if (err != null) {
+1471:                         if (command.responseid != null) {
+1472:                             try { ws.send(JSON.stringify({ action: 'edituser', responseid: command.responseid, result: err })); } catch (ex) { }
+1473:                         }
+1474:                         break;
+1475:                     }
+1476: 
+1477:                     // Edit a user account, may involve changing email or administrator permissions
+1478:                     var chguser = parent.users[edituserid];
+1479:                     change = 0;
+1480:                     if (chguser) {
+1481:                         // If the target user is admin and we are not admin, no changes can be made.
+1482:                         if ((chguser.siteadmin === SITERIGHT_ADMIN) && (user.siteadmin != SITERIGHT_ADMIN)) return;
+1483: 
+1484:                         // Can only perform this operation on other users of our group.
+1485:                         if (user.siteadmin != SITERIGHT_ADMIN) {
+1486:                             if ((user.groups != null) && (user.groups.length > 0) && ((chguser.groups == null) || (findOne(chguser.groups, user.groups) == false))) return;
+1487:                         }
+1488: 
+1489:                         // Fetch and validate the user domain
+1490:                         var edituserdomainid = edituserid.split('/')[1];
+1491:                         if ((obj.crossDomain !== true) && (edituserdomainid != domain.id)) break;
+1492:                         var edituserdomain = parent.parent.config.domains[edituserdomainid];
+1493:                         if (edituserdomain == null) break;
+1494: 
+1495:                         // Validate and change email
+1496:                         if (edituserdomain.usernameisemail !== true) {
+1497:                             if (common.validateString(command.email, 0, 1024) && (chguser.email != command.email)) {
+1498:                                 if (command.email == '') { command.emailVerified = false; delete chguser.email; } else { chguser.email = command.email.toLowerCase(); }
+1499:                                 change = 1;
+1500:                             }
+1501:                         }
+1502: 
+1503:                         // Validate and change real name
+1504:                         if (common.validateString(command.realname, 0, 256) && (chguser.realname != command.realname)) {
+1505:                             if (command.realname == '') { delete chguser.realname; } else { chguser.realname = command.realname; }
+1506:                             change = 1;
+1507:                         }
+1508: 
+1509:                         // Make change

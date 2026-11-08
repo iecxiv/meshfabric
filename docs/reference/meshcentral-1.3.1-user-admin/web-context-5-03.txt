@@ -1,0 +1,58 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 3/11 (may continue a source line)
+
+02000000) || (user.phone != null)) { // If SMS is enabled on the server or user has a phone number
+18422:                 x += addDeviceAttribute("Phone Number", '<span style=cursor:pointer onclick=p30editPhone()>' + (user.phone?user.phone:('<i>' + "None" + '</i>')) + ' <img class=hoverButton style=cursor:pointer src="images/link5.png" /></span>');
+18423:             }
+18424: 
+18425:             if ((features2 & 0x02000000) || (user.msghandle != null)) { // If user messaging is enabled on the server or user has a messaging handle
+18426:                 x += addDeviceAttribute("Messaging", '<span style=cursor:pointer onclick=p30editMessaging()><img src="images/messaging12.png" height=12 width=12 title="' + "Messaging enabled" + '" style="margin-top:2px" /> ' + (user.msghandle?EscapeHtml(user.msghandle):('<i>' + "None" + '</i>')) + ' <img class=hoverButton style=cursor:pointer src="images/link5.png" /></span>');
+18427:             }
+18428: 
+18429:             // Display features
+18430:             var userFeatures = [];
+18431:             if ((serverinfo.usersSessionRecording == 1) && (user.flags) && (user.flags & 2)) { userFeatures.push("Record Sessions"); }
+18432:             if (user.removeRights) {
+18433:                 if ((user.removeRights & 0x00000008) != 0) { userFeatures.push("No Remote Control"); } else {
+18434:                     if ((user.removeRights & 0x00010000) != 0) { userFeatures.push("No Desktop"); }
+18435:                     else if ((user.removeRights & 0x00000100) != 0) { userFeatures.push("Desktop View Only"); }
+18436:                     if ((user.removeRights & 0x00000200) != 0) { userFeatures.push("No Terminal"); }
+18437:                     if ((user.removeRights & 0x00000400) != 0) { userFeatures.push("No Files"); }
+18438:                     if ((user.removeRights & 0x00400000) != 0) { userFeatures.push("No Registry"); }
+18439:                     if ((user.removeRights & 0x00800000) != 0) { userFeatures.push("No Software"); }
+18440:                 }
+18441:                 if ((user.removeRights & 0x00000010) != 0) { userFeatures.push("No Console"); }
+18442:                 if ((user.removeRights & 0x00008000) != 0) { userFeatures.push("No Uninstall"); }
+18443:                 if ((user.removeRights & 0x00020000) != 0) { userFeatures.push("No Remote Command"); }
+18444:                 if ((user.removeRights & 0x00000040) != 0) { userFeatures.push("No Wake"); }
+18445:                 if ((user.removeRights & 0x00040000) != 0) { userFeatures.push("No Reset/Off"); }
+18446:             }
+18447:             userFeatures = userFeatures.join(', ');
+18448:             if (userFeatures == '') { userFeatures = '<i>' + "None" + '</i>'; }
+18449:             x += addDeviceAttribute("Features", addLink(userFeatures, 'p20edituserfeatures()'));
+18450: 
+18451:             x += addDeviceAttribute("Server Rights", '<span style=cursor:pointer onclick=\'return showUserAdminDialog(event,"' + encodeURIComponentEx(user._id) + '")\'>' + premsg + msg.join(', ') + ' <img style=cursor:pointer class=hoverButton src="images/link5.png" /></span>');
+18452:             if (user.quota) x += addDeviceAttribute("Server Quota", EscapeHtml(parseInt(user.quota) / 1024) + ' k');
+18453:             x += addDeviceAttribute("Creation", printDateTime(new Date(user.creation * 1000)));
+18454:             if (user.login) x += addDeviceAttribute("Last Login", printDateTime(new Date(user.login * 1000)));
+18455:             if (user.passchange == -1) { x += addDeviceAttribute("Password", "Will be changed on next login."); }
+18456:             else if (user.passchange) { x += addDeviceAttribute("Password", format("Last changed: {0}", printDateTime(new Date(user.passchange * 1000)))); }
+18457: 
+18458:             // Device Groups
+18459:             var linkCount = 0, linkCountStr = '<i>' + "None" + '<i>';
+18460:             if (user.links) {
+18461:                 for (var i in user.links) { if (i.startsWith('mesh/')) { linkCount++; } }
+18462:                 if (linkCount == 1) { linkCountStr = "1 group"; } else if (linkCount > 1) { linkCountStr = format("{0} groups", linkCount); }
+18463:             }
+18464:             x += addDeviceAttribute("Device Groups", linkCountStr);
+18465: 
+18466:             // Administrative Realms
+18467:             if ((userinfo.siteadmin == 0xFFFFFFFF) || (userinfo.siteadmin & 2)) {
+18468:                 var xuserGroups = '<i>' + "None" + '</i>';
+18469:                 if (user.groups) { xuserGroups = ''; for (var i in user.groups) { xuserGroups += '<span class="tagSpan">' + EscapeHtml(user.groups[i]) + '</span>'; } }
+18470:                 x += addDeviceAttribute("Admin Realms", addLinkConditional(xuserGroups, 'showUserGroupDialog(event,"' + encodeURIComponentEx(user._id) + '")', (userinfo.siteadmin == 0xFFFFFFFF) || ((userinfo.groups == null) && (userinfo._id != user._id) && (user.siteadmin != 0xFFFFFFFF))));
+18471:             }
+18472: 
+18473:             // Display device user consent
+1847

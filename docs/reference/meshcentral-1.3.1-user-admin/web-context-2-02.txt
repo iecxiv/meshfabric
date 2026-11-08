@@ -1,0 +1,59 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15527-15766 | part 2/4 (may continue a source line)
+
+           p20editmeshValidate();
+15599:             if (focus == 2) { Q('dp20meshdesc').focus(); } else { Q('dp20meshname').focus(); }
+15600:         }
+15601: 
+15602:         function p20editmeshEx() {
+15603:             meshserver.send({ action: 'editmesh', meshid: currentMesh._id, meshname: Q('dp20meshname').value, desc: Q('dp20meshdesc').value });
+15604:         }
+15605: 
+15606:         function p20editmeshValidate(e) {
+15607:             QE('idx_dlgOkButton', Q('dp20meshname').value.length > 0);
+15608:             if (e && e.key == 'Enter') { Q('dp20meshdesc').focus(); }
+15609:         }
+15610: 
+15611:         // editType: 1 = currentMesh, 2 = currentUser, 3 = currentDevice
+15612:         function p20editmeshconsent(editType) {
+15613:             if (xxdialogMode) return;
+15614:             var x = '', consent = 0, title = '';
+15615:             if (editType == 1) { consent = (currentMesh.consent) ? currentMesh.consent : 0; title = "Edit Device Group User Consent"; }
+15616:             if (editType == 2) { consent = (currentUser.consent) ? currentUser.consent : 0; title = "Edit User Consent"; }
+15617:             if (editType == 3) { consent = (currentNode.consent) ? currentNode.consent : 0; title = "Edit Device User Consent"; }
+15618:             if (editType == 4) { consent = (currentUserGroup.consent) ? currentUserGroup.consent : 0; title = "Edit User Group User Consent"; }
+15619:             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px"><b>' + "Desktop" + '</b></div>';
+15620:             x += '<div><label><input type=checkbox id=d20flag1 ' + ((consent & 0x0001) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
+15621:             x += '<div><label><input type=checkbox id=d20flag2 ' + ((consent & 0x0008) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+15622:             x += '<div><label><input type=checkbox id=d20flag7 ' + ((consent & 0x0040) ? 'checked' : '') + '>' + "Show connection toolbar" + '</label></div>';
+15623:             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Terminal" + '</b></div>';
+15624:             x += '<div><label><input type=checkbox id=d20flag3 ' + ((consent & 0x0002) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
+15625:             x += '<div><label><input type=checkbox id=d20flag4 ' + ((consent & 0x0010) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+15626:             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Files" + '</b></div>';
+15627:             x += '<div><label><input type=checkbox id=d20flag5 ' + ((consent & 0x0004) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
+15628:             x += '<div><label><input type=checkbox id=d20flag6 ' + ((consent & 0x0020) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+15629:             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Registry" + '</b></div>';
+15630:             x += '<div><label><input type=checkbox id=d20flag8 ' + ((consent & 0x0080) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
+15631:             x += '<div><label><input type=checkbox id=d20flag9 ' + ((consent & 0x0100) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+15632:             setDialogMode(2, title, 3, p20editmeshconsentEx, x, editType);
+15633:             if (serverinfo.consent) {
+15634:                 if (serverinfo.consent & 0x0001) { Q('d20flag1').checked = true; }
+15635:                 if (serverinfo.consent & 0x0008) { Q('d20flag2').checked = true; }
+15636:                 if (serverinfo.consent & 0x0002) { Q('d20flag3').checked = true; }
+15637:                 if (serverinfo.consent & 0x0010) { Q('d20flag4').checked = true; }
+15638:                 if (serverinfo.consent & 0x0004) { Q('d20flag5').checked = true; }
+15639:                 if (serverinfo.consent & 0x0020) { Q('d20flag6').checked = true; }
+15640:                 if (serverinfo.consent & 0x0040) { Q('d20flag7').checked = true; }
+15641:                 if (serverinfo.consent & 0x0080) { Q('d20flag8').checked = true; }
+15642:                 if (serverinfo.consent & 0x0100) { Q('d20flag9').checked = true; }
+15643:                 QE('d20flag1', !(serverinfo.consent & 0x0001));
+15644:                 QE('d20flag2', !(serverinfo.consent & 0x0008));
+15645:                 QE('d20flag3', !(serverinfo.consent & 0x0002));
+15646:                 QE('d20flag4', !(serverinfo.consent & 0x0010));
+15647:                 QE('d20flag5', !(serverinfo.consent & 0x0004));
+15648:                 QE('d20flag6', !(serverinfo.consent & 0x0020));
+15649:                 QE('d20flag7', !(serverinfo.consent & 0x0040));
+15650:                 QE('d20flag8', !(serverinfo.consent & 0x0080));
+15651:                 QE('d20flag9', !(serverinfo.consent & 0x0100));
+15652:      

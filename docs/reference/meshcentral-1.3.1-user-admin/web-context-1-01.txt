@@ -1,0 +1,77 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 3369-3609 | part 1/4 (may continue a source line)
+
+3369:                                 d4EditLineBreakVal === 2 ? value.replace(/\r\n|\n/g, '\r') : // Mac
+3370:                                 value.replace(/\r\n|\r/g, '\n'); // Linux
+3371:                         if (d4EditEncodingVal == 1) {
+3372:                             data = encode_utf8(value); // UTF8 encoding
+3373:                         } else {
+3374:                             data = value; // RAW encoding
+3375:                         }
+3376:                         meshserver.send({ action: 'fileoperation', fileop: 'set', path: tag.path, file: tag.file, data: btoa(data) });
+3377:                     }
+3378:                     setDialogMode(4, EscapeHtml(message.file), 3, p5editSaveBack, null, message);
+3379:                     QV('d4EncodingButton', true);
+3380:                     QV('d4LineBreakButton', true);
+3381:                     QS('dialog').width = 'auto';
+3382:                     QS('dialog').bottom = '80px';
+3383:                     QS('dialog').top = QS('dialog').left = QS('dialog').right = '100px';
+3384:                     if (d4EditEncodingVal == 1) {
+3385:                         Q('d4editorarea').value = decode_utf8(atob(message.data)); // UTF8 Encoding
+3386:                     } else {
+3387:                         Q('d4editorarea').value = atob(message.data); // RAW Encoding
+3388:                     }
+3389:                     break;
+3390:                 }
+3391:                 case 'event': {
+3392:                     if (!message.event.nolog) {
+3393:                         if (currentNode && (message.event.nodeid == currentNode._id) && (currentDeviceEvents != null)) {
+3394:                             // If this event has a nodeid and we are looking at this node, update the log in real time.
+3395:                             if ((message.event.action == p16filterevents.value) || (p16filterevents.value == "")) {
+3396:                                 if(currentDeviceEvents != null) {
+3397:                                     currentDeviceEvents.unshift(message.event);
+3398:                                     var eventLimit = parseInt(p16limitdropdown.value);
+3399:                                     while (currentDeviceEvents.length > eventLimit) { currentDeviceEvents.pop(); } // Remove element(s) at the end
+3400:                                 }
+3401:                                 mainUpdate(1024);
+3402:                             }
+3403:                         }
+3404: 
+3405:                         if (currentUser && (message.event.userid == currentUser._id)) {
+3406:                             // If this event has a userid and we are looking at this user, update the log in real time.
+3407:                             if ((message.event.action == p31filterevents.value) || (p31filterevents.value == "")) {
+3408:                                 if(currentUserEvents != null) {
+3409:                                     currentUserEvents.unshift(message.event);
+3410:                                     var eventLimit = parseInt(p31limitdropdown.value);
+3411:                                     while (currentUserEvents.length > eventLimit) { currentUserEvents.pop(); } // Remove element(s) at the end
+3412:                                 }
+3413:                                 mainUpdate(2048);
+3414:                             }
+3415:                         }
+3416: 
+3417:                         // Add this event to the main events log.
+3418:                         if ((message.event.action == p3filterevents.value) || (p3filterevents.value == "")) {
+3419:                             if(events != null) {
+3420:                                 events.unshift(message.event);
+3421:                                 var eventLimit = parseInt(p3limitdropdown.value);
+3422:                                 while (events.length > eventLimit) { events.pop(); } // Remove element(s) at the end
+3423:                             }
+3424:                             mainUpdate(32);
+3425:                         }
+3426:                     }
+3427:                     if (message.event.noact) break; // Take no action on this event
+3428: 
+3429:                     switch (message.event.action) {
+3430:                         case 'serverinfochange': {
+3431:                             if (message.event.lock2factor != null) { serverinfo.lock2factor = message.event.lock2factor; updateSelf(); updateSiteAdmin(); }
+3432:                             break;
+3433:                         }
+3434:                         case 'deviceShareUpdate': {
+3435:                             if (message.event.nodeid != deviceSharesReq) break;
+3436:                             deviceSharesNode = message.event.nodeid;
+3437:                             deviceShares = message.event.deviceShares;
+3438:                             if (currentNode._id == deviceSharesNode) { gotoDevice(currentNode._id, xxcurrentView, true); }
+3439:                             break;
+3440:                         }
+3441:     

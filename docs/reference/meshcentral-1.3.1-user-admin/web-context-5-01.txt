@@ -1,0 +1,86 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 1/11 (may continue a source line)
+
+18292:             Q('dp51username').value = xusers.join(', ');
+18293:             p51validateAddUserDialog();
+18294:             return false;
+18295:         }
+18296: 
+18297:         function p51validateAddUserDialog() {
+18298:             var ok = true;
+18299:             if (Q('dp51username')) {
+18300:                 var xusers = Q('dp51username').value.split(',');
+18301:                 for (var i in xusers) {
+18302:                     var xuser = xusers[i] = xusers[i].trim();
+18303:                     if (xuser.length == 0) { ok = false; } else if (xuser.indexOf('"') >= 0) { ok = false; }
+18304:                 }
+18305: 
+18306:                 // Fill the suggestion box
+18307:                 var showsuggestbox = false, exactMatch = false;
+18308:                 if (users != null) {
+18309:                     var lastuser = xusers[xusers.length - 1].trim(), lastuserl = lastuser.toLowerCase(), matchingUsers = [];
+18310:                     if (lastuser.length > 0) {
+18311:                         for (var i in users) {
+18312:                             var userSplit = users[i]._id.split('/');
+18313:                             if ((currentUserGroup.domain == userSplit[1]) && (userSplit[2] === lastuserl)) { exactMatch = true; break; }
+18314:                             if ((users[i].name.toLowerCase().indexOf(lastuserl) >= 0) && (currentUserGroup.domain == userSplit[1])) { matchingUsers.push([users[i]._id, users[i].name]); if (matchingUsers.length >= 8) break; }
+18315:                         }
+18316:                         if ((exactMatch == false) && (matchingUsers.length > 0)) {
+18317:                             var x = '';
+18318:                             for (var i in matchingUsers) {
+18319:                                 var sid = matchingUsers[i][0], sname = matchingUsers[i][1];
+18320:                                 if (sid.split('/')[2] == sname.toLowerCase()) {
+18321:                                     x += '<div class=suggestionBoxItem onclick=\'p51setname("' + encodeURIComponentEx(sid.split('/')[2]) + '")\'>' + EscapeHtml(sname) + '</div>';
+18322:                                 } else {
+18323:                                     x += '<div class=suggestionBoxItem onclick=\'p51setname("' + encodeURIComponentEx(sid.split('/')[2]) + '")\'><div>' + EscapeHtml(sname) + '</div><div class=suggestionBoxSubItem>' + EscapeHtml(sid.split('/')[2]) + '</div></div>';
+18324:                                 }
+18325:                             }
+18326:                             QH('dp51usersuggest', x);
+18327:                             showsuggestbox = true;
+18328:                         }
+18329:                     }
+18330:                 }
+18331:                 QV('dp51usersuggest', showsuggestbox);
+18332:             }
+18333: 
+18334:             QE('idx_dlgOkButton', ok);
+18335:         }
+18336: 
+18337:         function p51showAddUserDialogEx(b, t) {
+18338:             if (t == null) {
+18339:                 var users = Q('dp51username').value.split(','), users2 = [];
+18340:                 for (var i in users) { users2.push(users[i].trim()); }
+18341:                 meshserver.send({ action: 'addusertousergroup', ugrpid: currentUserGroup._id, usernames: users2 });
+18342:             } else {
+18343:                 meshserver.send({ action: 'addusertousergroup', ugrpid: currentUserGroup._id, usernames: [ t.split('/')[2] ] });
+18344:             }
+18345:         }
+18346: 
+18347: 
+18348: 
+18349:         //
+18350:         // MY USER GENERAL
+18351:         //
+18352: 
+18353:         var currentUser = null;
+18354:         function gotoUser(userid, force, event) {
+18355:             if (xxdialogMode && !force) return;
+18356:             if ((event != null) && (event.originalTarget != null) && (event.originalTarget.href != null)) return;
+18357:             var user = currentUser = users[decodeURIComponent(userid)];
+18358:             if (user == null) { setDialogMode(0); go(4); return; }
+18359:             QH('p30userName', ' - ' + EscapeHtml(user.name));
+18360:             QH('p31userName', ' - ' + EscapeHtml(user.name));
+18361:             var self = (user._id == userinfo._id), activeSessions = 0;
+18362:             if (wssessions != null && wssessions[user._id]) { activeSessions = wssessions[user._id]; }
+18363: 
+18364:             // Update account picture
+18365:             if ((user.flags != null) && (user.flags & 1)) {
+18366:                 QV('MainUserImage', false);
+18367:                 QV('MainUserImageEx', true);
+18368:                 if (user.accountImageRnd == null) { user.accountImageRnd = Math.floor(Math.random() * 9999999999); }
+18369:                 Q('MainUserImageEx').src = 'userimage.ashx?id=' + (user._id.split('/')[2]) + '&rnd=' + user.accountImageRnd;
+18370:             } else {
+18371:                 // Change user grayscale
+18372:                 Q('MainUserImage').classList.remove('gray');
+18373:                 if (activeSessions == 0) { Q('MainUserImage').classList

@@ -1,0 +1,95 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 21241-21493 | part 3/3 (may continue a source line)
+
+        rights &= (0xFFFFFFFF - substract);
+21404:             }
+21405:             return rights;
+21406:         }
+21407: 
+21408:         // Get the right of a user on a given device group
+21409:         function GetMeshRights(mesh, userid) {
+21410:             if (mesh == null) { return 0; }
+21411:             if (userid == null) { userid = userinfo._id; }
+21412:             if (typeof mesh == 'string') { mesh = meshes[mesh] }
+21413:             if ((mesh == null) || (mesh.links == null)) { return 0; }
+21414: 
+21415:             // Check if super user
+21416:             if (serverinfo.manageAllDeviceGroups && (userid == userinfo._id)) return removeUserRights(0xFFFFFFFF, userid);
+21417: 
+21418:             // Check device group link permission
+21419:             var rights = 0, r = mesh.links[userid];
+21420:             if (r != null) {
+21421:                 if (r.rights == 0xFFFFFFFF) { return removeUserRights(0xFFFFFFFF, userid); } // User has full rights thru a device group link, stop here.
+21422:                 rights = r.rights;
+21423:             }
+21424:             
+21425:             // Check permissions thru user groups
+21426:             var user = null;
+21427:             if (userid == userinfo._id) { user = userinfo; } else { if (users != null) { user = users[userid]; } }
+21428:             if (user != null) {
+21429:                 for (var i in user.links) {
+21430:                     if (i.startsWith('ugrp/')) {
+21431:                         r = mesh.links[i];
+21432:                         if (r != null) {
+21433:                             if (r.rights == 0xFFFFFFFF) { return removeUserRights(0xFFFFFFFF, userid); } // User has full rights thru a user group, stop here.
+21434:                             rights |= r.rights; // TODO: Deal with reverse permissions
+21435:                         }
+21436:                     }
+21437:                 }
+21438:             }
+21439: 
+21440:             return removeUserRights(rights, userid);
+21441:         }
+21442: 
+21443:         // Returns true if the user can view the given device group
+21444:         function IsMeshViewable(mesh, userid) {
+21445:             if (mesh == null) { return false; }
+21446:             if (userid == null) { userid = userinfo._id; }
+21447:             if (typeof mesh == 'string') { mesh = meshes[mesh] }
+21448:             if ((mesh == null) || (mesh.links == null)) { return false; }
+21449:             if (mesh.links[userid] != null) { return true; } // User has visilibity thru a direct link
+21450: 
+21451:             // Check if user user
+21452:             if (serverinfo.manageAllDeviceGroups && (userid == userinfo._id)) return true;
+21453: 
+21454:             // Check permissions thru user groups
+21455:             var user = null;
+21456:             if (userid == userinfo._id) { user = userinfo; } else { if (users != null) { user = users[userid]; } }
+21457:             if (user != null) {
+21458:                 for (var i in user.links) {
+21459:                     if ((i.startsWith('ugrp/')) && (mesh.links[i] != null)) { return true; } // User has visilibity thru a user group
+21460:                 }
+21461:             }
+21462: 
+21463:             return false;
+21464:         }
+21465: 
+21466:         // Return the user rights for a given node
+21467:         function GetNodeRights(node, userid) {
+21468:             if (node == null) { return 0; }
+21469:             if (userid == null) { userid = userinfo._id; }
+21470:             if (typeof node == 'string') { node = getNodeFromId(node); if (node == null) { return 0; } }
+21471:             var r = GetMeshRights(node.meshid, userid);
+21472:             if (r == 0xFFFFFFFF) return removeUserRights(r, userid);
+21473: 
+21474:             // Check direct device rights using device data
+21475:             if ((node.links != null) && (node.links[userid] != null)) { r |= node.links[userid].rights; } // TODO: Deal with reverse permissions
+21476: 
+21477:             // Check direct device rights thru user groups
+21478:             if ((node.links != null) && (userinfo.links != null)) {
+21479:                 for (var i in node.links) {
+21480:                     if (i.startsWith('ugrp/') && (userinfo.links[i] != null) && (node.links[i].rights != null)) { r |= node.links[i].rights; }
+21481:                 }
+21482:             }
+21483: 
+21484:             // Check direct device rights using user data
+21485:             /*
+21486:             var user = null;
+21487:             if (userid == userinfo._id) { user = userinfo; } else { if (users != null) { user = users[userid]; } }
+21488:             if ((user != null) && (user.links != null)) {
+21489:                 var r2 = user.links[node._id];
+21490:                 if (r2 != null) {
+21491:                     if (r2.rights == 0xFFFFFFFF) { return 0xFFFFFFFF; } // User has full rights thru a device link, stop here.
+21492:                     r |= r2.rights; // TODO: Deal with reverse permissions
+21493:                 }

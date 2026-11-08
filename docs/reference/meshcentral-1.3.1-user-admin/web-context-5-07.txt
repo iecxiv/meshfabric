@@ -1,0 +1,47 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 7/11 (may continue a source line)
+
+626:             if (Q('d2serviceselect').value == 0) { Q('d2handleinput')['placeholder'] = ''; }
+18627:             else if (Q('d2serviceselect').value == 4) { Q('d2handleinput')['placeholder'] = "Username:0000"; }
+18628:             else if (Q('d2serviceselect').value == 8) { Q('d2handleinput')['placeholder'] = "username@server.com"; }
+18629:             else if (Q('d2serviceselect').value == 16) { Q('d2handleinput')['placeholder'] = 'https://api.callmebot.com/...'; }
+18630:             else if (Q('d2serviceselect').value == 32) { Q('d2handleinput')['placeholder'] = "User key"; }
+18631:             else if (Q('d2serviceselect').value == 64) { Q('d2handleinput')['placeholder'] = "Topic"; }
+18632:             else if (Q('d2serviceselect').value == 128) { Q('d2handleinput')['placeholder'] = "username@sample.com"; }
+18633:             else if (Q('d2serviceselect').value == 256) { Q('d2handleinput')['placeholder'] = 'https://hooks.slack.com/...'; }
+18634:             else { Q('d2handleinput')['placeholder'] = "Username"; }
+18635:             if (x == 1) { dialogclose(1); }
+18636:         }
+18637: 
+18638:         // Send to the server the user's messaging account
+18639:         function p30editMessagingEx() {
+18640:             var handle = null;
+18641:             if ((Q('d2handleinput').value == '') || (Q('d2serviceselect').value == 0)) { handle = ''; }
+18642:             else if (Q('d2serviceselect').value == 1) { handle = 'telegram:@' + Q('d2handleinput').value; }
+18643:             else if (Q('d2serviceselect').value == 4) { handle = 'discord:' + Q('d2handleinput').value; }
+18644:             else if (Q('d2serviceselect').value == 8) { handle = 'xmpp:' + Q('d2handleinput').value; }
+18645:             else if (Q('d2serviceselect').value == 16) { handle = 'callmebot:' + Q('d2handleinput').value; }
+18646:             else if (Q('d2serviceselect').value == 32) { handle = 'pushover:' + Q('d2handleinput').value; }
+18647:             else if (Q('d2serviceselect').value == 64) { handle = 'ntfy:' + Q('d2handleinput').value; }
+18648:             else if (Q('d2serviceselect').value == 128) { handle = 'zulip:' + Q('d2handleinput').value; }
+18649:             else if (Q('d2serviceselect').value == 256) { handle = 'slack:' + Q('d2handleinput').value; }
+18650:             if (handle != null) { meshserver.send({ action: 'edituser', id: currentUser._id, msghandle: handle }); }
+18651:         }
+18652: 
+18653:         function p20edituserfeatures() {
+18654:             if (xxdialogMode) return;
+18655:             var flags = (currentUser.flags)?currentUser.flags:0, x = ''; // Flags: 1 = Account Image, 2 = Session Recording
+18656:             var removeRights = (currentUser.removeRights)?currentUser.removeRights:0, x = ''; // Remove Device Group Rights
+18657:             if (serverinfo.usersSessionRecording == 1) {
+18658:                 x += '<div><label><input type=checkbox id=d20flag1 onchange=p20edituserfeaturesValidate() ' + ((flags & 2) ? 'checked' : '') + '>' + "Record sessions" + '</label><br></div>';
+18659:             }
+18660:             x += '<div><label><input type=checkbox id=d20flag7 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00000008) ? 'checked' : '') + '>' + "No Remote Control" + '</label><br></div>';
+18661:             x += '<div style=margin-left:8px><label><input type=checkbox id=d20flag2 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00010000) ? 'checked' : '') + '>' + "No Desktop Access" + '</label><br></div>';
+18662:             x += '<div style=margin-left:16px><label><input type=checkbox id=d20flag3 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00000100) ? 'checked' : '') + '>' + "Remote View Only" + '</label><br></div>';
+18663:             x += '<div style=margin-left:8px><label><input type=checkbox id=d20flag4 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00000200) ? 'checked' : '') + '>' + "No Terminal Access" + '</label><br></div>';
+18664:             x += '<div style=margin-left:8px><label><input type=checkbox id=d20flag5 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00000400) ? 'checked' : '') + '>' + "No File Access" + '</label><br></div>';
+18665:             x += '<div style=margin-left:8px><label><input type=checkbox id=d20flag12 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00400000) ? 'checked' : '') + '>' + "No Registry Access" + '</label><br></div>';
+18666:             x += '<div style=margin-left:8px><label><input type=checkbox id=d20flag13 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00800000) ? 'checked' : '') + '>' + "No Software" + '</label><br></div>';
+18667:             x += '<div><label><input type=checkbox id=d20flag6 onchange=p20edituserfeaturesValidate() ' + ((removeRights & 0x00000010) ? 'checked' : '') + '>' + "No Agent Console" + '</label><br></div>';
+18668:             x += '<div><label><input type=checkbox id=d20flag8 onchange=p20edituserfeaturesValidate() ' 

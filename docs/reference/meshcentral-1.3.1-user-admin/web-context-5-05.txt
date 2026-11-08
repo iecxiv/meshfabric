@@ -1,0 +1,67 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 5/11 (may continue a source line)
+
+ timeline
+18529:             drawUserPermissions();
+18530: 
+18531:             // Check if we can change password / delete this user
+18532:             var userAdminRights = (((userinfo.siteadmin != null) && (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF)) || (userinfo.siteadmin == 0xFFFFFFFF));
+18533: 
+18534:             // Show bottom buttons
+18535:             x = '<div style=float:right;font-size:small>';
+18536:             if (userAdminRights && (userinfo._id != user._id)) { x += '<a href=# style=cursor:pointer onclick=\'return p30showDeleteUserDialog()\' title="' + "Remove this user" + '">' + "Delete User" + '</a>'; }
+18537:             x += '</div><div style=font-size:small>';
+18538:             // If user admin rights and not SSPI/LDAP and UserID does not start with ~, show change password
+18539:             if (userAdminRights && ((features & 0x00080000) == 0) && (user._id.split('/')[2][0] != '~')) {
+18540:                 x += '<a href=# style=cursor:pointer onclick=\'return p30showUserChangePassDialog(' + multiFactor + ')\' title="' + "Change the password for this user" + '">' + "Change Password" + '</a>';
+18541:                 x += ' <a href=# style=cursor:pointer onclick=\'return p30viewPreviousLogins()\' title="' + "View previous logins for this user" + '">' + "Previous Logins" + '</a>';
+18542:             }
+18543:             x += '</div><br>'
+18544:             QH('p30html3', x);
+18545: 
+18546:             // Update user's connection state
+18547:             x = '';
+18548:             if (activeSessions == 1) { x = "1 active session"; } else if (activeSessions > 1) { x = format("{0} active sessions", activeSessions); }
+18549:             QH('MainUserState', x);
+18550: 
+18551:             go(30);
+18552: 
+18553:             // Update user events (TODO: do this only if we change users)
+18554:             QH('p31events', '');
+18555:             refreshUsersEvents();
+18556: 
+18557:             // Change the URL
+18558:             var urlviewmode = '';
+18559:             if (((features & 0x10000000) == 0) && (xxcurrentView >= 30) && (xxcurrentView <= 39) && (currentUser != null)) {
+18560:                 urlviewmode = '?viewmode=' + xxcurrentView + '&gotouser=' + ((serverinfo.crossDomain)?currentUser._id:currentUser._id.split('/')[2]);
+18561:                 for (var i in urlargs) { urlviewmode += ('&' + i + '=' + urlargs[i]); }
+18562:                 try { window.history.replaceState({}, document.title, window.location.pathname + urlviewmode); } catch (ex) { }
+18563:             }
+18564:         }
+18565: 
+18566:         function p30editPhone() {
+18567:             if (xxdialogMode) return;
+18568:             var x = '<table style=width:100%><tr><td style=width:56px><img src="images/phone80.png" style=padding:8px>';
+18569:             x += '<td style=width:100%;text-align:center>' + "SMS capable phone number for this user." + '<br />' + "Leave blank for none.";
+18570:             x += '<br /><br /><div style=width:100%;text-align:center>' + "Phone number:" + ' <input type=tel pattern="[0-9]" autocomplete="tel" value="' + (currentUser.phone?currentUser.phone:'') + '" inputmode="tel" maxlength=18 id=d2phoneinput onKeyUp=p30editPhoneValidate() onkeypress="if (event.key==\'Enter\') p30editPhoneValidate(1)"></div></table>';
+18571:             setDialogMode(2, "Phone Notifications", 3, p30editPhoneEx, x, 'verifyPhone');
+18572:             Q('d2phoneinput').focus();
+18573:             p30editPhoneValidate();
+18574:         }
+18575: 
+18576:         function p30editMessaging() {
+18577:             if (xxdialogMode) return;
+18578:             var x = '<table style=width:100%><tr><td style=width:56px;vertical-align:top><img src="images/messaging40.png" style=padding:8px>';
+18579:             x += '<td style=width:100%>' + "Messaging account for this user.";
+18580:             var y = '<select id=d2serviceselect style=width:160px;margin-left:8px onchange=p30editMessagingValidate()><option value=0>' + "None" + '</option>';
+18581:             if ((serverinfo.userMsgProviders &  1) != 0) { y += '<option value=1>' + "Telegram" + '</option>'; }
+18582:             if ((serverinfo.userMsgProviders &  4) != 0) { y += '<option value=4>' + "Discord" + '</option>'; }
+18583:             if ((serverinfo.userMsgProviders &  8) != 0) { y += '<option value=8>' + "XMPP" + '</option>'; }
+18584:             if ((serverinfo.userMsgProviders & 16) != 0) { y += '<option value=16>' + "CallMeBot" + '</option>'; }
+18585:             if ((serverinfo.userMsgProviders & 32) != 0) { y += '<option value=32>' + "Pushover" + '</option>'; }
+18586:             if ((serverinfo.userMsgProviders & 64) != 0) { y += '<option value=64>' + "ntfy" + '</option>'; }
+18587:             if ((serverinfo.userMsgProviders & 128) != 0) { y += '<option value=128>' + "Zulip" + '</option>'; }
+18588:             if ((serverinfo.userMsgProviders & 256) != 0) { y += '<option value=256>' + "Slack" + '</option>'; }
+18589:             y += '</select>';
+18

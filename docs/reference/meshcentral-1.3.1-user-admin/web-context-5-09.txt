@@ -1,0 +1,78 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 9/11 (may continue a source line)
+
+erEmailChangeDialogEx, x);
+18742:             Q('dp30email').focus();
+18743:             Q('dp30email').value = (currentUser.email?currentUser.email:'');
+18744:             if (serverinfo.emailcheck) { Q('dp30verified').value = currentUser.emailVerified?1:0; }
+18745:             p30validateEmail();
+18746:             return false;
+18747:         }
+18748: 
+18749:         // Perform validation on the user's email change dialog box
+18750:         function p30validateEmail() {
+18751:             var v = Q('dp30email').value, x = v.split('@');
+18752:             x = (v.length == 0) || ((x.length == 2) && (x[0].length > 0) && (x[1].split('.').length > 1) && (x[1].length > 2) && (v.length < 1024) && ((v != userinfo.email) || ((serverinfo.emailcheck == true) && (Q('dp30verified').value != (userinfo.emailVerified?1:0)))));
+18753:             QE('idx_dlgOkButton', x);
+18754:         }
+18755: 
+18756:         // Send to the server the new user's email address and validation status
+18757:         function p30showUserEmailChangeDialogEx() {
+18758:             var x = { action: 'edituser', id: currentUser._id, email: Q('dp30email').value };
+18759:             if (serverinfo.emailcheck) { x.emailVerified = (Q('dp30verified').value == 1); }
+18760:             meshserver.send(x);
+18761:         }
+18762: 
+18763:         // Display the previous logins of this user
+18764:         function p30viewPreviousLogins() {
+18765:             if (xxdialogMode) return;
+18766:             setDialogMode(2, "Previous Logins", 1, null, "Loading...", 'previousLogins:' + currentUser._id);
+18767:             meshserver.send({ action: 'previousLogins', userid: currentUser._id });
+18768:         }
+18769: 
+18770:         // Display the user's password change dialog box
+18771:         function p30showUserChangePassDialog(multiFactor) {
+18772:             if (xxdialogMode) return;
+18773:             var x = '';
+18774:             x += addHtmlValue("Password", '<input id=p4pass1 type=password style=width:230px maxlength=256 onchange=p30showUserChangePassDialogValidate(1) onkeyup=p30showUserChangePassDialogValidate(1)></input>');
+18775:             x += addHtmlValue("Password", '<input id=p4pass2 type=password style=width:230px maxlength=256 onchange=p30showUserChangePassDialogValidate(1) onkeyup=p30showUserChangePassDialogValidate(1)></input>');
+18776:             if (features & 0x00010000) { x += addHtmlValue("Password hint", '<input id=p4hint type=text style=width:230px maxlength=256></input>'); }
+18777: 
+18778:             if (passRequirements) {
+18779:                 var r = [], rc = 0;
+18780:                 for (var i in passRequirements) { if ((i != 'reset') && (i != 'hint')) { r.push(i + ':' + passRequirements[i]); rc++; } }
+18781:                 if (rc > 0) { x += '<div style=font-size:x-small;padding:6px>' + format("Requirements: {0}.", r.join(', ')) + '</div>'; }
+18782:             }
+18783: 
+18784:             x += '<div><label><input id=p4resetNextLogin type=checkbox />' + "Force password reset on next login." + '</label></div>';
+18785:             if (multiFactor == 1) { x += '<div><label><input id=p4twoFactorRemove type=checkbox />' + "Remove all 2nd factor authentication." + '</label></div>'; }
+18786:             setDialogMode(2, format("Change Password for {0}", EscapeHtml(currentUser.name)), 3, p30showUserChangePassDialogEx, x, multiFactor);
+18787:             p30showUserChangePassDialogValidate();
+18788:             Q('p4pass1').focus();
+18789:             if (currentUser.passchange == -1) { Q('p4resetNextLogin').checked = true; }
+18790:         }
+18791: 
+18792:         function p30showUserChangePassDialogValidate() {
+18793:             var ok = true;
+18794:             if ((Q('p4pass1').value != '') || (Q('p4pass2').value != '')) {
+18795:                 if (Q('p4pass1').value != Q('p4pass2').value) { ok = false; } else {
+18796:                     if (passRequirements) { if (checkPasswordRequirements(Q('p4pass1').value, passRequirements) == false) { ok = false; } }
+18797:                 }
+18798:             }
+18799:             QE('idx_dlgOkButton', ok);
+18800:         }
+18801: 
+18802:         function p30showUserChangePassDialogEx(b, tag) {
+18803:             var removeMultiFactor = false;
+18804:             if ((tag == 1) && (Q('p4twoFactorRemove').checked == true)) { removeMultiFactor = true; }
+18805:             if (Q('p4pass1').value == Q('p4pass2').value) {
+18806:                 var r = { action: 'changeuserpass', userid: currentUser._id, pass: Q('p4pass1').value, removeMultiFactor: removeMultiFactor, resetNextLogin: Q('p4resetNextLogin').checked };
+18807:                 if (features & 0x00010000) { r.hint = Q('p4hint').value; }
+18808:                 meshserver.send(r);
+18809:             }
+18810:         }
+18811: 
+18812:         function p30showDeleteUserDialog() {
+18813:             if (xxdialogMode) return;
+18814:             setDialogMode(2, format("Delete User {0}", EscapeHtml(currentUser.name)), 3, p30showDeleteUs

@@ -1,0 +1,61 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1275-1397 | part 2/3 (may continue a source line)
+
+anDevice(node));
+1333: 
+1334:                                     // Event the node change
+1335:                                     var event;
+1336:                                     if (command.rights == 0) {
+1337:                                         event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: deluserdomain.id, msgid: 60, msgArgs: [node.name], msg: 'Removed user device rights for ' + node.name, node: parent.CloneSafeNode(node) }
+1338:                                     } else {
+1339:                                         event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: deluserdomain.id, msgid: 61, msgArgs: [node.name], msg: 'Changed user device rights for ' + node.name, node: parent.CloneSafeNode(node) }
+1340:                                     }
+1341:                                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1342:                                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1343:                                     }
+1344:                                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+1345:                                     parent.parent.DispatchEvent(parent.CreateNodeDispatchTargets(node.meshid, node._id), obj, event);
+1346:                                 });
+1347:                             } else if (i.startsWith('ugrp/')) {
+1348:                                 // Get the device group
+1349:                                 var ugroup = parent.userGroups[i];
+1350:                                 if (ugroup) {
+1351:                                     // Remove user from the user group
+1352:                                     if (ugroup.links[deluser._id] != null) { delete ugroup.links[deluser._id]; parent.db.Set(ugroup); }
+1353: 
+1354:                                     // Notify user group change
+1355:                                     change = 'Removed user ' + deluser.name + ' from user group ' + ugroup.name;
+1356:                                     var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: ugroup._id, name: ugroup.name, desc: ugroup.desc, action: 'usergroupchange', links: ugroup.links, msgid: 62, msgArgs: [deluser.name, ugroup.name], msg: 'Removed user ' + deluser.name + ' from user group ' + ugroup.name, addUserDomain: deluserdomain.id };
+1357:                                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1358:                                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1359:                                     }
+1360:                                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+1361:                                     parent.parent.DispatchEvent(['*', ugroup._id, user._id, deluser._id], obj, event);
+1362:                                 }
+1363:                             }
+1364:                         }
+1365:                     }
+1366: 
+1367:                     db.Remove('ws' + deluser._id);  // Remove user web state
+1368:                     db.Remove('nt' + deluser._id);  // Remove notes for this user
+1369:                     db.Remove('ntp' + deluser._id); // Remove personal notes for this user
+1370:                     db.Remove('im' + deluser._id);  // Remove image for this user
+1371: 
+1372:                     // Delete any login tokens
+1373:                     parent.parent.db.GetAllTypeNodeFiltered(['logintoken-' + deluser._id], domain.id, 'logintoken', null, function (err, docs) {
+1374:                         if ((err == null) && (docs != null)) { for (var i = 0; i < docs.length; i++) { parent.parent.db.Remove(docs[i]._id, function () { }); } }
+1375:                     });
+1376: 
+1377:                     // Delete all files on the server for this account
+1378:                     try {
+1379:                         var deluserpath = parent.getServerRootFilePath(deluser);
+1380:                         if (deluserpath != null) { parent.deleteFolderRec(deluserpath); }
+1381:                     } catch (e) { }
+1382: 
+1383:                     db.Remove(deluserid);
+1384:                     delete parent.users[deluserid];
+1385: 
+1386:                     var targets = ['*', 'server-users'];
+1387:                     if (deluser.groups) { for (var i in deluser.groups) { targets.push('server-users:' + i); } }
+1388:                     parent.parent.DispatchEvent(targets, obj, { etype: 'user', userid: deluserid, username: deluser.name, action: 'accountremove', msgid: 63, msg: 'Account removed',

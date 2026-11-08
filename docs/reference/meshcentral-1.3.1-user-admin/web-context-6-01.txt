@@ -1,0 +1,96 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 21241-21493 | part 1/3 (may continue a source line)
+
+21241:             x += '<option value="">-- ' + (type === 'mesh' ? "Select Device Group" : "Select Device" ) + ' --</option>';
+21242:             
+21243:             if (type === 'mesh') {
+21244:                 var list = permissionListData.meshes;
+21245:                 if (list) {
+21246:                     list.forEach(function(item) {
+21247:                         x += '<option value="' + EscapeHtml(item._id) + '">' + EscapeHtml(item.name) + '</option>';
+21248:                     });
+21249:                 }
+21250:             } else {
+21251:                 // Group nodes by mesh
+21252:                 var groupedNodes = {};
+21253:                 if (permissionListData.nodes) {
+21254:                     permissionListData.nodes.forEach(function(n) {
+21255:                         var meshGroup = n.meshname || 'Ungrouped';
+21256:                         if (!groupedNodes[meshGroup]) groupedNodes[meshGroup] = [];
+21257:                         groupedNodes[meshGroup].push(n);
+21258:                     });
+21259:                 }
+21260:                 for (var meshName in groupedNodes) {
+21261:                     x += '<optgroup label="🖥️ ' + EscapeHtml(meshName) + '">';
+21262:                     groupedNodes[meshName].forEach(function(item) {
+21263:                         x += '<option value="' + EscapeHtml(item._id) + '">  ' + EscapeHtml(item.name) + '</option>';
+21264:                     });
+21265:                     x += '</optgroup>';
+21266:                 }
+21267:             }
+21268:             x += '</select>';
+21269:             
+21270:             x += '<div id="meshNodePermContent_' + type + '"></div>';
+21271:             
+21272:             return x;
+21273:         }
+21274:         
+21275:         function renderMeshNodePerms(type, selectedId) {
+21276:             var content = document.getElementById('meshNodePermContent_' + type);
+21277:             if (!selectedId) {
+21278:                 content.innerHTML = '';
+21279:                 return;
+21280:             }
+21281:             
+21282:             var data = currentPluginPermissions.data;
+21283:             var definitions = data.definitions || {};
+21284:             var permissions = data.permissions || {};
+21285:             var defaults = data.defaults || {};
+21286:             
+21287:             var overrideKey = type === 'mesh' ? 'meshOverrides' : 'nodeOverrides';
+21288:             
+21289:             // Extract override data for the selected mesh/node
+21290:             var overrideData = {};
+21291:             for (var pk in definitions) {
+21292:                 if (permissions[pk] && permissions[pk][overrideKey] && permissions[pk][overrideKey][selectedId]) {
+21293:                     overrideData[pk] = permissions[pk][overrideKey][selectedId];
+21294:                 } else {
+21295:                     overrideData[pk] = {
+21296:                         allowed: { users: [], userGroups: [], meshes: [], nodes: [] },
+21297:                         denied: { users: [], userGroups: [], meshes: [], nodes: [] }
+21298:                     };
+21299:                 }
+21300:             }
+21301:             
+21302:             var displayName = '';
+21303:             var list = type === 'mesh' ? permissionListData.meshes : permissionListData.nodes;
+21304:             if (list) {
+21305:                 var item = list.find(function(i) { return i._id === selectedId; });
+21306:                 if (item) displayName = item.name;
+21307:             }
+21308:             
+21309:             // Store current override data for this mesh/node in a temporary location
+21310:             window.currentPermOverride = { type: type, id: selectedId, data: overrideData };
+21311:             
+21312:             var x = '<div style="background:#d1ecf1; padding:10px; border-radius:4px; margin-bottom:15px;"><strong>' + EscapeHtml(displayName) + '</strong> - ' + "Specific permissions" + '</div>';
+21313:             x += buildPermissionSection(definitions, permissions, defaults, type, selectedId, overrideData);
+21314:             
+21315:             content.innerHTML = x;
+21316:         }
+21317:         
+21318:         function savePluginPermissionsEx() {
+21319:             if (!currentPluginPermissions || !permissionListData) return;
+21320:                         
+21321:             var pluginName = document.getElementById('permPluginShortName').value;
+21322:             var definitions = currentPluginPermissions.data.definitions || {};
+21323:             var permissions = {};
+21324:             var defaults = {};
+21325:             
+21326:             // Initialize mesh and node overrides storage if not exists
+21327:             if (!window.meshOverridesState) window.meshOverridesState = {};
+21328:             if (!window.nodeOverridesState) window.nodeOverridesState = {};
+21329:             
+21330:             // Collect defaults from DOM
+21331:             for (var permKey in definitions) {
+21332:                 defaults[permKey] = docu

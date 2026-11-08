@@ -1,0 +1,67 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 17216-17479 | part 1/4 (may continue a source line)
+
+17216:                         hiddenUsers++;
+17217:                     }
+17218:                 }
+17219:             }
+17220:             x += '</table>';
+17221:             if (hiddenUsers == 1) { x += '<br />' + "1 more user not shown, use search box to look for users..." + '<br />'; }
+17222:             else if (hiddenUsers > 1) { x += '<br />' + format("{0} more users not shown, use search box to look for users...", hiddenUsers) + '<br />'; }
+17223:             if (maxUsers == displayUsersLimit) { x += '<br />' + "No users found." + '<br />'; }
+17224:             QH('p3users', x);
+17225: 
+17226:             // Re-check userid's
+17227:             elements = document.getElementsByClassName('UserCheckbox');
+17228:             var eself = encodeURIComponentEx(userinfo._id);
+17229:             for (var i=0;i<elements.length;i++) { elements[i].checked = ((checkedUserids.indexOf(elements[i].value) >= 0) && (elements[i].value != eself)); }
+17230:             p3updateInfo();
+17231: 
+17232:             // Update current user panel if needed
+17233:             if ((currentUser != null) && (xxcurrentView == 30)) { gotoUser(encodeURIComponentEx(currentUser._id),true); }
+17234:         }
+17235: 
+17236:         function addUserHtml(user, sessions) {
+17237:             var x = '', gray = ' gray', icon = 'm2', msg = '', self = (user._id != userinfo._id), lastAccess = '', permissions = '';
+17238:             if (sessions != null) {
+17239:                 gray = '';
+17240:                 if (self) {
+17241:                     msg = '<span style=float:right;margin-top:1px;margin-right:4px title=' + "Chat" + '><a href=# onclick=userChat(event,"' + encodeURIComponentEx(user._id) + '","' + encodeURIComponentEx(user.name) + '")><img src=\'images/icon-chat.png\' height=16 width=16 style=padding-top:2px /></a></span>';
+17242:                     msg += '<span style=float:right;margin-top:1px;margin-left:4px;margin-right:4px title=Notify><a href=# onclick=\'return showUserAlertDialog(event,"' + encodeURIComponentEx(user._id) + '")\'><img src=\'images/icon-notify.png\' height=16 width=16 style=padding-top:2px /></a></span>';
+17243:                 }
+17244:                 if (sessions == 1) { lastAccess += nobreak("1 session"); } else { lastAccess += nobreak(format("{0} sessions", sessions)); }
+17245:             } else {
+17246:                 if (user.access) { lastAccess += '<span title="' + format("Last access: {0}", printDateTime(new Date(user.access * 1000))) + '">' + printDate(new Date(user.access * 1000)) + '</span>'; }
+17247:                 else if (user.login) { lastAccess += '<span title="' + format("Last login: {0}", printDateTime(new Date(user.login * 1000))) + '">' + printDate(new Date(user.login * 1000)) + '</span>'; }
+17248:             }
+17249:             if (self) { permissions += '<a href=# style=cursor:pointer onclick=\'return showUserAdminDialog(event,"' + encodeURIComponentEx(user._id) + '")\'>'; }
+17250:             if ((user.siteadmin != null) && ((user.siteadmin & 32) != 0) && (user.siteadmin != 0xFFFFFFFF)) { permissions += "Locked" + ',&nbsp;'; }
+17251:             permissions += '<span title=\'' + "Server Permissions" + '\'>';
+17252: 
+17253:             var urights = user.siteadmin & (0xFFFFFFFF - 1248);
+17254:             if ((user.siteadmin == null) || (urights == 0)) {
+17255:                 permissions += "User";
+17256:             } else if (urights == 8) {
+17257:                 permissions += "User + Files";
+17258:             } else if (user.siteadmin == 0xFFFFFFFF) {
+17259:                 permissions += "Administrator";
+17260:             } else if ((urights & 2) != 0) {
+17261:                 permissions += "Manager";
+17262:             } else {
+17263:                 permissions += "Partial";
+17264:             }
+17265:             if ((user.siteadmin != null) && (user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & (64 + 128 + 1024)) != 0)) { permissions += '*'; }
+17266:             permissions += '</span>';
+17267:             //if ((user.quota != null) && ((user.siteadmin & 8) != 0)) { msg += ", " + (user.quota / 1024) + " k"; }
+17268:             if (self) { permissions += '</a>'; }
+17269: 
+17270:             var groups = 0
+17271:             if (user.links) { for (var i in user.links) { if (i.startsWith('mesh/')) { groups++; } } }
+17272: 
+17273:             var username = EscapeHtml(user.name), emailVerified = '';
+17274:             if (serverinfo.emailcheck == true) { emailVerified = ((user.emailVerified != true) ? ' <b style=color:red title="' + "Email is not verified" + '">&#x2717;</b>' : ' <b style=color:green title="' + "Email is verified" + '">&#x2713</b>'); }
+17275:             if (user.email != null) {
+17276:                 if (((features & 0x200000) == 0) || (user.email.toLowerCase() != user.name.toLowerCase())) {
+17277:                     // Username & email are different
+17278:                     username += ', <a href="mailto:' + EscapeHtml(user.email) + '" \'>' + Esc

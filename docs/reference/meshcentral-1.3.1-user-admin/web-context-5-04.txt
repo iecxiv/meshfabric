@@ -1,0 +1,59 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 4/11 (may continue a source line)
+
+4:             {
+18475:                 var meshFeatures = [], consent = 0;
+18476:                 if (user.consent) { consent = user.consent; }
+18477:                 if (serverinfo.consent) { consent |= serverinfo.consent; }
+18478:                 if ((consent & 0x0040) && (consent & 0x0008)) { meshFeatures.push("Desktop Prompt+Toolbar"); } else if (consent & 0x0040) { meshFeatures.push("Desktop Toolbar"); } else if (consent & 0x0008) { meshFeatures.push("Desktop Prompt"); } else { if (consent & 0x0001) { meshFeatures.push("Desktop Notify"); } }
+18479:                 if (consent & 0x0010) { meshFeatures.push("Terminal Prompt"); } else { if (consent & 0x0002) { meshFeatures.push("Terminal Notify"); } }
+18480:                 if (consent & 0x0020) { meshFeatures.push("Files Prompt"); } else { if (consent & 0x0004) { meshFeatures.push("Files Notify"); } }
+18481:                 if (consent & 0x0100) { meshFeatures.push("Registry Prompt"); } else { if (consent & 0x0080) { meshFeatures.push("Registry Notify"); } }
+18482:                 if (consent == 0x0087) { meshFeatures = ["Always Notify"]; }
+18483:                 if ((consent & 0x0138) == 0x0138) { meshFeatures = ["Always Prompt"]; }
+18484: 
+18485:                 meshFeatures = meshFeatures.join(', ');
+18486:                 if (meshFeatures == '') { meshFeatures = '<i>' + "None" + '</i>'; }
+18487:                 x += addDeviceAttribute("User Consent", addLinkConditional(meshFeatures, 'p20editmeshconsent(2)', true));
+18488:             }
+18489: 
+18490:             var multiFactor = 0;
+18491:             if ((user.otpsecret > 0) || (user.otphkeys > 0) || (user.otpekey > 0) || (user.otpduo > 0)) {
+18492:                 multiFactor = 1;
+18493:                 var factors = [];
+18494:                 if (user.otpsecret > 0) { factors.push("Authentication App"); }
+18495:                 if (user.otphkeys > 0) { factors.push("Security Key"); }
+18496:                 if (user.otpekey > 0) { factors.push("Email"); }
+18497:                 if (user.otpduo > 0) { factors.push("Duo"); }
+18498:                 if (user.otpkeys > 0) { factors.push("Backup Codes"); }
+18499:                 if (user.otpdev > 0) { factors.push("Device Push"); }
+18500:                 if ((user.phone != null) && (features & 0x04000000)) { factors.push("SMS"); }
+18501:                 if ((user.msghandle != null) && (features2 & 0x04000000)) { factors.push("Messaging"); }
+18502:                 x += addDeviceAttribute("Security", '<img src="images/key12.png" height=12 width=11 title="' + "2nd factor authentication enabled" + '" style="margin-top:2px" /> ' + factors.join(', '));
+18503:             }
+18504: 
+18505:             x += '</table></div><br />';
+18506: 
+18507:             // Add action buttons
+18508:             x += '<input type=button value="' + "Notes" + '" title="' + "View notes about this user" + '" onclick=showNotes(false,"' + encodeURIComponentEx(user._id) + '") />';
+18509:             if (user.phone && (features & 0x02000000)) { x += '<input type=button value="' + "SMS" + '" title="' + "Send a SMS message to this user" + '" onclick=showSendSMS("' + encodeURIComponentEx(user._id) + '") />'; }
+18510:             if (user.msghandle && (features2 & 0x02000000)) { x += '<input type=button value="' + "Message" + '" title="' + "Send a message to this user" + '" onclick=showSendMessage("' + encodeURIComponentEx(user._id) + '") />'; }
+18511:             if ((typeof user.email == 'string') && (user.emailVerified === true) && (features & 0x00000040)) { x += '<input type=button value="' + "Email" + '" title="' + "Send a email message to this user" + '" onclick=showSendEmail("' + encodeURIComponentEx(user._id) + '") />'; }
+18512:             if (!self && ((activeSessions > 0) || ((features2 & 8) && (user.webpush)))) {
+18513:                 x += '<input type=button value="' + "Notify" + '" title="' + "Send user notification" + '" onclick=showUserAlertDialog(event,"' + encodeURIComponentEx(user._id) + '") />';
+18514:                 x += '<input type=button value="' + "Chat" + '" title="' + "Chat" + '" onclick=userChat(event,"' + encodeURIComponentEx(user._id) + '","' + encodeURIComponentEx(user.name) + '") />';
+18515:                 if ((activeSessions > 0) && (serverinfo != null) && (serverinfo.altmessenging != null)) {
+18516:                     for (var i in serverinfo.altmessenging) {
+18517:                         var am = serverinfo.altmessenging[i];
+18518:                         if ((am.type == null) || (am.type == 'user')) {
+18519:                             x += '<input type=button value="' + EscapeHtml(am.name) + '" onclick=altUserChat(event,"' + encodeURIComponentEx(user._id) + '","' + encodeURIComponentEx(user.name) + '",' + i + ') />';
+18520:                         }
+18521:                     }
+18522:                 }
+18523:             }
+18524: 
+18525:             // Setup the panel
+18526:             QH('p30html', x);
+18527: 
+18528:             // Draw the user

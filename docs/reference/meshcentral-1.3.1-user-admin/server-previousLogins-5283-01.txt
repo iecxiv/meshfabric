@@ -1,0 +1,58 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 5283-5336 | part 1/1 (may continue a source line)
+
+5283:             case 'previousLogins': {
+5284:                 // TODO: Make a better database call to get filtered data.
+5285:                 if ((command.userid != null) && (typeof command.userid != 'string')) break;
+5286:                 if (command.userid == null) {
+5287:                     var splitUser = user._id.split('/');
+5288:                     // Get previous logins for self
+5289:                     if (db.GetUserLoginEvents) {
+5290:                         // New way
+5291:                         db.GetUserLoginEvents(domain.id, user._id, function (err, docs) {
+5292:                             if (err != null) return;
+5293:                             var e = [];
+5294:                             for (var i in docs) { e.push({ t: docs[i].time, m: docs[i].msgid, a: docs[i].msgArgs, tn: docs[i].tokenName }); }
+5295:                             try { ws.send(JSON.stringify({ action: 'previousLogins', events: e })); } catch (ex) { }
+5296:                         });
+5297:                     } else {
+5298:                         // Old way
+5299:                         db.GetUserEvents([user._id], domain.id, user._id, null, function (err, docs) {
+5300:                             if (err != null) return;
+5301:                             var e = [];
+5302:                             for (var i in docs) {
+5303:                                 if ((docs[i].msgArgs) && (docs[i].userid == user._id) && ((docs[i].action == 'authfail') || (docs[i].action == 'login'))) {
+5304:                                     e.push({ t: docs[i].time, m: docs[i].msgid, a: docs[i].msgArgs, tn: docs[i].tokenName });
+5305:                                 }
+5306:                             }
+5307:                             try { ws.send(JSON.stringify({ action: 'previousLogins', events: e })); } catch (ex) { }
+5308:                         });
+5309:                     }
+5310:                 } else {
+5311:                     // Get previous logins for specific userid
+5312:                     if ((user.siteadmin & SITERIGHT_MANAGEUSERS) != 0) {
+5313:                         var splitUser = command.userid.split('/');
+5314:                         if ((obj.crossDomain === true) || (splitUser[1] === domain.id)) {
+5315:                             if (db.GetUserLoginEvents) {
+5316:                                 // New way
+5317:                                 db.GetUserLoginEvents(splitUser[1], command.userid, function (err, docs) {
+5318:                                     if (err != null) return;
+5319:                                     var e = [];
+5320:                                     for (var i in docs) { e.push({ t: docs[i].time, m: docs[i].msgid, a: docs[i].msgArgs }); }
+5321:                                     try { ws.send(JSON.stringify({ action: 'previousLogins', userid: command.userid, events: e })); } catch (ex) { }
+5322:                                 });
+5323:                             } else {
+5324:                                 // Old way
+5325:                                 db.GetUserEvents([command.userid], domain.id, user._id, null, function (err, docs) {
+5326:                                     if (err != null) return;
+5327:                                     var e = [];
+5328:                                     for (var i in docs) { if ((docs[i].msgArgs) && (docs[i].userid == command.userid) && ((docs[i].action == 'authfail') || (docs[i].action == 'login'))) { e.push({ t: docs[i].time, m: docs[i].msgid, a: docs[i].msgArgs }); } }
+5329:                                     try { ws.send(JSON.stringify({ action: 'previousLogins', userid: command.userid, events: e })); } catch (ex) { }
+5330:                                 });
+5331:                             }
+5332:                         }
+5333:                     }
+5334:                 }
+5335:                 break;
+5336:             }
