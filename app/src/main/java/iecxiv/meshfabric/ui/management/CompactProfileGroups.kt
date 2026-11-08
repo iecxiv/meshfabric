@@ -44,18 +44,18 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
         if(expanded) Column(Modifier.fillMaxWidth().padding(bottom=8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) { content() }
     }
 }
-@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit) {
+@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={}) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
-    var tab by remember(id) { mutableIntStateOf(0) }
+    var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
     var query by remember(id) { mutableStateOf("") }
     val group=s.groups.firstOrNull { it.optString("_id")==id }
-    LaunchedEffect(session,id) { if(group!=null) session.loadGroupDetails() }
+    LaunchedEffect(session,id,s.ready,s.busy) { if(group!=null && s.ready && !s.busy) session.loadGroupDetails() }
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(group?.optString("name")?.ifBlank { t("Grupo sin nombre","Unnamed group") } ?: t("Grupo no disponible","Group unavailable"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(s.busy || s.detailsBusy || s.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             if(group==null) Text(t("El grupo ya no está disponible en los datos recibidos.","The group is no longer available in the received data.")) else {
-                ManagementSectionTabs(listOf(t("Resumen","Summary"),t("Dispositivos","Devices"),t("Accesos","Access")),tab) {tab=it}
+                ManagementSectionTabs(listOf(t("Resumen","Summary"),t("Dispositivos","Devices"),t("Accesos","Access")),tab) {tab=it;onTabChanged(it)}
                 when(tab) {
                     0->{
                         Text(group.optString("desc").ifBlank { t("Sin descripción","No description") },style=MaterialTheme.typography.bodyMedium)
@@ -81,6 +81,7 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
                                 val name=s.users.firstOrNull { it.optString("_id")==member }?.optString("name") ?: s.userGroups?.firstOrNull { it.optString("_id")==member }?.optString("name") ?: member
                                 val rights=runCatching { val raw=requireNotNull(links).getJSONObject(member).get("rights"); require(raw is Number); userAdvancedMask(raw) }.getOrNull()
                                 ListItem(headlineContent={Text(name,maxLines=2,overflow=TextOverflow.Ellipsis)},supportingContent={Text(rights?.let { deviceGroupRightsLabel(it,es) } ?: t("Permisos no informados","Rights not reported"))},leadingContent={Icon(Icons.Default.Group,null)})
+if(onOpenUser!=null && profileAccessUserTarget(s,member)!=null) TextButton(enabled=s.canWrite,onClick={onOpenUser(member)}) {Text(t("Abrir usuario","Open user"))}
                             }
                             if(members.size>100) Text(t("Se muestran los primeros 100 accesos recibidos.","Showing the first 100 received assignments."),style=MaterialTheme.typography.bodySmall)
                         }

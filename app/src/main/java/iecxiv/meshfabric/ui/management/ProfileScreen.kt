@@ -33,17 +33,24 @@ var section by rememberSaveable { mutableStateOf("account") }
 val tab=profileSectionKeys.indexOf(section).coerceAtLeast(0)
 var form by remember { mutableStateOf<ProfileForm?>(null) }
 var groupDetails by remember { mutableStateOf<String?>(null) }
-var returnUser by remember { mutableStateOf<ProfileForm?>(null) }
+var origins by remember {mutableStateOf<List<ProfileOrigin>>(emptyList())}
+var groupDetailTab by remember {mutableIntStateOf(0)}
 var groupSearch by rememberSaveable { mutableStateOf("") }
 var broadcast by remember { mutableStateOf(false) }
+val closeProfileDialog:()->Unit={
+val restored=profilePopOrigin(origins,state.users.filter {canAdministerUser(state,it)}.map {it.optString("_id")}.toSet(),state.groups.map {it.optString("_id")}.toSet(),state.ready)
+origins=restored.second;form=null;groupDetails=null
+restored.first?.let {destination->if(destination.user!=null) form=destination.user else {groupDetails=destination.groupId;groupDetailTab=destination.groupTab}}
+}
+
 DisposableEffect(session) { onDispose { session.close() } }
 LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
 if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation() } finally { session.stop() } } else session.stop()
 } }
-LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; returnUser=null; broadcast=false } }
+LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false } }
 Column(modifier) {
-ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null; broadcast=false }
-if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;returnUser=null;form=null}}) else {
+ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false }
+if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
 "broadcastAccepted"->t("El servidor aceptó la difusión. No confirma recepción ni lectura.","The server accepted the broadcast. Receipt and reading are not confirmed.")
@@ -63,7 +70,7 @@ item { Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 ServerGeneralActions {
-if(users) TextButton(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={form=null;groupDetails=null;returnUser=null;broadcast=true}) {Text("Broadcast")}
+if(users) TextButton(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={form=null;groupDetails=null;origins=emptyList();groupDetailTab=0;broadcast=true}) {Text("Broadcast")}
 TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
 TextButton(enabled=state.canWrite && permitted && (if(users) state.canCreateUser else ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
 }
@@ -84,7 +91,7 @@ if(users && userIsLocked(row.optLong("siteadmin",0))) Text(t("Bloqueado","Locked
 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
 if(users) TextButton(enabled=state.canWrite && canLockUser(state,row),onClick={ form=ProfileForm(true,if(userIsLocked(row.optLong("siteadmin",0))) "unlock" else "lock",id,name) }) { Text(if(userIsLocked(row.optLong("siteadmin",0))) t("Desbloquear","Unlock") else t("Bloquear","Lock")) }
-if(!users) TextButton(enabled=state.ready && !state.busy,onClick={groupDetails=id;returnUser=null;form=null}) {Text(t("Abrir","Open"))}
+if(!users) TextButton(enabled=state.ready && !state.busy,onClick={groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}) {Text(t("Abrir","Open"))}
 TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) else ProfilePermissions.editGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"edit",id,name,row.optString("email"),row.optString("desc")) }) { Text(t("Editar","Edit")) }
 TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && id!=state.id else ProfilePermissions.deleteGroup(state.site,state.rights(row))),onClick={ form=ProfileForm(users,"delete",id,name) },colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)) { Text(t("Eliminar","Delete")) }
 }
@@ -95,9 +102,9 @@ TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && 
 }
 }
 if(broadcast && form==null && groupDetails==null) ProfileBroadcastDialog(session,state) {broadcast=false}
-groupDetails?.takeIf { form==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,returnUser!=null,onDismiss={val previous=returnUser;val restored=profileReturnUserId(previous?.id,state.users.map {it.optString("_id")}.toSet(),state.ready);groupDetails=null;returnUser=null;form=previous?.takeIf {it.id==restored}},onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
+groupDetails?.takeIf { form==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
 form?.let { selected->
-if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {returnUser=selected;groupDetails=id;form=null}}) { form=null } else key(selected) {
+if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {origins=profilePushOrigin(origins,ProfileOrigin(user=selected));groupDetailTab=0;groupDetails=id;form=null}},onDismiss=closeProfileDialog) else key(selected) {
 var name by remember { mutableStateOf(selected.name) }
 var description by remember { mutableStateOf(selected.description) }
 var confirmation by remember { mutableStateOf("") }
