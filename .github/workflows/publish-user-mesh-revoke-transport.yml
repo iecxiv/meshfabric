@@ -1,0 +1,127 @@
+name: Validate and publish isolated direct user revocation transport
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-revoke-transport.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-revoke-transport-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded isolated transport
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          session=base/'ProfileSession.kt';policy=base/'UserMeshRevokePolicy.kt'
+          for path,sha in {session:'7711cce3a2781d8e42e871921690a1ae87ad40e7',policy:'5723e603f1796eb7fa758695e715a6688d75e499'}.items():
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+str(path))
+          s=session.read_text()
+          def change(old,new):
+              global s
+              if s.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              s=s.replace(old,new,1)
+          change('val grantedDeviceGroup:String=""','val grantedDeviceGroup:String="",val revokedDirectUser:String="",val revokedDirectMesh:String=""')
+          change('private fun valid()=', 'private fun directMeshRevocation()=profileUserMeshRevokeChannel(pendingAction,expected.optBoolean("directMesh"))\nprivate fun valid()=')
+          groupGuard='pendingAction in setOf("removemeshuser","addmeshuser")'
+          if s.count(groupGuard)!=6:raise RuntimeError('Unexpected group transport guard count')
+          s=s.replace(groupGuard,'('+groupGuard+' && !directMeshRevocation())')
+          change('private fun loadLists() {','private fun loadLists() {\nif(directMeshRevocation() && expected.optBoolean("directAck")) expected.put("directUserRead",false).put("directMeshRead",false)')
+          change('private fun observeGroupMeshRevocation() {','''private fun observeUserMeshRevocation() {
+          if(!directMeshRevocation()) return
+          val uid=expected.optString("directUser");val mid=expected.optString("directTarget")
+          if(!profileUserMeshRevokeReadbackReady(state.value,uid,mid,expected.optBoolean("directAck"),expected.optBoolean("directUserRead"),expected.optBoolean("directMeshRead"))) return
+          state.update {it.copy(revokedDirectUser=uid,revokedDirectMesh=mid)}
+          finish("userMeshRevokedObserved",false);source.requestServerData()
+          }
+          private fun observeGroupMeshRevocation() {
+          if(directMeshRevocation()) return''')
+          change('if(first) { timer?.cancel(); loadLists() }','if(first) { timer?.cancel(); loadLists() }\nif(directMeshRevocation()) {if(!ProfilePermissions.manageUsers(state.value.site)) {stop();return};if(expected.optBoolean("directAck")) loadLists()}')
+          change('if(pendingAction in setOf("editusergroup","createusergroup",','if(!directMeshRevocation() && pendingAction in setOf("editusergroup","createusergroup",')
+          change('val list=records(p.opt(action)); reads.remove(action)','val list=records(p.opt(action)); reads.remove(action)\nif(directMeshRevocation() && expected.optBoolean("directAck")) expected.put(if(action=="users") "directUserRead" else "directMeshRead",list!=null && profileUserGroupMemberReadValid(p))')
+          change('if(reads.isEmpty()) readTimer?.cancel()','if(reads.isEmpty()) readTimer?.cancel()\nif(directMeshRevocation()) observeUserMeshRevocation()')
+          anchor='if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {'
+          change(anchor,anchor+'''
+          if(directMeshRevocation()) {
+          if(profileUserMeshRevokeAck(p,pendingId)) {expected.put("directAck",true).put("directUserRead",false).put("directMeshRead",false);loadLists()}
+          else if(p.has("error") || p.has("err") || (p.has("result") && p.optString("result")!="ok")) finish("rejected",false)
+          return
+          }''')
+          method='''@Synchronized fun submitUserMeshRevoke(p:JSONObject):Boolean {
+          val s=state.value
+          if(!valid() || !profileUserMeshRevokeAllowed(s,p,broadcastServerLabel())) return false
+          val payload=profileUserMeshRevokeWire(p)
+          pendingId=UUID.randomUUID().toString();pendingAction="removemeshuser";pendingTarget=p.getString("userid");pendingNode=""
+          expected=JSONObject().put("directMesh",true).put("directUser",p.getString("userid")).put("directTarget",p.getString("meshid")).put("directAck",false).put("directUserRead",false).put("directMeshRead",false)
+          payload.put("responseid",pendingId)
+          if(socket?.send(payload.toString())!=true) {stop("unknown");return false}
+          state.update {it.copy(busy=true,notice="sent",revokedDirectUser="",revokedDirectMesh="")}
+          val epoch=generation
+          timer?.cancel();timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingId.isNotBlank()) stop("unknown")}}
+          return true
+          }
+          '''
+          change('@Synchronized fun submit(p:JSONObject):Boolean {',method+'@Synchronized fun submit(p:JSONObject):Boolean {')
+          p=policy.read_text()+'\ninternal fun profileUserMeshRevokeChannel(action:String,direct:Boolean)=action=="removemeshuser" && direct\n'
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshRevokeChannelTest.kt')
+          if unit.exists():raise RuntimeError('New test already exists')
+          tests='''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class UserMeshRevokeChannelTest {
+              @Test fun directRevocationRequiresBothActionAndPrivateContext() {
+                  assertTrue(profileUserMeshRevokeChannel("removemeshuser",true))
+                  assertFalse(profileUserMeshRevokeChannel("removemeshuser",false))
+                  for(action in listOf("addmeshuser","edituser","removeuserfromusergroup","","adddeviceuser")) {
+                      assertFalse(profileUserMeshRevokeChannel(action,true))
+                      assertFalse(profileUserMeshRevokeChannel(action,false))
+                  }
+              }
+          }
+          '''
+          for path,text in {session:s,policy:p,unit:tests}.items():path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-revoke-transport-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated transport without UI
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshRevokePolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshRevokeChannelTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): isolate direct user mesh revocation transport and readback'
+          git push origin HEAD:dev
