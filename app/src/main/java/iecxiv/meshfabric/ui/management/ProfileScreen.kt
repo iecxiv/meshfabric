@@ -59,6 +59,7 @@ ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositiv
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
+"userMeshRevokedObserved"->t("Ambos enlaces directos observados ausentes. Usuario: ","Both direct links observed absent. User: ")+state.revokedDirectUser+t("; grupo de dispositivos: ","; device group: ")+state.revokedDirectMesh
 "groupMeshRevokedObserved"->t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+state.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+state.revokedDeviceGroup
 "broadcastAccepted"->t("El servidor aceptó la difusión. No confirma recepción ni lectura.","The server accepted the broadcast. Receipt and reading are not confirmed.")
 "confirmed"->t("Solicitud confirmada por el servidor; actualizando.","Server acknowledged the request; refreshing.")

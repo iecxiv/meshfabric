@@ -79,6 +79,7 @@ var approved by remember { mutableStateOf(false) }
 var typedId by remember { mutableStateOf("") }
 var mode by remember { mutableStateOf("profile") }
 var advanced by remember { mutableStateOf(false) }
+var directMesh by remember {mutableStateOf<String?>(null)}
 var contact by remember { mutableStateOf(false) }
 var contactField by remember { mutableStateOf("phone") }
 var nodeId by remember { mutableStateOf("") }
@@ -107,7 +108,7 @@ mode=="device"->approved && selectedNode!=null && canGrantDevice(s,selectedNode)
 mode=="history"->false
 else->original!=null && (email.isEmpty() || validUserEmail(email)) && realname.length<=256 && ((!s.emailIdentity && email!=original.optString("email")) || realname!=original.optString("realname"))
 }
-if(contact && user!=null) { UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss,initialField=contactField) } else if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {
+if(directMesh!=null) { key(form.id,directMesh) { UserMeshAssignmentReview(session,s,form.id,requireNotNull(directMesh)) {directMesh=null} } } else if(contact && user!=null) { UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss,initialField=contactField) } else if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {
 ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
 Column(Modifier.fillMaxWidth().heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.68f).dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(!creating) { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); if(deleting || locking) Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) else ProfileDisclosure(t("Identificador","Identifier")) { Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
@@ -187,6 +188,16 @@ ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(for
 if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
 TextButton(enabled=allowed,onClick={ advanced=true }) { Text(t("Permisos, características y consentimiento","Permissions, features and consent")) }
 TextButton(onClick=session::loadDetails,enabled=!s.detailsBusy) { Text(t("Actualizar ficha","Refresh details")) }
+ProfileDisclosure(t("Accesos directos a grupos de dispositivos","Direct device-group access")) {
+Text(t("Solo enlaces directos recibidos. No representa todos los permisos efectivos ni los accesos heredados.","Received direct links only. This does not represent all effective rights or inherited access."),style=MaterialTheme.typography.bodySmall)
+val directGroups=s.groups.filter {g->user.optJSONObject("links")?.has(g.optString("_id"))==true || g.optJSONObject("links")?.has(form.id)==true}
+if(directGroups.isEmpty()) Text(t("No se han recibido enlaces directos con los grupos visibles.","No direct links received for visible groups."))
+for(g in directGroups) ManagementCard {
+Text(g.optString("name").ifBlank {g.optString("_id")},style=MaterialTheme.typography.titleSmall)
+Text(g.optString("_id"),style=MaterialTheme.typography.bodySmall)
+TextButton(enabled=contactReady && !s.detailsBusy,onClick={directMesh=g.optString("_id");session.refresh()}) {Text(t("Revisar acceso directo","Review direct access"))}
+}
+}
 ProfileDisclosure(t("Grupos de dispositivos en común","Device groups in common")) {
 Text(t("Solo los datos visibles recibidos; los permisos heredados requieren el listado de grupos de usuarios.","Received visible data only; inherited rights require the user-group list."),style=MaterialTheme.typography.bodySmall)
 if(s.userGroups==null) Text(missing) else {
