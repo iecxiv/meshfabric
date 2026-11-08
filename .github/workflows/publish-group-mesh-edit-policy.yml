@@ -1,0 +1,206 @@
+name: Validate and publish group mesh rights edit policy
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-edit-policy.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-edit-policy-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add guarded isolated group edit policy and tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          source=base/'UserMeshEditPolicy.kt'
+          guards={str(source):'d34a291d252e1f155748c113b0fb60132d8bf40c',str(base/'GroupMeshGrantPolicy.kt'):'a7c1b0fa12d9b6be56890e5ea1106ffc1b9dd583'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+          policy=base/'GroupMeshEditPolicy.kt'
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/GroupMeshEditPolicyTest.kt')
+          android=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshEditRequestTest.kt')
+          for path in (policy,unit,android):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          def replace(text,old,new):
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              return text.replace(old,new,1)
+          s=source.read_text()
+          s=s[s.index('internal fun profileUserMeshEditPacket'):]
+          s=s.replace('profileUserMeshEdit','profileGroupMeshEdit').replace('_userEdit','_groupEdit').replace('profileUserMeshGrantAck','profileGroupMeshGrantAck').replace('profileUserMeshRevokeSubject','profileCreatedUserGroupId')
+          s=re.sub(r'\buid\b','gid',s)
+          s=re.sub(r'(?<!\.)\buser\b','subject',s)
+          old='s.users.singleOrNull'
+          if s.count(old)!=2:raise RuntimeError('Unexpected subject lookups')
+          s=s.replace(old,'s.listedUserGroups?.singleOrNull')
+          s=replace(s,'require(s.canWrite && !s.detailsBusy && p.optString("action")=="addmeshuser" && p.opt("_groupEditConfirmed")==true)','require(s.canWrite && !s.detailsBusy && s.userGroupPhase=="ready" && p.optString("action")=="addmeshuser" && p.opt("_groupEditConfirmed")==true)')
+          s=replace(s,'require(s.user!=null && ProfilePermissions.manageUsers(userAdvancedMask(s.user.opt("siteadmin"))))','require(s.user!=null && profileUserGroupEditRole(userAdvancedMask(s.user.opt("siteadmin"))))')
+          s=replace(s,'    require(canAdministerUser(s,subject))\n','')
+          s=replace(s,'!s.loading && !s.readError && rights in','!s.loading && !s.readError && s.userGroupPhase=="ready" && rights in')
+          header='''package iecxiv.meshfabric.ui.management
+          import org.json.JSONArray
+          import org.json.JSONObject
+          
+          internal fun profileGroupMeshEditedRights(before:Long,selected:Long)=profileUserMeshEditedRights(before,selected)
+          '''
+          policy.write_text(header+s)
+          unit.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class GroupMeshEditPolicyTest {
+              @Test fun existingUnknownAndAdministrativeBitsArePreserved() {
+                  assertEquals(0x80000010L,profileGroupMeshEditedRights(0x80000008L,16L))
+                  assertEquals(18L,profileGroupMeshEditedRights(10L,16L))
+                  assertEquals(0x80000000L,profileGroupMeshEditedRights(0x80000008L,0L))
+              }
+              @Test fun zeroFullAdministratorAndNewUnknownBitsAreBlocked() {
+                  assertNull(profileGroupMeshEditedRights(8L,0L))
+                  assertNull(profileGroupMeshEditedRights(0xffffffffL,16L))
+                  for(value in listOf(-1L,1L,2L,4L,0x80000010L,0xffffffffL)) assertNull(profileGroupMeshEditedRights(8L,value))
+                  assertNull(profileGroupMeshEditedRights(-1L,16L))
+                  assertNull(profileGroupMeshEditedRights(0x100000000L,16L))
+              }
+          }
+          ''')
+          android.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class)
+          class GroupMeshEditRequestTest {
+              private val actor="user//admin";private val gid="ugrp//group";private val mid="mesh//one";private val server="https://example.invalid/"
+              private fun state(rights:Long=0x80000008L):ProfileState {
+                  val subject=JSONObject().put("_id",gid).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)).put("user//member",JSONObject().put("rights",1)))
+                  val mesh=JSONObject().put("_id",mid).put("links",JSONObject().put(gid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)).put("user//direct",JSONObject().put("rights",8)))
+                  return ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",256L),listedUserGroups=listOf(subject),groups=listOf(mesh),userGroupPhase="ready")
+              }
+              private fun packet(s:ProfileState,next:Long=0x80000010L,confirmed:Boolean=true)=profileGroupMeshEditPacket(actor,server,s.listedUserGroups!!.single(),s.groups.single(),next,confirmed)
+              @Test fun isolatedEditPreservesUnknownBitsWithoutTouchingOtherAssignments() {
+                  val s=state();val p=packet(s)
+                  val groupBefore=s.listedUserGroups!!.single().toString();val meshBefore=s.groups.single().toString()
+                  assertTrue(profileGroupMeshEditAllowed(s,p,server))
+                  assertFalse(profileGroupMeshEditAllowed(s,packet(s,confirmed=false),server))
+                  assertFalse(profileGroupMeshEditAllowed(s,packet(s,16L),server))
+                  assertFalse(profileGroupMeshEditAllowed(s,packet(s,0x80000008L),server))
+                  val wire=profileGroupMeshEditWire(p)
+                  assertEquals(setOf("action","meshid","userids","meshadmin"),wire.keys().asSequence().toSet())
+                  assertEquals("addmeshuser",wire.getString("action"));assertEquals(gid,wire.getJSONArray("userids").getString(0));assertEquals(0x80000010L,wire.getLong("meshadmin"))
+                  assertEquals(groupBefore,s.listedUserGroups!!.single().toString());assertEquals(meshBefore,s.groups.single().toString())
+                  assertFalse(profileGroupMeshGrantAllowed(s,p,server));assertFalse(profileUserMeshEditAllowed(s,p,server));assertFalse(profileUserMeshGrantAllowed(s,p,server))
+              }
+              @Test fun bothExistingLinksMustBeConsistentAndUnchanged() {
+                  for(side in listOf("group","mesh")) {
+                      val s=state();val frozen=packet(s)
+                      if(side=="group") s.listedUserGroups!!.single().getJSONObject("links").remove(mid) else s.groups.single().getJSONObject("links").remove(gid)
+                      assertFalse(profileGroupMeshEditAllowed(s,frozen,server));assertFalse(profileGroupMeshEditAllowed(s,packet(s),server))
+                  }
+                  val mismatch=state();mismatch.groups.single().getJSONObject("links").getJSONObject(gid).put("rights",16)
+                  assertFalse(profileGroupMeshEditAllowed(mismatch,packet(mismatch),server))
+                  val changed=state();val frozen=packet(changed)
+                  changed.listedUserGroups!!.single().getJSONObject("links").getJSONObject(mid).put("rights",0x80000020L)
+                  changed.groups.single().getJSONObject("links").getJSONObject(gid).put("rights",0x80000020L)
+                  assertFalse(profileGroupMeshEditAllowed(changed,frozen,server))
+              }
+              @Test fun directFullAuthorityAndGroupAdministrationRoleAreRequired() {
+                  val s=state()
+                  for(rights in listOf(0L,2L,8L)) {
+                      s.groups.single().getJSONObject("links").getJSONObject(actor).put("rights",rights)
+                      assertFalse(profileGroupMeshEditAllowed(s,packet(s),server))
+                  }
+                  s.groups.single().getJSONObject("links").remove(actor)
+                  assertFalse(profileGroupMeshEditAllowed(s,packet(s),server))
+                  val noRole=state().copy(user=JSONObject().put("_id",actor).put("siteadmin",2))
+                  assertFalse(profileGroupMeshEditAllowed(noRole,packet(noRole),server))
+              }
+              @Test fun scopeSingleGroupTargetAndExactPacketWhitelistAreRequired() {
+                  val s=state();val p=packet(s)
+                  assertFalse(profileGroupMeshEditAllowed(s,p,"https://other.invalid/"))
+                  assertFalse(profileGroupMeshEditAllowed(s,JSONObject(p.toString()).put("_groupEditActor","user//other"),server))
+                  for(id in listOf("user//target","ugrp/other/group","ugrp//missing")) assertFalse(profileGroupMeshEditAllowed(s,JSONObject(p.toString()).put("userids",JSONArray().put(id)),server))
+                  assertFalse(profileGroupMeshEditAllowed(s,JSONObject(p.toString()).put("userids",JSONArray().put(gid).put("ugrp//other")),server))
+                  assertFalse(profileGroupMeshEditAllowed(s,JSONObject(p.toString()).put("meshid","mesh/other/one"),server))
+                  assertFalse(profileGroupMeshEditAllowed(s,JSONObject(p.toString()).put("userid","user//target"),server))
+              }
+              @Test fun incompleteDirectoriesNoOpZeroAndFullAdministratorAreBlocked() {
+                  val s=state();val p=packet(s)
+                  for(blocked in listOf(s.copy(ready=false),s.copy(loading=true),s.copy(busy=true),s.copy(readError=true),s.copy(detailsBusy=true),s.copy(userGroupPhase="loading"),s.copy(userGroupPhase="failed"),s.copy(listedUserGroups=null),s.copy(listedUserGroups=emptyList()),s.copy(groups=emptyList()))) assertFalse(profileGroupMeshEditAllowed(blocked,p,server))
+                  val simple=state(8L)
+                  for(next in listOf(0L,8L,0xffffffffL,0x80000010L)) assertFalse(profileGroupMeshEditAllowed(simple,packet(simple,next),server))
+                  val admin=state(0xffffffffL);assertFalse(profileGroupMeshEditAllowed(admin,packet(admin),server))
+              }
+              @Test fun acknowledgementAndTwoReadsRequireTheExactMaskIncludingUnknownBits() {
+                  val s=state(0x80000010L)
+                  for(ack in listOf(false,true)) for(gr in listOf(false,true)) for(mr in listOf(false,true)) assertEquals(ack && gr && mr,profileGroupMeshEditReadbackReady(s,gid,mid,0x80000010L,ack,gr,mr))
+                  for(blocked in listOf(s.copy(loading=true),s.copy(readError=true),s.copy(userGroupPhase="loading"),s.copy(listedUserGroups=null))) assertFalse(profileGroupMeshEditReadbackReady(blocked,gid,mid,0x80000010L,true,true,true))
+                  s.groups.single().getJSONObject("links").getJSONObject(gid).put("rights",16)
+                  assertFalse(profileGroupMeshEditReadbackReady(s,gid,mid,0x80000010L,true,true,true))
+                  val ack=JSONObject().put("action","addmeshuser").put("responseid","request").put("result","Updated group rights").put("success",1).put("failed",0)
+                  assertTrue(profileGroupMeshEditAck(ack,"request"));assertFalse(profileGroupMeshEditAck(ack,"other"))
+                  assertFalse(profileGroupMeshEditAck(JSONObject(ack.toString()).put("failed",1),"request"))
+                  assertFalse(profileGroupMeshEditAck(JSONObject().put("action","addmeshuser").put("responseid","request").put("result","ok"),"request"))
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline group and direct policy regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.GroupMeshEditRequestTest,iecxiv.meshfabric.ui.management.GroupMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshEditRequestTest,iecxiv.meshfabric.ui.management.UserMeshGrantRequestTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-edit-policy-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish isolated policy only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshEditPolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/GroupMeshEditPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshEditRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add isolated existing group mesh rights edit policy'
+          git push origin HEAD:dev
