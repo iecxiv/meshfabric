@@ -43,4 +43,30 @@ class GroupMeshGrantRequestTest {
         assertTrue(profileGroupMeshGrantReplyRejected(JSONObject(reply.toString()).put("error","denied")))
         assertFalse(profileGroupMeshGrantAck(JSONObject(reply.toString()).put("error","denied"),"request"))
     }
+
+    @Test fun uiDraftRequiresExplicitConfirmationAndKeepsItsSnapshots() {
+        val s=state()
+        val draft=requireNotNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,server))
+        assertEquals(false,draft.getBoolean("_grantConfirmed"))
+        assertFalse(profileGroupMeshGrantAllowed(s,draft,server))
+        val confirmed=JSONObject(draft.toString()).put("_grantConfirmed",true)
+        assertTrue(profileGroupMeshGrantAllowed(s,confirmed,server))
+        assertFalse(draft.getBoolean("_grantConfirmed"))
+        assertFalse(profileGroupMeshGrantAllowed(s,confirmed,"https://other.invalid/"))
+        s.groups.single().getJSONObject("links").getJSONObject(actor).put("rights",8)
+        assertFalse(profileGroupMeshGrantAllowed(s,confirmed,server))
+    }
+    @Test fun uiDraftRejectsInvalidContextAndExistingAssignments() {
+        val s=state()
+        assertNull(profileGroupMeshGrantDraft(s,gid,mid,264,"user//other",server))
+        assertNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,""))
+        assertNull(profileGroupMeshGrantDraft(s.copy(busy=true),gid,mid,264,actor,server))
+        assertNull(profileGroupMeshGrantDraft(s.copy(userGroupPhase="loading"),gid,mid,264,actor,server))
+        assertNull(profileGroupMeshGrantDraft(s.copy(listedUserGroups=null),gid,mid,264,actor,server))
+        assertNull(profileGroupMeshGrantDraft(s,gid,"mesh//missing",264,actor,server))
+        val frozen=requireNotNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,server))
+        s.listedUserGroups!!.single().getJSONObject("links").put(mid,JSONObject().put("rights",8))
+        assertNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,server))
+        assertFalse(profileGroupMeshGrantAllowed(s,JSONObject(frozen.toString()).put("_grantConfirmed",true),server))
+    }
 }

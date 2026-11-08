@@ -14,8 +14,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal fun profileGroupMeshGrantHex(text:String):Long? {
-    val digits=text.trim().removePrefix("0x").removePrefix("0X")
-    if(!Regex("[0-9a-fA-F]{1,8}").matches(digits)) return null
+    val match=Regex("(?:0[xX])?([0-9a-fA-F]{1,8})").matchEntire(text.trim()) ?: return null
+    val digits=match.groupValues[1]
     return digits.toLongOrNull(16)?.takeIf(::profileGroupMeshInitialGrantRights)
 }
 internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rights:Long,actor:String,server:String):JSONObject?=runCatching {
@@ -54,7 +54,7 @@ internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rig
                 for(mesh in candidates.take(100)) {val mid=mesh.optString("_id");TextButton(onClick={selected=mid;error=false}) {Text((if(selected==mid) "[x] " else "[ ] ")+mesh.optString("name").ifBlank {mid}+" — "+mid)}}
                 if(candidates.isEmpty()) Text(t("No hay candidatos elegibles en los datos actuales. Actualiza o revisa permisos y enlaces recibidos.","No eligible candidates in current data. Refresh or review permissions and received links."))
                 if(candidates.size>100) Text(t("Primeros 100 resultados. Acota la búsqueda.","First 100 results. Narrow the search."))
-                OutlinedTextField(hex,{hex=it.take(10);error=false},label={Text(t("Derechos: máscara hexadecimal","Rights: hexadecimal mask"))},supportingText={Text(t("Sin valor predeterminado. Debe ser distinta de cero y usar solo bits de 0x00FFFFF8. No admite administración completa ni los bits 1, 2 y 4.","No default. Must be nonzero and use only bits in 0x00FFFFF8. Full administration and bits 1, 2 and 4 are excluded."))},isError=hex.isNotBlank() && rights==null,singleLine=true,modifier=Modifier.fillMaxWidth())
+                OutlinedTextField(hex,{hex=it.take(256);error=false},label={Text(t("Derechos: máscara hexadecimal","Rights: hexadecimal mask"))},supportingText={Text(t("Sin valor predeterminado. Debe ser distinta de cero y usar solo bits de 0x00FFFFF8. No admite administración completa ni los bits 1, 2 y 4.","No default. Must be nonzero and use only bits in 0x00FFFFF8. Full administration and bits 1, 2 and 4 are excluded."))},isError=hex.isNotBlank() && rights==null,singleLine=true,modifier=Modifier.fillMaxWidth())
             }
             if(selected.isNotBlank()) Text(t("Grupo de dispositivos: ","Device group: ")+selected)
             if(review!=null) {
