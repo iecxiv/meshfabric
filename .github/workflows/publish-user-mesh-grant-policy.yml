@@ -1,0 +1,195 @@
+name: Validate direct user mesh initial grant policy
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-grant-policy.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-grant-policy-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add isolated initial-grant policy and regression tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          guards={str(base/'ProfileSession.kt'):'f2ec3296c4b04caf174c84a6b29c9d4358fa52c7',str(base/'UserMeshRevokePolicy.kt'):'37b4c24379881d2e27b68014678701ff69286587',str(base/'GroupMeshGrantPolicy.kt'):'a7c1b0fa12d9b6be56890e5ea1106ffc1b9dd583','docs/reference/meshcentral-1.3.1-device-groups/server-context-2-01.txt':'262f2a6a364d4f13935ebbc38e591357134a1fb5','docs/reference/meshcentral-1.3.1-device-groups/server-context-2-02.txt':'792fd2e49fc73bc4122568c2dfc29ad6ee6557e3','docs/reference/meshcentral-1.3.1-device-groups/server-context-2-03.txt':'c3f93de9936e75b4cc7af102b4e8bad9d0fc9ceb'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source or reference changed: '+path)
+          policy=base/'UserMeshGrantPolicy.kt'
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshGrantPolicyTest.kt')
+          android=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshGrantRequestTest.kt')
+          for path in (policy,unit,android):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          policy.write_text('''package iecxiv.meshfabric.ui.management
+          import org.json.JSONArray
+          import org.json.JSONObject
+          
+          internal fun profileUserMeshInitialGrantRights(value:Long)=profileGroupMeshInitialGrantRights(value)
+          internal fun profileUserMeshGrantChannel(action:String,direct:Boolean)=action=="addmeshuser" && direct
+          internal fun profileUserMeshGrantPacket(actor:String,server:String,user:JSONObject,mesh:JSONObject,rights:Long,confirmed:Boolean=false)=JSONObject().put("action","addmeshuser").put("meshid",mesh.getString("_id")).put("userids",JSONArray().put(user.getString("_id"))).put("meshadmin",rights).put("_userGrantActor",actor).put("_userGrantServer",server).put("_userGrantUserBefore",profileUserGroupDeleteSnapshot(user)).put("_userGrantMeshBefore",profileUserGroupDeleteSnapshot(mesh)).put("_userGrantConfirmed",confirmed)
+          internal fun profileUserMeshGrantAllowed(s:ProfileState,p:JSONObject,server:String):Boolean=runCatching {
+              require(p.keys().asSequence().toSet()==setOf("action","meshid","userids","meshadmin","_userGrantActor","_userGrantServer","_userGrantUserBefore","_userGrantMeshBefore","_userGrantConfirmed"))
+              require(p.optString("action")=="addmeshuser" && p.opt("_userGrantConfirmed")==true && s.canWrite && !s.detailsBusy)
+              require(s.user!=null && ProfilePermissions.manageUsers(userAdvancedMask(s.user.opt("siteadmin"))))
+              require(p.getString("_userGrantActor")==s.id && server.isNotBlank() && p.getString("_userGrantServer")==server)
+              val ids=p.getJSONArray("userids");require(ids.length()==1 && ids.opt(0) is String)
+              val uid=ids.getString(0);val mid=p.getString("meshid")
+              require(uid.length<=128 && profileUserMeshRevokeSubject(s.id,uid) && profileGroupMeshId(s.id,mid))
+              val user=requireNotNull(s.users.singleOrNull {it.optString("_id")==uid})
+              val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==mid})
+              require(canAdministerUser(s,user))
+              require(p.getString("_userGrantUserBefore")==profileUserGroupDeleteSnapshot(user) && p.getString("_userGrantMeshBefore")==profileUserGroupDeleteSnapshot(mesh))
+              require(!user.getJSONObject("links").has(mid) && !mesh.getJSONObject("links").has(uid))
+              val authority=mesh.getJSONObject("links").getJSONObject(s.id).get("rights")
+              require(authority is Number && userAdvancedMask(authority)==0xffffffffL)
+              val rights=p.get("meshadmin");require(rights is Number)
+              profileUserMeshInitialGrantRights(userAdvancedMask(rights))
+          }.getOrDefault(false)
+          internal fun profileUserMeshGrantWire(p:JSONObject)=JSONObject().put("action","addmeshuser").put("meshid",p.getString("meshid")).put("userids",JSONArray().put(p.getJSONArray("userids").getString(0))).put("meshadmin",userAdvancedMask(p.get("meshadmin")))
+          internal fun profileUserMeshGrantAck(p:JSONObject,request:String)=profileGroupMeshGrantAck(p,request)
+          internal fun profileUserMeshGrantReadbackReady(s:ProfileState,uid:String,mid:String,rights:Long,ack:Boolean,userRead:Boolean,meshRead:Boolean):Boolean {
+              if(!ack || !userRead || !meshRead || !s.ready || s.loading || s.readError || !profileUserMeshRevokeSubject(s.id,uid) || !profileGroupMeshId(s.id,mid)) return false
+              return profileGroupMeshGrantObserved(s.users.singleOrNull {it.optString("_id")==uid},s.groups.singleOrNull {it.optString("_id")==mid},uid,mid,rights,true)
+          }
+          ''')
+          unit.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class UserMeshGrantPolicyTest {
+              @Test fun initialGrantExcludesAdministrativeAndUnknownBits() {
+                  for(rights in listOf(8L,264L,0x00fffff8L)) assertTrue(profileUserMeshInitialGrantRights(rights))
+                  for(rights in listOf(0L,1L,2L,4L,9L,-1L,0xffffffffL,0x80000008L,0x01000008L)) assertFalse(profileUserMeshInitialGrantRights(rights))
+              }
+              @Test fun directGrantHasItsOwnChannel() {
+                  assertTrue(profileUserMeshGrantChannel("addmeshuser",true))
+                  assertFalse(profileUserMeshGrantChannel("addmeshuser",false))
+                  assertFalse(profileUserMeshGrantChannel("removemeshuser",true))
+                  assertFalse(profileUserMeshRevokeChannel("addmeshuser",true))
+              }
+          }
+          ''')
+          android.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          
+          @RunWith(AndroidJUnit4::class)
+          class UserMeshGrantRequestTest {
+              private val actor="user//admin";private val uid="user//target";private val mid="mesh//group";private val server="https://example.invalid/"
+              private fun state()=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject())),groups=listOf(JSONObject().put("_id",mid).put("links",JSONObject().put(actor,JSONObject().put("rights",0xffffffffL)))))
+              private fun packet(s:ProfileState,confirmed:Boolean=true)=profileUserMeshGrantPacket(actor,server,s.users.single(),s.groups.single(),8,confirmed)
+              private fun copy(p:JSONObject)=JSONObject(p.toString())
+              @Test fun exactPacketConfirmationAndWireAreRequired() {
+                  val s=state();val p=packet(s)
+                  assertTrue(profileUserMeshGrantAllowed(s,p,server))
+                  assertFalse(profileUserMeshGrantAllowed(s,packet(s,false),server))
+                  assertFalse(profileUserMeshGrantAllowed(s,p,"https://other.invalid/"))
+                  assertFalse(profileUserMeshGrantAllowed(s,copy(p).put("remove",true),server))
+                  assertFalse(profileGroupMeshGrantAllowed(s,p,server))
+                  assertEquals(setOf("action","meshid","userids","meshadmin"),profileUserMeshGrantWire(p).keys().asSequence().toSet())
+                  assertEquals(uid,profileUserMeshGrantWire(p).getJSONArray("userids").getString(0))
+              }
+              @Test fun eitherExistingLinkBlocksInitialGrantEvenWithFreshSnapshots() {
+                  for(side in listOf("users","meshes")) {
+                      val s=state()
+                      if(side=="users") s.users.single().getJSONObject("links").put(mid,JSONObject().put("rights",8)) else s.groups.single().getJSONObject("links").put(uid,JSONObject().put("rights",8))
+                      assertFalse(profileUserMeshGrantAllowed(s,packet(s),server))
+                  }
+                  val s=state();s.users.single().remove("links")
+                  assertFalse(profileUserMeshGrantAllowed(s,packet(s),server))
+              }
+              @Test fun staleIncompleteOrInsufficientAuthorityCannotGrant() {
+                  val s=state();val p=packet(s)
+                  for(blocked in listOf(s.copy(loading=true),s.copy(readError=true),s.copy(busy=true),s.copy(detailsBusy=true),s.copy(users=emptyList()),s.copy(groups=emptyList()))) assertFalse(profileUserMeshGrantAllowed(blocked,p,server))
+                  s.groups.single().getJSONObject("links").getJSONObject(actor).put("rights",2)
+                  assertFalse(profileUserMeshGrantAllowed(s,p,server))
+                  assertFalse(profileUserMeshGrantAllowed(s,packet(s),server))
+              }
+              @Test fun selfOtherDomainsGroupsMultipleTargetsAndInvalidRightsAreBlocked() {
+                  val s=state();val p=packet(s)
+                  for(id in listOf(actor,"user/other/target","ugrp//target")) assertFalse(profileUserMeshGrantAllowed(s,copy(p).put("userids",JSONArray().put(id)),server))
+                  assertFalse(profileUserMeshGrantAllowed(s,copy(p).put("userids",JSONArray().put(uid).put("user//second")),server))
+                  for(rights in listOf<Any>(0,2,0xffffffffL,0x80000008L,8.5,"8")) assertFalse(profileUserMeshGrantAllowed(s,copy(p).put("meshadmin",rights),server))
+              }
+              @Test fun ackUsesExactCountersNotHumanReadableResult() {
+                  val p=JSONObject().put("action","addmeshuser").put("responseid","request").put("result","Added user target").put("success",1).put("failed",0)
+                  assertTrue(profileUserMeshGrantAck(p,"request"))
+                  assertFalse(profileUserMeshGrantAck(p,"other"))
+                  for(bad in listOf(copy(p).put("success",0),copy(p).put("failed",1),copy(p).put("success","1"),copy(p).put("error","denied"))) assertFalse(profileUserMeshGrantAck(bad,"request"))
+              }
+              @Test fun exactRightsOnBothRecordsAndTwoReadsAfterAckAreMandatory() {
+                  val s=state()
+                  s.users.single().getJSONObject("links").put(mid,JSONObject().put("rights",8))
+                  s.groups.single().getJSONObject("links").put(uid,JSONObject().put("rights",8))
+                  for(ack in listOf(false,true)) for(ur in listOf(false,true)) for(mr in listOf(false,true)) assertEquals(ack && ur && mr,profileUserMeshGrantReadbackReady(s,uid,mid,8,ack,ur,mr))
+                  for(blocked in listOf(s.copy(ready=false),s.copy(loading=true),s.copy(readError=true),s.copy(users=emptyList()),s.copy(groups=emptyList()),s.copy(users=s.users+s.users))) assertFalse(profileUserMeshGrantReadbackReady(blocked,uid,mid,8,true,true,true))
+                  s.groups.single().getJSONObject("links").getJSONObject(uid).put("rights",16)
+                  assertFalse(profileUserMeshGrantReadbackReady(s,uid,mid,8,true,true,true))
+                  s.groups.single().getJSONObject("links").remove(uid)
+                  assertFalse(profileUserMeshGrantReadbackReady(s,uid,mid,8,true,true,true))
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute grant policy and revocation regressions offline
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshRevokeRequestTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-grant-policy-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish policy and tests only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshGrantPolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserMeshGrantPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshGrantRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add isolated initial direct user mesh grant policy'
+          git push origin HEAD:dev
