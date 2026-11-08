@@ -1,0 +1,107 @@
+name: Extract MeshCentral 1.3.1 user administration reference
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/review-meshcentral-user-admin.yml]
+permissions:
+  contents: write
+concurrency:
+  group: review-meshcentral-user-admin-dev
+  cancel-in-progress: false
+jobs:
+  extract-reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/checkout@v4
+        with:
+          repository: Ylianst/MeshCentral
+          ref: f436143527458d56da0336ea3047c006703fb4e4
+          path: .meshcentral-reference
+          persist-credentials: false
+      - name: Extract version-pinned excerpts without running upstream code
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,re,shutil,subprocess
+          from pathlib import Path
+          UPSTREAM='f436143527458d56da0336ea3047c006703fb4e4'
+          BASE='d1d04154046d8ed4e38d8059d6e3f12eba24b2b4'
+          root=Path('.meshcentral-reference')
+          out=Path('docs/reference/meshcentral-1.3.1-user-admin')
+          if subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()!=BASE:raise RuntimeError('dev base changed')
+          if subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()!=UPSTREAM:raise RuntimeError('Wrong upstream commit')
+          if out.exists():raise RuntimeError('Reference directory already exists')
+          if json.loads((root/'package.json').read_text())['version']!='1.3.1':raise RuntimeError('Wrong package version')
+          expected={'meshuser.js':'62d82550e2fa7ee66ffc55e4613cb57e8f9c2197','views/default.handlebars':'e0f9cfa2cf5bb5d9b760ec33903c8ab97db283d7'}
+          sources={}
+          for name,blob in expected.items():
+              path=root/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=blob:raise RuntimeError('Source hash mismatch: '+name)
+              sources[name]=path.read_text().splitlines(keepends=True)
+          def cases(lines,names):
+              found=[]
+              for i,line in enumerate(lines):
+                  m=re.match(r"""^([ \t]*)case\s+(['"])([^'"]+)\2\s*:""",line)
+                  if not m or m.group(3) not in names:continue
+                  sibling=re.compile('^'+re.escape(m.group(1))+r'(?:case\s|default\s*:)')
+                  end=next((j for j in range(i+1,len(lines)) if sibling.match(lines[j])),len(lines))
+                  found.append((m.group(3),i,end))
+              return found
+          def merge(ranges):
+              merged=[]
+              for a,b in sorted(ranges):
+                  if merged and a<=merged[-1][1]:merged[-1]=(merged[-1][0],max(b,merged[-1][1]))
+                  else:merged.append((a,b))
+              return merged
+          commands={'users','edituser','changeuserpass','previousLogins','wssessioncount','adddeviceuser','deleteuser'}
+          server=cases(sources['meshuser.js'],commands)
+          if not any(name=='edituser' for name,_,_ in server):raise RuntimeError('edituser handler not found')
+          web=sources['views/default.handlebars']
+          anchors=[i for i,line in enumerate(web) if re.search(r'\b(?:edituser|changeuserpass|removeRights)\b',line,re.I)]
+          if not anchors:raise RuntimeError('Web reference anchors not found')
+          blocks=[('server-constants','meshuser.js',0,min(120,len(sources['meshuser.js'])))]
+          blocks += [('server-'+name+'-'+str(a+1),'meshuser.js',a,b) for name,a,b in server]
+          blocks += [('web-context-'+str(i+1),'views/default.handlebars',a,b) for i,(a,b) in enumerate(merge([(max(0,i-140),min(len(web),i+100)) for i in anchors]))]
+          outputs={};index=[]
+          for label,name,a,b in blocks:
+              numbered=''.join(str(n+1)+': '+sources[name][n].rstrip('\r\n')+'\n' for n in range(a,b))
+              chunks=[numbered[i:i+5000] for i in range(0,len(numbered),5000)]
+              files=[]
+              for i,chunk in enumerate(chunks):
+                  filename=label+'-'+str(i+1).zfill(2)+'.txt'
+                  header='MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors\nSource: '+name+' @ '+UPSTREAM+'\nSource lines: '+str(a+1)+'-'+str(b)+' | part '+str(i+1)+'/'+str(len(chunks))+' (may continue a source line)\n\n'
+                  content=header+chunk
+                  if len(content.encode())>24000:raise RuntimeError('Chunk exceeds connector budget')
+                  outputs[filename]=content;files.append(filename)
+              index.append({'label':label,'source':name,'first_line':a+1,'last_line':b,'parts':files})
+          if sum(len(x.encode()) for x in outputs.values())>600000:raise RuntimeError('Extraction too large; refine anchors')
+          manifest={'upstream_repository':'Ylianst/MeshCentral','tag':'1.3.1','commit':UPSTREAM,'source_blobs':expected,'source_sha256':{name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in expected},'server_commands_found':sorted({x[0] for x in server}),'server_commands_not_found':sorted(commands-{x[0] for x in server}),'web_anchor_lines':[x+1 for x in anchors],'blocks':index,'scope':'Static source excerpts only. Web context ranges are not a guarantee of complete function coverage. No server requests, app changes, or runtime tests.'}
+          license_path=root/'LICENSE'
+          if not license_path.is_file():raise RuntimeError('Upstream LICENSE missing')
+          outputs['LICENSE']=license_path.read_text()
+          outputs['index.json']=json.dumps(manifest,indent=2,ensure_ascii=False)+'\n'
+          outputs['README.md']='# MeshCentral 1.3.1 user administration reference\n\nRead index.json for provenance, line ranges and ordered parts. These excerpts support a pending manual review; they do not establish that any new Android feature is implemented or validated. Upstream code is Apache-2.0; see LICENSE. Original source: https://github.com/Ylianst/MeshCentral/tree/'+UPSTREAM+'\n'
+          out.mkdir(parents=True)
+          for name,content in outputs.items():(out/name).write_text(content)
+          PY
+          git diff --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshcentral-1.3.1-user-admin-reference
+          path: docs/reference/meshcentral-1.3.1-user-admin/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish reference documents only
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- docs/reference/meshcentral-1.3.1-user-admin/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: extract pinned MeshCentral 1.3.1 user administration reference'
+          git push origin HEAD:dev
