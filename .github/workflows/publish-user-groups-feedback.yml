@@ -1,0 +1,82 @@
+name: Validate and publish user groups feedback and reconnection
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-groups-feedback.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-groups-feedback-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply fourth-tab feedback and read-only reconnection
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          path=Path('app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt')
+          if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!='63fe9182a9fe722bdabca3db77c828fd9392af0d':raise RuntimeError('Pane changed')
+          text=path.read_text()
+          def change(old,new):
+              global text
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:80])
+              text=text.replace(old,new,1)
+          anchor='val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }'
+          change(anchor,anchor+'\nval refreshAction=userGroupsRefreshAction(s.ready,s.busy,s.loading,s.userGroupPhase,s.notice)\nval feedback=userGroupsNoticeText(s.notice,es)')
+          anchor='TextButton(enabled=s.ready && !s.busy && s.userGroupPhase!="loading",onClick={session.loadUserGroupDirectory()}) {Text(t("Actualizar","Refresh"))}'
+          change(anchor,'if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=if(userGroupsNoticeIsError(s.notice)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)\nTextButton(enabled=refreshAction!=UserGroupsRefreshAction.NONE,onClick={when(refreshAction) {UserGroupsRefreshAction.RECONNECT->session.start();UserGroupsRefreshAction.REFRESH->{session.refresh();session.loadUserGroupDirectory()};UserGroupsRefreshAction.NONE->Unit}}) {Text(if(s.ready) t("Actualizar","Refresh") else t("Reconectar","Reconnect"))}')
+          change('if(s.userGroupPhase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())','if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") LinearProgressIndicator(Modifier.fillMaxWidth())')
+          change('            if(!s.ready) Text(t("Sin conexión.","Offline."))\n','')
+          change('t("No hay grupos en el dominio actual.","No groups in the current domain.")','t("No se han recibido grupos del dominio actual.","No groups were received for the current domain.")')
+          hashes={'.github/patches/user-groups-feedback/ProfileUserGroupsFeedback.kt.txt': 'd71fc0324f670cab8c7749f09787592647b6636040cab3623afba9642737eda0', '.github/patches/user-groups-feedback/ProfileUserGroupsFeedbackTest.kt.txt': 'b0e64de6198db5f28d02bb6ccbd69ec180cb544270e80983faf0bbb575e8d05e'}
+          targets={'.github/patches/user-groups-feedback/ProfileUserGroupsFeedback.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileUserGroupsFeedback.kt', '.github/patches/user-groups-feedback/ProfileUserGroupsFeedbackTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/ProfileUserGroupsFeedbackTest.kt'}
+          updates={path:text}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();target=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if target.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[target]=data.decode()
+          for target,content in updates.items():
+              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-groups-feedback-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated feedback and reconnection
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileUserGroupsFeedback.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileUserGroupsFeedbackTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): expose user group outcomes and reconnect safely from fourth tab'
+          git push origin HEAD:dev
