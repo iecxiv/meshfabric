@@ -1,21 +1,23 @@
-name: Validate and publish native device details links from Profile
+name: Validate integrated native device details links from Profile
 on:
   push:
     branches: [dev]
     paths: [.github/workflows/publish-profile-device-navigation.yml]
+  workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 concurrency:
   group: publish-profile-device-navigation-dev
   cancel-in-progress: false
 jobs:
-  validate-and-publish:
+  validate-integrated-navigation:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -32,64 +34,25 @@ jobs:
           echo "Using Android SDK: $SDK_ROOT"
           "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v4
-      - name: Link existing inventory viewer without changing device actions
+      - name: Verify integrated navigation sources and tests exist
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import hashlib,subprocess
-          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
-          expected={'ProfileScreen.kt':'e3ce92a71acdc5d23c9c27172feb62c5b4304ca6','CompactProfileGroups.kt':'09038d8261c3cb41bde765e89c126c8ddd280245','UserAdministration.kt':'a2cf1155201ecf72e4932cb5cf1bb7d5109015ea'}
-          sources={}
-          for name,sha in expected.items():
-              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
-              sources[name]=(base/name).read_text()
-          for name,sha in {'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceDetailsDialog.kt':'dba196f6f863927ea1a2349ef8b2de3f49e139b0','app/src/main/java/iecxiv/meshfabric/data/model/Models.kt':'2748c7da86aa31e18575f98301cd24bfdb590ab5'}.items():
-              if subprocess.check_output(['git','hash-object',name],text=True).strip()!=sha:raise RuntimeError('Dependency changed: '+name)
-          def change(name,old,new):
-              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
-              sources[name]=sources[name].replace(old,new,1)
-          anchor='val connected by source.connectionState.collectAsState()'
-          change('ProfileScreen.kt',anchor,anchor+'\nval profileDeviceGroups by source.groupedDevices.collectAsState()')
-          anchor='var userGroupDetails by remember {mutableStateOf<String?>(null)}'
-          change('ProfileScreen.kt',anchor,anchor+'\nvar deviceDetails by remember {mutableStateOf<String?>(null)}')
-          anchor='val closeProfileDialog:()->Unit={'
-          callbacks="""val canOpenProfileDevice:(String)->Boolean={nodeId->profileReceivedDevice(state,source.groupedDevices.value.flatMap { it.second },nodeId,session.broadcastServerLabel().isNotBlank())!=null}
-          val openProfileDevice:(String)->Unit={nodeId->if(canOpenProfileDevice(nodeId)) deviceDetails=nodeId}
-          """
-          change('ProfileScreen.kt',anchor,callbacks+anchor)
-          change('ProfileScreen.kt','origins=restored.second;form=null;groupDetails=null;userGroupDetails=null','origins=restored.second;form=null;groupDetails=null;userGroupDetails=null;deviceDetails=null')
-          anchor='form=null; groupDetails=null; userGroupDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false'
-          if sources['ProfileScreen.kt'].count(anchor)!=2:raise RuntimeError('Unexpected cleanup count')
-          sources['ProfileScreen.kt']=sources['ProfileScreen.kt'].replace(anchor,'form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; origins=emptyList();groupDetailTab=0; broadcast=false')
-          anchor='onEdit={state.groups.firstOrNull'
-          change('ProfileScreen.kt',anchor,'onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,'+anchor)
-          anchor='onDismiss=closeProfileDialog) else key(selected)'
-          change('ProfileScreen.kt',anchor,'onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,'+anchor)
-          text=sources['ProfileScreen.kt'].rstrip()
-          if not text.endswith('\n}'):raise RuntimeError('Unexpected ProfileScreen ending')
-          sources['ProfileScreen.kt']=text[:-2]+'\ndeviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileDeviceGroups.flatMap { it.second },id) {deviceDetails=null}}\n}\n'
-          anchor='onTabChanged:(Int)->Unit={})'
-          change('CompactProfileGroups.kt',anchor,'onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false})')
-          anchor='for(node in nodes.take(100)) ListItem(headlineContent={Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis)},leadingContent={Icon(Icons.Default.Computer,null)})'
-          change('CompactProfileGroups.kt',anchor,'for(node in nodes.take(100)) ListItem(headlineContent={Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis)},leadingContent={Icon(Icons.Default.Computer,null)},trailingContent={if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}})')
-          anchor='onOpenGroup:(String)->Unit={},onDismiss:()->Unit)'
-          change('UserAdministration.kt',anchor,'onOpenGroup:(String)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onDismiss:()->Unit)')
-          anchor='for(node in common.take(100)) ManagementCard { ManagementInfoRow(node.optString("name"),node.optString("_id")) }'
-          change('UserAdministration.kt',anchor,'for(node in common.take(100)) ManagementCard { ManagementInfoRow(node.optString("name"),node.optString("_id"));if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))} }')
-          hashes={'.github/patches/profile-device-navigation/ProfileDeviceNavigation.kt.txt': '161e5e70648dba7f7c6c0f2d54dab1032995c4918b421870cf3454fc101a708a', '.github/patches/profile-device-navigation/ProfileDeviceNavigationPolicyTest.kt.txt': 'b8021a7e3e707df233b054dcfb4c5df59bf47f11201313ad079853c99b498ac8', '.github/patches/profile-device-navigation/ProfileReceivedDeviceNavigationTest.kt.txt': 'bc8440f6d62798cd6cf4a9e402df01020fd7c32182ed3a71ee20650320ce53d3'}
-          targets={'.github/patches/profile-device-navigation/ProfileDeviceNavigation.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigation.kt', '.github/patches/profile-device-navigation/ProfileDeviceNavigationPolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigationPolicyTest.kt', '.github/patches/profile-device-navigation/ProfileReceivedDeviceNavigationTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileReceivedDeviceNavigationTest.kt'}
-          updates={base/name:text for name,text in sources.items()}
-          for name,dest in targets.items():
-              data=Path(name).read_bytes();target=Path(dest)
-              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
-              if target.exists():raise RuntimeError('New file already exists: '+dest)
-              updates[target]=data.decode()
-          for target,content in updates.items():
-              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
-          PY
+          set -euo pipefail
+          # Navigation is already integrated. Do not replay preparation templates.
+          for file in \
+            app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt \
+            app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt \
+            app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt \
+            app/src/main/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigation.kt \
+            app/src/test/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigationPolicyTest.kt \
+            app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileReceivedDeviceNavigationTest.kt
+          do
+            test -s "$file" || { echo "::error::Missing integrated file: $file"; exit 1; }
+          done
           git diff --check
       - name: Build, compile Android tests, run all unit tests and lint
         run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Verify validation did not modify tracked sources
+        run: git diff --exit-code -- app/src
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -101,13 +64,3 @@ jobs:
             app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
           retention-days: 7
-      - name: Publish validated read-only device navigation
-        run: |
-          set -euo pipefail
-          git fetch origin dev
-          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
-          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigation.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileDeviceNavigationPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileReceivedDeviceNavigationTest.kt
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(profile): reuse native inventory details from received device links'
-          git push origin HEAD:dev
