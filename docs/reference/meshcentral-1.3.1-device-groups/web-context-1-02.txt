@@ -1,0 +1,74 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 8414-8753 | part 2/6 (may continue a source line)
+
+
+8458:                     x += '</tbody></table>';
+8459:                 }
+8460:                 QH('p10html4', x);
+8461: 
+8462:                 // Change the URL
+8463:                 var urlviewmode = '';
+8464:                 if (((features & 0x10000000) == 0) && (xxcurrentView >= 9) && (xxcurrentView <= 19) && (currentNode != null)) {
+8465:                     urlviewmode = '?viewmode=' + xxcurrentView + '&gotonode=' + currentNode._id.split('/')[2];
+8466:                     for (var i in urlargs) { urlviewmode += ('&' + i + '=' + urlargs[i]); }
+8467:                     try { window.history.replaceState({}, document.title, window.location.pathname + urlviewmode); } catch (ex) { }
+8468:                 }
+8469: 
+8470:                 // Clear the desktop session selector
+8471:                 QV('p11DeskSessionSelector', false);
+8472:                 QH('p11DeskSessionSelector', '');
+8473:             }
+8474:             setupDesktop(); // Always refresh the desktop, even if we are on the same device, we need to do some canvas switching.
+8475:             if (!panel) panel = 10;
+8476:             go(panel);
+8477:         }
+8478: 
+8479:         function setIpPduState(op) {
+8480:             if (op == 0) {
+8481:                 setDialogMode(2, "Power Operation", 3, function() { meshserver.send({ action: 'poweraction', nodeids: [ currentNode._id ], actiontype: 2 }); }, "Perform power off?"); // Turn off
+8482:             } else {
+8483:                 setDialogMode(2, "Power Operation", 3, function() { meshserver.send({ action: 'wakedevices', nodeids: [ currentNode._id ] }); }, "Perform power on?"); // Turn on
+8484:             }
+8485:         }
+8486: 
+8487:         function p20editDeviceNotify() {
+8488:             if (xxdialogMode) return false;
+8489:             var devNotify = 0, fx = ((features2 & 0x00004000) && (userinfo.emailVerified))?1:0;
+8490:             if (userinfo.notify && userinfo.notify[currentNode._id]) { devNotify = userinfo.notify[currentNode._id]; }
+8491:             var x = '<div style="border-bottom: 1px solid #888;margin-bottom:3px">' + "Web Page Notifications" + '</div>';
+8492:             x += '<div><label><input id=p20notifyIntelDeviceConnect type=checkbox />' + "Device connections" + '</label></div>';
+8493:             x += '<div><label><input id=p20notifyIntelDeviceDisconnect type=checkbox />' + "Device disconnections" + '</label></div>';
+8494:             if (currentNode.intelamt != null) { fx += 2; x += '<div><label><input id=p20notifyIntelAmtKvmActions type=checkbox />' + "Intel&reg; AMT desktop and serial events" + '</label></div>'; }
+8495:             if (fx & 1) {
+8496:                 x += '<br /><div style="border-bottom: 1px solid #888;margin-bottom:3px">' + "Email Notifications" + '</div>';
+8497:                 x += '<div><label><input id=p20enotifyIntelDeviceConnect type=checkbox />' + "Device connections" + '</label></div>';
+8498:                 x += '<div><label><input id=p20enotifyIntelDeviceDisconnect type=checkbox />' + "Device disconnections" + '</label></div>';
+8499:                 x += '<div><label><input id=p20enotifyIntelDeviceHelp type=checkbox />' + "Help requests" + '</label></div>';
+8500:             }
+8501:             if ((userinfo.msghandle != null) && ((features2 & 0x02000000) != 0)) {
+8502:                 x += '<br /><div style="border-bottom: 1px solid #888;margin-bottom:3px">' + "Messaging Notifications" + '</div>';
+8503:                 x += '<div><label><input id=p20emsgDeviceConnect type=checkbox />' + "Device connections" + '</label></div>';
+8504:                 x += '<div><label><input id=p20emsgDeviceDisconnect type=checkbox />' + "Device disconnections" + '</label></div>';
+8505:                 x += '<div><label><input id=p20emsgDeviceHelp type=checkbox />' + "Help requests" + '</label></div>';
+8506:             }
+8507:             setDialogMode(2, "Notification Settings", 3, p20editDeviceNotifyEx, x, fx);
+8508:             Q('p20notifyIntelDeviceConnect').checked = (devNotify & 2);
+8509:             Q('p20notifyIntelDeviceDisconnect').checked = (devNotify & 4);
+8510:             if (fx & 2) { Q('p20notifyIntelAmtKvmActions').checked = (devNotify & 8); }
+8511:             if (fx & 1) {
+8512:                 Q('p20enotifyIntelDeviceConnect').checked = (devNotify & 16);
+8513:                 Q('p20enotifyIntelDeviceDisconnect').checked = (devNotify & 32);
+8514:                 Q('p20enotifyIntelDeviceHelp').checked = (devNotify & 64);
+8515:             }
+8516:             if ((userinfo.msghandle != null) && ((features2 & 0x02000000) != 0)) {
+8517:                 Q('p20emsgDeviceConnect').checked = (devNotify & 128);
+8518:                 Q('p20emsgDeviceDisconnect').checked = (devNotify & 256);
+8519:                 Q('p20emsgDeviceHelp').checked = (devNotify & 512);
+8520:             }
+8521:             return false;
+8522:         }
+8523: 
+8524:         function p20editDeviceNotifyEx(b, fx) {
+8525:             var devNotify = 0;
+8526

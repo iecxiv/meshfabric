@@ -1,0 +1,65 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshctrl.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 680-906 | part 1/4 (may continue a source line)
+
+680:                         console.log(winRemoveSingleQuotes("  MeshCtrl RemoveDeviceGroup --id 'groupid'"));
+681:                         console.log("\r\nRequired arguments:\r\n");
+682:                         if (process.platform == 'win32') {
+683:                             console.log("  --id [groupid]         - Device group identifier (or --group).");
+684:                         } else {
+685:                             console.log("  --id '[groupid]'       - Device group identifier (or --group).");
+686:                         }
+687:                         console.log("  --group [groupname]    - Device group name (or --id).");
+688:                         break;
+689:                     }
+690:                     case 'editdevicegroup': {
+691:                         console.log("Edit a device group, Example usages:\r\n");
+692:                         console.log(winRemoveSingleQuotes("  MeshCtrl EditDeviceGroup --id 'groupid' --name \"New Name\""));
+693:                         console.log(winRemoveSingleQuotes("  MeshCtrl EditDeviceGroup --id 'groupid' --desc \"Description\" --consent 63"));
+694:                         console.log(winRemoveSingleQuotes("  MeshCtrl EditDeviceGroup --id 'groupid' --invitecodes \"code1,code2\" --backgroundonly"));
+695:                         console.log("\r\nRequired arguments:\r\n");
+696:                         if (process.platform == 'win32') {
+697:                             console.log("  --id [groupid]         - Device group identifier (or --group).");
+698:                         } else {
+699:                             console.log("  --id '[groupid]'       - Device group identifier (or --group).");
+700:                         }
+701:                         console.log("  --group [groupname]    - Device group name (or --id).");
+702:                         console.log("\r\nOptional arguments:\r\n");
+703:                         console.log("  --name [name]          - Set new device group name.");
+704:                         console.log("  --desc [description]   - Set new device group description, blank to clear.");
+705:                         console.log("  --flags [number]       - Set device group flags, sum of the values below, 0 for none.");
+706:                         console.log("     1 = Auto remove device on disconnect.");
+707:                         console.log("     2 = Sync hostname.");
+708:                         console.log("  --consent [number]     - Set device group consent options, sum of the values below, 0 for none.");
+709:                         console.log("     1 = Desktop notify user.");
+710:                         console.log("     2 = Terminal notify user.");
+711:                         console.log("     4 = Files notify user.");
+712:                         console.log("     8 = Desktop prompt for user consent.");
+713:                         console.log("    16 = Terminal prompt for user consent.");
+714:                         console.log("    32 = Files prompt for user consent.");
+715:                         console.log("    64 = Desktop show connection toolbar.");
+716:                         console.log("  --invitecodes [aa,bb]  - Comma separated list of invite codes, blank to clear.");
+717:                         console.log("    --backgroundonly     - When used with invitecodes, set agent to only install in background.");
+718:                         console.log("    --interactiveonly    - When used with invitecodes, set agent to only run on demand.");
+719:                         break;
+720:                     }
+721:                     case 'movetodevicegroup': {
+722:                         console.log("Move a device to a new device group, Example usages:\r\n");
+723:                         console.log(winRemoveSingleQuotes("  MeshCtrl MoveToDeviceGroup --devid 'deviceid' --id 'groupid'"));
+724:                         console.log("\r\nRequired arguments:\r\n");
+725:                         if (process.platform == 'win32') {
+726:                             console.log("  --id [groupid]         - Device group identifier (or --group).");
+727:                         } else {
+728:                             console.log("  --id '[groupid]'       - Device group identifier (or --group).");
+729:                         }
+730:                         console.log("  --group [groupname]    - Device group name (or --id).");
+731:                         if (process.platform == 'win32') {
+732:                             console.log("  --devid [deviceid]     - Device identifier.");
+733:                         } else {
+734:                             console.log("  --devid '[deviceid]'   - Device identifier.");
+735:                         }
+736:                         break;
+737:                     }
+738:                     case 'addusertodevicegroup': {
+739:                         console.log("Add a user to a device group, Example usages:\r\n");
+740:                         console.log(winRemoveSingleQuotes("  

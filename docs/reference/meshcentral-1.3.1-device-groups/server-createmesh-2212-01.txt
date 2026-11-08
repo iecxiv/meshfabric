@@ -1,0 +1,58 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2212-2322 | part 1/3 (may continue a source line)
+
+2212:             case 'createmesh':
+2213:                 {
+2214:                     var err = null;
+2215:                     try {
+2216:                         // Support for old web pages that sent the meshtype as a string.
+2217:                         if (typeof command.meshtype == 'string') { command.meshtype = parseInt(command.meshtype); }
+2218: 
+2219:                         // Check if we have new group restriction
+2220:                         if ((user.siteadmin != SITERIGHT_ADMIN) && ((user.siteadmin & 64) != 0)) { err = 'Permission denied'; }
+2221: 
+2222:                         // In some situations, we need a verified email address to create a device group.
+2223:                         else if ((domain.mailserver != null) && (domain.auth != 'sspi') && (domain.auth != 'ldap') && (user.emailVerified !== true) && (user.siteadmin != SITERIGHT_ADMIN)) { err = 'Email verification required'; } // User must verify it's email first.
+2224: 
+2225:                         // Create mesh
+2226:                         else if (common.validateString(command.meshname, 1, 128) == false) { err = 'Invalid group name'; } // Meshname is between 1 and 128 characters
+2227:                         else if ((command.desc != null) && (common.validateString(command.desc, 0, 1024) == false)) { err = 'Invalid group description'; } // Mesh description is between 0 and 1024 characters
+2228:                         else if ((command.meshtype < 1) || (command.meshtype > 4)) { err = 'Invalid group type'; } // Device group types are 1 = AMT, 2 = Agent, 3 = Local
+2229:                         else if (((command.meshtype == 3) || (command.meshtype == 4)) && (parent.args.wanonly == true) && (typeof command.relayid != 'string')) { err = 'Invalid group type'; } // Local device group type wihtout relay is not allowed in WAN mode
+2230:                         else if (((command.meshtype == 3) || (command.meshtype == 4)) && (parent.args.lanonly == true) && (typeof command.relayid == 'string')) { err = 'Invalid group type'; } // Local device group type with relay is not allowed in WAN mode
+2231:                         else if ((domain.ipkvm == null) && (command.meshtype == 4)) { err = 'Invalid group type'; } // IP KVM device group type is not allowed unless enabled
+2232:                         else if ((command.parent != null) && (typeof command.parent !== 'string' || !parent.meshes[command.parent] || parent.meshes[command.parent].domain !== domain.id)) { err = 'Invalid parent group'; }
+2233:                         if ((err == null) && (command.meshtype == 4)) {
+2234:                             if ((command.kvmmodel < 1) || (command.kvmmodel > 2)) { err = 'Invalid KVM model'; }
+2235:                             else if (common.validateString(command.kvmhost, 1, 128) == false) { err = 'Invalid KVM hostname'; }
+2236:                             else if (common.validateString(command.kvmuser, 1, 128) == false) { err = 'Invalid KVM username'; }
+2237:                             else if (common.validateString(command.kvmpass, 1, 128) == false) { err = 'Invalid KVM password'; }
+2238:                         }
+2239:                     } catch (ex) { err = 'Validation exception: ' + ex; }
+2240: 
+2241:                     // Handle any errors
+2242:                     if (err != null) {
+2243:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'createmesh', responseid: command.responseid, result: err })); } catch (ex) { } }
+2244:                         break;
+2245:                     }
+2246: 
+2247:                     // We only create Agent-less Intel AMT mesh (Type1), or Agent mesh (Type2)
+2248:                     parent.crypto.randomBytes(48, function (err, buf) {
+2249:                         // Create new device group identifier
+2250:                         meshid = 'mesh/' + domain.id + '/' + buf.toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
+2251: 
+2252:                         // Create the new device group
+2253:                         var links = {};
+2254:                         links[user._id] = { name: user.name, rights: 4294967295 };
+2255:                         mesh = { type: 'mesh', _id: meshid, name: command.meshname, mtype: command.meshtype, desc: command.desc, domain: domain.id, links: links, creation: Date.now(), creatorid: user._id, creatorname: user.name };
+2256: 
+2257:                         // Set parent mesh if provided
+2258:                         if (command.parent && parent.meshes[command.parent]) { mesh.parent = command.parent; }
+2259: 
+2260:                         // Add flags and consent if present
+2261:                         if (typeof command.flags == 'number') { mesh.flags = command.flags; }
+2262:                         if (typeof command.consent == 'number') { mesh.consent = command.consent; }
+2263: 
+2264:                         // Add KVM information if needed
+2265:                         if (command.meshtype == 4) { mesh.kvm = { 

@@ -1,0 +1,52 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshctrl.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 680-906 | part 4/4 (may continue a source line)
+
+        console.log("\r\nRequired arguments:\r\n");
+860:                         if (process.platform == 'win32') {
+861:                             console.log("  --id [deviceid]        - The device identifier.");
+862:                         } else {
+863:                             console.log("  --id '[deviceid]'      - The device identifier.");
+864:                         }
+865:                         break;
+866:                     }
+867:                     case 'addlocaldevice': {
+868:                         console.log("Add a Local Device, Example usages:\r\n");
+869:                         console.log(winRemoveSingleQuotes("  MeshCtrl AddLocalDevice --id 'meshid' --devicename 'devicename' --hostname 'hostname'"));
+870:                         console.log(winRemoveSingleQuotes("  MeshCtrl AddLocalDevice --id 'meshid' --devicename 'devicename' --hostname 'hostname' --type 6"));
+871:                         console.log("\r\nRequired arguments:\r\n");
+872:                         if (process.platform == 'win32') {
+873:                             console.log("  --id [meshid]                - The mesh identifier.");
+874:                             console.log("  --devicename [devicename]    - The device name.");
+875:                             console.log("  --hostname [hostname]        - The devices hostname or ip address.");
+876:                         } else {
+877:                             console.log("  --id '[meshid]'              - The mesh identifier.");
+878:                             console.log("  --devicename '[devicename]'  - The device name.");
+879:                             console.log("  --hostname '[hostname]'      - The devices hostname or ip address.");
+880:                         }
+881: 
+882:                         console.log("\r\nOptional arguments:\r\n");
+883:                         console.log("  --type [TypeNumber] - With the following choices:");
+884:                         console.log("    type 4            - Default, Windows (RDP)");
+885:                         console.log("    type 6            - Linux (SSH/SCP/VNC)");
+886:                         console.log("    type 29           - macOS (SSH/SCP/VNC)");
+887:                         break;
+888:                     }
+889:                     case 'addamtdevice': {
+890:                         console.log("Add an Intel AMT Device, Example usages:\r\n");
+891:                         console.log(winRemoveSingleQuotes("  MeshCtrl AddAmtDevice --id 'meshid' --devicename 'devicename' --hostname 'hostname --user 'admin' --pass 'admin'"));
+892:                         console.log(winRemoveSingleQuotes("  MeshCtrl AddAmtDevice --id 'meshid' --devicename 'devicename' --hostname 'hostname --user 'admin' --pass 'admin' --notls"));
+893:                         console.log("\r\nRequired arguments:\r\n");
+894:                         if (process.platform == 'win32') {
+895:                             console.log("  --id [meshid]                - The mesh identifier.");
+896:                             console.log("  --devicename [devicename]    - The device name.");
+897:                             console.log("  --hostname [hostname]        - The devices hostname or ip address.");
+898:                             console.log("  --user [user]                - The devices AMT username.");
+899:                             console.log("  --pass [pass]                - The devices AMT password.");
+900:                             console.log("")
+901:                         } else {
+902:                             console.log("  --id '[meshid]'              - The mesh identifier.");
+903:                             console.log("  --devicename '[devicename]'  - The device name.");
+904:                             console.log("  --hostname '[hostname]'      - The devices hostname or ip address.");
+905:                             console.log("  --user '[user]'              - The devices AMT username.");
+906:                             console.log("  --pass '[pass]'              - The devices AMT password.");

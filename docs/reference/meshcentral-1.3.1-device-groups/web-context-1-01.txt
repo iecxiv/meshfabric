@@ -1,0 +1,48 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 8414-8753 | part 1/6 (may continue a source line)
+
+8414:                             if (ugroup) {
+8415:                                 username = '<a href=# onclick=\'gotoUserGroup("' + encodeURIComponentEx(userid) + '");haltEvent(event);\'>' + username + '</a>';
+8416:                             } else {
+8417:                                 username = '<a href=# onclick=\'gotoUser("' + encodeURIComponentEx(userid) + '");haltEvent(event);\'>' + username + '</a>';
+8418:                             }
+8419:                         }
+8420: 
+8421:                         x += '<tr ' + (((++count % 2) == 0) ? 'style=background-color:#DDD' : '') + '><td style=width:30%><div title="' + (ugroup?"User Group":"User") + '" class=m' + (ugroup?4:2) + '></div><div>&nbsp;' + username + '<div></div></div></td><td style=width:70%><div style=float:right>' + trash + '</div><div>' + rights + '</div></td></tr>';
+8422:                     }
+8423:                 }
+8424:                 if (count == 1) { x += '<tr><td><div style=padding:6px>&nbsp;<i>' + "No users with special device permissions" + '</i><div></div></div></td><td></td></tr>'; }
+8425:                 x += '</tbody></table>';
+8426: 
+8427:                 // Show device shares
+8428:                 if ((deviceShares != null) && (deviceSharesNode == currentNode._id) && (deviceShares.length > 0)) {
+8429:                     x += '<br /><table style="color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;border-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col style=text-align:left;width:430px>' + "Active Device Sharing" + '</th><th scope=col style=text-align:left></th></tr>';
+8430:                     count = 1;
+8431:                     for (var i = 0; i < deviceShares.length; i++) {
+8432:                         var dshare = deviceShares[i], trash = '';
+8433:                         if (dshare.url != null) { trash += '<a href="' + dshare.url + '" rel="noreferrer noopener" target=_blank title="' + "Device Sharing Link" + '" style=cursor:pointer><img src=images/link2.png border=0 height=10 width=10></a> '; }
+8434:                         trash += '<a href=# onclick=\'return p30removeDeviceSharing(event,"' + encodeURIComponentEx(currentNode._id) + '","' + encodeURIComponentEx(dshare.publicid) + '","' + encodeURIComponentEx(dshare.guestName) + '")\' title="' + "Remove device sharing" + '" style=cursor:pointer><img src=images/trash.png border=0 height=10 width=10></a>';
+8435:                         var type = ''; if (dshare.p <= 7) { type = ['', "Terminal", "Desktop", "Desktop + Terminal", "Files", "Terminal + Files", "Desktop + Files", "Desktop + Terminal + Files"][dshare.p]; } else if (dshare.p == 8) { type = "HTTP/" + dshare.port; } else if (dshare.p == 16) { type = "HTTPS/" + dshare.port; }
+8436:                         var details = type;
+8437:                         if ((dshare.startTime != null) && (dshare.expireTime != null)) { details = format("{0}, {1} to {2}", type, printFlexDateTime(new Date(dshare.startTime)), printFlexDateTime(new Date(dshare.expireTime))); }
+8438:                         if ((dshare.startTime != null) && (dshare.duration != null)) {
+8439:                             if (dshare.duration < 2) {
+8440:                                 details = format("{0}, {1} for {2} minute", type, printFlexDateTime(new Date(dshare.startTime)), dshare.duration);
+8441:                             } else {
+8442:                                 details = format("{0}, {1} for {2} minutes", type, printFlexDateTime(new Date(dshare.startTime)), dshare.duration);
+8443:                             }
+8444:                         }
+8445:                         if (dshare.recurring == 1) { details += ", Reccuring daily"; }
+8446:                         if (dshare.recurring == 2) { details += ", Reccuring weekly"; }
+8447:                         if (((dshare.p & 2) != 0) && (dshare.viewOnly === true)) { details += ", View only desktop"; }
+8448:                         if (dshare.consent != null) {
+8449:                             if (dshare.consent == 0) { details += ", No Consent"; } else {
+8450:                                 if ((dshare.consent & 0x0038) != 0) { details += ", Prompt for consent"; }
+8451:                                 if ((dshare.consent & 0x0040) != 0) { details += ", Toolbar"; }
+8452:                             }
+8453:                         }
+8454:                         var guestName = EscapeHtml(dshare.guestName);
+8455:                         if (dshare.publicid.startsWith('AS:node/')) { guestName = '<i>' + "Agent Self-Share" + '</i>'; }
+8456:                         x += '<tr ' + (((++count % 2) == 0) ? 'style=background-color:#DDD' : '') + '><td style=width:30%><div class=m' + 2 + '></div><div>&nbsp;' + guestName + '<div></div></div></td><td style=width:70%><div style=float:right>' + trash + '</div><div>' + details + '</div></td></tr>';
+8457:                     }

@@ -1,0 +1,69 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6189-6487 | part 2/5 (may continue a source line)
+
+tion: ' + ex; }
+6256:     
+6257:         // Handle any errors
+6258:         if (err != null) {
+6259:             if (command.responseid != null) { obj.send({ action: 'addmeshuser', responseid: command.responseid, result: err }); }
+6260:             return;
+6261:         }
+6262:     
+6263:         // Convert user names to userid's
+6264:         if (command.userids == null) {
+6265:             command.userids = [];
+6266:             for (var i in command.usernames) {
+6267:                 if (parent.users['user/' + domain.id + '/' + command.usernames[i].toLowerCase()] != null) { command.userids.push('user/' + domain.id + '/' + command.usernames[i].toLowerCase()); }
+6268:                 else if (parent.users['user/' + domain.id + '/' + command.usernames[i]] != null) { command.userids.push('user/' + domain.id + '/' + command.usernames[i]); }
+6269:             }
+6270:         }
+6271:         var unknownUsers = [], successCount = 0, failCount = 0, msgs = [];
+6272:         for (var i in command.userids) {
+6273:             // Check if the user exists
+6274:             var newuserid = command.userids[i], newuser = null;
+6275:             if (newuserid.startsWith('user/')) { newuser = parent.users[newuserid]; }
+6276:             else if (newuserid.startsWith('ugrp/')) { newuser = parent.userGroups[newuserid]; }
+6277:             else { newuserid = 'user/' + domain.id + '/' + newuserid; newuser = parent.users[newuserid]; }
+6278:     
+6279:             // Search for a user name in that windows domain is the username starts with *\
+6280:             if ((newuser == null) && (newuserid.startsWith('user/' + domain.id + '/*\\')) == true) {
+6281:                 var search = newuserid.split('/')[2].substring(1);
+6282:                 for (var i in parent.users) { if (i.endsWith(search) && (parent.users[i].domain == domain.id)) { newuser = parent.users[i]; command.userids[i] = newuserid = parent.users[i]._id; break; } }
+6283:             }
+6284:     
+6285:             // Make sure this user is in the same domain as the device group
+6286:             if (meshIdSplit[1] != newuserid.split('/')[1]) { msgs.push("Mismatch domains"); continue; }
+6287:     
+6288:             if (newuser != null) {
+6289:                 // Can't add or modify self
+6290:                 if (newuserid == obj.user._id) { msgs.push("Can't change self"); continue; }
+6291:     
+6292:                 var targetMeshRights = 0;
+6293:                 if ((newuser.links != null) && (newuser.links[command.meshid] != null) && (newuser.links[command.meshid].rights != null)) { targetMeshRights = newuser.links[command.meshid].rights; }
+6294:                 if ((targetMeshRights === MESHRIGHT_ADMIN) && (selfMeshRights != MESHRIGHT_ADMIN)) { msgs.push("Can't change rights of device group administrator"); continue; } // A non-admin can't kick out an admin
+6295:     
+6296:                 if (command.remove === true) {
+6297:                     // Remove mesh from user or user group
+6298:                     delete newuser.links[command.meshid];
+6299:                 } else {
+6300:                     // Adjust rights since we can't add more rights that we have outself for MESHRIGHT_MANAGEUSERS
+6301:                     if ((selfMeshRights != MESHRIGHT_ADMIN) && (command.meshadmin == MESHRIGHT_ADMIN)) { msgs.push("Can't set device group administrator, if not administrator"); continue; }
+6302:                     if (((selfMeshRights & 2) == 0) && ((command.meshadmin & 2) != 0) && ((targetMeshRights & 2) == 0)) { command.meshadmin -= 2; }
+6303:     
+6304:                     // Add mesh to user or user group
+6305:                     if (newuser.links == null) { newuser.links = {}; }
+6306:                     if (newuser.links[command.meshid]) { newuser.links[command.meshid].rights = command.meshadmin; } else { newuser.links[command.meshid] = { rights: command.meshadmin }; }
+6307:                 }
+6308:                 if (newuserid.startsWith('user/')) { db.SetUser(newuser); }
+6309:                 else if (newuserid.startsWith('ugrp/')) { db.Set(newuser); }
+6310:                 parent.parent.DispatchEvent([newuser._id], obj, 'resubscribe');
+6311:     
+6312:                 if (newuserid.startsWith('user/')) {
+6313:                     // Notify user change
+6314:                     var targets = ['*', 'server-users', user._id, newuser._id];
+6315:                     var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(newuser), action: 'accountchange', msgid: 78, msgArgs: [newuser.name], msg: 'Device group membership changed: ' + newuser.name, domain: domain.id };
+6316:                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6317:                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6318:                     }
+6319:                     if (db.changeStream) { event.noact = 1; } // If DB change stream 

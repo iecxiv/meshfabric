@@ -1,0 +1,20 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1594-1609 | part 1/1 (may continue a source line)
+
+1594:             case 'usergroups':
+1595:                 {
+1596:                     // Return only groups in the same administrative domain
+1597:                     if ((user.siteadmin & SITERIGHT_USERGROUPS) == 0) {
+1598:                         // We are not user group administrator, return a list with limited data for our domain.
+1599:                         var groups = {}, groupCount = 0;
+1600:                         for (var i in parent.userGroups) { if (parent.userGroups[i].domain == domain.id) { groupCount++; groups[i] = { name: parent.userGroups[i].name }; } }
+1601:                         try { ws.send(JSON.stringify({ action: 'usergroups', ugroups: groupCount ? groups : null, tag: command.tag })); } catch (ex) { }
+1602:                     } else {
+1603:                         // We are user group administrator, return a full user group list for our domain.
+1604:                         var groups = {}, groupCount = 0;
+1605:                         for (var i in parent.userGroups) { if ((obj.crossDomain == true) || (parent.userGroups[i].domain == domain.id)) { groupCount++; groups[i] = parent.userGroups[i]; } }
+1606:                         try { ws.send(JSON.stringify({ action: 'usergroups', ugroups: groupCount ? groups : null, tag: command.tag })); } catch (ex) { }
+1607:                     }
+1608:                     break;
+1609:                 }

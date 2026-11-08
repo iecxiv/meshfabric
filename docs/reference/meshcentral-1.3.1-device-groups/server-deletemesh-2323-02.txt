@@ -1,0 +1,63 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2323-2440 | part 2/2 (may continue a source line)
+
+              parent.parent.DispatchEvent(targets, obj, event);
+2383:                             }
+2384:                         } else if (j.startsWith('ugrp/')) {
+2385:                             var xgroup = parent.userGroups[j];
+2386:                             if (xgroup && xgroup.links) {
+2387:                                 delete xgroup.links[mesh._id];
+2388:                                 db.Set(xgroup);
+2389: 
+2390:                                 // Notify user group change
+2391:                                 var targets = ['*', 'server-ugroups', user._id, xgroup._id];
+2392:                                 var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: xgroup._id, name: xgroup.name, desc: xgroup.desc, action: 'usergroupchange', links: xgroup.links, msgid: 79, msgArgs: [xgroup.name], msg: 'User group changed: ' + xgroup.name, domain: domain.id };
+2393:                                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2394:                                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2395:                                 }
+2396:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+2397:                                 parent.parent.DispatchEvent(targets, obj, event);
+2398:                             }
+2399:                         }
+2400:                     }
+2401: 
+2402:                     // Delete any invitation codes
+2403:                     delete mesh.invite;
+2404: 
+2405:                     // Delete all files on the server for this mesh
+2406:                     try {
+2407:                         var meshpath = parent.getServerRootFilePath(mesh);
+2408:                         if (meshpath != null) { parent.deleteFolderRec(meshpath); }
+2409:                     } catch (e) { }
+2410: 
+2411:                     parent.parent.RemoveEventDispatchId(command.meshid); // Remove all subscriptions to this mesh
+2412: 
+2413:                     // Notify the devices that they have changed relay roles
+2414:                     if (mesh.relayid != null) {
+2415:                         // Get the node and the rights for this node
+2416:                         parent.GetNodeWithRights(domain, user, mesh.relayid, function (node, rights, visible) {
+2417:                             if (node == null) return;
+2418:                             var event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: domain.id, msg: 'No longer a relay for ' + mesh.name + '.', msgid: 152, msgArgs: [mesh.name], node: parent.CloneSafeNode(node) };
+2419:                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2420:                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2421:                             }
+2422:                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the node. Another event will come.
+2423:                             parent.parent.DispatchEvent(parent.CreateNodeDispatchTargets(node.meshid, node._id, [user._id]), obj, event);
+2424:                         });
+2425:                     }
+2426: 
+2427:                     // Mark the mesh as deleted
+2428:                     mesh.deleted = new Date(); // Mark the time this mesh was deleted, we can expire it at some point.
+2429:                     db.Set(mesh); // We don't really delete meshes because if a device connects to is again, we will un-delete it.
+2430: 
+2431:                     // Delete all devices attached to this mesh in the database
+2432:                     db.RemoveMeshDocuments(command.meshid);
+2433:                     // TODO: We are possibly deleting devices that users will have links to. We need to clean up the broken links from on occasion.
+2434: 
+2435:                     // Log in the auth log
+2436:                     if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' deleted device group ' + mesh.name); }
+2437: 
+2438:                     if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'deletemesh', responseid: command.responseid, result: 'ok' })); } catch (ex) { } }
+2439:                     break;
+2440:                 }

@@ -1,0 +1,58 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 17/17 (may continue a source line)
+
+        else if (nodes[i].wsc.antiVirus != 'OK') { securityStates[1]++; }
+16392:                         else if (nodes[i].wsc.autoUpdate != 'OK') { securityStates[2]++; }
+16393:                         else if (nodes[i].wsc.firewall != 'OK') { securityStates[3]++; }
+16394:                     }
+16395:                 }
+16396:             }
+16397: 
+16398:             var agentsData = [], agentsLabels = [], powerData = [], powerLabels = [], xagentsStr = (currentMesh.mtype == 3) ? agentsStrNoAgent : agentsStr;
+16399:             for (var i in agentTypes) { agentsData.push(agentTypes[i]); agentsLabels.push(xagentsStr[i]); }
+16400:             for (var i in powerStates) { powerData.push(powerStates[i]); powerLabels.push(powerStatetable[i]); }
+16401:             window.meshPowerChart.config.data.datasets[0].data = powerData;
+16402:             window.meshPowerChart.config.data.labels = powerLabels;
+16403:             window.meshPowerChart.update();
+16404:             if (currentMesh.mtype >= 2) {
+16405:                 window.meshOsChart.config.data.datasets[0].data = agentsData;
+16406:                 window.meshOsChart.config.data.labels = agentsLabels;
+16407:                 window.meshOsChart.update();
+16408:             }
+16409:             window.meshConnChart.config.data.datasets[0].data = connectivityStates;
+16410:             window.meshConnChart.update();
+16411:             window.meshSecurityChart.config.data.datasets[0].data = securityStates;
+16412:             window.meshSecurityChart.update();
+16413: 
+16414:             // Update tables
+16415:             var x = '', count = 0;
+16416:             if (powerData.length > 0) {
+16417:                 var xpowerStates = [];
+16418:                 for (var i in powerStates) { xpowerStates.push([powerStatetable[i], powerStates[i]]); }
+16419:                 xpowerStates.sort(function(a, b){ return -(a[1]-b[1]) });
+16420:                 x += '<table style="margin-top:10px;color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;border-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col colspan=2 style=text-align:left;width:430px>' + "Power States" + '</th></tr>';
+16421:                 for (var i in xpowerStates) { x += '<tr style=' + (((++count % 2) == 0) ? 'background-color:#DDD' : '') + '><td style=text-align:right;width:60px>' + xpowerStates[i][1] + ' <td> ' + xpowerStates[i][0] + '</tr>'; }
+16422:                 x += '</tbody></table>';
+16423:             }
+16424: 
+16425:             if ((agentsData.length > 0) && (currentMesh.mtype >= 2)) {
+16426:                 count = 0;
+16427:                 var xagentTypes = [];
+16428:                 for (var i in agentTypes) { xagentTypes.push([xagentsStr[i], agentTypes[i]]); }
+16429:                 xagentTypes.sort(function(a, b){ return -(a[1]-b[1]) });
+16430:                 x += '<table style="margin-top:10px;color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;border-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col colspan=2 style=text-align:left;width:430px>' + "Agent Types" + '</th></tr>';
+16431:                 for (var i in xagentTypes) { x += '<tr style=' + (((++count % 2) == 0) ? 'background-color:#DDD' : '') + '><td style=text-align:right;width:60px>' + xagentTypes[i][1] + '<td> ' + xagentTypes[i][0] + '</tr>'; }
+16432:                 x += '</tbody></table>';
+16433:             }
+16434: 
+16435:             if (showConn) {
+16436:                 count = 0;
+16437:                 var xconnectivityStates = [];
+16438:                 for (var i = 0; i < 4; i++) { xconnectivityStates.push([["Not Connected", "Agent", "Intel&reg; AMT", "Agent + Intel&reg; AMT"][i], connectivityStates[i]]); }
+16439:                 xconnectivityStates.sort(function(a, b){ return -(a[1]-b[1]) });
+16440:                 x += '<table style="margin-top:10px;color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;border-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col colspan=2 style=text-align:left;width:430px>' + "Connectivity" + '</th></tr>';
+16441:                 for (var i = 0; i < 4; i++) { if (xconnectivityStates[i][1] > 0) { x += '<tr style=' + (((++count % 2) == 0) ? 'background-color:#DDD' : '') + '><td style=text-align:right;width:60px>' + xconnectivityStates[i][1] + '<td> ' + xconnectivityStates[i][0] + '</tr>'; } }
+16442:                 x += '</tbody></table>';
+16443:             }
+16444: 

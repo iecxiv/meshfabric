@@ -1,0 +1,91 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18059-18398 | part 4/6 (may continue a source line)
+
+ogMode(2, "Edit User Group", 3, p51editgroupEx, x);
+18227:             Q('dp51name').value = currentUserGroup.name;
+18228:             if (currentUserGroup.desc) Q('dp51desc').value = currentUserGroup.desc;
+18229:             p51editgroupValidate();
+18230:             if (focus == 2) { Q('dp51desc').focus(); } else { Q('dp51name').focus(); }
+18231:         }
+18232: 
+18233:         function p51editgroupEx() {
+18234:             meshserver.send({ action: 'editusergroup', ugrpid: currentUserGroup._id, name: Q('dp51name').value, desc: Q('dp51desc').value });
+18235:         }
+18236: 
+18237:         function p51editgroupValidate(e) {
+18238:             QE('idx_dlgOkButton', Q('dp51name').value.length > 0); if (e && e.key == 'Enter') { Q('dp51desc').focus(); }
+18239:         }
+18240: 
+18241:         function p51showDeleteUserGroupDialog() {
+18242:             if (xxdialogMode) return false;
+18243:             var x = format("Delete user group {0}?", EscapeHtml(currentUserGroup.name)) + '<br /><br />';
+18244:             x += '<label><input id=p51check type=checkbox onchange=p51validateDeleteGroupDialog() />' + "Confirm" + '</label>';
+18245:             setDialogMode(2, "Delete User Group", 3, p51showDeleteUserGroupDialogEx, x);
+18246:             p51validateDeleteGroupDialog();
+18247:             return false;
+18248:         }
+18249: 
+18250:         function p51validateDeleteGroupDialog() {
+18251:             QE('idx_dlgOkButton', Q('p51check').checked);
+18252:         }
+18253: 
+18254:         function p51showDeleteUserGroupDialogEx(buttons, tag) {
+18255:             meshserver.send({ action: 'deleteusergroup', ugrpid: currentUserGroup._id });
+18256:         }
+18257: 
+18258:         function p51deleteUser(e, id) {
+18259:             haltEvent(e);
+18260:             p51viewuserEx(2, decodeURIComponent(id));
+18261:             return false;
+18262:         }
+18263: 
+18264:         function p51viewuserEx(button, userid) {
+18265:             if (button != 2) return;
+18266:             var uname = userid.split('/')[2];
+18267:             if (users && users[userid]) { uname = users[userid].name; }
+18268:             if (userinfo._id == userid) { uname = userinfo.name; }
+18269:             setDialogMode(2, "Remove User Membership", 3, p51viewuserEx2, format("Confirm membership removal of user \"{0}\"?", EscapeHtml(decodeURIComponent(uname))), userid);
+18270:         }
+18271:         function p51viewuserEx2(button, userid) { meshserver.send({ action: 'removeuserfromusergroup', ugrpid: currentUserGroup._id, userid: userid }); }
+18272: 
+18273:         function p51showAddUserDialog() {
+18274:             if (xxdialogMode) return false;
+18275:             var x = "Allow users to manage this device group and devices in this group.";
+18276:             if (features & 0x00080000) { x += " Users need to login to this server once before they can be added to a device group." }
+18277:             x += '<br /><br /><div style=\'position:relative\'>';
+18278:             x += addHtmlValue("User Identifiers", '<input id=dp51username style=width:230px maxlength=32 onchange=p51validateAddUserDialog() onkeyup=p51validateAddUserDialog() placeholder="user1, user2, user3" />');
+18279:             x += '<div id=dp51usersuggest class=suggestionBox style=\'top:30px;left:130px;display:none\'></div>';
+18280:             x += '</div><br>';
+18281:             setDialogMode(2, "Add Users to User Group", 3, p51showAddUserDialogEx, x);
+18282:             Q('dp51username').focus();
+18283:             p51validateAddUserDialog();
+18284:             return false;
+18285:         }
+18286: 
+18287:         function p51setname(name) {
+18288:             name = decodeURIComponent(name);
+18289:             var xusers = Q('dp51username').value.split(',');
+18290:             for (var i in xusers) { xusers[i] = xusers[i].trim(); }
+18291:             xusers[xusers.length - 1] = name;
+18292:             Q('dp51username').value = xusers.join(', ');
+18293:             p51validateAddUserDialog();
+18294:             return false;
+18295:         }
+18296: 
+18297:         function p51validateAddUserDialog() {
+18298:             var ok = true;
+18299:             if (Q('dp51username')) {
+18300:                 var xusers = Q('dp51username').value.split(',');
+18301:                 for (var i in xusers) {
+18302:                     var xuser = xusers[i] = xusers[i].trim();
+18303:                     if (xuser.length == 0) { ok = false; } else if (xuser.indexOf('"') >= 0) { ok = false; }
+18304:                 }
+18305: 
+18306:                 // Fill the suggestion box
+18307:                 var showsuggestbox = false, exactMatch = false;
+18308:                 if (users != null) {
+18309:                     var lastuser = xusers[xusers.length - 1].trim(), lastuserl = lastuser.toLowerCase(), matchingUsers = [];
+18310:                     if (lastuser.length > 0) {
+18311:                         for (var i in users) {
+18312:                             var userSplit = users[i]._id

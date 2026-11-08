@@ -1,0 +1,41 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1-130 | part 2/2 (may continue a source line)
+
+MeshCentral Satellite
+95:     const SATELLITE_PRESENT = 1;     // This session is a MeshCentral Satellite session
+96:     const SATELLITE_802_1x = 2;      // This session supports 802.1x profile checking and creation
+97: 
+98:     // Events
+99:     /*
+100:     var eventsMessageId = {
+101:         1: "Account login",
+102:         2: "Account logout",
+103:         3: "Changed language from {1} to {2}",
+104:         4: "Joined desktop multiplex session",
+105:         5: "Left the desktop multiplex session",
+106:         6: "Started desktop multiplex session",
+107:         7: "Finished recording session, {0} second(s)",
+108:         8: "Closed desktop multiplex session, {0} second(s)"
+109:     };
+110:     */
+111: 
+112:     var obj = {};
+113:     obj.user = user;
+114:     obj.domain = domain;
+115:     obj.ws = ws;
+116: 
+117:     // Information related to the current page the user is looking at
+118:     obj.deviceSkip = 0; // How many devices to skip
+119:     obj.deviceLimit = 0; // How many devices to view
+120:     obj.visibleDevices = null; // An object of visible nodeid's if the user is in paging mode
+121:     obj.deviceFilter = null; // Device name filter applied by the server before paging, only used in paging mode
+122:     if (domain.maxdeviceview != null) { obj.deviceLimit = domain.maxdeviceview; }
+123: 
+124:     // Check if we are a cross-domain administrator
+125:     if (parent.parent.config.settings.managecrossdomain && (parent.parent.config.settings.managecrossdomain.indexOf(user._id) >= 0)) { obj.crossDomain = true; }
+126: 
+127:     // Server side Intel AMT stack
+128:     const WsmanComm = require('./amt/amt-wsman-comm.js');
+129:     const Wsman = require('./amt/amt-wsman.js');
+130:     const Amt = require('./amt/amt.js');

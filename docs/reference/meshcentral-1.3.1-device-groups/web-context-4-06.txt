@@ -1,0 +1,48 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18804-19151 | part 6/6 (may continue a source line)
+
+ds[0]) + '")\'>' + EscapeHtml(ruser.name) + '</a>';
+19109:                     } else {
+19110:                         sessionName += ' - ' + EscapeHtml(rec.userids[0].split('/')[2]);
+19111:                     }
+19112:                 }
+19113:             }
+19114: 
+19115:             if (rec.protocol == 1) { sessionName += ' - ' + "Terminal Session"; }
+19116:             if (rec.protocol == 2) { sessionName += ' - ' + "Desktop Session"; }
+19117:             if (rec.protocol == 5) { sessionName += ' - ' + "File Transfer"; }
+19118:             if (rec.protocol == 6) { sessionName += ' - ' + "Admin PowerShell"; }
+19119:             if (rec.protocol == 8) { sessionName += ' - ' + "User Shell"; }
+19120:             if (rec.protocol == 9) { sessionName += ' - ' + "User PowerShell"; }
+19121:             if (rec.protocol == 100) { sessionName += ' - ' + "Intel&reg; AMT WSMAN"; }
+19122:             if (rec.protocol == 101) { sessionName += ' - ' + "Intel&reg; AMT Redirection"; }
+19123:             if (rec.protocol == 200) { sessionName += ' - ' + "Messenger"; }
+19124: 
+19125:             var actions = '', icon = 'm0';
+19126:             if (rec.present == 1) {
+19127:                 icon = 'm1';
+19128:                 actions = '<div style=cursor:pointer;float:right><a onclick=downloadFile("recordings.ashx?file=' + encodeURIComponentEx(rec.filename) + '")><img src=images/link4.png height=10 width=10 title="Download Recording"></a>&nbsp;</div>';
+19129:                 actions += '<div style=cursor:pointer;float:right><a href="player.htm?stream=' + encodeURIComponentEx(rec.filename) + '") rel=\"noreferrer noopener\" target=\"mcplay-' + encodeURIComponentEx(rec.filename) + '\"><img src=images/link7.png height=10 width=10 title="Play Recording"></a>&nbsp;</div>';
+19130:             }
+19131:             var x = '<tr tabindex=0 onmouseover=userMouseHover2(this,1) onmouseout=userMouseHover2(this,0) onkeypress="if (event.key==\'Enter\') showRecordingDialog(event,\'' + i + '\')"><td style=cursor:pointer>';
+19132:             x += '<div class=bar style=width:100%>';
+19133:             //x += '<div class=baricon><input class=RecordingCheckbox value="' + encodeURIComponentEx(rec.filename) + '" onclick=p52updateInfo() type=checkbox></div>';
+19134:             x += '<div></div>';
+19135:             x += '<div class=baricon onclick=showRecordingDialog(event,"' + i + '")><div class=' + icon + '></div></div>';
+19136:             x += '<div class=g1 onclick=showRecordingDialog(event,"' + i + '")></div><div class=g2 onclick=showRecordingDialog("' + i + '")></div>';
+19137:             x += '<div style=line-height:24px onclick=showRecordingDialog(event,"' + i + '")>' + actions + '<div style=font-size:16px>' + sessionName + '</div></div></div><td style=text-align:center>' + sessionStartStr + '<td style=text-align:center>' + sessionLengthStr + '<td style=text-align:center>' + sessionSize;
+19138:             return x;
+19139:         }
+19140: 
+19141:         function showRecordingDialog(event, i) {
+19142:             if (xxdialogMode) return;
+19143:             if ((event.target.tagName == 'IMG') || (event.target.tagName == 'A')) return;
+19144:             var rec = p52recordings[i];
+19145:             var x = '';
+19146:             if (rec.protocol) {
+19147:                 var protocolStr = "Unknown";
+19148:                 if (rec.protocol == 1) { protocolStr = "Terminal"; }
+19149:                 if (rec.protocol == 2) { protocolStr = "Desktop"; }
+19150:                 if (rec.protocol == 5) { protocolStr = "Files"; }
+19151:                 if (rec.protocol == 6) { protocolStr = "Admin PowerShell"; }

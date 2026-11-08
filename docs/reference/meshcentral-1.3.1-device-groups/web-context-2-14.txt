@@ -1,0 +1,62 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 14/17 (may continue a source line)
+
+tures & 2) != 0)) { servername = window.location.hostname; } // If the server name is not set or it's in LAN-only mode, use the URL hostname as server name.
+16212:             var url;
+16213:             if (serverinfo.https == true) {
+16214:                 var portStr = (serverinfo.port == 443) ? '' : (':' + serverinfo.port);
+16215:                 url = 'https://' + servername + portStr + domainUrl + 'invite' + ((urlargs.key)?('?key=' + urlargs.key):'');
+16216:             } else {
+16217:                 var portStr = (serverinfo.port == 80) ? '' : (':' + serverinfo.port);
+16218:                 url = 'http://' + servername + portStr + domainUrl + 'invite' + ((urlargs.key)?('?key=' + urlargs.key):'');
+16219:             }
+16220: 
+16221:             if (meshrights & 1) {
+16222:                 // We can edit the mesh invite codes
+16223:                 var x = "When enabled, invitation codes can be used by anyone to join devices to this device group using the following public link:" + '<br /><br />';
+16224:                 x += '<div style=width:100%;text-align:center><a rel="noreferrer noopener" target=_blank href="' + url + '">' + url + '</a></div><br />';
+16225:                 x += '<div style=margin-bottom:5px><label><input id=agentJoinCheck type=checkbox onclick=p20editmeshInviteCodeValidate() />' + "Enable Invite Codes" + '</label></div>';
+16226:                 x += addHtmlValue("Invite Codes", '<input id=agentInviteCode style=width:236px onkeyup=p20editmeshInviteCodeValidate() placeholder="code1, code2, code3" />');
+16227:                 x += addHtmlValue("Agents", '<select id=agentType style=width:236px onchange=p20editmeshInviteCodeValidate()><option value=0>' + "All Available Agents" + '</option><option value=1>' + "Windows MeshAgent" + '</option><option value=2>' + "Linux MeshAgent" + '</option><option value=4>' + "MacOS MeshAgent" + '</option><option value=8>' + "MeshCentral Assistant" + '</option></select>');
+16228:                 x += '<div id=d2agentInstallTypeDiv>';
+16229:                 x += addHtmlValue("Installation Type", '<select id=agentInviteType style=width:236px><option value=0>' + "Background and interactive" + '</option><option value=2>' + "Background only" + '</option><option value=1>' + "Interactive only" + '</option></select>');
+16230:                 x += '</div>';
+16231:                 setDialogMode(2, "Invite Codes", 3, p20editmeshInviteCodeEx, x);
+16232:                 if (currentMesh.invite != null) {
+16233:                     Q('agentJoinCheck').checked = true;
+16234:                     Q('agentInviteCode').value = currentMesh.invite.codes.join(', ');
+16235:                     if (currentMesh.invite.ag) { Q('agentType').value = currentMesh.invite.ag; }
+16236:                     Q('agentInviteType').value = (currentMesh.invite.flags & 3);
+16237:                 }
+16238:                 p20editmeshInviteCodeValidate();
+16239:             } else {
+16240:                 // View codes only
+16241:                 var x = "Invitation codes can be used by anyone to join devices to this device group using the following public link:" + '<br /><br />';
+16242:                 x += '<div style=width:100%;text-align:center><a rel="noreferrer noopener" target=_blank href="' + url + '">' + url + '</a></div><br />';
+16243:                 x += addHtmlValue("Invite Codes", EscapeHtml(currentMesh.invite.codes.join(', ')));
+16244:                 x += addHtmlValue("Installation Type", ["Background and interactive", "Interactive only", "Background only"][currentMesh.invite.flags & 3]);
+16245:                 setDialogMode(2, "Invite Codes", 1, null, x);
+16246:             }
+16247:         }
+16248: 
+16249:         function p20editmeshInviteCodeValidate() {
+16250:             var ok = true, codes = Q('agentInviteCode').value.split(',');
+16251:             for (var i in codes) { codes[i] = codes[i].trim(); if (codes[i] == '') { ok = false; } }
+16252:             QE('agentInviteCode', Q('agentJoinCheck').checked);
+16253:             QE('agentType', Q('agentJoinCheck').checked);
+16254:             QE('agentInviteType', Q('agentJoinCheck').checked);
+16255:             QE('idx_dlgOkButton', (Q('agentJoinCheck').checked == false) || (ok));
+16256:             QV('d2agentInstallTypeDiv', [0,1,2,4].indexOf(parseInt(Q('agentType').value)) > -1);
+16257:         }
+16258: 
+16259:         function p20editmeshInviteCodeEx() {
+16260:             if (Q('agentJoinCheck').checked == true) {
+16261:                 var codes = Q('agentInviteCode').value.split(',');
+16262:                 for (var i in codes) { codes[i] = codes[i].trim(); }
+16263:                 meshserver.send({ action: 'editmesh', meshid: currentMesh._id, invite: { codes: codes, flags: parseInt(Q('agentInviteType').value), ag: parseInt(Q('agentType').value) } });
+16264:             } else {
+16265:                 meshserver.send({ action: 'editmesh', meshid: currentMesh._id, invite: '*' });
+16266:             }
+16267:         }
+1626

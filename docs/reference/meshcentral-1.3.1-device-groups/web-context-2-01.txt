@@ -1,0 +1,73 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 1/17 (may continue a source line)
+
+15428:                 if (node.intelamt.realm) { c.digestrealm = node.intelamt.realm; }
+15429:                 if (node.intelamt.hash) { c.tlscerthash = node.intelamt.hash; }
+15430:                 r.computers.push(c);
+15431:             }
+15432:             saveAs(stringToUtf8BlobNoHeader(JSON.stringify(r, null, 2)), currentMesh.name + '.json');
+15433:         }
+15434: 
+15435:         // Import a list of devices into the Intel AMT only device group
+15436:         function meshImportDeviceList() {
+15437:             if (xxdialogMode) return;
+15438:             var x = "Import a list of local Intel&reg; AMT devices in MeshCommander JSON format." + '<br /><br /><input style=width:370px type=file id=d4importFile accept=".json" onchange=meshImportDeviceListValidate() />';
+15439:             setDialogMode(2, "Import Intel&reg; AMT Devices", 3, meshImportDeviceListEx, x);
+15440:             QE('idx_dlgOkButton', false);
+15441:         }
+15442: 
+15443:         function meshImportDeviceListValidate() {
+15444:             QE('idx_dlgOkButton', Q('d4importFile').value != null);
+15445:         }
+15446: 
+15447:         function meshImportDeviceListEx() {
+15448:             var fr = new FileReader();
+15449:             fr.onload = function (r) {
+15450:                 var j = null;
+15451:                 try { j = JSON.parse(r.target.result); } catch (ex) { setDialogMode(2, "Import Intel&reg; AMT Devices", 1, null, format("Invalid JSON file: {0}.", ex)); return; }
+15452:                 if ((typeof j == 'object') && (typeof j.webappversion == 'string') && (typeof j.computers == 'object') && (Array.isArray(j.computers))) {
+15453:                     var ok = 0;
+15454:                     for (var k in j.computers) {
+15455:                         var computer = j.computers[k];
+15456:                         if ((typeof computer.name == 'string') && (typeof computer.host == 'string') && (typeof computer.user == 'string') && (typeof computer.pass == 'string')) {
+15457:                             var cmd = { action: 'addamtdevice', meshid: currentMesh._id, devicename: computer.name, hostname: computer.host, amtusername: computer.user, amtpassword: computer.pass, amttls: (computer.tls == 1)?1:0 };
+15458:                             if (typeof computer.ver == 'string') { cmd.ver = computer.ver; }
+15459:                             if (typeof computer.pstate == 'number') { cmd.state = computer.pstate; }
+15460:                             if (typeof computer.digestrealm == 'string') { cmd.realm = computer.digestrealm; }
+15461:                             if (typeof computer.tlscerthash == 'string') { cmd.hash = computer.tlscerthash; }
+15462:                             meshserver.send(cmd);
+15463:                             ok++;
+15464:                         }
+15465:                     }
+15466:                     if (ok == 0) { setDialogMode(2, "User Account Import", 1, null, "Unable to import any device."); }
+15467:                 } else { setDialogMode(2, "Import Intel&reg; AMT Devices", 1, null, "Invalid JSON file format."); }
+15468:             };
+15469:             fr.readAsText(Q('d4importFile').files[0]);
+15470:         }
+15471: 
+15472:         function p20editMeshAmt() {
+15473:             if (xxdialogMode) return;
+15474:             var x = '', acmoption = '';
+15475:             if ((features & 0x100000) != 0) { acmoption = '<option value=3>' + "Simple Admin Control Mode (ACM)" + '</option>'; }
+15476:             x += addHtmlValue("Type", '<select id=dp20amtpolicy style=width:230px onchange=p20editMeshAmtChange()><option value=0>' + "No Policy" + '</option><option value=1>' + "Deactivate" + '</option><option value=2>' + "Simple Client Control Mode (CCM)" + '</option>' + acmoption + '<option value=4>' + "Fully Automatic" + '</option></select>');
+15477:             x += '<div id=dp20amtpolicydiv></div>';
+15478:             setDialogMode(2, "Intel&reg; AMT Policy", 3, p20editMeshAmtEx, x);
+15479:             if (currentMesh.amt) { Q('dp20amtpolicy').value = currentMesh.amt.type; }
+15480:             p20editMeshAmtChange();
+15481: 
+15482:             // Set the current Intel AMT policy
+15483:             if (currentMesh.amt && ((currentMesh.amt.type == 2) || (currentMesh.amt.type == 3))) {
+15484:                 Q('dp20amtpolicypass').value = currentMesh.amt.password;
+15485:                 if ((currentMesh.amt.type == 2) || (currentMesh.amt.type == 3)) {
+15486:                     if (currentMesh.amt.badpass != null) { Q('dp20amtbadpass').value = currentMesh.amt.badpass; }
+15487:                     if ((currentMesh.amt.type == 3) && (currentMesh.amt.ccm != null)) { Q('dp20amtccmmode').value = currentMesh.amt.ccm; }
+15488:                 }
+15489:                 if ((features & 0x400) == 0) { Q('dp20amtcira').value = currentMesh.amt.cirasetup; }
+15490:             }
+15491: 
+15492:             dp20amtValidatePolicy();
+15493:         }
+15494: 
+15495:         function p20editMeshAmtChange() {
+15496:             var 

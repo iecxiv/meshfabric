@@ -1,0 +1,61 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 5898-6116 | part 1/4 (may continue a source line)
+
+5898:                             if (typeof importDev.pass == 'string') { device.intelamt.pass = importDev.pass; }
+5899:                             if ((importDev.tls === true) || (importDev.tls === 1)) { device.intelamt.tls = 1; }
+5900:                             if (typeof importDev.digestrealm == 'string') { device.intelamt.realm = importDev.digestrealm; }
+5901:                             if (typeof importDev.ver == 'string') { device.intelamt.ver = importDev.ver; }
+5902:                             if (typeof importDev.uuid == 'string') { device.intelamt.uuid = importDev.uuid; }
+5903:                             if (typeof importDev.pstate == 'number') { device.intelamt.state = importDev.pstate; }
+5904:                             if (typeof importDev.tlscerthash == 'string') { device.intelamt.hash = importDev.tlscerthash; }
+5905:                             if (typeof importDev.icon == 'number') { device.icon = importDev.icon; }
+5906:                             if (typeof importDev.desc == 'string') { device.desc = importDev.desc; }
+5907: 
+5908:                             // Check if we are already adding a device with the same hostname, if so, skip it.
+5909:                             var skip = false;
+5910:                             for (var i in amtDevices) { if (amtDevices[i].host.toLowerCase() == device.host.toLowerCase()) { skip = true; } }
+5911:                             if (skip == false) { amtDevices.push(device); }
+5912:                         }
+5913:                     }
+5914:                 }
+5915: 
+5916:                 // Decode a JSON file in simple format
+5917:                 if (Array.isArray(command.amtdevices)) {
+5918:                     for (var i in command.amtdevices) {
+5919:                         const importDev = command.amtdevices[i];
+5920:                         if ((importDev == null) || (typeof importDev != 'object')) continue;
+5921:                         if ((typeof importDev.fqdn == 'string') && (importDev.fqdn != '') && (importDev.fqdn != '127.0.0.1') && (importDev.fqdn.toLowerCase() != 'localhost')) {
+5922:                             // Create a new Intel AMT device
+5923:                             const nodeid = 'node/' + domain.id + '/' + parent.crypto.randomBytes(48).toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
+5924:                             const device = { type: 'node', _id: nodeid, meshid: mesh._id, mtype: 1, icon: 1, host: importDev.fqdn, domain: domain.id, intelamt: { user: 'admin', state: 2 } };
+5925:                             if (typeof importDev.name == 'string') { device.name = importDev.name; } else { device.name = importDev.fqdn; }
+5926: 
+5927:                             // Add optional fields
+5928:                             if (typeof importDev.username == 'string') { device.intelamt.user = importDev.username; }
+5929:                             if (typeof importDev.password == 'string') { device.intelamt.pass = importDev.password; }
+5930:                             if ((importDev.tls === true) || (importDev.tls === 1)) { device.intelamt.tls = 1; }
+5931:                             if (typeof importDev.version == 'string') { device.intelamt.ver = importDev.version; }
+5932:                             if (typeof importDev.digestrealm == 'string') { device.intelamt.realm = importDev.digestrealm; }
+5933:                             if (typeof importDev.uuid == 'string') { device.intelamt.uuid = importDev.uuid; }
+5934:                             if (typeof importDev.pstate == 'number') { device.intelamt.state = importDev.pstate; }
+5935:                             if (typeof importDev.tlscerthash == 'string') { device.intelamt.hash = importDev.tlscerthash; }
+5936:                             if (typeof importDev.icon == 'number') { device.icon = importDev.icon; }
+5937:                             if (typeof importDev.desc == 'string') { device.desc = importDev.desc; }
+5938: 
+5939:                             // Check if we are already adding a device with the same hostname, if so, skip it.
+5940:                             var skip = false;
+5941:                             for (var i in amtDevices) { if (amtDevices[i].host.toLowerCase() == device.host.toLowerCase()) { skip = true; } }
+5942:                             if (skip == false) { amtDevices.push(device); }
+5943:                         }
+5944:                     }
+5945:                 }
+5946: 
+5947:                 // Add all the correctly parsed devices to the database and event them
+5948:                 // TODO: We may want to remove any devices with duplicate hostnames
+5949:                 if (amtDevices.length == 0) return;
+5950:                 for (var i in amtDevices) {
+5951:                     // Save the device to the database
+5952:                     db.Set(amtDevices[i]);
+5953:                     // Event the new node
+5954:                     parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(command.meshid, [nodeid]), obj, 

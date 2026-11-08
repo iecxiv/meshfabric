@@ -1,0 +1,79 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18804-19151 | part 4/6 (may continue a source line)
+
+962:         }
+18963: 
+18964:         function p30removeMeshFromUser(e, meshid) {
+18965:             if (xxdialogMode) return;
+18966:             var mesh = meshes[decodeURIComponent(meshid)];
+18967:             if (mesh == null) return;
+18968:             setDialogMode(2, "Remove Device Group Permissions", 3, p30removeMeshFromUserEx, format("Confirm removal of access rights for device group \"{0}\"?", EscapeHtml(mesh.name)), mesh._id);
+18969:         }
+18970: 
+18971:         function p30removeMeshFromUserEx(b, meshid) {
+18972:             meshserver.send({ action: 'removemeshuser', meshid: meshid, userid: currentUser._id });
+18973:         }
+18974: 
+18975:         //
+18976:         // MY USER EVENTS
+18977:         //
+18978: 
+18979:         var currentUserEvents = null;
+18980:         function userEventsUpdate() {
+18981:             if (currentUser == null) return;
+18982:             var x = '', dateHeader = null;
+18983:             for (var i in currentUserEvents) {
+18984:                 var event = currentUserEvents[i], time = new Date(event.time);
+18985:                 if (event.msg) {
+18986:                     if (event.h == null) { event.h = Math.random(); }
+18987:                     if (printDate(time) != dateHeader) {
+18988:                         if (dateHeader != null) x += '</table>';
+18989:                         dateHeader = printDate(time);
+18990:                         x += '<table class=p3eventsTable cellpadding=0 cellspacing=0><tr><td colspan=4 class=DevSt>' + dateHeader + '</td></tr>';
+18991:                     }
+18992:                     var icon = 'si3';
+18993:                     if (event.etype == 'user') icon = 'm2';
+18994:                     if (event.etype == 'server') icon = 'si3';
+18995: 
+18996:                     var msg;
+18997:                     if ((event.msgid == null) || (eventsMessageId[event.msgid] == null)) {
+18998:                         if (typeof event.msg == 'string') { msg = EscapeHtml(event.msg).split('(R)').join('&reg;'); } else { msg = ''; }
+18999:                     } else {
+19000:                         msg = eventsMessageId[event.msgid];
+19001:                         for (var i in event.msgArgs) {
+19002:                             var xx = event.msgArgs[i];
+19003:                             if ((typeof xx == 'string') && (xx.indexOf('DATETIME:') == 0)) { xx = printFlexDateTime(new Date(parseInt(xx.substring(9)))); }
+19004:                             msg = msg.split('{' + i + '}').join(xx);
+19005:                         }
+19006:                         //if (event.msgArgs != null) { for (var i in event.msgArgs) { msg = msg.split('{' + i + '}').join(event.msgArgs[i]); } }
+19007:                         msg = EscapeHtml(msg).split('(R)').join('&reg;');
+19008:                     }
+19009:                     if (event.nodeid) {
+19010:                         var node = getNodeFromId(event.nodeid);
+19011:                         if (node != null) {
+19012:                             icon = 'si' + node.icon;
+19013:                             msg = '<a href=# onclick=\'gotoDevice("' + event.nodeid + '",10);haltEvent(event);\'>' + EscapeHtml(node.name) + '</a> &rarr; ' + msg;
+19014:                         }
+19015:                     }
+19016:                     if (event.username && (event.username != currentUser.name)) {
+19017:                         var guestname = '';
+19018:                         if (event.guestname) { guestname = ' / <span title="' + "This is a guest sharing session" + '">' + EscapeHtml(event.guestname) + '</span>'; }
+19019:                         if ((userinfo.siteadmin & 2) && (event.userid)) {
+19020:                             msg = '<a href=# onclick=\'gotoUser("' + encodeURIComponentEx(event.userid) + '");haltEvent(event);\'>' + EscapeHtml(event.username) + '</a>' + guestname + ' &rarr; ' + msg;
+19021:                         } else {
+19022:                             msg = EscapeHtml(event.guestname) + ' &rarr; ' + msg;
+19023:                         }
+19024:                     } else if (event.guestname) {
+19025:                         msg = '<span title="' + "This is a guest sharing session" + '">' + EscapeHtml(event.guestname) + '</span> &rarr; ' + msg;
+19026:                     }
+19027:                     if (event.etype == 'relay' || event.action == 'relaylog') icon = 'relayIcon16';
+19028:                     x += '<tr onclick=showEventDetails(' + event.h + ',3)  onmouseover=eventMouseHover(this,1) onmouseout=eventMouseHover(this,0) style=cursor:pointer><td style=width:18px><div class=' + icon + '></div></td><td class=g1>&nbsp;</td><td class=style10>' + printTime(time) + ' - ' + msg + '</td><td class=g2>&nbsp;</td></tr><tr style=height:2px></tr>';
+19029:                 }
+19030:             }
+19031:             if (dateHeader != null) x += '</table>';
+19032:             if (x == '') x = '<br><i>' + "No Events Found" + '</i><br><br>';
+19033:             QH('p31events', x);
+19034:         }
+19035: 
+19036:   

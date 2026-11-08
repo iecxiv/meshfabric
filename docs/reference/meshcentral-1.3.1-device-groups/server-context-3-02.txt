@@ -1,0 +1,79 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6541-6793 | part 2/4 (may continue a source line)
+
+n !== true) && (ugroupidsplit[1] != domain.id))) { err = 'Invalid groupid'; }
+6601:             }
+6602:         } catch (ex) { err = 'Validation exception: ' + ex; }
+6603: 
+6604:         // Fetch the domain
+6605:         var addUserDomain = domain;
+6606:         if (obj.crossDomain === true) { addUserDomain = parent.parent.config.domains[ugroupidsplit[1]]; }
+6607:         if (addUserDomain == null) { err = 'Invalid domain'; }
+6608: 
+6609:         // Handle any errors
+6610:         if (err != null) {
+6611:             if (command.responseid != null) { obj.send({ action: 'addusertousergroup', responseid: command.responseid, result: err }); }
+6612:             return;
+6613:         }
+6614: 
+6615:         // Get the user group
+6616:         var group = parent.userGroups[command.ugrpid];
+6617:         if (group != null) {
+6618:             // If this user group is an externally managed user group, we can't add users to it.
+6619:             if ((group != null) && (group.membershipType != null)) return;
+6620: 
+6621:             if (group.links == null) { group.links = {}; }
+6622: 
+6623:             var unknownUsers = [], addedCount = 0, failCount = 0, knownUsers = [];
+6624:             for (var i in command.usernames) {
+6625:                 // Check if the user exists
+6626:                 var chguserid = 'user/' + addUserDomain.id + '/' + command.usernames[i].toLowerCase();
+6627:                 var chguser = parent.users[chguserid];
+6628:                 if (chguser == null) { chguserid = 'user/' + addUserDomain.id + '/' + command.usernames[i]; chguser = parent.users[chguserid]; }
+6629:                 if (chguser != null) {
+6630:                     // Add usr group to user
+6631:                     if (chguser.links == null) { chguser.links = {}; }
+6632:                     chguser.links[group._id] = { rights: 1 };
+6633:                     db.SetUser(chguser);
+6634:                     parent.parent.DispatchEvent([chguser._id], obj, 'resubscribe');
+6635: 
+6636:                     knownUsers.push(chguser);
+6637:                     // Notify user change
+6638:                     var targets = ['*', 'server-users', user._id, chguser._id];
+6639:                     var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(chguser), action: 'accountchange', msgid: 67, msgArgs: [chguser.name], msg: 'User group membership changed: ' + chguser.name, domain: addUserDomain.id };
+6640:                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6641:                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6642:                     }
+6643:                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+6644:                     parent.parent.DispatchEvent(targets, obj, event);
+6645: 
+6646:                     // Add a user to the user group
+6647:                     group.links[chguserid] = { userid: chguser._id, name: chguser.name, rights: 1 };
+6648:                     addedCount++;
+6649:                 } else {
+6650:                     unknownUsers.push(command.usernames[i]);
+6651:                     failCount++;
+6652:                 }
+6653:             }
+6654: 
+6655:             if (addedCount > 0) {
+6656:                 // Save the new group to the database
+6657:                 db.Set(group);
+6658: 
+6659:                 // Notify user group change
+6660:                 var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: group._id, name: group.name, desc: group.desc, action: 'usergroupchange', links: group.links, msgid: 71, msgArgs: [knownUsers.map((u)=>u.name), group.name], msg: 'Added user(s) ' + knownUsers.map((u)=>u.name) + ' to user group ' + group.name, addUserDomain: domain.id };
+6661:                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6662:                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6663:                 }
+6664:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+6665:                 parent.parent.DispatchEvent(['*', group._id, user._id, chguserid], obj, event);
+6666:             }
+6667: 
+6668:             if (unknownUsers.length > 0) {
+6669:                 // Send error back, user not found.
+6670:                 displayNotificationMessage('User' + ((unknownUsers.length > 1) ? 's' : '') + ' ' + EscapeHtml(unknownUsers.join(', ')) + ' not found.', "Device Group", 'ServerNotify', 5, (unknownUsers.length > 1) ? 16 : 15, [EscapeHtml(unknownUsers.join(', '))]);
+6671:             }
+6672:         }
+6673: 
+6674:         if (command.responseid != null) { obj.send({ action: 'addusertousergroup', res

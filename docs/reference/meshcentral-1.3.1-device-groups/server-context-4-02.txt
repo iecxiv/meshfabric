@@ -1,0 +1,82 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 7178-7418 | part 2/4 (may continue a source line)
+
+; }
+7256:         }
+7257: 
+7258:         var chguser = parent.users[command.userid];
+7259:         if (chguser != null) {
+7260:             // Get the user group
+7261:             var group = parent.userGroups[command.ugrpid];
+7262: 
+7263:             // If this user group is an externally managed user group, we can't remove a user from it.
+7264:             if ((group != null) && (group.membershipType != null)) return;
+7265: 
+7266:             if ((chguser.links != null) && (chguser.links[command.ugrpid] != null)) {
+7267:                 delete chguser.links[command.ugrpid];
+7268: 
+7269:                 // Notify user change
+7270:                 var targets = ['*', 'server-users', user._id, chguser._id];
+7271:                 var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(chguser), action: 'accountchange', msgid: 67, msgArgs: [chguser.name], msg: 'User group membership changed: ' + chguser.name, domain: removeUserDomain.id };
+7272:                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7273:                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7274:                 }
+7275:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+7276:                 parent.parent.DispatchEvent(targets, obj, event);
+7277: 
+7278:                 db.SetUser(chguser);
+7279:                 parent.parent.DispatchEvent([chguser._id], obj, 'resubscribe');
+7280:             }
+7281: 
+7282:             if (group != null) {
+7283:                 // Remove the user from the group
+7284:                 if ((group.links != null) && (group.links[command.userid] != null)) {
+7285:                     delete group.links[command.userid];
+7286:                     db.Set(group);
+7287: 
+7288:                     // Notify user group change
+7289:                     var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: group._id, name: group.name, desc: group.desc, action: 'usergroupchange', links: group.links, msgid: 72, msgArgs: [chguser.name, group.name], msg: 'Removed user ' + chguser.name + ' from user group ' + group.name, domain: removeUserDomain.id };
+7290:                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7291:                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7292:                     }
+7293:                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+7294:                     parent.parent.DispatchEvent(['*', group._id, user._id, chguser._id], obj, event);
+7295:                 }
+7296:             }
+7297:         }
+7298: 
+7299:         if (command.responseid != null) { obj.send({ action: 'removeuserfromusergroup', responseid: command.responseid, result: 'ok' }); }
+7300:     }
+7301: 
+7302:     function serverCommandReport(command) {
+7303:         if (common.validateInt(command.type, 1, 4) == false) return; // Validate type
+7304:         if (common.validateInt(command.groupBy, 1, 3) == false) return; // Validate groupBy: 1 = User, 2 = Device, 3 = Day
+7305:         if ((typeof command.start != 'number') || (typeof command.end != 'number') || (command.start >= command.end)) return; // Validate start and end time
+7306:         const manageAllDeviceGroups = ((user.siteadmin == 0xFFFFFFFF) && (parent.parent.config.settings.managealldevicegroups.indexOf(user._id) >= 0 || (user.links && Object.keys(user.links).some(key => parent.parent.config.settings.managealldevicegroups.indexOf(key) >= 0))));
+7307:         if ((command.devGroup != null) && (manageAllDeviceGroups == false) && ((user.links == null) || (user.links[command.devGroup] == null))) return; // Asking for a device group that is not allowed
+7308: 
+7309:         const msgIdFilter = [5, 10, 11, 12, 122, 123, 124, 125, 126, 144];
+7310:         switch (command.type) {
+7311:             case 1: {
+7312:                 remoteSessionReport(command, manageAllDeviceGroups, msgIdFilter);
+7313:                 break;
+7314:             }
+7315:             case 2: {
+7316:                 trafficUsageReport(command, msgIdFilter);
+7317:                 break;
+7318:             }
+7319:             case 3: {
+7320:                 userLoginReport(command);
+7321:                 break;
+7322:             }   
+7323:             case 4: {
+7324:                 databaseRecordsReport(command);
+7325:                 break;
+7326:             }   
+7327:         }
+7328:     }
+7329: 
+7330:     function serverCommandServerClearErrorLog(command) {
+7331:         // Clear the server error log if user has site update permissions
+7332:         if (userHasSiteUpdate()) { fs.unlink(parent.parent.getConf

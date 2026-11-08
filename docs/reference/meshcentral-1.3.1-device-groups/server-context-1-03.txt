@@ -1,0 +1,70 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 5898-6116 | part 3/4 (may continue a source line)
+
+   'dbstats': [serverUserCommandDbStats, ""],
+6042:         'dbcompact': [serverUserCommandDbCompact, ""],
+6043:         'dispatchtable': [serverUserCommandDispatchTable, ""],
+6044:         'dropallcira': [serverUserCommandDropAllCira, ""],
+6045:         'dupagents': [serverUserCommandDupAgents, ""],
+6046:         'email': [serverUserCommandEmail, ""],
+6047:         'emailnotifications': [serverUserCommandEmailNotifications, ""],
+6048:         'msgnotifications': [serverUserCommandMessageNotifications, ""],
+6049:         'firebase': [serverUserCommandFirebase, ""],
+6050:         'heapdump': [serverUserCommandHeapDump, ""],
+6051:         'heapdump2': [serverUserCommandHeapDump2, ""],
+6052:         'help': [serverUserCommandHelp, ""],
+6053:         'info': [serverUserCommandInfo, "Returns the most immidiatly useful information about this server, including MeshCentral and NodeJS versions. This is often information required to file a bug. Optionally use info h for human readable form."],
+6054:         'le': [serverUserCommandLe, ""],
+6055:         'lecheck': [serverUserCommandLeCheck, ""],
+6056:         'leevents': [serverUserCommandLeEvents, ""],
+6057:         'maintenance': [serverUserCommandMaintenance, ""],
+6058:         'migrationagents': [serverUserCommandMigrationAgents, ""],
+6059:         'mps': [serverUserCommandMps, ""],
+6060:         'mpsstats': [serverUserCommandMpsStats, ""],
+6061:         'nodeconfig': [serverUserCommandNodeConfig, ""],
+6062:         'print': [serverUserCommandPrint, ""],
+6063:         'relays': [serverUserCommandRelays, ""],
+6064:         'removeinactivedevices': [serverUserCommandRemoveInactiveDevices, ""],
+6065:         'resetserver': [serverUserCommandResetServer, "Causes the server to reset, this is sometimes useful is the config.json file was changed."],
+6066:         'serverupdate': [serverUserCommandServerUpdate, "Updates server to latest version. Optional version argument to install specific version. Example: serverupdate 0.8.49"],
+6067:         'setmaxtasks': [serverUserCommandSetMaxTasks, ""],
+6068:         'showpaths': [serverUserCommandShowPaths, ""],
+6069:         'sms': [serverUserCommandSMS, "Send a SMS message to a specified phone number"],
+6070:         'msg': [serverUserCommandMsg, "Send a user message to a user handle"],
+6071:         'swarmstats': [serverUserCommandSwarmStats, ""],
+6072:         'tasklimiter': [serverUserCommandTaskLimiter, "Returns the internal status of the tasklimiter. This is a system used to smooth out work done by the server. It's used by, for example, agent updates so that not all agents are updated at the same time."],
+6073:         'trafficdelta': [serverUserCommandTrafficDelta, ""],
+6074:         'trafficstats': [serverUserCommandTrafficStats, ""],
+6075:         'updatecheck': [serverUserCommandUpdateCheck, ""],
+6076:         'usersessions': [serverUserCommandUserSessions, "Returns a list of active sessions grouped by user."],
+6077:         'versions': [serverUserCommandVersions, "Returns all internal versions for NodeJS running this server."],
+6078:         'watchdog': [serverUserCommandWatchdog, ""],
+6079:         'webpush': [serverUserCommandWebPush, ""],
+6080:         'webstats': [serverUserCommandWebStats, ""]
+6081:     };
+6082: 
+6083:     function serverCommandAddDeviceUser(command) {
+6084:         if (typeof command.userid == 'string') { command.userids = [command.userid]; }
+6085:         var err = null;
+6086:         try {
+6087:             if (common.validateString(command.nodeid, 1, 1024) == false) { err = 'Invalid nodeid'; } // Check the nodeid
+6088:             else if (common.validateInt(command.rights) == false) { err = 'Invalid rights'; } // Device rights must be an integer
+6089:             else if ((command.rights & 7) != 0) { err = 'Invalid rights'; } // EDITMESH, MANAGEUSERS or MANAGECOMPUTERS rights can't be assigned to a user to device link
+6090:             else if ((common.validateStrArray(command.usernames, 1, 128) == false) && (common.validateStrArray(command.userids, 1, 128) == false)) { err = 'Invalid usernames'; } // Username is between 1 and 128 characters
+6091:             else {
+6092:                 if (command.nodeid.indexOf('/') == -1) { command.nodeid = 'node/' + domain.id + '/' + command.nodeid; }
+6093:                 else if ((command.nodeid.split('/').length != 3) || (command.nodeid.split('/')[1] != domain.id)) { err = 'Invalid domain'; } // Invalid domain, operation only valid for current domain
+6094:             }
+6095:         } catch (ex) { err = 'Validation exception: ' + ex; }
+6096:     
+6097:         // Handle any errors
+6098:         if (err != null) {
+6099:             if (command.responseid != null) { obj.send({ action: 'adddeviceuser', responseid: command.responseid, result: err }); }
+6100:             return;
+6101:         }
+6102:     
+6103:         // Convert user names to userid's
+6104:         if (command.userids == null) {
+6105:             command.userids = [];
+6106:            

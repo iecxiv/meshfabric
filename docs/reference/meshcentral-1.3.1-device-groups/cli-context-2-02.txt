@@ -1,0 +1,61 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshctrl.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 680-906 | part 2/4 (may continue a source line)
+
+MeshCtrl AddUserToDeviceGroup --id 'groupid' --userid userid --fullrights"));
+741:                         console.log("  MeshCtrl AddUserToDeviceGroup --group groupname --userid userid --editgroup --manageusers");
+742:                         console.log("\r\nRequired arguments:\r\n");
+743:                         if (process.platform == 'win32') {
+744:                             console.log("  --id [groupid]         - Device group identifier (or --group).");
+745:                         } else {
+746:                             console.log("  --id '[groupid]'       - Device group identifier (or --group).");
+747:                         }
+748:                         console.log("  --group [groupname]    - Device group name (or --id).");
+749:                         console.log("  --userid [userid]      - The user identifier.");
+750:                         console.log("\r\nOptional arguments:\r\n");
+751:                         console.log("  --fullrights           - Allow full rights over this device group.");
+752:                         console.log("  --editgroup            - Allow the user to edit group information.");
+753:                         console.log("  --manageusers          - Allow the user to add/remove users.");
+754:                         console.log("  --managedevices        - Allow the user to edit device information.");
+755:                         console.log("  --remotecontrol        - Allow device remote control operations.");
+756:                         console.log("  --agentconsole         - Allow agent console operations.");
+757:                         console.log("  --serverfiles          - Allow access to group server files.");
+758:                         console.log("  --wakedevices          - Allow device wake operation.");
+759:                         console.log("  --notes                - Allow editing of device notes.");
+760:                         console.log("  --desktopviewonly      - Restrict user to view-only remote desktop.");
+761:                         console.log("  --limiteddesktop       - Limit remote desktop keys.");
+762:                         console.log("  --noterminal           - Hide the terminal tab from this user.");
+763:                         console.log("  --nofiles              - Hide the files tab from this user.");
+764:                         console.log("  --noregistry           - Hide the registry tab from this user.");
+765:                         console.log("  --nosoftware           - Hide the software tab from this user.");
+766:                         console.log("  --noamt                - Hide the Intel AMT tab from this user.");
+767:                         console.log("  --limitedevents        - User can only see his own events.");
+768:                         console.log("  --chatnotify           - Allow chat and notification options.");
+769:                         console.log("  --uninstall            - Allow remote uninstall of the agent.");
+770:                         if (args.limiteddesktop) { meshrights |= 4096; }
+771:                         if (args.limitedevents) { meshrights |= 8192; }
+772:                         if (args.chatnotify) { meshrights |= 16384; }
+773:                         if (args.uninstall) { meshrights |= 32768; }
+774: 
+775:                         break;
+776:                     }
+777:                     case 'removeuserfromdevicegroup': {
+778:                         console.log("Remove a user from a device group, Example usages:\r\n");
+779:                         console.log(winRemoveSingleQuotes("  MeshCtrl RemoveuserFromDeviceGroup --id 'groupid' --userid userid"));
+780:                         console.log("\r\nRequired arguments:\r\n");
+781:                         if (process.platform == 'win32') {
+782:                             console.log("  --id [groupid]         - Device group identifier (or --group).");
+783:                         } else {
+784:                             console.log("  --id '[groupid]'       - Device group identifier (or --group).");
+785:                         }
+786:                         console.log("  --group [groupname]    - Device group name (or --id).");
+787:                         console.log("  --userid [userid]      - The user identifier.");
+788:                         break;
+789:                     }
+790:                     case 'addusertodevice': {
+791:                         console.log("Add a user to a device, Example usages:\r\n");
+792:                         console.log(winRemoveSingleQuotes("  MeshCtrl AddUserToDevice --id 'deviceid' --userid userid --fullrights"));
+793:                         console.log(winRemoveSingleQuotes("  MeshCtrl AddUserToDevice --id 'deviceid' --userid userid --remotecontrol"));
+794:                         console.log("\r\nRequired arguments:\r\n");
+795:                         if (process.platform == 'win32') {
+796:                             console.log("  --id [deviceid]        - The device identifier.");

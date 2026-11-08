@@ -1,0 +1,82 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 7178-7418 | part 1/4 (may continue a source line)
+
+7178:                 } else {
+7179:                     // No records found, send current state if we have it
+7180:                     var state = parent.parent.GetConnectivityState(command.nodeid);
+7181:                     if (state != null) { obj.send({ action: 'powertimeline', nodeid: node._id, timeline: [state.powerState, Date.now(), state.powerState], tag: command.tag }); }
+7182:                 }
+7183:             });
+7184:         });
+7185:     }
+7186: 
+7187:     function serverCommandPrint(command) { console.log(command.value); }
+7188: 
+7189:     function serverCommandRemovePhone(command) {
+7190:         // Do not allow this command when logged in using a login token
+7191:         if (req.session.loginToken != null) return;
+7192: 
+7193:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return; // If this account is settings locked, return here.
+7194:         if (user.phone == null) return;
+7195: 
+7196:         // Clear the user's phone
+7197:         delete user.phone;
+7198:         db.SetUser(user);
+7199: 
+7200:         // Event the change
+7201:         var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(user), action: 'accountchange', msgid: 97, msgArgs: [user.name], msg: 'Removed phone number of user ' + EscapeHtml(user.name), domain: domain.id };
+7202:         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7203:             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7204:         }
+7205:         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+7206:         parent.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
+7207:     }
+7208: 
+7209:     function serverCommandRemoveMessaging(command) {
+7210:         // Do not allow this command when logged in using a login token
+7211:         if (req.session.loginToken != null) return;
+7212: 
+7213:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return; // If this account is settings locked, return here.
+7214:         if (user.msghandle == null) return;
+7215: 
+7216:         // Clear the user's phone
+7217:         delete user.msghandle;
+7218:         db.SetUser(user);
+7219: 
+7220:         // Event the change
+7221:         var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(user), action: 'accountchange', msgid: 157, msgArgs: [user.name], msg: 'Removed messaging account of user ' + EscapeHtml(user.name), domain: domain.id };
+7222:         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7223:             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7224:         }
+7225:         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+7226:         parent.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
+7227:     }
+7228: 
+7229:     function serverCommandRemoveUserFromUserGroup(command) {
+7230:         var err = null;
+7231:         try {
+7232:             if ((user.siteadmin & SITERIGHT_USERGROUPS) == 0) { err = 'Permission denied'; }
+7233:             else if (common.validateString(command.ugrpid, 1, 1024) == false) { err = 'Invalid groupid'; }
+7234:             else if (common.validateString(command.userid, 1, 256) == false) { err = 'Invalid userid'; }
+7235:             else {
+7236:                 var ugroupidsplit = command.ugrpid.split('/');
+7237:                 if ((ugroupidsplit.length != 3) || (ugroupidsplit[0] != 'ugrp') || ((obj.crossDomain !== true) && (ugroupidsplit[1] != domain.id))) { err = 'Invalid groupid'; }
+7238:             }
+7239:         } catch (ex) { err = 'Validation exception: ' + ex; }
+7240: 
+7241:         // Fetch the domain
+7242:         var removeUserDomain = domain;
+7243:         if (obj.crossDomain !== true) { removeUserDomain = parent.parent.config.domains[ugroupidsplit[1]]; }
+7244:         if (removeUserDomain == null) { err = 'Invalid domain'; }
+7245: 
+7246:         // Handle any errors
+7247:         if (err != null) {
+7248:             if (command.responseid != null) { obj.send({ action: 'removeuserfromusergroup', responseid: command.responseid, result: err }); }
+7249:             return;
+7250:         }
+7251: 
+7252:         // Check if the user exists
+7253:         if (command.userid.startsWith('user/') == false) {
+7254:             if (parent.users['user/' + removeUserDomain.id + '/' + command.userid.toLowerCase()] != null) { command.userid = 'user/' + removeUserDomain.id + '/' + command.userid.toLowerCase(); }
+7255:             else if (parent.users['user/' + removeUserDomain.id + '/' + command.userid] != null) { command.userid = 'user/' + removeUserDomain.id + '/' + command.userid

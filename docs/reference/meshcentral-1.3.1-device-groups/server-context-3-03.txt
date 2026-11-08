@@ -1,0 +1,90 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6541-6793 | part 3/4 (may continue a source line)
+
+ponseid: command.responseid, result: 'ok', added: addedCount, failed: failCount }); }
+6675:     }
+6676: 
+6677:     function serverCommandAgentDisconnect(command) {
+6678:         if (common.validateInt(command.disconnectMode) == false) return; // Check disconnect mode
+6679: 
+6680:         // Get the node and the rights for this node
+6681:         parent.GetNodeWithRights(domain, user, command.nodeid, function (node, rights, visible) {
+6682:             if ((node == null) || (((rights & MESHRIGHT_AGENTCONSOLE) == 0) && (user.siteadmin != SITERIGHT_ADMIN))) return;
+6683: 
+6684:             // Force mesh agent disconnection
+6685:             parent.forceMeshAgentDisconnect(user, domain, node._id, command.disconnectMode);
+6686:         });
+6687:     }
+6688: 
+6689:     function serverCommandAuthCookie(command) {
+6690:         try {
+6691:             ws.send(JSON.stringify({
+6692:                 action: 'authcookie',
+6693:                 cookie: parent.parent.encodeCookie({ userid: user._id, domainid: domain.id, ip: req.clientIp }, parent.parent.loginCookieEncryptionKey),
+6694:                 rcookie: parent.parent.encodeCookie({ ruserid: user._id, x: req.session.x }, parent.parent.loginCookieEncryptionKey)
+6695:             }));
+6696:         } catch (ex) { }
+6697:     }
+6698: 
+6699:     function serverCommandChangeEmail(command) {
+6700:         // Do not allow this command when logged in using a login token
+6701:         if (req.session.loginToken != null) return;
+6702: 
+6703:         // If the email is the username, this command is not allowed.
+6704:         if (domain.usernameisemail) return;
+6705: 
+6706:         // If this account is settings locked, return here.
+6707:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return;
+6708: 
+6709:         // Change our own email address
+6710:         if ((domain.auth == 'sspi') || (domain.auth == 'ldap')) return;
+6711:         if (common.validateEmail(command.email, 1, 1024) == false) return;
+6712: 
+6713:         // Always lowercase the email address
+6714:         command.email = command.email.toLowerCase();
+6715: 
+6716:         if (obj.user.email != command.email) {
+6717:             // Check if this email is already validated on a different account
+6718:             db.GetUserWithVerifiedEmail(domain.id, command.email, function (err, docs) {
+6719:                 if ((docs != null) && (docs.length > 0)) {
+6720:                     // Notify the duplicate email error
+6721:                     obj.send({ action: 'msg', type: 'notify', title: 'Account Settings', id: Math.random(), tag: 'ServerNotify', value: 'Failed to change email address, another account already using: ' + command.email + '.', titleid: 4, msgid: 13, args: [command.email] });
+6722:                 } else {
+6723:                     // Update the user's email
+6724:                     var oldemail = user.email;
+6725:                     user.email = command.email;
+6726:                     user.emailVerified = false;
+6727:                     parent.db.SetUser(user);
+6728: 
+6729:                     // Event the change
+6730:                     var message = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(user), action: 'accountchange', domain: domain.id };
+6731:                     if (db.changeStream) { message.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+6732:                     if (oldemail != null) {
+6733:                         message.msg = 'Changed email of user ' + user.name + ' from ' + oldemail + ' to ' + user.email;
+6734:                     } else {
+6735:                         message.msg = 'Set email of user ' + user.name + ' to ' + user.email;
+6736:                     }
+6737: 
+6738:                     var targets = ['*', 'server-users', user._id];
+6739:                     if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+6740:                     parent.parent.DispatchEvent(targets, obj, message);
+6741: 
+6742:                     // Log in the auth log
+6743:                     if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' changed email from ' + oldemail + ' to ' + user.email); }
+6744: 
+6745:                     // Send the verification email
+6746:                     if (domain.mailserver != null) { domain.mailserver.sendAccountCheckMail(domain, user.name, user._id, user.email, parent.getLanguageCodes(req), req.query.key); }
+6747:                 }
+6748:             });
+6749:         }
+6750:     }
+6751: 
+6752:     function serverCommandChangeLang(command) {
+6753:         // Do not allow this command when logged in using a login token
+6754:         if (req.session.loginToken != null) return;
+6755: 
+6756:         // If this account is settings locked, return here.
+6757:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return;
+6758: 
+6759:       

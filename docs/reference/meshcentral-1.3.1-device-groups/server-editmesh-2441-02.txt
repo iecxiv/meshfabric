@@ -1,0 +1,56 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2441-2572 | part 2/3 (may continue a source line)
+
+                if (change != '') { change += ' and invite code changed'; } else { change += 'Device group "' + mesh.name + '" invite code changed'; }
+2499:                             changesids.push(6);
+2500:                         } else if ((command.invite != null) && (typeof command.invite == 'object') && (Array.isArray(command.invite.codes)) && (typeof command.invite.flags == 'number')) {
+2501:                             // Set invite codes
+2502:                             if ((mesh.invite == null) || (mesh.invite.codes != command.invite.codes) || (mesh.invite.flags != command.invite.flags)) {
+2503:                                 // Check if an invite code is not already in use.
+2504:                                 var dup = null;
+2505:                                 for (var i in command.invite.codes) {
+2506:                                     for (var j in parent.meshes) {
+2507:                                         if ((j != command.meshid) && (parent.meshes[j].deleted == null) && (parent.meshes[j].domain == domain.id) && (parent.meshes[j].invite != null) && (parent.meshes[j].invite.codes.indexOf(command.invite.codes[i]) >= 0)) { dup = command.invite.codes[i]; break; }
+2508:                                     }
+2509:                                 }
+2510:                                 if (dup != null) {
+2511:                                     // A duplicate was found, don't allow this change.
+2512:                                     displayNotificationMessage("Error, invite code \"" + dup + "\" already in use.", "Invite Codes", null, 6, 22, [dup]);
+2513:                                     return;
+2514:                                 }
+2515:                                 mesh.invite = { codes: command.invite.codes, flags: command.invite.flags };
+2516:                                 if (typeof command.invite.ag == 'number') { mesh.invite.ag = command.invite.ag; }
+2517:                                 if (change != '') { change += ' and invite code changed'; } else { change += 'Device group "' + mesh.name + '" invite code changed'; }
+2518:                                 changesids.push(6);
+2519:                             }
+2520:                         }
+2521:                     }
+2522: 
+2523:                     if (change != '') {
+2524:                         db.Set(mesh);
+2525:                         var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, flags: mesh.flags, consent: mesh.consent, action: 'meshchange', links: mesh.links, msgid: 142, msgArgs: [mesh.name, changesids], msg: change, domain: domain.id, invite: mesh.invite, expireDevs: command.expireDevs, relayid: mesh.relayid };
+2526:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2527:                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2528:                         }
+2529:                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+2530:                         parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(mesh, [user._id, 'server-editmesh']), obj, event);
+2531:                     }
+2532: 
+2533:                     // Notify the devices that they have changed relay roles
+2534:                     if (oldRelayNodeId != null) {
+2535:                         // Get the node and the rights for this node
+2536:                         parent.GetNodeWithRights(domain, user, oldRelayNodeId, function (node, rights, visible) {
+2537:                             if (node == null) return;
+2538:                             var event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: domain.id, msg: 'No longer a relay for ' + mesh.name + '.', msgid: 152, msgArgs: [mesh.name], node: parent.CloneSafeNode(node) };
+2539:                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2540:                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2541:                             }
+2542:                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the node. Another event will come.
+2543:                             parent.parent.DispatchEvent(parent.CreateNodeDispatchTargets(node.meshid, node._id, [user._id]), obj, event);
+2544:                         });
+2545:                     }
+2546:                     if (newRelayNodeId != null) {
+2547:                         // Get the node and the rights for this node
+2548:                         parent.GetNodeWithRights(domain, user, newRelayNodeId, function (node, rights, visible) {
+2549:       

@@ -1,0 +1,80 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshctrl.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 159-327 | part 2/3 (may continue a source line)
+
+ase 'addtousergroup': {
+246:             if (args.groupid == null) { console.log(winRemoveSingleQuotes("Group id missing, use --groupid '[id]'")); }
+247:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing identifier to add, use --id [id]")); }
+248:             else { ok = true; }
+249:             break;
+250:         }
+251:         case 'removefromusergroup': {
+252:             if (args.groupid == null) { console.log(winRemoveSingleQuotes("Group id missing, use --groupid '[id]'")); }
+253:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing identifier to remove, use --id [id]")); }
+254:             else { ok = true; }
+255:             break;
+256:         }
+257:         case 'removeallusersfromusergroup': {
+258:             if (args.groupid == null) { console.log(winRemoveSingleQuotes("Group id missing, use --groupid '[id]'")); }
+259:             else { ok = true; }
+260:             break;
+261:         }
+262:         case 'sendinviteemail': {
+263:             if ((args.id == null) && (args.group == null)) { console.log("Device group identifier missing, use --id '[groupid]' or --group [groupname]"); }
+264:             else if (args.email == null) { console.log("Device email is missing, use --email [email]"); }
+265:             else { ok = true; }
+266:             break;
+267:         }
+268:         case 'generateinvitelink': {
+269:             if ((args.id == null) && (args.group == null)) { console.log("Device group identifier missing, use --id '[groupid]' or --group [groupname]"); }
+270:             else if (args.hours == null) { console.log("Invitation validity period missing, use --hours [hours]"); }
+271:             else { ok = true; }
+272:             break;
+273:         }
+274:         case 'runcommand': {
+275:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }
+276:             else if (args.run == null) { console.log("Missing run, use --run \"command\""); }
+277:             else { ok = true; }
+278:             break;
+279:         }
+280:         case 'shell': {
+281:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }
+282:             else { ok = true; }
+283:             break;
+284:         }
+285:         case 'devicepower': {
+286:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }
+287:             else { ok = true; }
+288:             break;
+289:         }
+290:         case 'devicesharing': {
+291:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }
+292:             else if ((args.daily != null) && (args.weekly != null)) { console.log(winRemoveSingleQuotes("Can't specify both --daily and --weekly at the same time.")); }
+293:             else { ok = true; }
+294:             break;
+295:         }
+296:         case 'agentdownload': {
+297:             if (args.type == null) { console.log(winRemoveSingleQuotes("Missing device type, use --type [agenttype]")); }
+298:             else if ((parseInt(args.type) == null) || isNaN(parseInt(args.type)) || (parseInt(args.type) < 1) || (parseInt(args.type) > 11000)) { console.log(winRemoveSingleQuotes("Invalid agent type, must be a number.")); }
+299:             else if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[meshid]'")); }
+300:             else if ((typeof args.id != 'string') || (args.id.length != 64)) { console.log(winRemoveSingleQuotes("Invalid meshid.")); }
+301:             else { ok = true; }
+302:             break;
+303:         }
+304:         case 'upload': {
+305:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }
+306:             else if (args.file == null) { console.log("Local file missing, use --file [file] specify the file to upload"); }
+307:             else if (args.target == null) { console.log("Remote target path missing, use --target [path] to specify the remote location"); }
+308:             else if (require('fs').existsSync(args.file) == false) { console.log("Local file does not exists, check --file"); }
+309:             else { ok = true; }
+310:             break;
+311:         }
+312:         case 'download': {
+313:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }
+314:             else if (args.file == null) { console.log("Remote file missing, use --file [file] specify the remote file to download"); }
+315:             else if (args.target == null) { console.log("Target path missing, use --target [path] to specify the local download location"); }
+316:             else { ok = true; }
+317:             break;
+318:         }
+319:         case 'webrelay': {
+320:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }

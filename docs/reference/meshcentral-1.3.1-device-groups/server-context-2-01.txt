@@ -1,0 +1,71 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6189-6487 | part 1/5 (may continue a source line)
+
+6189:                         parent.parent.DispatchEvent(targets, obj, event);
+6190:                     } else if (newuserid.startsWith('ugrp/')) {
+6191:                         db.Set(newuser);
+6192:     
+6193:                         // Notify user group change
+6194:                         var targets = ['*', 'server-ugroups', newuser._id];
+6195:                         var event = { etype: 'ugrp', username: user.name, ugrpid: newuser._id, name: newuser.name, action: 'usergroupchange', links: newuser.links, msgid: 79, msgArgs: [newuser.name], msg: 'User group changed: ' + newuser.name, domain: domain.id };
+6196:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6197:                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6198:                         }
+6199:                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+6200:                         parent.parent.DispatchEvent(targets, obj, event);
+6201:                     }
+6202:                     parent.InvalidateNodeCache(newuser, node.meshid, node._id)
+6203:                 }
+6204:             }
+6205:     
+6206:             // Save the device
+6207:             if (nodeChanged == true) {
+6208:                 // Save the node to the database
+6209:                 db.Set(parent.cleanDevice(node));
+6210:     
+6211:                 // Event the node change
+6212:                 var event;
+6213:                 if (command.rights == 0) {
+6214:                     event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: domain.id, msgid: 81, msgArgs: [node.name], msg: 'Removed user device rights for ' + node.name, node: parent.CloneSafeNode(node) };
+6215:                 } else {
+6216:                     event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: domain.id, msgid: 82, msgArgs: [node.name], msg: 'Changed user device rights for ' + node.name, node: parent.CloneSafeNode(node) };
+6217:                 }
+6218:                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6219:                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6220:                 }
+6221:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+6222:                 parent.parent.DispatchEvent(dispatchTargets, obj, event);
+6223:             }
+6224:             if (command.responseid != null) { obj.send({ action: 'adddeviceuser', responseid: command.responseid, result: 'ok' }); }
+6225:         });
+6226:     }
+6227: 
+6228:     function serverCommandAddMeshUser(command) {
+6229:         var err = null, mesh, meshIdSplit;
+6230:         if (typeof command.userid == 'string') { command.userids = [command.userid]; }
+6231:     
+6232:         // Resolve the device group name if needed
+6233:         if ((typeof command.meshname == 'string') && (command.meshid == null)) {
+6234:             for (var i in parent.meshes) {
+6235:                 var m = parent.meshes[i];
+6236:                 if ((m.mtype == 2) && (m.name == command.meshname) && parent.IsMeshViewable(user, m)) {
+6237:                     if (command.meshid == null) { command.meshid = m._id; } else { err = 'Duplicate device groups found'; }
+6238:                 }
+6239:             }
+6240:         }
+6241:     
+6242:         var selfMeshRights = 0;
+6243:         try {
+6244:             if (common.validateString(command.meshid, 8, 134) == false) { err = 'Invalid groupid'; } // Check the meshid
+6245:             else if (common.validateInt(command.meshadmin) == false) { err = 'Invalid group rights'; } // Mesh rights must be an integer
+6246:             else if ((common.validateStrArray(command.usernames, 1, 128) == false) && (common.validateStrArray(command.userids, 1, 128) == false)) { err = 'Invalid usernames'; } // Username is between 1 and 128 characters
+6247:             else {
+6248:                 if (command.meshid.indexOf('/') == -1) { command.meshid = 'mesh/' + domain.id + '/' + command.meshid; }
+6249:                 mesh = parent.meshes[command.meshid];
+6250:                 meshIdSplit = command.meshid.split('/');
+6251:                 if (mesh == null) { err = 'Unknown group'; }
+6252:                 else if (((selfMeshRights = parent.GetMeshRights(user, mesh)) & MESHRIGHT_MANAGEUSERS) == 0) { err = 'Permission denied'; }
+6253:                 else if ((meshIdSplit.length != 3) || (meshIdSplit[1] != domain.id)) { err = 'Invalid domain'; } // Invalid domain, operation only valid for current domain
+6254:             }
+6255:         } catch (ex) { err = 'Validation excep

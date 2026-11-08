@@ -1,0 +1,68 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6189-6487 | part 3/5 (may continue a source line)
+
+is active, don't use this event to change the user. Another event will come.
+6320:                     parent.parent.DispatchEvent(targets, obj, event);
+6321:                 } else if (newuserid.startsWith('ugrp/')) {
+6322:                     // Notify user group change
+6323:                     var targets = ['*', 'server-ugroups', user._id, newuser._id];
+6324:                     var event = { etype: 'ugrp', username: user.name, ugrpid: newuser._id, name: newuser.name, desc: newuser.desc, action: 'usergroupchange', links: newuser.links, msgid: 79, msgArgs: [newuser.name], msg: 'User group changed: ' + newuser.name, domain: domain.id };
+6325:                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6326:                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6327:                     }
+6328:                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+6329:                     parent.parent.DispatchEvent(targets, obj, event);
+6330:                 }
+6331:     
+6332:                 var event;
+6333:                 if (command.remove === true) {
+6334:                     // Remove userid from the mesh
+6335:                     delete mesh.links[newuserid];
+6336:                     db.Set(mesh);
+6337:                     event = { etype: 'mesh', username: newuser.name, userid: user._id, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msg: 'Removed user ' + newuser.name + ' from device group ' + mesh.name, domain: domain.id, invite: mesh.invite };
+6338:                 } else {
+6339:                     // Add userid to the mesh
+6340:                     mesh.links[newuserid] = { name: newuser.name, rights: command.meshadmin };
+6341:                     db.Set(mesh);
+6342:                     event = { etype: 'mesh', username: newuser.name, userid: user._id, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msg: 'Added user ' + newuser.name + ' to device group ' + mesh.name, domain: domain.id, invite: mesh.invite };
+6343:                 }
+6344:                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6345:                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6346:                 }
+6347:     
+6348:                 // Notify mesh change
+6349:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+6350:                 parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(mesh, [user._id, newuserid]), obj, event);
+6351:                 if (command.remove === true) { msgs.push("Removed user " + newuserid.split('/')[2]); } else { msgs.push("Added user " + newuserid.split('/')[2]); }
+6352:                 successCount++;
+6353:                 parent.InvalidateNodeCache(newuser, mesh)
+6354:             } else {
+6355:                 msgs.push("Unknown user " + newuserid.split('/')[2]);
+6356:                 unknownUsers.push(newuserid.split('/')[2]);
+6357:                 failCount++;
+6358:             }
+6359:         }
+6360:     
+6361:         if ((successCount == 0) && (failCount == 0)) { msgs.push("Nothing done"); }
+6362:     
+6363:         if (unknownUsers.length > 0) {
+6364:             // Send error back, user not found.
+6365:             displayNotificationMessage('User' + ((unknownUsers.length > 1) ? 's' : '') + ' ' + EscapeHtml(unknownUsers.join(', ')) + ' not found.', "Device Group", 'ServerNotify', 5, (unknownUsers.length > 1) ? 16 : 15, [EscapeHtml(unknownUsers.join(', '))]);
+6366:         }
+6367:     
+6368:         if (command.responseid != null) { obj.send({ action: 'addmeshuser', responseid: command.responseid, result: msgs.join(', '), success: successCount, failed: failCount }); }
+6369:     }
+6370: 
+6371:     function serverCommandAddUser(command) {
+6372:         // If the email is the username, set this here.
+6373:         if (domain.usernameisemail) { if (command.email) { command.username = command.email; } else { command.email = command.username; } }
+6374: 
+6375:         // Randomize the password if needed
+6376:         if (command.randomPassword === true) { command.pass = getRandomPassword(); }
+6377: 
+6378:         // Add a new user account
+6379:         var err = null, errid = 0, args = null, newusername, newuserid, newuserdomain;
+6380:         try {
+6381:             if ((user.siteadmin & MESHRIGHT_MANAGEUSERS) == 0) { err = "Permission denied"; errid = 1; }
+6382:             else if (common.validateUsername(command.username, 1, 256) == false) { err = "Invalid username"; errid = 2; } // Username is between 1 and 64 characters, no spa

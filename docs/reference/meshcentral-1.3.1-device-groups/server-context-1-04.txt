@@ -1,0 +1,15 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 5898-6116 | part 4/4 (may continue a source line)
+
+ for (var i in command.usernames) {
+6107:                 if (command.usernames[i] != null) {
+6108:                     if (parent.users['user/' + domain.id + '/' + command.usernames[i].toLowerCase()] != null) { command.userids.push('user/' + domain.id + '/' + command.usernames[i].toLowerCase()); }
+6109:                     else if (parent.users['user/' + domain.id + '/' + command.usernames[i]] != null) { command.userids.push('user/' + domain.id + '/' + command.usernames[i]); }
+6110:                 }
+6111:             }
+6112:         }
+6113:     
+6114:         // Get the node and the rights for this node
+6115:         parent.GetNodeWithRights(domain, user, command.nodeid, function (node, rights, visible) {
+6116:             // Check if already in the right mesh

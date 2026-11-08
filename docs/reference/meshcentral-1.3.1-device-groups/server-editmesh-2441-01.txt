@@ -1,0 +1,62 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2441-2572 | part 1/3 (may continue a source line)
+
+2441:             case 'editmesh':
+2442:                 {
+2443:                     // Change the name or description of a device group (mesh)
+2444:                     var err = null;
+2445: 
+2446:                     // Resolve the device group name if needed
+2447:                     if ((typeof command.meshidname == 'string') && (command.meshid == null)) {
+2448:                         for (var i in parent.meshes) {
+2449:                             var m = parent.meshes[i];
+2450:                             if ((m.mtype == 2) && (m.name == command.meshidname) && parent.IsMeshViewable(user, m)) {
+2451:                                 if (command.meshid == null) { command.meshid = m._id; } else { err = 'Duplicate device groups found'; }
+2452:                             }
+2453:                         }
+2454:                     }
+2455: 
+2456:                     // Validate input
+2457:                     try {
+2458:                         if (common.validateString(command.meshid, 8, 134) == false) { err = 'Invalid group identifier'; } // Check the meshid
+2459:                         else if (command.meshid.indexOf('/') == -1) { command.meshid = 'mesh/' + domain.id + '/' + command.meshid; }
+2460:                         if (err == null) {
+2461:                             mesh = parent.meshes[command.meshid];
+2462:                             if (mesh == null) { err = 'Invalid group identifier '; }
+2463:                         }
+2464:                     } catch (ex) { err = 'Validation exception: ' + ex; }
+2465: 
+2466:                     // Handle any errors
+2467:                     if (err != null) { if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'editmesh', responseid: command.responseid, result: err })); } catch (ex) { } } break; }
+2468: 
+2469:                     change = '';
+2470: 
+2471:                     // Check if this user has rights to do this
+2472:                     if ((parent.GetMeshRights(user, mesh) & MESHRIGHT_EDITMESH) == 0) return;
+2473:                     if ((command.meshid.split('/').length != 3) || (command.meshid.split('/')[1] != domain.id)) return; // Invalid domain, operation only valid for current domain
+2474: 
+2475:                     var changesids = [];
+2476:                     if ((common.validateString(command.meshname, 1, 128) == true) && (command.meshname != mesh.name)) { change = 'Device group name changed from "' + mesh.name + '" to "' + command.meshname + '"'; changesids.push(1); mesh.name = command.meshname; }
+2477:                     if ((common.validateString(command.desc, 0, 1024) == true) && (command.desc != mesh.desc)) { if (change != '') change += ' and description changed'; else change += 'Device group "' + mesh.name + '" description changed'; changesids.push(2); mesh.desc = command.desc; }
+2478:                     if ((common.validateInt(command.flags) == true) && (command.flags != mesh.flags)) { if (change != '') change += ' and flags changed'; else change += 'Device group "' + mesh.name + '" flags changed'; changesids.push(3); mesh.flags = command.flags; }
+2479:                     if ((common.validateInt(command.consent) == true) && (command.consent != mesh.consent)) { if (change != '') change += ' and consent changed'; else change += 'Device group "' + mesh.name + '" consent changed'; changesids.push(4); mesh.consent = command.consent; }
+2480:                     if ((common.validateInt(command.expireDevs, 0, 2000) == true) && (command.expireDevs != mesh.expireDevs)) { if (change != '') change += ' and auto-remove changed'; else change += 'Device group "' + mesh.name + '" auto-remove changed'; changesids.push(5); if (command.expireDevs == 0) { delete mesh.expireDevs; } else { mesh.expireDevs = command.expireDevs; } }
+2481: 
+2482:                     var oldRelayNodeId = null, newRelayNodeId = null;
+2483:                     if ((typeof command.relayid == 'string') && ((mesh.mtype == 3) || (mesh.mtype == 4)) && (mesh.relayid != null) && (command.relayid != mesh.relayid)) {
+2484:                         var relayIdSplit = command.relayid.split('/');
+2485:                         if ((relayIdSplit.length == 3) && (relayIdSplit[0] = 'node') && (relayIdSplit[1] == domain.id)) {
+2486:                             if (change != '') { change += ' and device relay changed'; } else { change = 'Device relay changed'; }
+2487:                             changesids.push(7);
+2488:                             oldRelayNodeId = mesh.relayid;
+2489:                             newRelayNodeId = mesh.relayid = command.relayid;
+2490:                         }
+2491:                     }
+2492: 
+2493:                     // See if we need to change device group invitation codes
+2494:                     if (mesh.mtype == 2) {
+2495:                         if (command.invite === '*') {
+2496:                             // Clear invite codes
+2497:                             if (mesh.invite != null) { delete mesh.invite; }
+2498:             

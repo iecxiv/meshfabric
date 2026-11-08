@@ -1,0 +1,66 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2573-2679 | part 1/2 (may continue a source line)
+
+2573:             case 'removemeshuser':
+2574:                 {
+2575:                     var xdomain, err = null;
+2576: 
+2577:                     // Resolve the device group name if needed
+2578:                     if ((typeof command.meshname == 'string') && (command.meshid == null)) {
+2579:                         for (var i in parent.meshes) {
+2580:                             var m = parent.meshes[i];
+2581:                             if ((m.mtype == 2) && (m.name == command.meshname) && parent.IsMeshViewable(user, m)) {
+2582:                                 if (command.meshid == null) { command.meshid = m._id; } else { err = 'Duplicate device groups found'; }
+2583:                             }
+2584:                         }
+2585:                     }
+2586: 
+2587:                     try {
+2588:                         if (common.validateString(command.userid, 1, 1024) == false) { err = "Invalid userid"; } // Check userid
+2589:                         if (common.validateString(command.meshid, 8, 134) == false) { err = "Invalid groupid"; } // Check meshid
+2590:                         if (command.userid.indexOf('/') == -1) { command.userid = 'user/' + domain.id + '/' + command.userid; }
+2591:                         if (command.userid == obj.user._id) { err = "Can't remove self"; } // Can't add of modify self
+2592:                         if ((command.userid.split('/').length != 3) || ((obj.crossDomain !== true) && (command.userid.split('/')[1] != domain.id))) { err = "Invalid userid"; } // Invalid domain, operation only valid for current domain
+2593:                         else {
+2594:                             if (command.meshid.indexOf('/') == -1) { command.meshid = 'mesh/' + domain.id + '/' + command.meshid; }
+2595:                             mesh = parent.meshes[command.meshid];
+2596:                             var meshIdSplit = command.meshid.split('/');
+2597:                             if (mesh == null) { err = "Unknown device group"; }
+2598:                             else if ((parent.GetMeshRights(user, mesh) & MESHRIGHT_MANAGEUSERS) == 0) { err = "Permission denied"; }
+2599:                             else if (meshIdSplit.length != 3) { err = "Invalid domain"; } // Invalid domain, operation only valid for current domain
+2600:                             else {
+2601:                                 xdomain = domain;
+2602:                                 if (obj.crossDomain !== true) { xdomain = parent.parent.config.domains[meshIdSplit[1]]; }
+2603:                                 if (xdomain == null) { err = "Invalid domain"; }
+2604:                             }
+2605:                         }
+2606:                     } catch (ex) { err = "Validation exception: " + ex; }
+2607: 
+2608:                     // Handle any errors
+2609:                     if (err != null) {
+2610:                         console.log(err);
+2611:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'removemeshuser', responseid: command.responseid, result: err })); } catch (ex) { } }
+2612:                         break;
+2613:                     }
+2614: 
+2615:                     // Check if the user exists - Just in case we need to delete a mesh right for a non-existant user, we do it this way. Technically, it's not possible, but just in case.
+2616:                     var deluserid = command.userid, deluser = null;
+2617:                     if (deluserid.startsWith('user/')) { deluser = parent.users[deluserid]; }
+2618:                     else if (deluserid.startsWith('ugrp/')) { deluser = parent.userGroups[deluserid]; }
+2619: 
+2620:                     // Search for a user name in that windows domain is the username starts with *\
+2621:                     if ((deluser == null) && (deluserid.startsWith('user/' + xdomain.id + '/*\\')) == true) {
+2622:                         var search = deluserid.split('/')[2].substring(1);
+2623:                         for (var i in parent.users) { if (i.endsWith(search) && (parent.users[i].domain == xdomain.id)) { deluser = parent.users[i]; command.userid = deluserid = deluser._id; break; } }
+2624:                     }
+2625: 
+2626:                     if (deluser != null) {
+2627:                         // Remove mesh from user
+2628:                         if (deluser.links != null && deluser.links[command.meshid] != null) {
+2629:                             var delmeshrights = deluser.links[command.meshid].rights;
+2630:                             if ((delmeshrights == MESHRIGHT_ADMIN) && (parent.GetMeshRights(user, mesh) != MESHRIGHT_ADMIN)) return; // A non-admin can't kick out an admin
+2631:                             delete deluser.links[command.meshid];
+2632:                             if (deluserid.startsWith('user/')) { db.SetUser(deluser); }
+2633:                             else if (deluserid.startsWith('ugrp/')) { db.Set(deluser); }
+2634:                             parent.parent.DispatchEvent([deluser._id], ob

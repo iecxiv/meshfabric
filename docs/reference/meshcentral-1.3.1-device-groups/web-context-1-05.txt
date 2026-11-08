@@ -1,0 +1,77 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 8414-8753 | part 5/6 (may continue a source line)
+
+localurl.split('{0}').join(currentNode._id.split('/')[2]).split('{1}').join(currentNode._id.split('/')[2]).split('{2}').join(currentNode._id.split('/')[2]).split('{3}').join(currentNode._id.split('/')[2]);
+8670:                 localurl = localurl.split('{4}').join(userid1).split('{5}').join(userid2).split('{6}').join(userid3).split('{7}').join(userid4);
+8671:             }
+8672:             if (url != '') { meshserver.send({ action: 'msg', type: 'openUrl', nodeid: currentNode._id, url: url }); }
+8673:             if (localurl != '') { safeNewWindow(localurl, 'altmessenger:' + currentNode._id, 'directories=no,titlebar=no,toolbar=no,location=no,status=no,menubar=no,scrollbars=no,resizable=no,width=400,height=560'); }
+8674:         }
+8675: 
+8676:         function deviceToggleBackground() {
+8677:             if (xxdialogMode) return;
+8678:             meshserver.send({ action: 'msg', type: 'deskBackground', nodeid: currentNode._id, op: 1 }); // Toggle desktop background image
+8679:         }
+8680: 
+8681:         function deviceUrlFunction() {
+8682:             if (xxdialogMode) return;
+8683:             setDialogMode(2, "Open Page on Device", 3, deviceUrlFunctionEx, '<input id=d2devurl placeholder="http://server.com" style=width:100%;overflow-y:scroll onkeyup=deviceUrlFunctionValidate() onchange=deviceUrlFunctionValidate()></input>');
+8684:             Q('d2devurl').focus();
+8685:             deviceUrlFunctionValidate();
+8686:         }
+8687: 
+8688:         function deviceUrlFunctionValidate() {
+8689:             var x = Q('d2devurl').value.toLowerCase();
+8690:             QE('idx_dlgOkButton', ((x.startsWith('http://') && (x.length > 7)) || (x.startsWith('https://') && (x.length > 8))));
+8691:         }
+8692: 
+8693:         function deviceUrlFunctionEx() {
+8694:             meshserver.send({ action: 'msg', type: 'openUrl', nodeid: currentNode._id, url: Q('d2devurl').value });
+8695:         }
+8696: 
+8697:         function deviceMessageFunction() {
+8698:             if (xxdialogMode) return;
+8699:             var x = '<div style=margin-bottom:4px>' + "Display a message box on the remote device." + '</div>';
+8700:             x += '<textarea id=d2devMessage style=background-color:#fcf3cf;width:100%;height:80px;resize:none;overflow-y:scroll;box-sizing:border-box;margin-bottom:4px></textarea>';
+8701:             x += '<select style=width:100% id=d2devTimeout>';
+8702:             x += '<option value=2 selected>' + "Show for 2 Minutes (Default)" + '</option>';
+8703:             x += '<option value=10>' + "Show for 10 minutes" + '</option>';
+8704:             x += '<option value=30>' + "Show for 30 minutes" + '</option>';
+8705:             x += '<option value=60>' + "Show for 60 minutes" + '</option>';
+8706:             x += '<option value=0>' + "Show message until dismissed by user" + '</option>';
+8707:             x += '</select>';
+8708:             setDialogMode(2, "Device Message", 3, deviceMessageFunctionEx, x);
+8709:             Q('d2devMessage').focus();
+8710:         }
+8711: 
+8712:         function deviceMessageFunctionEx() {
+8713:             var title = decodeURIComponent('{{{extitle}}}'), timeout = parseFloat(Q('d2devTimeout').value);
+8714:             if (title == '') { title = "MeshCentral"; }
+8715:             if(isNaN(timeout)){ timeout = 2; }
+8716:             if (currentNode.pmt == 1) {
+8717:                 meshserver.send({ action: 'pushmessage', nodeid: currentNode._id, title: title, msg: Q('d2devMessage').value });
+8718:             } else {
+8719:                 meshserver.send({ action: 'msg', type: 'messagebox', nodeid: currentNode._id, title: title, msg: Q('d2devMessage').value, timeout: (timeout * 60000) });
+8720:             }
+8721:         }
+8722: 
+8723:         function deskClipboardInFunction() {
+8724:             if (desktop == null || desktop.State != 3) return;
+8725:             if (desktop.m.getClipboard) {
+8726:                 var text = desktop.m.getClipboard();
+8727:                 if ((text != null) && (navigator.clipboard != null)) { navigator.clipboard.writeText(text).then(function() { }).catch(function(err) { console.log(err); }) } // Put remote clipboard data into our clipboard
+8728:             } else {
+8729:                 meshserver.send({ action: 'msg', type: 'getclip', nodeid: currentNode._id, tag: 2 });
+8730:             }
+8731:         }
+8732: 
+8733:         // Called to lock or unlock remote desktop user input
+8734:         function deskInputLockFunction(value) {
+8735:             if (xxdialogMode || desktop == null || desktop.State != 3) return;
+8736:             setDialogMode(2, "Remote Input Lock", 3, function() { try { desktop.m.SendRemoteInputLock(value); } catch (ex) {} }, (value == 1)?"Lock remote user's mouse and keyboard?":"Unlock remote user's mouse and keyboard?");
+8737:         }
+8738: 
+8739:         function deskClipboardOutFunction() {
+8740:             if ((navigator.clipboard != null) && (navigator.clipboard.readText != null)) {
+8741:               
