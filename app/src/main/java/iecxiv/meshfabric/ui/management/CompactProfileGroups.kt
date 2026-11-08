@@ -44,7 +44,7 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
         if(expanded) Column(Modifier.fillMaxWidth().padding(bottom=8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) { content() }
     }
 }
-@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={}) {
+@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false}) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
@@ -68,7 +68,7 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
                         val nodes=s.nodes?.filter { it.optString("meshid")==id && deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
                         if(nodes==null) Text(t("Listado de dispositivos no disponible. Usa Actualizar.","Device list unavailable. Use Refresh.")) else {
                             Text("${nodes.size} "+t("dispositivos visibles","visible devices"),style=MaterialTheme.typography.bodySmall)
-                            for(node in nodes.take(100)) ListItem(headlineContent={Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis)},leadingContent={Icon(Icons.Default.Computer,null)})
+                            for(node in nodes.take(100)) ListItem(headlineContent={Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis)},leadingContent={Icon(Icons.Default.Computer,null)},trailingContent={if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}})
                             if(nodes.size>100) Text(t("Se muestran 100 resultados; concreta la búsqueda.","Showing 100 results; refine the search."),style=MaterialTheme.typography.bodySmall)
                         }
                     }

@@ -58,7 +58,7 @@ val labels=if(es) listOf("Copia de seguridad","Administrar usuarios","Restaurar 
 return labels.mapIndexedNotNull { i,label->label.takeIf { mask and (1L shl i)!=0L } }.joinToString(", ").ifBlank { if(es) "Permisos adicionales" else "Additional rights" }
 }
 
-@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onOpenGroup:(String)->Unit={},onDismiss:()->Unit) {
+@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onOpenGroup:(String)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onDismiss:()->Unit) {
 key(form) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(a:String,b:String)=if(es) a else b
@@ -199,7 +199,7 @@ ProfileDisclosure(t("Dispositivos en común","Devices in common")) {
 if(s.nodes==null || s.userGroups==null) Text(missing) else {
 val common=s.nodes.filter { userAccess(s,user,it.optString("_id"),it.optString("meshid"))!=0L }
 if(common.isEmpty()) Text(t("No se observan dispositivos en común en los datos disponibles.","No common devices observed in available data."))
-for(node in common.take(100)) ManagementCard { ManagementInfoRow(node.optString("name"),node.optString("_id")) }
+for(node in common.take(100)) ManagementCard { ManagementInfoRow(node.optString("name"),node.optString("_id"));if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))} }
 if(common.size>100) Text(t("Se muestran los primeros 100 dispositivos.","Showing the first 100 devices."))
 }
 }
