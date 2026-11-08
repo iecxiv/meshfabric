@@ -1,0 +1,103 @@
+name: Validate and publish user membership group links
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-user-membership-links.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-user-membership-links-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Link received memberships without changing membership writes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileScreen.kt':'086ac2a33724449ffa2e1c5b8964a5604685de98','UserAdministration.kt':'a8919e52932cfe56535be8ef04eb8c19b4810303','ReceivedUserGroupDialog.kt':'9cb6aa827647dc9d57aea0cc17d4d56dfe3de5ec'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          anchor='userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid) {userGroupDetails=null}}\n'
+          change('ProfileScreen.kt',anchor,'')
+          anchor='deviceDetails?.let {id->ProfileDeviceDetailsOverlay'
+          change('ProfileScreen.kt',anchor,'userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}\n'+anchor)
+          anchor='onDismiss=closeProfileDialog) else key(selected)'
+          change('ProfileScreen.kt',anchor,'onOpenUserGroup={gid->state.users.singleOrNull {it.optString("_id")==selected.id}?.let {u->if(gid in profileUserMembershipGroupIds(state,u).orEmpty() && profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}}},canOpenUserGroup={gid->profileReceivedUserGroup(state,gid)!=null},'+anchor)
+          anchor='canOpenDevice:(String)->Boolean={false},onDismiss:()->Unit)'
+          change('UserAdministration.kt',anchor,'canOpenDevice:(String)->Boolean={false},onOpenUserGroup:((String)->Unit)?=null,canOpenUserGroup:(String)->Boolean={false},onDismiss:()->Unit)')
+          anchor='ProfileDisclosure(t("Dispositivos en común","Devices in common"))'
+          section="""ProfileDisclosure(t("Grupos de usuarios recibidos","Received user groups")) {
+          Text(t("Enlaces encontrados en la cuenta o en grupos recibidos. No son los reinos administrativos ni un cálculo de permisos efectivos.","Links found in the account or received groups. These are not administrative realms or a calculation of effective rights."),style=MaterialTheme.typography.bodySmall)
+          val membershipIds=profileUserMembershipGroupIds(s,user)
+          if(membershipIds==null) Text(t("Datos de membresía no disponibles.","Membership data unavailable.")) else if(membershipIds.isEmpty()) Text(t("No se han recibido enlaces de membresía.","No membership links received.")) else for(gid in membershipIds) {
+          val received=profileReceivedUserGroup(s,gid)
+          ManagementCard {
+          Text(received?.optString("name").orEmpty().ifBlank {gid},style=MaterialTheme.typography.titleSmall)
+          Text(gid,style=MaterialTheme.typography.bodySmall)
+          if(onOpenUserGroup!=null && canOpenUserGroup(gid)) TextButton(onClick={onOpenUserGroup(gid)}) {Text(t("Abrir grupo de usuarios","Open user group"))} else Text(t("Ficha no recibida o temporalmente no disponible.","Entry not received or temporarily unavailable."),style=MaterialTheme.typography.bodySmall)
+          }
+          }
+          TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy && s.userGroupPhase!="loading",onClick={session.refresh();session.loadDetails();session.loadUserGroupDirectory()}) {Text(t("Actualizar membresías recibidas","Refresh received memberships"))}
+          }
+          """
+          change('UserAdministration.kt',anchor,section+anchor)
+          change('ReceivedUserGroupDialog.kt','id:String,onDismiss:()->Unit)','id:String,dismissLabel:String?=null,onDismiss:()->Unit)')
+          change('ReceivedUserGroupDialog.kt','Text(t("Volver a Accesos","Back to Access"))','Text(dismissLabel ?: t("Volver a Accesos","Back to Access"))')
+          hashes={'.github/patches/profile-user-membership-links/ProfileUserMembershipGroupLinks.kt.txt': '2a1dbbc31df2a06c59b8b1576a0c768b8963fcea5a6741cb8a03105f887433cb', '.github/patches/profile-user-membership-links/ProfileUserMembershipGroupLinksTest.kt.txt': 'a0fa97c1465b6bf238306d3cbcd99b78227c3f01fb6e290317e8631427afaabd'}
+          targets={'.github/patches/profile-user-membership-links/ProfileUserMembershipGroupLinks.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileUserMembershipGroupLinks.kt', '.github/patches/profile-user-membership-links/ProfileUserMembershipGroupLinksTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileUserMembershipGroupLinksTest.kt'}
+          updates={base/name:text for name,text in sources.items()}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();target=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if target.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[target]=data.decode()
+          for target,content in updates.items():
+              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-user-membership-links-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated membership navigation
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/ReceivedUserGroupDialog.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileUserMembershipGroupLinks.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileUserMembershipGroupLinksTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): show received user group memberships and preserve user editor on return'
+          git push origin HEAD:dev
