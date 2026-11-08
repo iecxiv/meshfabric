@@ -1,0 +1,132 @@
+name: Validate and publish group assignment transport without creation UI
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-grant-transport.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-grant-transport-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "::error::Missing sdkmanager: $SDKMANAGER"; exit 1; }
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded transport and regression tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          files={
+              'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt':'9e9158971abb1ceaef20e110ffae53d55a088d03',
+              'app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshGrantPolicy.kt':'59243468f4114865bbc15ce9e24de0645256556d',
+              'app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshGrantRequestTest.kt':'308d1bbea54d0e331a8997a870ff73871c52aaac'}
+          data={}
+          for path,sha in files.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+              data[path]=Path(path).read_text()
+          session,policy,tests=files
+          s=data[session]
+          def replace(old,new):
+              global s
+              if s.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              s=s.replace(old,new,1)
+          replace('val revokedDeviceGroup:String=""','val revokedDeviceGroup:String="",val grantedGroup:String="",val grantedDeviceGroup:String=""')
+          start=s.index('private fun observeGroupMeshRevocation() {')
+          end=s.index('private fun receive(p:JSONObject)',start)
+          s=s[:start]+'''private fun observeGroupMeshRevocation() {
+          val granting=pendingAction=="addmeshuser"
+          if(pendingAction !in setOf("removemeshuser","addmeshuser")) return
+          val subject=expected.optString("meshSubject");val device=expected.optString("meshTarget")
+          val verified=if(granting) profileGroupMeshGrantReadbackReady(state.value,subject,device,expected.optLong("meshRights"),expected.optBoolean("meshAck"),expected.optBoolean("meshGroupRead"),expected.optBoolean("meshDeviceRead")) else profileGroupMeshReadbackReady(state.value,subject,device,expected.optBoolean("meshAck"),expected.optBoolean("meshGroupRead"),expected.optBoolean("meshDeviceRead"))
+          if(!verified) return
+          state.update {if(granting) it.copy(grantedGroup=subject,grantedDeviceGroup=device) else it.copy(revokedGroup=subject,revokedDeviceGroup=device)}
+          finish(if(granting) "groupMeshGrantedObserved" else "groupMeshRevokedObserved",false);source.requestServerData()
+          }
+          '''+s[end:]
+          if s.count('pendingAction=="removemeshuser"')!=6:raise RuntimeError('Unexpected revocation guard count')
+          s=s.replace('pendingAction=="removemeshuser"','pendingAction in setOf("removemeshuser","addmeshuser")')
+          replace('"createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"','"createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser"')
+          replace('val ok=p.optString("result").equals("ok",true)', '''if(action=="addmeshuser") {
+          if(profileGroupMeshGrantAck(p,pendingId)) {expected.put("meshAck",true).put("meshGroupRead",false).put("meshDeviceRead",false);loadLists();requestUserGroupDirectory(true)}
+          else if(profileGroupMeshGrantReplyRejected(p)) finish("rejected",false)
+          return
+          }
+          val ok=p.optString("result").equals("ok",true)''')
+          replace('val allowed=when(action) {','val allowed=when(action) {\n"addmeshuser"->profileGroupMeshGrantAllowed(s,p,broadcastServerLabel())')
+          replace('val payload=when(action) {','val payload=when(action) {"addmeshuser"->profileGroupMeshGrantWire(p);')
+          replace('"editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"','"editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser"')
+          replace('expected=JSONObject()\nif(action=="removemeshuser")','expected=JSONObject()\nif(action=="addmeshuser") expected.put("meshSubject",p.getJSONArray("userids").getString(0)).put("meshTarget",p.getString("meshid")).put("meshRights",userAdvancedMask(p.get("meshadmin"))).put("meshAck",false).put("meshGroupRead",false).put("meshDeviceRead",false)\nif(action=="removemeshuser")')
+          replace('state.update { it.copy(busy=true,notice="sent",','state.update { it.copy(busy=true,notice="sent",grantedGroup=if(action=="addmeshuser") "" else it.grantedGroup,grantedDeviceGroup=if(action=="addmeshuser") "" else it.grantedDeviceGroup,')
+          data[session]=s
+          data[policy]+='''
+          internal fun profileGroupMeshGrantReplyRejected(p:JSONObject)=p.has("error") || p.has("err") || (p.opt("failed") as? Number)?.toDouble()?.let {it.isFinite() && it>0.0}==true
+          internal fun profileGroupMeshGrantReadbackReady(s:ProfileState,gid:String,mid:String,rights:Long,ack:Boolean,groupRead:Boolean,deviceRead:Boolean)=ack && groupRead && deviceRead && profileGroupMeshGrantObserved(s.listedUserGroups?.singleOrNull {it.optString("_id")==gid},s.groups.singleOrNull {it.optString("_id")==mid},gid,mid,rights,true)
+          '''
+          t=data[tests].rstrip()
+          if not t.endswith('}'):raise RuntimeError('Unexpected test ending')
+          data[tests]=t[:-1]+'''
+              @Test fun grantReadbackRequiresAckAndBothFreshReads() {
+                  val s=state()
+                  s.listedUserGroups!!.single().getJSONObject("links").put(mid,JSONObject().put("rights",264))
+                  s.groups.single().getJSONObject("links").put(gid,JSONObject().put("rights",264))
+                  for(ack in listOf(false,true)) for(groupRead in listOf(false,true)) for(deviceRead in listOf(false,true)) {
+                      assertEquals(ack && groupRead && deviceRead,profileGroupMeshGrantReadbackReady(s,gid,mid,264,ack,groupRead,deviceRead))
+                  }
+                  assertFalse(profileGroupMeshGrantReadbackReady(s,gid,mid,8,true,true,true))
+                  assertFalse(profileGroupMeshGrantReadbackReady(s.copy(listedUserGroups=null),gid,mid,264,true,true,true))
+              }
+              @Test fun grantReplyClassificationDoesNotUseGenericOkText() {
+                  val reply=JSONObject().put("action","addmeshuser").put("responseid","request").put("result","Added user group").put("success",1).put("failed",0)
+                  assertTrue(profileGroupMeshGrantAck(reply,"request"))
+                  assertFalse(profileGroupMeshGrantReplyRejected(reply))
+                  assertFalse(profileGroupMeshGrantAck(reply,"other"))
+                  assertFalse(profileGroupMeshGrantReplyRejected(JSONObject().put("result","ok")))
+                  assertFalse(profileGroupMeshGrantAck(JSONObject().put("action","addmeshuser").put("responseid","request").put("result","ok"),"request"))
+                  assertTrue(profileGroupMeshGrantReplyRejected(JSONObject(reply.toString()).put("failed",1)))
+                  assertTrue(profileGroupMeshGrantReplyRejected(JSONObject(reply.toString()).put("error","denied")))
+                  assertFalse(profileGroupMeshGrantAck(JSONObject(reply.toString()).put("error","denied"),"request"))
+              }
+          }
+          '''
+          for path,text in data.items():Path(path).write_text(text)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-grant-transport-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated transport without creation UI
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshGrantPolicy.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshGrantRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): validate group assignment transport and dual readback'
+          git push origin HEAD:dev
