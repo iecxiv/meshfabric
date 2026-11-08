@@ -44,7 +44,7 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
         if(expanded) Column(Modifier.fillMaxWidth().padding(bottom=8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) { content() }
     }
 }
-@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={}) {
+@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={}) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
@@ -82,6 +82,7 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
                                 val rights=runCatching { val raw=requireNotNull(links).getJSONObject(member).get("rights"); require(raw is Number); userAdvancedMask(raw) }.getOrNull()
                                 ListItem(headlineContent={Text(name,maxLines=2,overflow=TextOverflow.Ellipsis)},supportingContent={Text(rights?.let { deviceGroupRightsLabel(it,es) } ?: t("Permisos no informados","Rights not reported"))},leadingContent={Icon(Icons.Default.Group,null)})
 if(onOpenUser!=null && profileAccessUserTarget(s,member)!=null) TextButton(enabled=s.canWrite,onClick={onOpenUser(member)}) {Text(t("Abrir usuario","Open user"))}
+if(onOpenUserGroup!=null && profileReceivedUserGroup(s,member)!=null) TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy,onClick={onOpenUserGroup(member)}) {Text(t("Abrir grupo de usuarios","Open user group"))}
                             }
                             if(members.size>100) Text(t("Se muestran los primeros 100 accesos recibidos.","Showing the first 100 received assignments."),style=MaterialTheme.typography.bodySmall)
                         }
