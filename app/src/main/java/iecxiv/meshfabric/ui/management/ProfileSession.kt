@@ -15,7 +15,8 @@ val ready:Boolean=false,val loading:Boolean=false,val busy:Boolean=false,
 val user:JSONObject?=null,val users:List<JSONObject> = emptyList(),val groups:List<JSONObject> = emptyList(),
 val notice:String="disconnected",val readError:Boolean=false,val server:JSONObject?=null,
 val nodes:List<JSONObject>?=null,val userGroups:List<JSONObject>?=null,val sessions:JSONObject?=null,
-val detailsBusy:Boolean=false,val historyUser:String="",val history:JSONArray?=null,val historyBusy:Boolean=false,val historyFailed:Boolean=false
+val detailsBusy:Boolean=false,val historyUser:String="",val history:JSONArray?=null,val historyBusy:Boolean=false,val historyFailed:Boolean=false,
+val listedUserGroups:List<JSONObject>?=null,val userGroupPhase:String="idle"
 ) {
 val site:Long get()=user?.optLong("siteadmin",0L) ?: 0L
 val id:String get()=user?.optString("_id").orEmpty()
@@ -42,6 +43,8 @@ private var readTimer:Job?=null
 private var detailsTimer:Job?=null
 private var historyTimer:Job?=null
 private var historyId=""
+private var directoryId=""
+private var directoryTimer:Job?=null
 private val reads=mutableSetOf<String>()
 private val details=mutableSetOf<String>()
 private fun valid()=!source.isUserLogout && source.connectionState.value && binding==Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
@@ -75,8 +78,8 @@ timer=scope.launch { delay(20_000); synchronized(this@ProfileSession) { if(epoch
 @Synchronized fun stop(reason:String="disconnected") {
 val uncertain=pendingId.isNotBlank()
 generation++; socket?.cancel(); socket=null
-listOf(timer,readTimer,detailsTimer,historyTimer).forEach { it?.cancel() }
-reads.clear(); details.clear(); pendingId=""; pendingAction=""; pendingTarget=""; pendingNode=""; expected=JSONObject(); historyId=""
+listOf(timer,readTimer,detailsTimer,historyTimer,directoryTimer).forEach { it?.cancel() }
+reads.clear(); details.clear(); pendingId=""; pendingAction=""; pendingTarget=""; pendingNode=""; expected=JSONObject(); historyId=""; directoryId=""
 state.value=ProfileState(notice=if(uncertain) "unknown" else reason)
 }
 @Synchronized fun close() { closed=true; stop(); scope.cancel() }
@@ -104,6 +107,14 @@ val epoch=generation
 detailsTimer?.cancel(); detailsTimer=scope.launch { delay(20_000); synchronized(this@ProfileSession) {
 if(epoch==generation) { details.clear(); state.update { it.copy(detailsBusy=false) } }
 } }
+}
+@Synchronized fun loadUserGroupDirectory() {
+if(!state.value.ready || !valid() || state.value.busy) return
+directoryTimer?.cancel(); directoryId="profile-user-groups:"+UUID.randomUUID().toString()
+val request=directoryId; val epoch=generation
+state.update {it.copy(listedUserGroups=null,userGroupPhase="loading")}
+if(!send("usergroups",JSONObject().put("tag",request))) { directoryId=""; state.update {it.copy(userGroupPhase="failed")};return }
+directoryTimer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && directoryId==request && state.value.userGroupPhase=="loading") {directoryId="";state.update {it.copy(listedUserGroups=null,userGroupPhase="failed")}}}}
 }
 @Synchronized fun clearHistory() { historyTimer?.cancel(); historyId=""; state.update { it.copy(historyUser="",history=null,historyBusy=false,historyFailed=false) } }
 @Synchronized fun previousLogins(id:String):Boolean {
@@ -140,6 +151,14 @@ if(pendingAction=="adddeviceuser" && node.optString("_id")==pendingNode && direc
 }
 private fun receive(p:JSONObject) {
 val action=p.optString("action")
+if(action=="usergroups" && p.optString("tag").startsWith("profile-user-groups:")) {
+if(directoryId.isBlank() || p.optString("tag")!=directoryId || state.value.userGroupPhase!="loading") return
+directoryTimer?.cancel();directoryId=""
+val raw=if(p.has("ugroups") && p.isNull("ugroups")) emptyList<JSONObject>() else records(p.opt("ugroups"))
+val list=raw?.takeIf {all->all.all {it.optString("_id").startsWith("ugrp/") && it.optString("_id").split('/').size==3}}?.filter {profileUserGroupDomainAllowed(state.value.id,it.optString("_id"))}
+state.update {it.copy(listedUserGroups=list,userGroupPhase=if(list==null) "failed" else "ready")}
+return
+}
 when(action) {
 "ping"->{ send("pong"); return }
 "close","stopped"->{ stop(); return }
@@ -149,7 +168,8 @@ val u=p.optJSONObject("userinfo") ?: return
 if(u.optString("_id").isBlank()) return
 if(state.value.id.isNotBlank() && state.value.id!=u.optString("_id")) { stop(); return }
 val first=!state.value.ready
-state.update { it.copy(ready=true,user=JSONObject(u.toString()),notice=if(first) "ready" else it.notice) }
+directoryTimer?.cancel();directoryId=""
+state.update { it.copy(ready=true,user=JSONObject(u.toString()),listedUserGroups=null,userGroupPhase="idle",notice=if(first) "ready" else it.notice) }
 if(first) { timer?.cancel(); loadLists() }
 if(!ProfilePermissions.manageUsers(state.value.site)) {
 if(pendingAction in setOf("adduser","edituser","deleteuser","changeuserpass","adddeviceuser")) { stop(); return }

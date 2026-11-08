@@ -1,0 +1,39 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 1832-1867
+
+1832:             case 'editusergroup':
+1833:                 {
+1834:                     if ((user.siteadmin & SITERIGHT_USERGROUPS) == 0) { return; }
+1835: 
+1836:                     // Change the name or description of a user group
+1837:                     if (common.validateString(command.ugrpid, 1, 1024) == false) break; // Check the user group id
+1838:                     var ugroupidsplit = command.ugrpid.split('/');
+1839:                     if ((ugroupidsplit.length != 3) || (ugroupidsplit[0] != 'ugrp') || (ugroupidsplit[1] != domain.id)) break;
+1840: 
+1841:                     // Get the user group
+1842:                     change = '';
+1843:                     var group = parent.userGroups[command.ugrpid];
+1844:                     if (group != null) {
+1845:                         // If this user group is an externally managed user group, the name of the user group can't be edited
+1846:                         if ((group.membershipType == null) && (common.validateString(command.name, 1, 64) == true) && (command.name != group.name)) { change = 'User group name changed from "' + group.name + '" to "' + command.name + '"'; group.name = command.name; }
+1847:                         if ((common.validateString(command.desc, 0, 1024) == true) && (command.desc != group.desc)) { if (change != '') change += ' and description changed'; else change += 'User group "' + group.name + '" description changed'; group.desc = command.desc; }
+1848:                         if ((typeof command.consent == 'number') && (command.consent != group.consent)) { if (change != '') change += ' and consent changed'; else change += 'User group "' + group.name + '" consent changed'; group.consent = command.consent; }
+1849: 
+1850:                         if ((command.flags != null) && (typeof command.flags == 'number')) {
+1851:                             // Flags: 2 = Session Recording
+1852:                             if ((command.flags == 0) && (group.flags != null)) { delete group.flags; } else { if (command.flags !== group.flags) { group.flags = command.flags; } }
+1853:                             if (change == '') { change = 'User group features changed.'; }
+1854:                         }
+1855: 
+1856:                         if (change != '') {
+1857:                             db.Set(group);
+1858:                             var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: group._id, name: group.name, desc: group.desc, consent: ((group.consent == null) ? 0 : group.consent), action: 'usergroupchange', links: group.links, flags: group.flags, msg: change, domain: domain.id };
+1859:                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1860:                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1861:                             }
+1862:                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+1863:                             parent.parent.DispatchEvent(['*', group._id, user._id], obj, event);
+1864:                         }
+1865:                     }
+1866:                     break;
+1867:                 }

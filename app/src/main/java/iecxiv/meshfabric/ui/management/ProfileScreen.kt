@@ -41,8 +41,8 @@ if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation
 } }
 LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; returnUser=null } }
 Column(modifier) {
-ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null }
-if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else {
+ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null }
+if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;returnUser=null;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
 "confirmed"->t("Solicitud confirmada por el servidor; actualizando.","Server acknowledged the request; refreshing.")

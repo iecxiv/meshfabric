@@ -1,0 +1,70 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 1736-1831
+
+1736:             case 'deleteusergroup':
+1737:                 {
+1738:                     var err = null;
+1739: 
+1740:                     if ((user.siteadmin & SITERIGHT_USERGROUPS) == 0) { err = "Permission denied"; }
+1741: 
+1742:                     // Change the name or description of a user group
+1743:                     else if (common.validateString(command.ugrpid, 1, 1024) == false) { err = "Invalid group id"; } // Check the user group id
+1744:                     else {
+1745:                         var ugroupidsplit = command.ugrpid.split('/');
+1746:                         if ((ugroupidsplit.length != 3) || (ugroupidsplit[0] != 'ugrp') || ((obj.crossDomain !== true) && (ugroupidsplit[1] != domain.id))) { err = "Invalid domain id"; }
+1747:                     }
+1748: 
+1749:                     // Get the domain
+1750:                     var delGroupDomain;
+1751:                     if (ugroupidsplit != null) {
+1752:                         delGroupDomain = parent.parent.config.domains[ugroupidsplit[1]];
+1753:                         if (delGroupDomain == null) { err = "Invalid domain id"; }
+1754:                     }
+1755: 
+1756:                     // Handle any errors
+1757:                     if (err != null) {
+1758:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'deleteusergroup', responseid: command.responseid, result: err })); } catch (ex) { } }
+1759:                         break;
+1760:                     }
+1761: 
+1762:                     db.Get(command.ugrpid, function (err, groups) {
+1763:                         if ((err != null) || (groups.length != 1)) {
+1764:                             try { ws.send(JSON.stringify({ action: 'deleteusergroup', responseid: command.responseid, result: 'Unknown device group' })); } catch (ex) { }
+1765:                             return;
+1766:                         }
+1767:                         var group = groups[0];
+1768: 
+1769:                         // If this user group is an externally managed user group, it can't be deleted unless there are no users in it.
+1770:                         if (group.membershipType != null) {
+1771:                             var userCount = 0;
+1772:                             if (group.links != null) { for (var i in group.links) { if (i.startsWith('user/')) { userCount++; } } }
+1773:                             if (userCount > 0) return;
+1774:                         }
+1775: 
+1776:                         // Unlink any user and meshes that have a link to this group
+1777:                         if (group.links) {
+1778:                             for (var i in group.links) {
+1779:                                 if (i.startsWith('user/')) {
+1780:                                     var xuser = parent.users[i];
+1781:                                     if ((xuser != null) && (xuser.links != null)) {
+1782:                                         delete xuser.links[group._id];
+1783:                                         db.SetUser(xuser);
+1784:                                         parent.parent.DispatchEvent([xuser._id], obj, 'resubscribe');
+1785: 
+1786:                                         // Notify user change
+1787:                                         var targets = ['*', 'server-users', user._id, xuser._id];
+1788:                                         var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(xuser), action: 'accountchange', msgid: 67, msgArgs: [xuser.name], msg: 'User group membership changed: ' + xuser.name, delGroupDomain: domain.id };
+1789:                                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1790:                                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1791:                                         }
+1792:                                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+1793:                                         parent.parent.DispatchEvent(targets, obj, event);
+1794:                                     }
+1795:                                 } else if (i.startsWith('mesh/')) {
+1796:                                     var xmesh = parent.meshes[i];
+1797:                                     if (xmesh && xmesh.links) {
+1798:                                         delete xmesh.links[group._id];
+1799:                                         db.Set(xmesh);
+1800: 
+1801:                                         // Notify mesh change
+1802:                                         var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: xmesh._id, name: xmesh.name, mtype: xmesh.mtype, desc: xmesh.desc, action: 'meshchange', links: xmesh.links, msgid: 70, msgArgs: [group.name, xmesh.name], msg: 'Removed 

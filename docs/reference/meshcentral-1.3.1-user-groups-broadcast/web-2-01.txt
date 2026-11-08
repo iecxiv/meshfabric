@@ -1,0 +1,63 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 15569-15798
+
+15569:             if (xxdialogMode) return;
+15570: 
+15571:             // Look for all relay devices
+15572:             var relayDevices = [];
+15573:             if ((features & 2) == 0) { for (var i in nodes) { var node = nodes[i]; if ((node.mtype == 2) && (node.agent != null) && (GetNodeRights(node) == 0xFFFFFFFF)) { relayDevices.push(node); } } }
+15574:             relayDevices.sort(nameSort);
+15575: 
+15576:             if (relayDevices.length == 0) {
+15577:                 // Relay relay devices available
+15578:                 setDialogMode(2, "Edit Device Group", 1, null, "No relay devices available.");
+15579:             } else {
+15580:                 var relayDevices2 = [];
+15581:                 for (var i in relayDevices) { relayDevices2.push('<option value="' + (relayDevices[i]._id + '"' + ((currentMesh.relayid == relayDevices[i]._id) ? ' selected' : '')) + '>' + EscapeHtml(relayDevices[i].name) + ' (' + EscapeHtml(relayDevices[i].meshnamel) + ')' + '</option>'); }
+15582:                 var x = addHtmlValue("Relay Device", '<div style=width:230px;margin:0;padding:0><select id=d2devrelay style=width:100%>' + relayDevices2.join('') + '</select></div>');
+15583:                 setDialogMode(2, "Edit Device Group", 3, p20editmeshrelayEx, x);
+15584:             }
+15585:         }
+15586: 
+15587:         function p20editmeshrelayEx() {
+15588:             meshserver.send({ action: 'editmesh', meshid: currentMesh._id, relayid: Q('d2devrelay').value });
+15589:         }
+15590: 
+15591:         function p20editmesh(focus) {
+15592:             if (xxdialogMode) return;
+15593:             var x = addHtmlValue("Name", '<input id=dp20meshname style=width:230px maxlength=128 onchange=p20editmeshValidate() onkeyup=p20editmeshValidate(event) />');
+15594:             x += addHtmlValue("Description", '<div style=width:230px;margin:0;padding:0><textarea id=dp20meshdesc maxlength=1024 style=width:100%;resize:none></textarea></div>');
+15595:             setDialogMode(2, "Edit Device Group", 3, p20editmeshEx, x);
+15596:             Q('dp20meshname').value = currentMesh.name;
+15597:             if (currentMesh.desc) Q('dp20meshdesc').value = currentMesh.desc;
+15598:             p20editmeshValidate();
+15599:             if (focus == 2) { Q('dp20meshdesc').focus(); } else { Q('dp20meshname').focus(); }
+15600:         }
+15601: 
+15602:         function p20editmeshEx() {
+15603:             meshserver.send({ action: 'editmesh', meshid: currentMesh._id, meshname: Q('dp20meshname').value, desc: Q('dp20meshdesc').value });
+15604:         }
+15605: 
+15606:         function p20editmeshValidate(e) {
+15607:             QE('idx_dlgOkButton', Q('dp20meshname').value.length > 0);
+15608:             if (e && e.key == 'Enter') { Q('dp20meshdesc').focus(); }
+15609:         }
+15610: 
+15611:         // editType: 1 = currentMesh, 2 = currentUser, 3 = currentDevice
+15612:         function p20editmeshconsent(editType) {
+15613:             if (xxdialogMode) return;
+15614:             var x = '', consent = 0, title = '';
+15615:             if (editType == 1) { consent = (currentMesh.consent) ? currentMesh.consent : 0; title = "Edit Device Group User Consent"; }
+15616:             if (editType == 2) { consent = (currentUser.consent) ? currentUser.consent : 0; title = "Edit User Consent"; }
+15617:             if (editType == 3) { consent = (currentNode.consent) ? currentNode.consent : 0; title = "Edit Device User Consent"; }
+15618:             if (editType == 4) { consent = (currentUserGroup.consent) ? currentUserGroup.consent : 0; title = "Edit User Group User Consent"; }
+15619:             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px"><b>' + "Desktop" + '</b></div>';
+15620:             x += '<div><label><input type=checkbox id=d20flag1 ' + ((consent & 0x0001) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
+15621:             x += '<div><label><input type=checkbox id=d20flag2 ' + ((consent & 0x0008) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+15622:             x += '<div><label><input type=checkbox id=d20flag7 ' + ((consent & 0x0040) ? 'checked' : '') + '>' + "Show connection toolbar" + '</label></div>';
+15623:             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Terminal" + '</b></div>';
+15624:             x += '<div><label><input type=checkbox id=d20flag3 ' + ((consent & 0x0002) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
+15625:             x += '<div><label><input type=checkbox id=d20flag4 ' + ((consent & 0x0010) ? 'checked' : '') + '>' + "Prompt for user consent" + '</label></div>';
+15626:             x += '<div style="width:100%;border-bottom:1px solid gray;margin-bottom:5px;margin-top:8px"><b>' + "Files" + '</b></div>';
+15627:             x += '<div><label><input type=checkbox id=d20flag5 ' + ((consent & 0x0004) ? 'checked' : '') + '>' + "Notify user" + '</label></div>';
+15628:             x += '

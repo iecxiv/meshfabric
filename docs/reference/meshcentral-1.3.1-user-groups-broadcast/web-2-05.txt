@@ -1,0 +1,5 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 15569-15798
+
+edList(nodes, 'name');
+15798:                 for (var i in onodes) { if (onodes[i].meshid == selectedMeshId) { y += '<option value=' + encodeURIComponentEx(onodes[i]._id) + ((selectedNode == onodes[i])?' selected':' ') + '>' + EscapeHtml(onodes[i].name) + '</option>'; } }

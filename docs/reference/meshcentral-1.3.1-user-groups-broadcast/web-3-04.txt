@@ -1,0 +1,39 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 17546-17775
+
+  QE('idx_dlgOkButton', (groups == '') || ((i == -5) && (k < 1)));
+17741:         }
+17742: 
+17743:         function showUserGroupDialogEx(event, user) {
+17744:             var groups = Q('dp4usergroups').value, g = groups.split(','), g2 = [];
+17745:             for (var j in g) { var x = g[j].trim(); if (x.length > 0) { g2.push(x); } }
+17746:             meshserver.send({ action: 'edituser', id: user._id, groups: g2 });
+17747:         }
+17748: 
+17749:         function showUserAdminDialog(e, userid) {
+17750:             if (xxdialogMode) return;
+17751:             haltEvent(e);
+17752:             userid = decodeURIComponent(userid);
+17753:             var user = users[userid];
+17754:             if (user == null) return;
+17755:             var uself = (userinfo._id == user._id);
+17756:             var x = '';
+17757:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_fileaccess>' + "Server Files" + '</label>, <input type=number onchange=showUserAdminDialogValidate() maxlength=10 id=ua_fileaccessquota>' + "k max, blank for default" + '<br><hr/>';
+17758:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_fulladmin>' + "Full Administrator" + '</label><br>';
+17759:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_serverbackup>' + "Server Backup" + '</label><br>';
+17760:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_serverrestore>' + "Server Restore" + '</label><br>';
+17761:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_serverupdate>' + "Server Updates" + '</label><br></div>';
+17762:             x += '<div id=d2MngUsr><label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_manageusers>' + "Manage Users" + '</label><br></div>';
+17763:             x += '<div id=d2MngGrp><label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_manageusergroups>' + "Manage User Groups" + '</label><br></div>';
+17764:             x += '<div id=d2MngRec><label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_managerecordings>' + "Manage Recordings" + '</label><br></div>';
+17765:             x += '<div id=d2AllEvnt><label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_allevents>' + "View All Events" + '</label><br></div>';
+17766:             if (x != '') { x += '<hr/>'; }
+17767:             x = '<div><div id=d2AdminPermissions>' + x;
+17768:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_lockedaccount>' + "Lock Account" + '</label><br>';
+17769:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_nonewgroups>' + "No New Device Groups" + '</label><br>';
+17770:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_nonewdevices>' + "No New Devices" + '</label><br>';
+17771:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_nomeshcmd>' + "No Tools (MeshCmd/Router)" + '</label><br>';
+17772:             x += '<label><input type=checkbox onchange=showUserAdminDialogValidate() id=ua_locksettings>' + "Lock Account Settings" + '</label><br>';
+17773:             x += '</div>';
+17774:             setDialogMode(2, "Server Permissions", 2 + (uself?0:1), showUserAdminDialogEx, x, user);
+17775:             if (user.siteadmin && user.siteadmin != 0) {

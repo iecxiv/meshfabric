@@ -1,6 +1,6 @@
 package iecxiv.meshfabric.ui.management
 
-internal val profileSectionKeys=listOf("account","groups","users")
+internal val profileSectionKeys=listOf("account","groups","users","userGroups")
 internal data class NativeBackupCode(val code:String,val available:Boolean)
 private fun nativeBackupCodeText(value:Any?):String?=when(value) {
 is String->value.takeIf { it.matches(Regex("[0-9]{1,8}")) }?.padStart(8,'0')

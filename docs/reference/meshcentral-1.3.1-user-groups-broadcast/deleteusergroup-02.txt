@@ -1,0 +1,33 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 1736-1831
+
+user group ' + group.name + ' from device group ' + xmesh.name, domain: delGroupDomain.id };
+1803:                                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1804:                                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1805:                                         }
+1806:                                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+1807:                                         parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(xmesh, [user._id]), obj, event);
+1808:                                     }
+1809:                                 }
+1810:                             }
+1811:                         }
+1812: 
+1813:                         // Remove the user group from the database
+1814:                         db.Remove(group._id);
+1815:                         if (db.changeStream == false) { delete parent.userGroups[group._id]; }
+1816: 
+1817:                         // Event the user group being removed
+1818:                         var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: group._id, action: 'deleteusergroup', msg: change, domain: delGroupDomain.id };
+1819:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1820:                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1821:                         }
+1822:                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+1823:                         parent.parent.DispatchEvent(['*', group._id, user._id], obj, event);
+1824: 
+1825:                         // Log in the auth log
+1826:                         if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' deleted user group ' + group.name); }
+1827: 
+1828:                         try { ws.send(JSON.stringify({ action: 'deleteusergroup', responseid: command.responseid, result: 'ok', ugrpid: group._id })); } catch (ex) { }
+1829:                     });
+1830:                     break;
+1831:                 }

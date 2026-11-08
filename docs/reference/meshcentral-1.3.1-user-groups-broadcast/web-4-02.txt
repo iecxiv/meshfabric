@@ -1,0 +1,81 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 17874-18384
+
+unt == 0) && (elements[i].value != eself); }
+17942:             p50updateInfo();
+17943:         }
+17944: 
+17945:         // Called to perform a group action on many users
+17946:         function p50usersGroupActionFunction() {
+17947:             var elements = document.getElementsByClassName('UserGroupCheckbox'), checkcount = 0;
+17948:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) checkcount++; }
+17949:             if (checkcount == 0) return;
+17950: 
+17951:             var x = "Select an operation to perform on all selected users." + '<br /><br />';
+17952:             x += addHtmlValue("Operation", '<select style=width:240px id=d50groupop><option value=1>' + "Delete group" + '</option></select>');
+17953:             setDialogMode(2, "Group Action", 3, p50usersGroupActionFunctionEx, x);
+17954:         }
+17955: 
+17956:         function p50usersGroupActionFunctionEx() {
+17957:             var elements = document.getElementsByClassName('UserGroupCheckbox'), userids = [];
+17958:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) { userids.push(decodeURIComponent(elements[i].value)); } }
+17959:             var op = Q('d50groupop').value;
+17960:             if (op == 1) {
+17961:                 // Delete user groups, ask for confirmation
+17962:                 var x = "Confirm delete selected user group(s)?" + '<br /><br />';
+17963:                 x += '<label><input id=d3check type=checkbox onchange=p50usersGroupActionFunctionDelCheck() />' + "Confirm" + '</label>';
+17964:                 setDialogMode(2, "Delete User Groups", 3, p50groupActionFunctionDelExec, x);
+17965:                 QE('idx_dlgOkButton', false);
+17966:             }
+17967:         }
+17968: 
+17969:         function p50usersGroupActionFunctionDelCheck() { QE('idx_dlgOkButton', Q('d3check').checked); }
+17970: 
+17971:         // Delete a batch of user accounts
+17972:         function p50groupActionFunctionDelExec(b) {
+17973:             var elements = document.getElementsByClassName('UserGroupCheckbox');
+17974:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) { meshserver.send({ action: 'deleteusergroup', ugrpid: decodeURIComponent(elements[i].value) }); } }
+17975:         }
+17976: 
+17977:         function showCreateUserGroupDialog(mode) {
+17978:             if (xxdialogMode) return;
+17979:             var x = '', y = '';
+17980:             if (mode == 2) {
+17981:                 if (usergroups) { for (var i in usergroups) { y += '<option value=' + encodeURIComponentEx(i) + '>' + EscapeHtml(usergroups[i].name) + '</option>'; } }
+17982:                 x += addHtmlValue("User Group", '<div style=width:230px;margin:0;padding:0><select id=dp4groupid style=width:100%>' + y + '</select></div>');
+17983:             }
+17984:             if ((mode == 1) && (serverinfo.crossDomain)) {
+17985:                 var y = '<select style=width:240px id=p4domain>';
+17986:                 for (var i in serverinfo.crossDomain) { y += '<option value=' + i + '>' + ((serverinfo.crossDomain[i] == '')?"Default":EscapeHtml(serverinfo.crossDomain[i])) + '</option>'; }
+17987:                 y += '</select>';
+17988:                 x += addHtmlValue("Domain", y);
+17989:             }
+17990:             x += addHtmlValue("Name", '<input id=p4name maxlength=64 onchange=showCreateUserGroupDialogValidate() onkeyup=showCreateUserGroupDialogValidate() />');
+17991:             x += addHtmlValue("Description", '<textarea id=p4desc value="" style=width:230px;height:60px;resize:none maxlength=1024 /></textarea>');
+17992:             setDialogMode(2, (mode == 1)?"Create User Group":"Duplicate User Group", 3, showCreateUserGroupDialogEx, x, mode);
+17993:             showCreateUserGroupDialogValidate();
+17994:             Q('p4name').focus();
+17995:         }
+17996: 
+17997:         function showCreateUserGroupDialogValidate() { QE('idx_dlgOkButton', Q('p4name').value.length > 0); }
+17998: 
+17999:         function showCreateUserGroupDialogEx(b, mode) {
+18000:             var x = { action: 'createusergroup', name: Q('p4name').value, desc: Q('p4desc').value };
+18001:             if (mode == 2) { x.clone = decodeURIComponent(Q('dp4groupid').value); }
+18002:             if ((mode == 1) && (serverinfo.crossDomain)) { x.domain = serverinfo.crossDomain[parseInt(Q('p4domain').value)]; }
+18003:             meshserver.send(x);
+18004:         }
+18005: 
+18006:         //
+18007:         // MY USER GROUP
+18008:         //
+18009: 
+18010:         var currentUserGroup = null;
+18011:         function gotoUserGroup(groupid, force) {
+18012:             if (xxdialogMode && !force) return;
+18013:             var group = currentUserGroup = usergroups?usergroups[decodeURIComponent(groupid)]:null;
+18014:             if (group == null) { if (xxcurrentView == 51) { setDialogMode(0); go(50); } return; }
+18015: 
+18016:             // Add user group name
+18017:             var gname = EscapeHtml(group.name);
+18

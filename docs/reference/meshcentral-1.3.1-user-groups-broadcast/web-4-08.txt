@@ -1,0 +1,47 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 17874-18384
+
+meshserver.send({ action: 'addusertousergroup', ugrpid: currentUserGroup._id, usernames: users2 });
+18342:             } else {
+18343:                 meshserver.send({ action: 'addusertousergroup', ugrpid: currentUserGroup._id, usernames: [ t.split('/')[2] ] });
+18344:             }
+18345:         }
+18346: 
+18347: 
+18348: 
+18349:         //
+18350:         // MY USER GENERAL
+18351:         //
+18352: 
+18353:         var currentUser = null;
+18354:         function gotoUser(userid, force, event) {
+18355:             if (xxdialogMode && !force) return;
+18356:             if ((event != null) && (event.originalTarget != null) && (event.originalTarget.href != null)) return;
+18357:             var user = currentUser = users[decodeURIComponent(userid)];
+18358:             if (user == null) { setDialogMode(0); go(4); return; }
+18359:             QH('p30userName', ' - ' + EscapeHtml(user.name));
+18360:             QH('p31userName', ' - ' + EscapeHtml(user.name));
+18361:             var self = (user._id == userinfo._id), activeSessions = 0;
+18362:             if (wssessions != null && wssessions[user._id]) { activeSessions = wssessions[user._id]; }
+18363: 
+18364:             // Update account picture
+18365:             if ((user.flags != null) && (user.flags & 1)) {
+18366:                 QV('MainUserImage', false);
+18367:                 QV('MainUserImageEx', true);
+18368:                 if (user.accountImageRnd == null) { user.accountImageRnd = Math.floor(Math.random() * 9999999999); }
+18369:                 Q('MainUserImageEx').src = 'userimage.ashx?id=' + (user._id.split('/')[2]) + '&rnd=' + user.accountImageRnd;
+18370:             } else {
+18371:                 // Change user grayscale
+18372:                 Q('MainUserImage').classList.remove('gray');
+18373:                 if (activeSessions == 0) { Q('MainUserImage').classList.add('gray'); }
+18374:                 QV('MainUserImage', true);
+18375:                 QV('MainUserImageEx', false);
+18376:             }
+18377: 
+18378:             // Add user auth strategy
+18379:             var shortuserid = user._id.split('/')[2];
+18380:             if (shortuserid.startsWith('~twitter:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/twitter64.png'; }
+18381:             else if (shortuserid.startsWith('~google:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/google64.png'; }
+18382:             else if (shortuserid.startsWith('~github:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/github64.png'; }
+18383:             else if (shortuserid.startsWith('~azure:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/azure64.png'; }
+18384:             else if (shortuserid.startsWith('~oidc:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/oidc64.png'; }

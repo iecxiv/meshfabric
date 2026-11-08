@@ -1,0 +1,60 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 3455-3707
+
+ent.links; } else { delete ugroup.links; }
+3568:                                 if (message.event.flags) { ugroup.flags = message.event.flags; } else { delete ugroup.flags; }
+3569:                                 if (typeof message.event.consent == 'number') { ugroup.consent = message.event.consent; }
+3570:                             }
+3571:                             mainUpdate(4096 + 8192 + 16384);
+3572: 
+3573:                             // Group update, refresh all our device groups and nodes. TODO: Optimize this to only do this when needed.
+3574:                             meshserver.send({ action: 'meshes' });
+3575:                             meshserver.send({ action: 'nodes', skip: (devicePagingState == null) ? 0 : devicePagingState.skip });
+3576:                             break;
+3577:                         }
+3578:                         case 'deleteusergroup': {
+3579:                             // User group removed
+3580:                             if ((usergroups != null) && (usergroups[message.event.ugrpid] != null)) {
+3581:                                 delete usergroups[message.event.ugrpid];
+3582:                                 var c = 0;
+3583:                                 for (var i in usergroups) { c++; }
+3584:                                 if (c == 0) { usergroups = null; } // If user groups is empty, set it to null.
+3585:                                 mainUpdate(8192 + 16384);
+3586:                             }
+3587:                             break;
+3588:                         }
+3589:                         case 'createmesh': {
+3590:                             // A new mesh was created
+3591:                             if ((meshes[message.event.meshid] == null) && ((serverinfo.manageAllDeviceGroups) || (message.event.mesh.links[userinfo._id] != null))) { // Check if this is a mesh create for a mesh we own. If site administrator, we get all messages so need to ignore some.
+3592:                                 meshes[message.event.meshid] = message.event.mesh;
+3593:                                 mainUpdate(4 + 128 + 8192 + 16384);
+3594:                                 meshserver.send({ action: 'files' });
+3595:                             }
+3596:                             break;
+3597:                         }
+3598:                         case 'meshchange': {
+3599:                             // Update mesh information
+3600:                             if (meshes[message.event.meshid] == null) {
+3601:                                 // Check if we have any access to this device group
+3602:                                 var add = false;
+3603:                                 if (message.event.links[userinfo._id] != null) { add = true; }
+3604:                                 if (userinfo.links[message.event.meshid] != null) { add = true; }
+3605:                                 for (var i in userinfo.links) { if ((i.startsWith('ugrp/')) && (message.event.links[i] != null)) { add = true; } }
+3606: 
+3607:                                 // This is a new mesh for us
+3608:                                 if (add) {
+3609:                                     meshes[message.event.meshid] = { _id: message.event.meshid, name: message.event.name, mtype: message.event.mtype, desc: message.event.desc, links: message.event.links, amt: message.event.amt, invite: message.event.invite, expireDevs: message.event.expireDevs, relayid: message.event.relayid };
+3610:                                     meshserver.send({ action: 'nodes', skip: (devicePagingState == null) ? 0 : devicePagingState.skip }); // Request a refresh of all nodes (TODO: We could optimize this to only request nodes for the new mesh).
+3611:                                 }
+3612:                             } else {
+3613:                                 // This is an existing device group
+3614:                                 if (message.event.name != null) {
+3615:                                     meshes[message.event.meshid].name = message.event.name;
+3616:                                     for (var i in nodes) { if (nodes[i].meshid == message.event.meshid) { nodes[i].meshnamel = message.event.name.toLowerCase(); } }
+3617:                                 }
+3618:                                 if (message.event.desc != null) { meshes[message.event.meshid].desc = message.event.desc; }
+3619:                                 if (message.event.flags != null) { meshes[message.event.meshid].flags = message.event.flags; }
+3620:                                 if (message.event.consent != null) { meshes[message.event.meshid].consent = message.event.consent; }
+3621:                                 if (message.event.links) { meshes[message.event.meshid].links = message.event.links; }
+3622:                                 if (message.event.amt) { meshes[message.event.meshid].amt = message.event.amt; }
+3623:                                 if (message.event.invite != null) { meshes[message.event.meshid].invite = mess

@@ -1,0 +1,48 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 1398-1442
+
+1398:             case 'userbroadcast':
+1399:                 {
+1400:                     var err = null;
+1401:                     try {
+1402:                         // Broadcast a message to all currently connected users.
+1403:                         if ((user.siteadmin & 2) == 0) { err = "Permission denied"; }
+1404:                         else if (common.validateString(command.msg, 1, 512) == false) { err = "Message is too long"; } // Notification message is between 1 and 256 characters
+1405:                     } catch (ex) { err = "Validation exception: " + ex; }
+1406: 
+1407:                     // Handle any errors
+1408:                     if (err != null) {
+1409:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'userbroadcast', responseid: command.responseid, result: err })); } catch (ex) { } }
+1410:                         break;
+1411:                     }
+1412: 
+1413:                     // Create the notification message
+1414:                     var notification = { action: 'msg', type: 'notify', domain: domain.id, value: command.msg, title: user.name, icon: 0, tag: 'broadcast', id: Math.random() };
+1415:                     if ((typeof command.maxtime == 'number') && (command.maxtime > 0)) { notification.maxtime = command.maxtime; }
+1416: 
+1417:                     // Send the notification on all user sessions for this server
+1418:                     for (var i in parent.wssessions2) {
+1419:                         try {
+1420:                             if (parent.wssessions2[i].domainid == domain.id) {
+1421:                                 var sessionUser = parent.users[parent.wssessions2[i].userid];
+1422:                                 if ((command.userid != null) && (command.userid != sessionUser._id) && (command.userid != sessionUser._id.split('/')[2])) { continue; }
+1423:                                 if ((command.target == null) || ((sessionUser.links) != null && (sessionUser.links[command.target] != null))) {
+1424:                                     if ((user.groups == null) || (user.groups.length == 0)) {
+1425:                                         // We are part of no user groups, send to everyone.
+1426:                                         parent.wssessions2[i].send(JSON.stringify(notification));
+1427:                                     } else {
+1428:                                         // We are part of user groups, only send to sessions of users in our groups.
+1429:                                         if ((sessionUser != null) && findOne(sessionUser.groups, user.groups)) {
+1430:                                             parent.wssessions2[i].send(JSON.stringify(notification));
+1431:                                         }
+1432:                                     }
+1433:                                 }
+1434:                             }
+1435:                         } catch (ex) { }
+1436:                     }
+1437: 
+1438:                     // TODO: Notify all sessions on other peers.
+1439: 
+1440:                     if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'userbroadcast', responseid: command.responseid, result: 'ok' })); } catch (ex) { } }
+1441:                     break;
+1442:                 }

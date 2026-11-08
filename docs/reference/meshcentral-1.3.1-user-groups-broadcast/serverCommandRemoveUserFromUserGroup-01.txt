@@ -1,0 +1,76 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 7229-7301
+
+7229:     function serverCommandRemoveUserFromUserGroup(command) {
+7230:         var err = null;
+7231:         try {
+7232:             if ((user.siteadmin & SITERIGHT_USERGROUPS) == 0) { err = 'Permission denied'; }
+7233:             else if (common.validateString(command.ugrpid, 1, 1024) == false) { err = 'Invalid groupid'; }
+7234:             else if (common.validateString(command.userid, 1, 256) == false) { err = 'Invalid userid'; }
+7235:             else {
+7236:                 var ugroupidsplit = command.ugrpid.split('/');
+7237:                 if ((ugroupidsplit.length != 3) || (ugroupidsplit[0] != 'ugrp') || ((obj.crossDomain !== true) && (ugroupidsplit[1] != domain.id))) { err = 'Invalid groupid'; }
+7238:             }
+7239:         } catch (ex) { err = 'Validation exception: ' + ex; }
+7240: 
+7241:         // Fetch the domain
+7242:         var removeUserDomain = domain;
+7243:         if (obj.crossDomain !== true) { removeUserDomain = parent.parent.config.domains[ugroupidsplit[1]]; }
+7244:         if (removeUserDomain == null) { err = 'Invalid domain'; }
+7245: 
+7246:         // Handle any errors
+7247:         if (err != null) {
+7248:             if (command.responseid != null) { obj.send({ action: 'removeuserfromusergroup', responseid: command.responseid, result: err }); }
+7249:             return;
+7250:         }
+7251: 
+7252:         // Check if the user exists
+7253:         if (command.userid.startsWith('user/') == false) {
+7254:             if (parent.users['user/' + removeUserDomain.id + '/' + command.userid.toLowerCase()] != null) { command.userid = 'user/' + removeUserDomain.id + '/' + command.userid.toLowerCase(); }
+7255:             else if (parent.users['user/' + removeUserDomain.id + '/' + command.userid] != null) { command.userid = 'user/' + removeUserDomain.id + '/' + command.userid; }
+7256:         }
+7257: 
+7258:         var chguser = parent.users[command.userid];
+7259:         if (chguser != null) {
+7260:             // Get the user group
+7261:             var group = parent.userGroups[command.ugrpid];
+7262: 
+7263:             // If this user group is an externally managed user group, we can't remove a user from it.
+7264:             if ((group != null) && (group.membershipType != null)) return;
+7265: 
+7266:             if ((chguser.links != null) && (chguser.links[command.ugrpid] != null)) {
+7267:                 delete chguser.links[command.ugrpid];
+7268: 
+7269:                 // Notify user change
+7270:                 var targets = ['*', 'server-users', user._id, chguser._id];
+7271:                 var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(chguser), action: 'accountchange', msgid: 67, msgArgs: [chguser.name], msg: 'User group membership changed: ' + chguser.name, domain: removeUserDomain.id };
+7272:                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7273:                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7274:                 }
+7275:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+7276:                 parent.parent.DispatchEvent(targets, obj, event);
+7277: 
+7278:                 db.SetUser(chguser);
+7279:                 parent.parent.DispatchEvent([chguser._id], obj, 'resubscribe');
+7280:             }
+7281: 
+7282:             if (group != null) {
+7283:                 // Remove the user from the group
+7284:                 if ((group.links != null) && (group.links[command.userid] != null)) {
+7285:                     delete group.links[command.userid];
+7286:                     db.Set(group);
+7287: 
+7288:                     // Notify user group change
+7289:                     var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: group._id, name: group.name, desc: group.desc, action: 'usergroupchange', links: group.links, msgid: 72, msgArgs: [chguser.name, group.name], msg: 'Removed user ' + chguser.name + ' from user group ' + group.name, domain: removeUserDomain.id };
+7290:                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7291:                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7292:                     }
+7293:                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+7294:                     parent.parent.DispatchEvent(['*', group._id, user._id, chguser._id], obj, event);
+7295:                 }
+7296:             }
+7297:         }
+7298: 
+7299:         if (command.responseid != null) { obj.send({ action: 'removeuserfromusergroup', responseid: command.responseid, result: 'ok' }); }
+7300:     }
+7301: 

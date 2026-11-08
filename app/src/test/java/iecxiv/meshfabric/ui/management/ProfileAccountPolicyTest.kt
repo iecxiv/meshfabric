@@ -4,7 +4,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ProfileAccountPolicyTest {
-@Test fun sectionOrderUsesStableKeys() { assertEquals(listOf("account","groups","users"),profileSectionKeys) }
+@Test fun sectionOrderUsesStableKeys() { assertEquals(listOf("account","groups","users","userGroups"),profileSectionKeys) }
 @Test fun structuredBackupCodesKeepUsageAndEightDigits() {
 assertEquals(listOf(NativeBackupCode("00001234",true),NativeBackupCode("01234567",false)),nativeBackupCodes(listOf(mapOf("p" to 1234,"u" to true),mapOf("p" to "01234567","u" to false))))
 }

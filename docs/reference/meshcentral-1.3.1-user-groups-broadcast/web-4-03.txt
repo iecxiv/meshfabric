@@ -1,0 +1,68 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 17874-18384
+
+018:             if (gname.length == 0) { gname = '<i>' + "None" + '</i>'; }
+18019:             if ((currentUserGroup.membershipType == null) && ((userinfo.siteadmin & 256) != 0)) { gname = '<span tabindex=0 title="' + "Click here to edit the user group name" + '" onclick=p51editgroup(1) onkeyup="if (event.key == \'Enter\') p51editgroup(1)" style=cursor:pointer>' + gname + ' <img class=hoverButton src="images/link5.png" /></span>'; }
+18020:             QH('p51groupName', gname);
+18021: 
+18022:             var usercount = 0, meshcount = 0, devicecount = 0;
+18023:             if (group.links) {
+18024:                 for (var i in group.links) {
+18025:                     if (i.startsWith('user/')) { usercount++; }
+18026:                     if (i.startsWith('mesh/')) { meshcount++; }
+18027:                     if (i.startsWith('node/')) { devicecount++; }
+18028:                 }
+18029:             }
+18030:             var desc = group.desc;
+18031:             if ((desc == null) || (desc == '')) { desc = '<i>' + "None" + '<i>'; } else { desc = EscapeHtml(desc); }
+18032: 
+18033:             var x = '<div style=min-height:80px><table style=width:100%>';
+18034:             if ((args.hide & 8) != 0) { x += '<br />' + addDeviceAttribute("Name", gname); } // If title bar is hidden, display the user group name here
+18035:             if ((serverinfo.crossDomain != null) || (debugmode != 0)) {
+18036:                 var d = group._id.split('/')[1];
+18037:                 x += addDeviceAttribute("Domain", (d != '')?EscapeHtml(d):('<i>' + "Default" + '</i>'));
+18038:                 x += addDeviceAttribute("Group Identifier", EscapeHtml(group._id));
+18039:             }
+18040:             if (currentUserGroup.membershipType != null) {
+18041:                 x += addDeviceAttribute("Group Type", EscapeHtml(currentUserGroup.membershipType));
+18042:             }
+18043:             if ((userinfo.siteadmin & 256) != 0) {
+18044:                 x += addDeviceAttribute("Description", '<span onclick=p51editgroup(2,' + (currentUserGroup.membershipType != null) + ') style=cursor:pointer>' + desc + ' <img class=hoverButton src="images/link5.png" /></span>');
+18045:             } else {
+18046:                 x += addDeviceAttribute("Description", desc);
+18047:             }
+18048: 
+18049:             // Display features
+18050:             if (serverinfo.userGroupsSessionRecording == 1) {
+18051:                 var userGroupFeatures = [];
+18052:                 if ((group.flags) && (group.flags & 2)) { userGroupFeatures.push("Record Sessions"); }
+18053:                 userGroupFeatures = userGroupFeatures.join(', ');
+18054:                 if (userGroupFeatures == '') { userGroupFeatures = '<i>' + "None" + '</i>'; }
+18055:                 x += addDeviceAttribute("Features", addLink(userGroupFeatures, 'p51edituserGroupFeatures()'));
+18056:             }
+18057: 
+18058:             // Display user consent flags for this user group
+18059:             {
+18060:                 var consentOptionsStr = [], consent = 0;
+18061:                 if (group.consent) { consent = group.consent; }
+18062:                 if (serverinfo.consent) { consent |= serverinfo.consent; }
+18063:                 if ((consent & 0x0040) && (consent & 0x0008)) { consentOptionsStr.push("Desktop Prompt+Toolbar"); } else if (consent & 0x0040) { consentOptionsStr.push("Desktop Toolbar"); } else if (consent & 0x0008) { consentOptionsStr.push("Desktop Prompt"); } else { if (consent & 0x0001) { consentOptionsStr.push("Desktop Notify"); } }
+18064:                 if (consent & 0x0010) { consentOptionsStr.push("Terminal Prompt"); } else { if (consent & 0x0002) { consentOptionsStr.push("Terminal Notify"); } }
+18065:                 if (consent & 0x0020) { consentOptionsStr.push("Files Prompt"); } else { if (consent & 0x0004) { consentOptionsStr.push("Files Notify"); } }
+18066:                 if (consent & 0x0100) { consentOptionsStr.push("Registry Prompt"); } else { if (consent & 0x0080) { consentOptionsStr.push("Registry Notify"); } }
+18067:                 if (consent == 0x0087) { consentOptionsStr = ["Always Notify"]; }
+18068:                 if ((consent & 0x0138) == 0x0138) { consentOptionsStr = ["Always Prompt"]; }
+18069: 
+18070:                 consentOptionsStr = consentOptionsStr.join(', ');
+18071:                 if (consentOptionsStr == '') { consentOptionsStr = '<i>' + "None" + '</i>'; }
+18072:                 x += addDeviceAttribute("User Consent", addLinkConditional(consentOptionsStr, 'p20editmeshconsent(4)', true));
+18073:             }
+18074: 
+18075:             x += addDeviceAttribute("Users", usercount);
+18076:             x += addDeviceAttribute("Device Groups", meshcount);
+18077:             x += addDeviceAttribute("Devices", devicecount);
+18078: 
+18079:             x += '</table></div><br />';
+18080: 
+18081:             if ((userinfo.siteadmin & 256) != 0) {
+18082:                 x += '<input type=button value="' + "Broadcast" + '" title="' + "Se

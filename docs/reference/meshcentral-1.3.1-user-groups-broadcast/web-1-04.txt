@@ -1,0 +1,66 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 3455-3707
+
+age.event.invite; } else { delete meshes[message.event.meshid].invite; }
+3624:                                 if (message.event.expireDevs != null) { if (message.event.expireDevs > 0) { meshes[message.event.meshid].expireDevs = message.event.expireDevs; } else { delete meshes[message.event.meshid].expireDevs; } }
+3625:                                 if (message.event.relayid != null) { meshes[message.event.meshid].relayid = message.event.relayid; }
+3626: 
+3627:                                 // Check if we lost rights to this mesh in this change.
+3628:                                 if (IsMeshViewable(message.event.meshid) == false) {
+3629:                                     if ((xxcurrentView == 20) && (currentMesh == meshes[message.event.meshid])) go(2);
+3630:                                     delete meshes[message.event.meshid];
+3631: 
+3632:                                     // Delete all nodes in that mesh, except ones with direct links
+3633:                                     var newnodes = [];
+3634:                                     for (var i in nodes) { if ((nodes[i].meshid != message.event.meshid) || ((userinfo.links != null) && (userinfo.links[nodes[i]._id] != null))) { newnodes.push(nodes[i]); } }
+3635:                                     nodes = newnodes;
+3636: 
+3637:                                     // If we are looking at a node that is no longer visible, move back to "My Devices"
+3638:                                     if ((xxcurrentView >= 9) && (xxcurrentView < 20) && currentNode && !IsNodeViewable(currentNode)) { setDialogMode(0); go(1); }
+3639:                                 }
+3640:                             }
+3641:                             mainUpdate(4 + 128 + 8192 + 16384);
+3642:                             if (currentNode && !IsNodeViewable(currentNode)) { currentNode = null; if ((xxcurrentView >= 9) && (xxcurrentView < 20)) { go(1); } }
+3643:                             //meshserver.send({ action: 'files' }); // TODO: Why do we need to do this??
+3644: 
+3645:                             // If we are looking at a mesh that is now deleted, move back to "My Account"
+3646:                             if (xxcurrentView == 20 && currentMesh._id == message.event.meshid) { mainUpdate(4096); }
+3647:                             break;
+3648:                         }
+3649:                         case 'deletemesh': {
+3650:                             // Delete the mesh
+3651:                             if (meshes[message.event.meshid]) {
+3652:                                 delete meshes[message.event.meshid];
+3653:                                 mainUpdate(128);
+3654:                                 meshserver.send({ action: 'files' });
+3655:                             }
+3656: 
+3657:                             // Delete all nodes in that mesh
+3658:                             var newnodes = [];
+3659:                             if (nodes != null) { for (var i in nodes) { if (nodes[i].meshid != message.event.meshid) { newnodes.push(nodes[i]); } } }
+3660:                             nodes = newnodes;
+3661:                             mainUpdate(4 + 8192 + 16384);
+3662: 
+3663:                             // If we are looking at a mesh that is now deleted, move back to "My Account"
+3664:                             if (xxcurrentView >= 20 && xxcurrentView < 30 && currentMesh._id == message.event.meshid) { setDialogMode(0); go(2); }
+3665:                             // If we are looking at a node in the deleted mesh, move back to "My Devices"
+3666:                             if (xxcurrentView >= 9 && xxcurrentView < 20 && currentNode && !IsNodeViewable(currentNode)) { setDialogMode(0); go(1); }
+3667:                             break;
+3668:                         }
+3669:                         case 'addnode': {
+3670:                             var node = message.event.node;
+3671:                             if (!meshes[node.meshid]) break; // This is a node for a mesh we don't know. Happens when we are site administrator, we get all messages.
+3672:                             if (getNodeFromId(node._id) != null) break; // This node is already known.
+3673:                             node.namel = node.name.toLowerCase();
+3674:                             if (node.rname) { node.rnamel = node.rname.toLowerCase(); } else { node.rnamel = node.namel; }
+3675:                             node.meshnamel = meshes[node.meshid]?meshes[node.meshid].name.toLowerCase():'*';
+3676:                             node.state = 0;
+3677:                             if (!node.icon) node.icon = 1;
+3678:                             node.ident = ++nodeShortIdent;
+3679:                             if (nodes == null) { }
+3680:                             nodes.push(node);
+3681: 
+3682:                             // Web page update
+3683:                             mainUpdate(1 | 2 | 4 | 16);
+3684: 
+3685:                             // If we are looking at the device group for this device, update tha
