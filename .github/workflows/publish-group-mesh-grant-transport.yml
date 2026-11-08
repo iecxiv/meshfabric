@@ -62,7 +62,7 @@ jobs:
           '''+s[end:]
           if s.count('pendingAction=="removemeshuser"')!=6:raise RuntimeError('Unexpected revocation guard count')
           s=s.replace('pendingAction=="removemeshuser"','pendingAction in setOf("removemeshuser","addmeshuser")')
-          replace('"createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"','"createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser"')
+          replace('if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"))','if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser"))')
           replace('val ok=p.optString("result").equals("ok",true)', '''if(action=="addmeshuser") {
           if(profileGroupMeshGrantAck(p,pendingId)) {expected.put("meshAck",true).put("meshGroupRead",false).put("meshDeviceRead",false);loadLists();requestUserGroupDirectory(true)}
           else if(profileGroupMeshGrantReplyRejected(p)) finish("rejected",false)
@@ -71,7 +71,7 @@ jobs:
           val ok=p.optString("result").equals("ok",true)''')
           replace('val allowed=when(action) {','val allowed=when(action) {\n"addmeshuser"->profileGroupMeshGrantAllowed(s,p,broadcastServerLabel())')
           replace('val payload=when(action) {','val payload=when(action) {"addmeshuser"->profileGroupMeshGrantWire(p);')
-          replace('"editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"','"editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser"')
+          replace('if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser"))','if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser"))')
           replace('expected=JSONObject()\nif(action=="removemeshuser")','expected=JSONObject()\nif(action=="addmeshuser") expected.put("meshSubject",p.getJSONArray("userids").getString(0)).put("meshTarget",p.getString("meshid")).put("meshRights",userAdvancedMask(p.get("meshadmin"))).put("meshAck",false).put("meshGroupRead",false).put("meshDeviceRead",false)\nif(action=="removemeshuser")')
           replace('state.update { it.copy(busy=true,notice="sent",','state.update { it.copy(busy=true,notice="sent",grantedGroup=if(action=="addmeshuser") "" else it.grantedGroup,grantedDeviceGroup=if(action=="addmeshuser") "" else it.grantedDeviceGroup,')
           data[session]=s
