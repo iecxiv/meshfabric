@@ -25,11 +25,14 @@ var reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
 LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null}}
     LaunchedEffect(s.ready,s.id,s.site,s.userGroupPhase) { if(s.ready && s.userGroupPhase=="idle") session.loadUserGroupDirectory() }
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
+val refreshAction=userGroupsRefreshAction(s.ready,s.busy,s.loading,s.userGroupPhase,s.notice)
+val feedback=userGroupsNoticeText(s.notice,es)
     LazyColumn(modifier,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         item {
             Text(t("Grupos de usuarios","User groups"),style=MaterialTheme.typography.titleMedium)
             Text(t("Grupos del dominio actual; son distintos de los grupos de dispositivos.","Groups in the current domain; these are separate from device groups."),style=MaterialTheme.typography.bodySmall)
-            TextButton(enabled=s.ready && !s.busy && s.userGroupPhase!="loading",onClick={session.loadUserGroupDirectory()}) {Text(t("Actualizar","Refresh"))}
+            if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=if(userGroupsNoticeIsError(s.notice)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+TextButton(enabled=refreshAction!=UserGroupsRefreshAction.NONE,onClick={when(refreshAction) {UserGroupsRefreshAction.RECONNECT->session.start();UserGroupsRefreshAction.REFRESH->{session.refresh();session.loadUserGroupDirectory()};UserGroupsRefreshAction.NONE->Unit}}) {Text(if(s.ready) t("Actualizar","Refresh") else t("Reconectar","Reconnect"))}
 TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;deleting=null;removing=null;creating=true}) {Text(t("Crear grupo de usuarios","Create user group"))}
 if(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El servidor confirmó la creación: ","The server confirmed creation: ")+s.createdUserGroup,style=MaterialTheme.typography.bodySmall)
             if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El servidor confirmó la eliminación: ","The server confirmed deletion: ")+s.deletedUserGroup,style=MaterialTheme.typography.bodySmall)
@@ -37,12 +40,11 @@ if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta de
 if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en el grupo. Usuario: ","Added link observed in the group. User: ")+s.addedMember+t("; grupo: ","; group: ")+s.addedMemberGroup,style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+s.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+s.revokedDeviceGroup,style=MaterialTheme.typography.bodySmall)
 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
-            if(s.userGroupPhase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)
-            if(!s.ready) Text(t("Sin conexión.","Offline."))
             if(s.userGroupPhase=="failed") Text(t("No se ha podido consultar el listado. Puedes volver a actualizar.","The list could not be retrieved. Refresh to try again."),color=MaterialTheme.colorScheme.error)
             if(s.ready && ProfilePermissions.normalized(s.site) and 256L==0L) Text(t("Vista limitada: el servidor proporciona solo nombres.","Limited view: the server provides names only."),style=MaterialTheme.typography.bodySmall)
-            if(s.userGroupPhase=="ready" && rows.isEmpty()) Text(if(query.isBlank()) t("No hay grupos en el dominio actual.","No groups in the current domain.") else t("Sin coincidencias.","No matches."))
+            if(s.userGroupPhase=="ready" && rows.isEmpty()) Text(if(query.isBlank()) t("No se han recibido grupos del dominio actual.","No groups were received for the current domain.") else t("Sin coincidencias.","No matches."))
         }
         items(rows,key={it.optString("_id")}) { group->
             ManagementCard {
