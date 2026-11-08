@@ -20,44 +20,53 @@ jobs:
         run: |
           set -euo pipefail
           curl --fail --location --retry 3 --connect-timeout 20 --max-time 120 'https://raw.githubusercontent.com/Ylianst/MeshCentral/f436143527458d56da0336ea3047c006703fb4e4/meshuser.js' -o "$RUNNER_TEMP/profile-readback-meshuser.js"
-      - name: Verify hash and extract complete same-level case blocks
+      - name: Verify hash and extract every matching context
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import os,re,json,hashlib,shutil
-          source=Path(os.environ['RUNNER_TEMP'])/'profile-readback-meshuser.js'
-          data=source.read_bytes()
+          data=(Path(os.environ['RUNNER_TEMP'])/'profile-readback-meshuser.js').read_bytes()
           digest=hashlib.sha256(data).hexdigest()
           expected='ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671'
           if digest!=expected:raise RuntimeError('Pinned source hash mismatch')
           root=Path('docs/reference/meshcentral-1.3.1-readback')
           if root.exists():raise RuntimeError('Reference destination already exists')
           lines=data.decode('utf-8-sig').splitlines()
-          blocks={}
+          contexts={}
           for action in ('users','meshes'):
-              pattern=re.compile(r'''^([ \t]*)case\s+['"]'''+action+r'''['"]\s*:''')
-              matches=[(i,pattern.match(line)) for i,line in enumerate(lines) if pattern.match(line)]
-              if len(matches)!=1:raise RuntimeError('Missing/nonunique case: '+action)
-              start,match=matches[0]
-              boundary=re.compile('^'+re.escape(match.group(1))+r'(?:case\s|default\s*:)')
-              end=next((i for i in range(start+1,len(lines)) if boundary.match(lines[i])),None)
-              if end is None or end-start>2000:raise RuntimeError('Cannot bound complete case: '+action)
-              blocks[action]=(start,end)
+              literal=re.compile(r'''['"]'''+action+r'''['"]''')
+              hits=[i for i,line in enumerate(lines) if literal.search(line)]
+              mode='quoted-literal'
+              if not hits:
+                  word=re.compile(r'\b'+re.escape(action)+r'\b')
+                  hits=[i for i,line in enumerate(lines) if word.search(line)]
+                  mode='word-fallback'
+              if not hits:raise RuntimeError('No source occurrences: '+action)
+              ranges=[]
+              for hit in hits:
+                  start=max(0,hit-60);end=min(len(lines),hit+61)
+                  if ranges and start<=ranges[-1][1]:ranges[-1][1]=max(ranges[-1][1],end)
+                  else:ranges.append([start,end])
+              contexts[action]=(hits,mode,ranges)
           root.mkdir(parents=True)
-          manifest={'repository':'Ylianst/MeshCentral','version':'1.3.1','commit':'f436143527458d56da0336ea3047c006703fb4e4','source':'meshuser.js','source_sha256':digest,'handlers':{},'scope':'Static source extraction only. Source code is never executed. Manual review required; matching tag/responseid words alone does not prove correlation support.'}
-          for action,(start,end) in blocks.items():
+          manifest={'repository':'Ylianst/MeshCentral','version':'1.3.1','commit':'f436143527458d56da0336ea3047c006703fb4e4','source':'meshuser.js','source_sha256':digest,'contexts':{},'scope':'Static context extraction, not a parser. Windows may not contain complete handlers. Source is never executed. Manual inspection is required; occurrences of tag/responseid do not establish correlation support.'}
+          summary={}
+          for action,(hits,mode,ranges) in contexts.items():
               parts=[]
-              for number,offset in enumerate(range(start,end,50),1):
-                  last=min(offset+50,end)
-                  filename=f'{action}-{number:02d}.txt'
-                  text=f'MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors\nSource: meshuser.js @ {manifest["commit"]}\nSource SHA-256: {digest}\nHandler: {action} | lines {offset+1}-{last} | part {number}\n\n'
-                  text+='\n'.join(f'{i+1}: {lines[i]}' for i in range(offset,last))+'\n'
-                  (root/filename).write_text(text)
-                  parts.append({'file':filename,'first_line':offset+1,'last_line':last,'sha256':hashlib.sha256(text.encode()).hexdigest()})
-              manifest['handlers'][action]={'first_line':start+1,'last_line':end,'parts':parts,'correlation_mentions':[{'line':i+1,'text':lines[i]} for i in range(start,end) if re.search(r'\b(?:tag|responseid)\b',lines[i])]}
+              for window,(start,end) in enumerate(ranges,1):
+                  for part,offset in enumerate(range(start,end,50),1):
+                      last=min(offset+50,end)
+                      filename=f'{action}-context-{window:02d}-{part:02d}.txt'
+                      text=f'MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors\nSource: meshuser.js @ {manifest["commit"]}\nSource SHA-256: {digest}\nContext: {action} | lines {offset+1}-{last} | window {window} part {part} | not necessarily a complete handler\n\n'
+                      text+='\n'.join(f'{i+1}: {lines[i]}' for i in range(offset,last))+'\n'
+                      (root/filename).write_text(text)
+                      parts.append({'file':filename,'first_line':offset+1,'last_line':last,'sha256':hashlib.sha256(text.encode()).hexdigest()})
+              manifest['contexts'][action]={'match_mode':mode,'hits':[{'line':i+1,'text':lines[i]} for i in hits],'windows':[{'first_line':a+1,'last_line':b} for a,b in ranges],'parts':parts,'correlation_mentions':[{'line':i+1,'text':lines[i]} for a,b in ranges for i in range(a,b) if re.search(r'\b(?:tag|responseid)\b',lines[i])]}
+              summary[action]={'matches':len(hits),'mode':mode,'windows':len(ranges),'parts':len(parts)}
           (root/'index.json').write_text(json.dumps(manifest,indent=2)+'\n')
-          (root/'README.md').write_text('# MeshCentral 1.3.1 readback correlation reference\n\nRead index.json and every ordered part for users and meshes. Extraction does not establish support for request correlation and does not validate revocation. No upstream code execution, Android changes, account changes or server operations. Apache-2.0; see LICENSE.\n')
+          (root/'README.md').write_text('# MeshCentral 1.3.1 readback correlation contexts\n\nRead index.json and every ordered context part. Context windows are not guaranteed to contain complete handlers. No unique case-label assumption is made. Manual source review is required before changing correlation logic. No upstream code execution, Android changes, account changes or server operations. Apache-2.0; see LICENSE.\n')
           shutil.copyfile('docs/reference/meshcentral-1.3.1-device-groups/LICENSE',root/'LICENSE')
+          print(json.dumps({'source_sha256':digest,'extracted':summary},indent=2))
           PY
           git diff --check
       - uses: actions/upload-artifact@v4
@@ -75,5 +84,5 @@ jobs:
           git add -- docs/reference/meshcentral-1.3.1-readback/
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'docs(profile): extract pinned users and meshes correlation handlers'
+          git commit -m 'docs(profile): extract pinned users and meshes correlation contexts'
           git push origin HEAD:dev
