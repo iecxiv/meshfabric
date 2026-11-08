@@ -17,36 +17,52 @@ internal fun profileGroupMeshReportedRights(record:JSONObject?,id:String):Long?=
     require(value is Number)
     userAdvancedMask(value)
 }.getOrNull()
+internal fun profileGroupMeshRevokePacket(actor:String,server:String,group:JSONObject,mesh:JSONObject,confirmed:Boolean=false)=JSONObject().put("action","removemeshuser").put("meshid",mesh.getString("_id")).put("userid",group.getString("_id")).put("_meshActor",actor).put("_meshServer",server).put("_meshGroupBefore",profileUserGroupDeleteSnapshot(group)).put("_meshDeviceBefore",profileUserGroupDeleteSnapshot(mesh)).put("_meshConfirmed",confirmed)
 internal fun profileGroupMeshReviewAllowed(s:ProfileState,gid:String,mid:String,server:String):Boolean=runCatching {
     val group=requireNotNull(s.listedUserGroups?.singleOrNull {it.optString("_id")==gid})
     val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==mid})
-    val candidate=JSONObject().put("action","removemeshuser").put("meshid",mid).put("userid",gid).put("_meshActor",s.id).put("_meshServer",server).put("_meshGroupBefore",profileUserGroupDeleteSnapshot(group)).put("_meshDeviceBefore",profileUserGroupDeleteSnapshot(mesh)).put("_meshConfirmed",true)
-    profileGroupMeshRevokeAllowed(s,candidate,server)
+    profileGroupMeshRevokeAllowed(s,profileGroupMeshRevokePacket(s.id,server,group,mesh,true),server)
 }.getOrDefault(false)
+internal fun profileGroupMeshReadbackReady(s:ProfileState,gid:String,mid:String,ack:Boolean,groupRead:Boolean,deviceRead:Boolean)=ack && groupRead && deviceRead && profileGroupMeshRevokeObserved(s.listedUserGroups?.singleOrNull {it.optString("_id")==gid},s.groups.singleOrNull {it.optString("_id")==mid},gid,mid,true)
 @Composable internal fun GroupMeshAssignmentReview(session:ProfileSession,s:ProfileState,gid:String,mid:String,onDismiss:()->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     fun mask(value:Long?)=value?.let {java.lang.String.format(java.util.Locale.ROOT,"0x%08X",it)} ?: t("No informado","Not reported")
     val server=session.broadcastServerLabel()
-    val group=s.listedUserGroups?.singleOrNull {it.optString("_id")==gid}
-    val mesh=s.groups.singleOrNull {it.optString("_id")==mid}
-    val eligible=profileGroupMeshReviewAllowed(s,gid,mid,server)
+    val actor=remember {s.id}
+    val beforeServer=remember {server}
+    val currentGroup=s.listedUserGroups?.singleOrNull {it.optString("_id")==gid}
+    val currentMesh=s.groups.singleOrNull {it.optString("_id")==mid}
+    var frozenGroup by remember {mutableStateOf<JSONObject?>(null)}
+    var frozenMesh by remember {mutableStateOf<JSONObject?>(null)}
+    var approved by remember {mutableStateOf(false)}
+    var submitted by remember {mutableStateOf(false)}
+    var error by remember {mutableStateOf(false)}
+    val review=frozenGroup!=null && frozenMesh!=null
+    val group=frozenGroup ?: currentGroup
+    val mesh=frozenMesh ?: currentMesh
+    val packet=if(review) runCatching {profileGroupMeshRevokePacket(actor,beforeServer,requireNotNull(frozenGroup),requireNotNull(frozenMesh),approved)}.getOrNull() else null
+    val canPrepare=!submitted && actor==s.id && server==beforeServer && profileGroupMeshReviewAllowed(s,gid,mid,server)
+    val reviewCurrent=packet!=null && profileGroupMeshRevokeAllowed(s,JSONObject(packet.toString()).put("_meshConfirmed",true),server)
+    val canSend=!submitted && packet!=null && profileGroupMeshRevokeAllowed(s,packet,server)
+    val observed=submitted && s.notice=="groupMeshRevokedObserved" && s.revokedGroup==gid && s.revokedDeviceGroup==mid
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar asignación","Review assignment"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text(t("Solo lectura: esta pantalla todavía no permite retirar la asignación.","Read only: this screen does not yet allow removing the assignment."),style=MaterialTheme.typography.titleSmall)
-            Text(server,style=MaterialTheme.typography.bodySmall)
+            Text(beforeServer,style=MaterialTheme.typography.bodySmall)
             Text(t("Grupo de usuarios: ","User group: ")+group?.optString("name").orEmpty());Text(gid,style=MaterialTheme.typography.bodySmall)
             Text(t("Grupo de dispositivos: ","Device group: ")+mesh?.optString("name").orEmpty());Text(mid,style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.userGroupPhase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
+            if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
             Text(t("Enlace recibido en el grupo de usuarios: ","Link received in the user group: ")+mask(profileGroupMeshReportedRights(group,mid)))
             Text(t("Enlace recibido en el grupo de dispositivos: ","Link received in the device group: ")+mask(profileGroupMeshReportedRights(mesh,gid)))
-            Text(t("Derechos directos recibidos del actor: ","Received direct actor rights: ")+mask(profileGroupMeshReportedRights(mesh,s.id)))
-            Text(if(eligible) t("Los datos recibidos cumplen la política local preliminar. No es autorización final del servidor ni confirmación de una retirada.","Received data meets the preliminary local policy. This is not final server authorization or confirmation of a removal.") else t("No se puede acreditar la política local con estos datos: pueden faltar registros, enlaces, permisos o coherencia entre ambos extremos. Espera la consulta o actualiza.","These data do not establish the local policy: records, links, rights or agreement between both sides may be missing. Wait for the query or refresh."),style=MaterialTheme.typography.bodySmall)
-            ProfileDisclosure(t("Alcance y limitaciones","Scope and limitations")) {
-                Text(t("Se solicitan de nuevo los listados al abrir. No es una lectura atómica ni una comprobación de todos los permisos efectivos. Las máscaras se muestran completas, sin interpretar ni cambiar bits desconocidos.","Lists are requested again on opening. This is not an atomic read or a calculation of all effective rights. Complete masks are shown without interpreting or changing unknown bits."),style=MaterialTheme.typography.bodySmall)
-                Text(t("La política inicial exige el bit 2 en un enlace directo del actor. No deduce autoridad heredada ni excepciones por administración global. Una asignación 0xFFFFFFFF exige autoridad directa 0xFFFFFFFF.","Initial policy requires bit 2 in a direct actor link. It does not infer inherited authority or global-administrator exceptions. A 0xFFFFFFFF assignment requires direct 0xFFFFFFFF authority."),style=MaterialTheme.typography.bodySmall)
-                Text(t("Retirar la asignación afectaría al acceso o políticas heredadas de los miembros; no borraría cuentas ni grupos. El envío y la verificación posterior aún no están integrados.","Removing this assignment could affect members' inherited access or policies; it would not delete accounts or groups. Submission and post-operation verification are not integrated yet."),style=MaterialTheme.typography.bodySmall)
-            }
+            Text(t("Derechos directos recibidos del actor: ","Received direct actor rights: ")+mask(profileGroupMeshReportedRights(mesh,actor)))
+            Text(t("Retirar elimina esta asignación completa, incluidos sus bits desconocidos. Puede cambiar acceso y políticas heredadas de los miembros. No borra cuentas ni grupos ni modifica otras asignaciones.","Removal deletes this complete assignment, including unknown bits. Members' inherited access and policies may change. Accounts, groups and other assignments are not deleted or edited."),style=MaterialTheme.typography.bodySmall)
+            Text(t("La lectura y comprobación no son atómicas: el servidor procesa el estado que exista al recibir la solicitud. No se calculan todos los permisos efectivos ni se deduce autoridad heredada o excepciones de administrador global.","Reads and checks are not atomic: the server processes the state present when it receives the request. All effective rights, inherited authority and global-administrator exceptions are not inferred."),style=MaterialTheme.typography.bodySmall)
+            if(review && !submitted) Row {Checkbox(approved,{approved=it},enabled=reviewCurrent);Text(t("Confirmo retirar esta asignación entre estos dos grupos.","I confirm removing this assignment between these two groups."),Modifier.weight(1f))}
+            if(observed) Text(t("Respuesta confirmada y ambos enlaces observados ausentes en consultas posteriores. No acredita pérdida de todos los accesos efectivos.","Response confirmed and both links observed absent in subsequent reads. This does not establish loss of all effective access."),style=MaterialTheme.typography.titleSmall)
+            else if(submitted) Text(if(s.notice=="rejected") t("El servidor rechazó la solicitud.","The server rejected the request.") else t("Solicitud enviada; resultado todavía sin verificar.","Request sent; outcome not verified yet."),style=MaterialTheme.typography.bodySmall)
+            else if(error || (review && !reviewCurrent)) Text(t("No se puede enviar con esta copia. Vuelve atrás y actualiza o revisa los cambios.","Cannot send this copy. Go back and refresh or review changes."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+            Text(t("No hay reintentos automáticos. Cerrar no revoca una solicitud enviada. Si el resultado queda sin confirmar, consulta el estado antes de repetir.","No automatic retries. Closing does not revoke a sent request. If unconfirmed, check state before repeating."),style=MaterialTheme.typography.bodySmall)
         }
-    },confirmButton={TextButton(onClick=onDismiss) {Text(t("Cerrar","Close"))}},dismissButton={})
+    },confirmButton={if(!submitted) Button(enabled=if(review) canSend else canPrepare,colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error,contentColor=MaterialTheme.colorScheme.onError),onClick={if(!review) {val g=currentGroup;val m=currentMesh;if(g!=null && m!=null) {frozenGroup=JSONObject(g.toString());frozenMesh=JSONObject(m.toString());approved=false;error=false}} else if(packet!=null && session.submit(packet)) {submitted=true;approved=false} else error=true}) {Text(if(review) t("Retirar asignación","Remove assignment") else t("Preparar retirada","Prepare removal"))}},dismissButton={Row {if(review && !submitted) TextButton(onClick={frozenGroup=null;frozenMesh=null;approved=false;error=false;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Volver y actualizar","Back and refresh"))};TextButton(onClick=onDismiss) {Text(t("Cerrar","Close"))}}})
 }

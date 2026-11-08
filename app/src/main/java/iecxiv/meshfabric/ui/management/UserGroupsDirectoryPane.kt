@@ -35,6 +35,7 @@ if(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El s
             if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El servidor confirmó la eliminación: ","The server confirmed deletion: ")+s.deletedUserGroup,style=MaterialTheme.typography.bodySmall)
 if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta del grupo. Usuario: ","Link absent in the group read. User: ")+s.removedMember+t("; grupo: ","; group: ")+s.removedMemberGroup,style=MaterialTheme.typography.bodySmall)
 if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en el grupo. Usuario: ","Added link observed in the group. User: ")+s.addedMember+t("; grupo: ","; group: ")+s.addedMemberGroup,style=MaterialTheme.typography.bodySmall)
+if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+s.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+s.revokedDeviceGroup,style=MaterialTheme.typography.bodySmall)
 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
             if(s.userGroupPhase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)
