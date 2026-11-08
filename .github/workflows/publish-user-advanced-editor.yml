@@ -53,7 +53,11 @@ jobs:
           change('ProfileSession.kt','it.copy(server=JSONObject(p.toString()))','it.copy(server=JSONObject((p.optJSONObject("serverinfo") ?: p).toString()))')
           change('UserAdministration.kt','var mode by remember { mutableStateOf("profile") }','var mode by remember { mutableStateOf("profile") }\nvar advanced by remember { mutableStateOf(false) }')
           marker='ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing)'
-          change('UserAdministration.kt',marker,'if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss); return@key }\n'+marker)
+          change('UserAdministration.kt',marker,'if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {\n'+marker)
+          tail='})\n}\n}\n'
+          if not sources['UserAdministration.kt'].endswith(tail):raise RuntimeError('Unexpected dialog tail')
+          sources['UserAdministration.kt']=sources['UserAdministration.kt'][:-len(tail)]+'})\n}\n}\n}\n'
+          if 'return@key' in sources['UserAdministration.kt']:raise RuntimeError('Return inside key remains')
           marker='TextButton(onClick=session::loadDetails,enabled=!s.detailsBusy)'
           change('UserAdministration.kt',marker,'TextButton(enabled=allowed,onClick={ advanced=true }) { Text(t("Permisos, características y consentimiento","Permissions, features and consent")) }\n'+marker)
           hashes={'.github/patches/user-advanced-editor/UserAdvancedPolicy.kt.txt': '1727dd85637fa08b872a57cff5774a7ade3b9874f03dd517dd3d298cae66f38c', '.github/patches/user-advanced-editor/UserAdvancedEditor.kt.txt': '5f6aa20c8e385d455c165c0486ef624d98d493d09abeb92e40701d28230f46a7', '.github/patches/user-advanced-editor/UserAdvancedPolicyTest.kt.txt': 'b2751b82c36f1ecccf9d0c2593e576a11767752ae1a0698895c73777ea1dc86d', '.github/patches/user-advanced-editor/UserAdvancedRequestTest.kt.txt': '2b7ab8418a3ad0bf524cf520c029e44c1f31e35c76199464048a375b662e8228'}
