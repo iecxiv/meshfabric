@@ -23,7 +23,8 @@ var removing by remember(s.id) {mutableStateOf<Pair<JSONObject,String>?>(null)}
 var adding by remember(s.id) {mutableStateOf<JSONObject?>(null)}
 var grantingMesh by remember(s.id) {mutableStateOf<String?>(null)}
 var reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
-LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null}}
+var editingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
+LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=null}}
     LaunchedEffect(s.ready,s.id,s.site,s.userGroupPhase) { if(s.ready && s.userGroupPhase=="idle") session.loadUserGroupDirectory() }
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
 val refreshAction=userGroupsRefreshAction(s.ready,s.busy,s.loading,s.userGroupPhase,s.notice)
@@ -41,6 +42,7 @@ if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta de
 if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en el grupo. Usuario: ","Added link observed in the group. User: ")+s.addedMember+t("; grupo: ","; group: ")+s.addedMemberGroup,style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+s.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+s.revokedDeviceGroup,style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshGrantedObserved") Text(t("Derechos solicitados observados en ambos enlaces. Grupo de usuarios: ","Requested rights observed in both links. User group: ")+s.grantedGroup+t("; grupo de dispositivos: ","; device group: ")+s.grantedDeviceGroup,style=MaterialTheme.typography.bodySmall)
+if(s.notice=="groupMeshEditedObserved") Text(t("Máscara exacta editada y observada en ambos enlaces. Grupo de usuarios: ","Edited exact mask observed in both links. User group: ")+s.editedGroup+t("; grupo de dispositivos: ","; device group: ")+s.editedDeviceGroup,style=MaterialTheme.typography.bodySmall)
 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
             if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)
@@ -71,6 +73,7 @@ if(profileUserGroupMemberId(s.id,id)) TextButton(enabled=s.canWrite && s.userGro
                             val user=s.users.firstOrNull {it.optString("_id")==id}
                             val mesh=s.groups.firstOrNull {it.optString("_id")==id}
 if(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready",onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=group.optString("_id") to id;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Revisar asignación: ","Review assignment: ")+id)}
+if(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && !s.detailsBusy && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=group.optString("_id") to id}) {Text(t("Editar derechos de asignación: ","Edit assignment rights: ")+id)}
                             when {
                                 user!=null && canAdministerUser(s,user)->TextButton(enabled=s.canWrite,onClick={onOpenUser(id)}) {Text(t("Usuario: ","User: ")+user.optString("name"))}
                                 mesh!=null->TextButton(enabled=s.ready && !s.busy,onClick={onOpenDeviceGroup(id)}) {Text(t("Grupo de dispositivos: ","Device group: ")+mesh.optString("name"))}
@@ -90,4 +93,5 @@ deleting?.let {UserGroupDeleteDialog(session,s,it) {deleting=null}}
 removing?.let {(group,id)->UserGroupMemberRemoveDialog(session,s,group,id) {removing=null}}
 adding?.let {UserGroupMemberAddDialog(session,s,it) {adding=null}}
 reviewingMesh?.let {(gid,mid)->GroupMeshAssignmentReview(session,s,gid,mid) {reviewingMesh=null}}
+editingMesh?.let {(gid,mid)->key(gid,mid) {GroupMeshEditDialog(session,s,gid,mid) {editingMesh=null}}}
 }
