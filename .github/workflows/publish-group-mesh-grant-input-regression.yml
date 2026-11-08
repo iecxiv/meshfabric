@@ -1,0 +1,125 @@
+name: Validate and publish strict grant input and draft regressions
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-grant-input-regression.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-grant-input-regression-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply strict parser and regression tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          ui=Path('app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshGrantDialog.kt')
+          android=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshGrantRequestTest.kt')
+          for path,sha in {ui:'5aaf9a34d79ed8e6dcf36f7a26fb2e52b0022804',android:'50892aefb9d6da5b4e54a67bf01588d3e7fcc97c'}.items():
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+str(path))
+          s=ui.read_text()
+          old='    val digits=text.trim().removePrefix("0x").removePrefix("0X")\n    if(!Regex("[0-9a-fA-F]{1,8}").matches(digits)) return null'
+          new='    val match=Regex("(?:0[xX])?([0-9a-fA-F]{1,8})").matchEntire(text.trim()) ?: return null\n    val digits=match.groupValues[1]'
+          for before,after in [(old,new),('OutlinedTextField(hex,{hex=it.take(10);error=false}','OutlinedTextField(hex,{hex=it.take(256);error=false}')]:
+              if s.count(before)!=1:raise RuntimeError('Missing/nonunique UI anchor')
+              s=s.replace(before,after,1)
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/GroupMeshGrantInputRegressionTest.kt')
+          if unit.exists():raise RuntimeError('Regression test already exists')
+          unitText='''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class GroupMeshGrantInputRegressionTest {
+              @Test fun exactlyOneOptionalPrefixIsAccepted() {
+                  assertEquals(8L,profileGroupMeshGrantHex("8"))
+                  assertEquals(8L,profileGroupMeshGrantHex("0x8"))
+                  assertEquals(8L,profileGroupMeshGrantHex("0X8"))
+                  for(value in listOf("0x0X8","0X0x8","0x0x8","0X0X8")) assertNull(profileGroupMeshGrantHex(value))
+              }
+              @Test fun oversizedValuesAreNotReinterpretedAsTheirValidPrefix() {
+                  val value="0x000001080"
+                  assertNotNull(profileGroupMeshGrantHex(value.take(10)))
+                  assertNull(profileGroupMeshGrantHex(value))
+                  assertNull(profileGroupMeshGrantHex("0x000000108"))
+                  assertNull(profileGroupMeshGrantHex("1080000000000000000000000"))
+              }
+              @Test fun whitespaceIsOnlyAllowedAroundTheWholeValue() {
+                  assertEquals(264L,profileGroupMeshGrantHex(" 0X108 "))
+                  for(value in listOf("0x 108","1 08","0 x108","0x+108")) assertNull(profileGroupMeshGrantHex(value))
+              }
+          }
+          '''
+          a=android.read_text().rstrip()
+          if not a.endswith('}'):raise RuntimeError('Unexpected Android test ending')
+          a=a[:-1]+'''
+              @Test fun uiDraftRequiresExplicitConfirmationAndKeepsItsSnapshots() {
+                  val s=state()
+                  val draft=requireNotNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,server))
+                  assertEquals(false,draft.getBoolean("_grantConfirmed"))
+                  assertFalse(profileGroupMeshGrantAllowed(s,draft,server))
+                  val confirmed=JSONObject(draft.toString()).put("_grantConfirmed",true)
+                  assertTrue(profileGroupMeshGrantAllowed(s,confirmed,server))
+                  assertFalse(draft.getBoolean("_grantConfirmed"))
+                  assertFalse(profileGroupMeshGrantAllowed(s,confirmed,"https://other.invalid/"))
+                  s.groups.single().getJSONObject("links").getJSONObject(actor).put("rights",8)
+                  assertFalse(profileGroupMeshGrantAllowed(s,confirmed,server))
+              }
+              @Test fun uiDraftRejectsInvalidContextAndExistingAssignments() {
+                  val s=state()
+                  assertNull(profileGroupMeshGrantDraft(s,gid,mid,264,"user//other",server))
+                  assertNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,""))
+                  assertNull(profileGroupMeshGrantDraft(s.copy(busy=true),gid,mid,264,actor,server))
+                  assertNull(profileGroupMeshGrantDraft(s.copy(userGroupPhase="loading"),gid,mid,264,actor,server))
+                  assertNull(profileGroupMeshGrantDraft(s.copy(listedUserGroups=null),gid,mid,264,actor,server))
+                  assertNull(profileGroupMeshGrantDraft(s,gid,"mesh//missing",264,actor,server))
+                  val frozen=requireNotNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,server))
+                  s.listedUserGroups!!.single().getJSONObject("links").put(mid,JSONObject().put("rights",8))
+                  assertNull(profileGroupMeshGrantDraft(s,gid,mid,264,actor,server))
+                  assertFalse(profileGroupMeshGrantAllowed(s,JSONObject(frozen.toString()).put("_grantConfirmed",true),server))
+              }
+          }
+          '''
+          for path,text in {ui:s,unit:unitText,android:a}.items():path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-grant-input-regression-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated input hardening and regressions
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshGrantDialog.kt app/src/test/java/iecxiv/meshfabric/ui/management/GroupMeshGrantInputRegressionTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshGrantRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): reject ambiguous grant masks and test frozen drafts'
+          git push origin HEAD:dev
