@@ -193,18 +193,22 @@ ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(for
 }
 }
 if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+ProfileActionGroup {
 ProfileGroupActionButton(t("Permisos, características y consentimiento","Permissions, features and consent"),Icons.Default.Security,allowed,onClick={ advanced=true })
 ProfileGroupActionButton(t("Actualizar ficha","Refresh details"),Icons.Default.Refresh,!s.detailsBusy,onClick=session::loadDetails)
+}
 ProfileDisclosure(t("Accesos directos a grupos de dispositivos","Direct device-group access")) {
 ProfileGroupActionButton(t("Conceder acceso directo","Grant direct access"),Icons.Default.Security,contactReady && !s.detailsBusy,onClick={directGrant=true;session.refresh()})
 Text(t("Solo enlaces directos recibidos. No representa todos los permisos efectivos ni los accesos heredados.","Received direct links only. This does not represent all effective rights or inherited access."),style=MaterialTheme.typography.bodySmall)
 val directGroups=s.groups.filter {g->user.optJSONObject("links")?.has(g.optString("_id"))==true || g.optJSONObject("links")?.has(form.id)==true}
 if(directGroups.isEmpty()) Text(t("No se han recibido enlaces directos con los grupos visibles.","No direct links received for visible groups."))
-for(g in directGroups) ManagementCard {
+for(g in directGroups) ProfileActionCard {
 val presentation=profileReceivedLinkPresentation(s,user,g.optString("_id"),es)
 Text(presentation.label,style=MaterialTheme.typography.titleSmall)
+ProfileActionGroup {
 ProfileGroupActionButton(t("Revisar acceso directo","Review direct access"),Icons.Default.Security,presentation.usable && contactReady && !s.detailsBusy,onClick={directMesh=g.optString("_id");session.refresh()})
 ProfileGroupActionButton(t("Editar derechos directos","Edit direct rights"),Icons.Default.Edit,presentation.usable && contactReady && !s.detailsBusy,onClick={directEdit=g.optString("_id")})
+}
 if(!presentation.usable) Text(t("Ficha incompleta o ambigua. Actualiza antes de abrir acciones para este grupo.","Incomplete or ambiguous entry. Refresh before opening actions for this group."),style=MaterialTheme.typography.bodySmall)
 }
 }
@@ -213,7 +217,7 @@ Text(t("Solo los datos visibles recibidos; los permisos heredados requieren el l
 if(s.userGroups==null) Text(missing) else {
 val common=s.groups.filter { group->s.user?.let { userAccess(s,it,group.optString("_id"))!=0L }==true && userAccess(s,user,group.optString("_id"))!=0L }
 if(common.isEmpty()) Text(t("No se observan grupos en común en los datos disponibles.","No common groups observed in available data."))
-for(group in common) ManagementCard {
+for(group in common) ProfileActionCard {
 val presentation=profileReceivedLinkPresentation(s,user,group.optString("_id"),es)
 ManagementInfoRow(presentation.label,userRights(userAccess(s,user,group.optString("_id")),es,true))
 ProfileGroupActionButton(t("Abrir grupo","Open group"),Icons.Default.Computer,presentation.usable && contactReady,onClick={onOpenGroup(group.optString("_id"))})
@@ -238,7 +242,7 @@ if(s.nodes==null) Text(if(s.detailsBusy) t("Consultando dispositivos...","Loadin
 if(s.userGroups==null) Text(t("Datos de grupos de usuarios no disponibles: se muestran solo accesos conocidos; los heredados pueden estar incompletos.","User-group data unavailable: only known access is shown; inherited access may be incomplete."),style=MaterialTheme.typography.bodySmall)
 val common=s.nodes.filter { userAccess(s,user,it.optString("_id"),it.optString("meshid"))!=0L }
 if(common.isEmpty()) Text(t("No se observan dispositivos en común en los datos disponibles.","No common devices observed in available data."))
-for(node in common.take(100)) ManagementCard {
+for(node in common.take(100)) ProfileActionCard {
 val nodePresentation=profileReceivedLinkPresentation(s,user,node.optString("_id"),es)
 val groupLabel=if(node.optString("meshid").isNotBlank()) profileReceivedLinkPresentation(s,user,node.optString("meshid"),es).label else t("Grupo no disponible","Group unavailable")
 ManagementInfoRow(nodePresentation.label,groupLabel)
@@ -251,11 +255,13 @@ if(common.size>100) Text(t("Se muestran los primeros 100 dispositivos.","Showing
 }
 }
 ProfileDisclosure(t("Acciones y seguridad","Actions and security")) {
+ProfileActionGroup {
 ProfileGroupActionButton(t("Agregar dispositivo","Add device"),Icons.Default.Computer,s.canWrite,onClick={ mode="device"; approved=false; session.loadDetails() })
 ProfileGroupActionButton(t("Cambiar contraseña","Change password"),Icons.Default.Lock,s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" })
 ProfileGroupActionButton(t("Restablecer MFA","Reset MFA"),Icons.Default.Security,contactReady && !s.detailsBusy && s.server!=null && s.server.opt("lock2factor")!=true && form.id!=s.id,onClick={mfaReset=true})
 ProfileGroupActionButton(t("Enviar mensaje","Send message"),Icons.Default.Email,contactReady && !s.detailsBusy && form.id!=s.id,onClick={userMessage=true})
 ProfileGroupActionButton(t("Inicios de sesión anteriores","Previous logins"),Icons.Default.History,true,onClick={ mode="history"; if(!session.previousLogins(form.id)) feedback=t("No se pudo solicitar el historial.","Could not request history.") })
+}
 }
 }
 }

@@ -60,7 +60,7 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
                 Text(t("Características","Features"),style=MaterialTheme.typography.titleSmall)
                 val labels=if(es) listOf("Eliminar dispositivos al desconectarse","Sincronizar nombre del equipo","Grabar sesiones","Preferir el nombre del agente","Permitir nombre manual hasta reconexión") else listOf("Remove devices on disconnect","Synchronize host name","Record sessions","Prefer agent name","Allow manual name until reconnect")
                 for(i in 0..4) {val bit=1L shl i
-                    if(mask and bit!=0L) Row {
+                    if(mask and bit!=0L) ProfileAlignedCheckboxRow {
                         Checkbox(flags and bit!=0L,{checked->
                             flags=if(checked) flags or bit else flags and bit.inv()
                             if(bit==2L && !checked && initial.getInt("mtype")==2) flags=flags and 24L.inv()
@@ -74,14 +74,14 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
                 Text(t("Consentimiento del grupo","Group consent"),style=MaterialTheme.typography.titleSmall)
                 val labelsConsent=if(es) listOf("Avisar: escritorio","Avisar: terminal","Avisar: archivos","Solicitar autorización: escritorio","Solicitar autorización: terminal","Solicitar autorización: archivos","Mostrar barra de conexión","Avisar: Registro","Solicitar autorización: Registro") else listOf("Notify: desktop","Notify: terminal","Notify: files","Prompt: desktop","Prompt: terminal","Prompt: files","Show connection toolbar","Notify: Registry","Prompt: Registry")
                 for(i in 0..8) {val bit=1L shl i
-                    Row {Checkbox(consent and bit!=0L,{checked->consent=if(checked) consent or bit else consent and bit.inv()},enabled=identityReady && s.canWrite && !s.detailsBusy && bound && mandatory and bit==0L,modifier=Modifier.testTag("advanced-consent-"+bit));Text(labelsConsent[i]+if(mandatory and bit!=0L) t(" (obligatorio por servidor)"," (required by server)") else "",Modifier.weight(1f))}
+                    ProfileAlignedCheckboxRow {Checkbox(consent and bit!=0L,{checked->consent=if(checked) consent or bit else consent and bit.inv()},enabled=identityReady && s.canWrite && !s.detailsBusy && bound && mandatory and bit==0L,modifier=Modifier.testTag("advanced-consent-"+bit));Text(labelsConsent[i]+if(mandatory and bit!=0L) t(" (obligatorio por servidor)"," (required by server)") else "",Modifier.weight(1f))}
                 }
                 if(draft==null) Text(t("No hay un cambio válido en esta copia. Si cambiaron los datos, cierra y actualiza.","No valid change in this copy. If data changed, close and refresh."))
             }
             if(review!=null && initial!=null) {
                 Text(t("Revisión congelada: antes → después","Frozen review: before → after"),Modifier.testTag("advanced-review"))
                 for(key in listOf("flags","consent","expireDevs")) Text(key+": "+(if(key=="expireDevs") initial.getLong(key).toString()+" → "+review.getLong(key) else advancedHex(initial.getLong(key))+" → "+advancedHex(review.getLong(key))),style=MaterialTheme.typography.bodySmall)
-                if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("advanced-confirm"));Text(t("Confirmo aplicar estos valores al grupo y servidor indicados.","I confirm applying these values to this group and server."),Modifier.weight(1f))}
+                if(!submitted) ProfileAlignedCheckboxRow {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("advanced-confirm"));Text(t("Confirmo aplicar estos valores al grupo y servidor indicados.","I confirm applying these values to this group and server."),Modifier.weight(1f))}
             }
             Text(t("Cero elimina la caducidad específica del grupo; NO garantiza desactivar la eliminación automática global. La retirada al desconectar y la caducidad pueden eliminar dispositivos y sus datos asociados. Comprueba la política del servidor antes de confirmar.","Zero removes the group-specific expiry; it does NOT guarantee disabling global automatic removal. Removal on disconnect and inactivity expiry may delete devices and associated data. Check server policy before confirming."),style=MaterialTheme.typography.bodySmall)
             Text(t("Se conservan los bits desconocidos. El consentimiento se combina con las obligaciones del servidor y otras capas; desmarcarlo no elimina las heredadas. Las comprobaciones y el envío no son atómicos: un cambio concurrente puede ser sobrescrito. No hay reintentos automáticos y cerrar no cancela un envío.","Unknown bits are preserved. Consent combines with server requirements and other layers; clearing it does not remove inherited requirements. Checks and sending are not atomic: concurrent changes may be overwritten. No automatic retries; closing does not cancel a sent request."),style=MaterialTheme.typography.bodySmall)

@@ -193,7 +193,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
             Text(frozen.identity.url); Text(frozen.name); Text("${frozen.file.length()} bytes")
             Text(label("Sustituye datos existentes y reinicia el servidor. No hagas copias/restauraciones simultáneas desde otras sesiones: la contraseña temporal es global.","Replaces existing data and restarts the server. Do not run concurrent backup/restore from other sessions: the temporary password is global."),color=MaterialTheme.colorScheme.error)
             OutlinedTextField(value=password,onValueChange={ if(it.length<=256) password=it },enabled=!system && !busy,label={ Text(label("Contraseña de la copia","Backup password")) },visualTransformation=PasswordVisualTransformation(),keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Password),singleLine=true)
-            Row { Checkbox(checked=system,enabled=frozen.system && !busy,onCheckedChange={ system=it }); Text(label("Usar contraseña del sistema","Use system password")) }
+            ProfileAlignedCheckboxRow { Checkbox(checked=system,enabled=frozen.system && !busy,onCheckedChange={ system=it }); Text(label("Usar contraseña del sistema","Use system password")) }
             if(system) Text(label("El móvil no conoce esta contraseña: no puede verificar las entradas cifradas antes de enviarlas.","The phone does not know this password: encrypted entries cannot be verified before upload."),style=MaterialTheme.typography.bodySmall)
         } },
         confirmButton={ TextButton(enabled=!busy,onClick={
@@ -213,7 +213,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
             Text(reviewed.candidate.identity.url); Text(reviewed.candidate.name); Text("${reviewed.candidate.file.length()} bytes")
             SelectionContainer { Text("SHA-256: ${reviewed.candidate.sha}",style=MaterialTheme.typography.bodySmall) }
             Text(label("Se sustituirán datos existentes y el servidor se reiniciará. La aceptación HTTP no confirma una restauración correcta. No cierres la vista durante la subida.","Existing data will be replaced and the server will restart. HTTP acceptance does not confirm a successful restore. Do not leave during upload."),color=MaterialTheme.colorScheme.error)
-            if(!reviewed.verified) Row { Checkbox(checked=acceptUnverified,onCheckedChange={ acceptUnverified=it }); Text(label("Acepto que el contenido cifrado y la contraseña del sistema no se han verificado localmente.","I accept that encrypted contents and system password were not verified locally.")) }
+            if(!reviewed.verified) ProfileAlignedCheckboxRow { Checkbox(checked=acceptUnverified,onCheckedChange={ acceptUnverified=it }); Text(label("Acepto que el contenido cifrado y la contraseña del sistema no se han verificado localmente.","I accept that encrypted contents and system password were not verified locally.")) }
             OutlinedTextField(value=typed,onValueChange={ typed=it },label={ Text(label("Escribe RESTORE para continuar","Type RESTORE to continue")) },singleLine=true)
         } },
         confirmButton={ TextButton(enabled=!busy && typed=="RESTORE" && (reviewed.verified || acceptUnverified),onClick={

@@ -63,7 +63,7 @@ internal fun userDeviceChoices(s:ProfileState,user:JSONObject,query:String,es:Bo
                 for(choice in choices.take(100)) TextButton(enabled=identity.usable && choice.usable,modifier=Modifier.testTag("device-grant-candidate"),onClick={selected=JSONObject(choice.node.toString());parent=choice.mesh?.let {JSONObject(it.toString())};approved=false;error=false}) {Text((if(selected?.optString("_id")==choice.node.optString("_id")) "● " else "○ ")+choice.label)}
                 if(choices.isEmpty()) Text(t("Sin resultados disponibles. Actualiza o cambia la búsqueda.","No available results. Refresh or change the search."))
                 Text(t("Máximo 100 resultados. Los destinos sin ficha inequívoca o sin autoridad quedan bloqueados.","Maximum 100 results. Targets without an unambiguous entry or authority are disabled."),style=MaterialTheme.typography.bodySmall)
-                for(bit in USER_DEVICE_GRANT_BITS) Row {
+                for(bit in USER_DEVICE_GRANT_BITS) ProfileAlignedCheckboxRow {
                     Checkbox(rights and bit!=0L,{checked->rights=if(checked) rights or bit else rights and bit.inv();approved=false},enabled=s.canWrite && !s.detailsBusy)
                     Text(deviceGroupRightsLabel(bit,es),Modifier.weight(1f))
                 }
@@ -73,7 +73,7 @@ internal fun userDeviceChoices(s:ProfileState,user:JSONObject,query:String,es:Bo
                 Text(t("Grupo de dispositivos: ","Device group: ")+profileReviewIdentity(parent,s.groups,es).label)
                 Text(t("Derechos congelados: ","Frozen rights: ")+String.format(java.util.Locale.ROOT,"0x%08X",frozen))
                 Text(deviceGroupRightsLabel(requireNotNull(frozen),es),style=MaterialTheme.typography.bodySmall)
-                if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("device-grant-consent"));Text(t("Confirmo asignar estos derechos al usuario y dispositivo revisados.","I confirm assigning these rights to the reviewed user and device."),Modifier.weight(1f))}
+                if(!submitted) ProfileAlignedCheckboxRow {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("device-grant-consent"));Text(t("Confirmo asignar estos derechos al usuario y dispositivo revisados.","I confirm assigning these rights to the reviewed user and device."),Modifier.weight(1f))}
             }
             Text(t("La revisión no es atómica con el servidor. Un cambio concurrente puede sobrescribirse. No hay reintentos automáticos; cerrar no cancela un envío. Aceptar el envío no confirma el resultado en el servidor.","Review is not atomic with the server. A concurrent change may be overwritten. There are no automatic retries; closing does not cancel a sent request. Accepting submission does not confirm the server outcome."),style=MaterialTheme.typography.bodySmall)
             if(invalidated || (frozen!=null && !context)) Text(t("Revisión invalidada. Vuelve a seleccionar y revisa de nuevo; si persiste el cambio, cierra y actualiza.","Review invalidated. Select and review again; if the change persists, close and refresh."),color=MaterialTheme.colorScheme.error)

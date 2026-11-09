@@ -81,7 +81,7 @@ private fun groupEditMask(value:Long)=java.lang.String.format(java.util.Locale.R
                 Text(t("Las opciones incluyen permisos y restricciones. No se añaden dependencias automáticamente.","Options include rights and restrictions. Dependencies are not added automatically."),style=MaterialTheme.typography.bodySmall)
                 ProfileDisclosure(t("Seleccionar permisos y restricciones","Select rights and restrictions")) {
                     for(index in 3..23) {val bit=1L shl index
-                        Row {
+                        ProfileAlignedCheckboxRow {
                             Checkbox(checked=(selected ?: 0L) and bit!=0L,enabled=identityReady && bound && s.canWrite && !s.detailsBusy && s.userGroupPhase=="ready" && selected!=null,onCheckedChange={checked->
                                 val value=selected ?: 0L
                                 hex=java.lang.Long.toHexString(if(checked) value or bit else value and bit.inv());approved=false;error=false
@@ -96,7 +96,7 @@ private fun groupEditMask(value:Long)=java.lang.String.format(java.util.Locale.R
             if(review!=null) {
                 Text(t("Máscara propuesta congelada: ","Frozen proposed mask: ")+groupEditMask(review.getLong("meshadmin")),Modifier.testTag("group-edit-frozen"))
                 Text(deviceGroupRightsLabel(review.getLong("meshadmin"),es),style=MaterialTheme.typography.bodySmall)
-                if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("group-edit-consent"));Text(t("Confirmo sustituir los derechos de esta asignación entre grupos por esta máscara, conservando los bits no editables.","I confirm replacing the rights of this group assignment with this mask, preserving noneditable bits."),Modifier.weight(1f))}
+                if(!submitted) ProfileAlignedCheckboxRow {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("group-edit-consent"));Text(t("Confirmo sustituir los derechos de esta asignación entre grupos por esta máscara, conservando los bits no editables.","I confirm replacing the rights of this group assignment with this mask, preserving noneditable bits."),Modifier.weight(1f))}
             }
             Text(t("Las comprobaciones y el envío no son atómicos: una modificación concurrente puede ser sobrescrita; si se retira el acceso concurrentemente, el servidor puede volver a crearlo. No hay reintentos automáticos y cerrar no cancela una solicitud enviada.","Checks and sending are not atomic: a concurrent change may be overwritten; if access is concurrently revoked, the server may recreate it. No automatic retries; closing does not cancel a sent request."),style=MaterialTheme.typography.bodySmall)
             if(observed) Text(t("Acuse confirmado y derechos exactos observados en ambos enlaces.","Acknowledgement confirmed and exact rights observed in both links."))

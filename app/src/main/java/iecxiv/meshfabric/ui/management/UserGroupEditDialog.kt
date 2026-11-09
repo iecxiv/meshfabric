@@ -40,7 +40,7 @@ import org.json.JSONObject
             if(review) {
                 if(packet.has("name")) {Text(t("Nombre anterior: ","Previous name: ")+original.getString("name"));Text(t("Nombre nuevo: ","New name: ")+name)}
                 if(packet.has("desc")) {Text(t("Descripción anterior: ","Previous description: ")+profileUserGroupDesc(original));Text(t("Descripción nueva: ","New description: ")+desc)}
-                Row {Checkbox(approved,{approved=it},enabled=context,modifier=Modifier.testTag("ug-edit-consent"));Text(t("Confirmo estos cambios para este grupo de usuarios.","I confirm these changes for this user group."),Modifier.weight(1f))}
+                ProfileAlignedCheckboxRow {Checkbox(approved,{approved=it},enabled=context,modifier=Modifier.testTag("ug-edit-consent"));Text(t("Confirmo estos cambios para este grupo de usuarios.","I confirm these changes for this user group."),Modifier.weight(1f))}
             } else {
                 OutlinedTextField(name,{if(it.length<=256) {name=it;approved=false;error=false}},label={Text(t("Nombre","Name"))},supportingText={Text("${name.length}/64")},singleLine=true,enabled=context && original.isNull("membershipType"),isError=original.isNull("membershipType") && !profileUserGroupNameValid(name),modifier=Modifier.fillMaxWidth().testTag("ug-edit-name"))
                 OutlinedTextField(desc,{if(it.length<=4096) {desc=it;approved=false;error=false}},label={Text(t("Descripción","Description"))},supportingText={Text("${desc.length}/1024")},minLines=2,maxLines=5,enabled=context,isError=!profileUserGroupDescValid(desc),modifier=Modifier.fillMaxWidth())

@@ -63,7 +63,7 @@ internal fun profileUserMeshGrantDraft(s:ProfileState,uid:String,mid:String,righ
                 ProfileDisclosure(t("Seleccionar permisos y restricciones","Select rights and restrictions")) {
                     for(index in 3..23) {
                         val bit=1L shl index
-                        Row {
+                        ProfileAlignedCheckboxRow {
                             Checkbox(checked=(rights ?: 0L) and bit!=0L,enabled=bound && s.canWrite && (hex.isBlank() || rights!=null),onCheckedChange={checked->
                                 profileGroupMeshToggleGrantBit(rights ?: 0L,bit,checked)?.let {value->hex=if(value==0L) "" else java.lang.Long.toHexString(value);approved=false;error=false}
                             })
@@ -79,7 +79,7 @@ internal fun profileUserMeshGrantDraft(s:ProfileState,uid:String,mid:String,righ
             if(review!=null) {
                 Text(t("Derechos congelados: ","Frozen rights: ")+java.lang.String.format(java.util.Locale.ROOT,"0x%08X",review.getLong("meshadmin")))
                 Text(deviceGroupRightsLabel(review.getLong("meshadmin"),es),style=MaterialTheme.typography.bodySmall)
-                if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("direct-grant-consent"));Text(t("Confirmo crear esta asignación con estos derechos.","I confirm creating this assignment with these rights."),Modifier.weight(1f))}
+                if(!submitted) ProfileAlignedCheckboxRow {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("direct-grant-consent"));Text(t("Confirmo crear esta asignación con estos derechos.","I confirm creating this assignment with these rights."),Modifier.weight(1f))}
             }
             Text(t("Crea acceso directo para este usuario. No calcula todos sus permisos efectivos ni modifica los accesos heredados. Las comprobaciones y el envío no son atómicos: el servidor puede sobrescribir una asignación creada concurrentemente. No hay reintentos automáticos; cerrar no cancela una solicitud enviada.","Creates direct access for this user. Does not calculate all effective rights or modify inherited assignments. Checks and sending are not atomic: the server may overwrite an assignment created concurrently. No automatic retries; closing does not cancel a sent request."),style=MaterialTheme.typography.bodySmall)
             if(observed) Text(t("Respuesta confirmada y derechos solicitados observados en ambos enlaces.","Reply confirmed and requested rights observed in both links."))

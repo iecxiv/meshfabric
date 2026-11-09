@@ -82,7 +82,7 @@ internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rig
                 ProfileDisclosure(t("Seleccionar permisos y restricciones","Select rights and restrictions")) {
                     for(index in 3..23) {
                         val bit=1L shl index
-                        Row {
+                        ProfileAlignedCheckboxRow {
                             Checkbox(checked=(rights ?: 0L) and bit!=0L,enabled=bound && s.canWrite && (hex.isBlank() || rights!=null),onCheckedChange={checked->
                                 profileGroupMeshToggleGrantBit(rights ?: 0L,bit,checked)?.let {value->hex=if(value==0L) "" else java.lang.Long.toHexString(value);approved=false;error=false}
                             })
@@ -98,7 +98,7 @@ internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rig
             if(review!=null) {
                 Text(t("Derechos congelados: ","Frozen rights: ")+java.lang.String.format(java.util.Locale.ROOT,"0x%08X",review.getLong("meshadmin")))
                 Text(deviceGroupRightsLabel(review.getLong("meshadmin"),es),style=MaterialTheme.typography.bodySmall)
-                if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("group-grant-consent"));Text(t("Confirmo crear esta asignación con estos derechos.","I confirm creating this assignment with these rights."),Modifier.weight(1f))}
+                if(!submitted) ProfileAlignedCheckboxRow {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("group-grant-consent"));Text(t("Confirmo crear esta asignación con estos derechos.","I confirm creating this assignment with these rights."),Modifier.weight(1f))}
             }
             Text(t("Puede conceder acceso heredado a los miembros. Las consultas no son atómicas y no calculan todos los permisos efectivos. No hay reintentos automáticos; cerrar no cancela una solicitud enviada.","May grant inherited access to members. Reads are not atomic and do not calculate all effective rights. No automatic retries; closing does not cancel a sent request."),style=MaterialTheme.typography.bodySmall)
             if(observed) Text(t("Respuesta confirmada y derechos solicitados observados en ambos enlaces.","Reply confirmed and requested rights observed in both links."))

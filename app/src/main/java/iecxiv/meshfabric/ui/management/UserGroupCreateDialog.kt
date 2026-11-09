@@ -33,7 +33,7 @@ import org.json.JSONObject
             Text(t("Grupo vacío en el dominio actual. Sin clonación, miembros ni asignaciones de permisos.","Empty group in the current domain. No cloning, members or rights assignments."),style=MaterialTheme.typography.bodySmall)
             if(review) {
                 Text(t("Nombre: ","Name: ")+name);Text(t("Descripción: ","Description: ")+desc)
-                Row {Checkbox(approved,{approved=it},enabled=context);Text(t("Confirmo crear este grupo de usuarios.","I confirm creating this user group."),Modifier.weight(1f))}
+                ProfileAlignedCheckboxRow {Checkbox(approved,{approved=it},enabled=context);Text(t("Confirmo crear este grupo de usuarios.","I confirm creating this user group."),Modifier.weight(1f))}
             } else {
                 OutlinedTextField(name,{if(it.length<=256) {name=it;approved=false;error=false}},label={Text(t("Nombre","Name"))},supportingText={Text("${name.length}/64")},singleLine=true,enabled=context,isError=name.isNotEmpty() && !profileUserGroupNameValid(name),modifier=Modifier.fillMaxWidth())
                 OutlinedTextField(desc,{if(it.length<=4096) {desc=it;approved=false;error=false}},label={Text(t("Descripción","Description"))},supportingText={Text("${desc.length}/1024")},minLines=2,maxLines=5,enabled=context,isError=!profileUserGroupDescValid(desc),modifier=Modifier.fillMaxWidth())
