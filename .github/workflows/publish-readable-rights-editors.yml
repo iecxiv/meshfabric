@@ -1,0 +1,151 @@
+name: Validate and publish readable rights editors
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-rights-editors.yml]
+permissions:
+  contents: write
+concurrency:
+  group: readable-rights-editors-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded presentation changes and regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          expected={main/'UserMeshEditDialog.kt':'4266b4f668522c8b1f13c83f703a6544c4fd7242',main/'GroupMeshEditDialog.kt':'e731cc4cc3ce466da6df1ace6c6b84b9eb72e635',tests/'UserMeshEditDialogTest.kt':'3dbd7713164b51795a86f33d3b54130fc0ee3f43',tests/'GroupMeshEditDialogTest.kt':'88ad6fc451eb0ddea7538389f524c8708ba4cd65'}
+          for p,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,'Source changed: '+str(p)
+          assert (main/'ProfileReviewIdentity.kt').exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          for kind in ['User','Group']:
+              is_user=kind=='User'
+              target='uid' if is_user else 'gid'
+              collection='s.users' if is_user else 's.listedUserGroups.orEmpty()'
+              p=main/(kind+'MeshEditDialog.kt');s=p.read_text()
+              anchor='    val before=baseline?.getLong("meshadmin")'
+              added='\n    val subject=remember {'+collection+'.singleOrNull {it.optString("_id")=='+target+'}?.let {JSONObject(it.toString())}}\n    val deviceGroup=remember {s.groups.singleOrNull {it.optString("_id")==mid}?.let {JSONObject(it.toString())}}\n    val subjectIdentity=profileReviewIdentity(subject,'+collection+',es)\n    val meshIdentity=profileReviewIdentity(deviceGroup,s.groups,es)\n    val identityReady=subjectIdentity.usable && meshIdentity.usable\n    val displayNames=rememberProfileDisplayNames(s,server)'
+              s=replace(s,anchor,anchor+added)
+              s=replace(s,'val draft=if(bound)','val draft=if(bound && identityReady)')
+              s=replace(s,'val current=bound &&','val current=bound && identityReady &&')
+              assert s.count('enabled=bound &&')==2
+              s=s.replace('enabled=bound &&','enabled=identityReady && bound &&')
+              s=replace(s,'Text(t("Actor: ","Actor: ")+actor,style=MaterialTheme.typography.bodySmall)','Text(t("Actor: ","Actor: ")+displayNames.label(actor,es),style=MaterialTheme.typography.bodySmall)')
+              title='Text(t("Usuario: ","User: ")+uid,style=MaterialTheme.typography.bodySmall)' if is_user else 'Text(t("Grupo de usuarios: ","User group: ")+gid,style=MaterialTheme.typography.bodySmall)'
+              s=replace(s,title,title.replace('+'+target+',','+subjectIdentity.label,'))
+              anchor='            Text(t("Grupo de dispositivos: ","Device group: ")+mid,style=MaterialTheme.typography.bodySmall)'
+              replacement='            Text(t("Grupo de dispositivos: ","Device group: ")+meshIdentity.label,style=MaterialTheme.typography.bodySmall)\n            if(!identityReady) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)'
+              s=replace(s,anchor,replacement)
+              p.write_text(s)
+              p=tests/(kind+'MeshEditDialogTest.kt');s=p.read_text()
+              s=replace(s,'JSONObject().put("_id",'+target+')','JSONObject().put("_id",'+target+').put("name","Destino")')
+              s=replace(s,'JSONObject().put("_id",mid)','JSONObject().put("_id",mid).put("name","Oficina")')
+              prefix='direct-edit-' if is_user else 'group-edit-'
+              list_access='old.users' if is_user else 'requireNotNull(old.listedUserGroups)'
+              field='users' if is_user else 'listedUserGroups'
+              other='user//other' if is_user else 'ugrp//other'
+              extra='''
+              @Test fun readableHeadingsDoNotExposeInternalIds() {Fixture().use {
+                  for(id in listOf(actor,TARGET,mid)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)
+                  compose.onNodeWithText("Destino",substring=true).assertExists()
+                  compose.onNodeWithText("Oficina",substring=true).assertExists()
+              }}
+              @Test fun missingOrIndistinguishableNamesBlockPreparingChanges() {Fixture().use {f->
+                  chooseEdit()
+                  val old=state()
+                  val subject=ACCESS.single()
+                  val missing=JSONObject(subject.toString()).apply {remove("name")}
+                  compose.runOnIdle {f.current.value=old.copy(FIELD=listOf(missing))}
+                  compose.onNodeWithTag("PREFIXprepare").assertIsNotEnabled()
+                  val duplicate=JSONObject(subject.toString()).put("_id","OTHER")
+                  compose.runOnIdle {f.current.value=old.copy(FIELD=ACCESS+duplicate)}
+                  compose.onNodeWithTag("PREFIXprepare").assertIsNotEnabled()
+                  compose.runOnIdle {f.current.value=old}
+                  compose.onNodeWithTag("PREFIXprepare").assertIsEnabled()
+              }}
+              @Test fun ambiguousFrozenReviewCannotReactivateWhenNamesBecomeUniqueAgain() {Fixture().use {f->
+                  chooseEdit()
+                  compose.onNodeWithTag("PREFIXprepare").assertIsEnabled().performClick()
+                  compose.onNodeWithTag("PREFIXconsent").performScrollTo().performClick()
+                  compose.onNodeWithTag("PREFIXsend").assertIsEnabled()
+                  val old=state()
+                  val duplicate=JSONObject(ACCESS.single().toString()).put("_id","OTHER")
+                  compose.runOnIdle {f.current.value=old.copy(FIELD=ACCESS+duplicate)}
+                  compose.onNodeWithTag("PREFIXsend").assertIsNotEnabled()
+                  compose.runOnIdle {f.current.value=old}
+                  compose.onNodeWithTag("PREFIXsend").assertIsNotEnabled()
+                  compose.onNodeWithTag("PREFIXconsent").assertIsNotEnabled()
+              }}
+          '''
+              for old,new in [('TARGET',target),('ACCESS',list_access),('FIELD',field),('PREFIX',prefix),('OTHER',other)]:
+                  extra=extra.replace(old,new)
+              assert s.endswith('}\n')
+              p.write_text(s[:-2]+extra+'}\n')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline mask, identity, authority, session and navigation tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMeshEditDialogTest,iecxiv.meshfabric.ui.management.GroupMeshEditDialogTest,iecxiv.meshfabric.ui.management.UserMeshEditRequestTest,iecxiv.meshfabric.ui.management.UserMeshEditSessionTest,iecxiv.meshfabric.ui.management.GroupMeshEditRequestTest,iecxiv.meshfabric.ui.management.GroupMeshEditSessionTest,iecxiv.meshfabric.ui.management.ReadableAssignmentReviewsTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-rights-editors-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated sources if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshEditDialog.kt app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshEditDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshEditDialogTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshEditDialogTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          tests='app/src/androidTest/java/iecxiv/meshfabric/ui/management/'
+          expected={main+n for n in ['UserMeshEditDialog.kt','GroupMeshEditDialog.kt']}|{tests+n for n in ['UserMeshEditDialogTest.kt','GroupMeshEditDialogTest.kt']}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): readable rights editors with unambiguous target guards'
+          git push origin HEAD:dev
