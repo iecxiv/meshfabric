@@ -95,11 +95,10 @@ if(!permitted) item { ManagementCard { Text(t("Sin permiso para administrar usua
 if(rows.isEmpty() && !state.loading) item { ManagementCard { Text(if(state.ready && !state.readError) t("No hay elementos.","No items.") else t("Listado no disponible.","List unavailable.")) } }
 items(rows,key={ it.optString("_id") }) { row->
 val id=row.optString("_id")
-val name=row.optString("name").ifBlank { if(users) id else t("Grupo sin nombre","Unnamed group") }
+val name=row.optString("name").ifBlank { if(users) t("nombre no disponible","name unavailable") else t("Grupo sin nombre","Unnamed group") }
 ManagementCard {
-if(users) Text(name,style=MaterialTheme.typography.titleSmall) else Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {Icon(Icons.Default.Devices,null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.primary);Text(name,Modifier.weight(1f),style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)}
-if(users) Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-val detail=row.optString(if(users) "email" else "desc")
+if(users) ProfileUserListIdentity(row,state.users) else Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {Icon(Icons.Default.Devices,null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.primary);Text(name,Modifier.weight(1f),style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)}
+val detail=if(users) "" else row.optString("desc")
 if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium,maxLines=3,overflow=TextOverflow.Ellipsis)
 if(users && userIsLocked(row.optLong("siteadmin",0))) Text(t("Bloqueado","Locked"),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelMedium)
 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
