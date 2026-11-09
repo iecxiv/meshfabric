@@ -1,0 +1,151 @@
+name: Validate isolated terminal layout and focus
+on:
+  push:
+    branches: [work/fix-terminal-layout-focus]
+    paths: [.github/workflows/publish-terminal-layout-focus-isolated.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-layout-focus-isolated
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate terminal-only changes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 9e07db7b818d19e944e3a91f0af07eccc54ccc96
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          def checked(path,sha):
+              p=Path(path)
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,path
+              return p,p.read_text()
+          def change(s,a,b):
+              assert s.count(a)==1,a
+              return s.replace(a,b,1)
+          p,s=checked('app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt','2179deb0488da003bca04aab26f59c3deca61be0')
+          s=change(s,'maxOf(36.dp, with(LocalDensity.current) { 24.sp.toDp() } + 8.dp)','maxOf(48.dp, with(LocalDensity.current) { 24.sp.toDp() } + 24.dp)')
+          s=change(s,'.minimumInteractiveComponentSize().height(keyHeight).widthIn(min = 48.dp)','.minimumInteractiveComponentSize().heightIn(min = keyHeight).widthIn(min = 48.dp)')
+          p.write_text(s)
+          p,s=checked('app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalFocusWebViewTest.kt','1284c8213da82fcde743d51cb89a103edc491445')
+          s=change(s,'        lateinit var renderer: TerminalRenderSession','        lateinit var session: TerminalSession\n        lateinit var renderer: TerminalRenderSession')
+          s=change(s,'                val session = TerminalSession("synthetic-focus", MeshCentralClient(), scope)','                session = TerminalSession("synthetic-focus", MeshCentralClient(), scope)')
+          setup=textwrap.dedent('''\
+              scenario.onActivity {
+                  assertFalse("Synthetic session must start disconnected", session.connectionState.value)
+                  assertFalse("Disconnected session must reject focus", renderer.requestTerminalFocus(false))
+                  assertFalse("Disconnected session must reject IME", renderer.requestTerminalFocus(true))
+                  val socket = object : okhttp3.WebSocket {
+                      override fun request() = okhttp3.Request.Builder().url("https://example.invalid/").build()
+                      override fun queueSize(): Long = 0L
+                      override fun send(text: String): Boolean = true
+                      override fun send(bytes: okio.ByteString): Boolean = true
+                      override fun close(code: Int, reason: String?): Boolean = true
+                      override fun cancel() {}
+                  }
+                  session.activeSocket = socket
+                  TerminalSession::class.java.getDeclaredMethod("handleIncomingData", java.lang.Long.TYPE, okhttp3.WebSocket::class.java, String::class.java).apply { isAccessible = true }.invoke(session, 0L, socket, "c")
+                  assertTrue("Synthetic handshake must connect", session.connectionState.value)
+              }
+          ''')
+          setup=textwrap.indent(setup,'            ')
+          anchor='            scenario.onActivity { assertTrue(renderer.requestTerminalFocus(false)) }'
+          s=change(s,anchor,setup+anchor)
+          anchor='            await("Restore failed") { domFocused() && !imeVisible() }'
+          wait=textwrap.indent(textwrap.dedent('''\
+              await("Focused connected renderer did not enable input") { state {
+                  view.hasFocus() && view.hasWindowFocus() && view.onCreateInputConnection(EditorInfo()) != null
+              } }
+          '''),'            ')
+          s=change(s,anchor,anchor+'\n'+wait.rstrip())
+          s=change(s,'scenario.onActivity { dialog?.dismiss(); if (created) renderer.destroy() }','scenario.onActivity { dialog?.dismiss(); if (created) { renderer.destroy(); session.closeSocketOnly() } }')
+          p.write_text(s)
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalFocusWebViewTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==expected
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute unit tests compile instrumentation and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Targeted tests then complete Android Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: |
+            mkdir -p validation
+            bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.terminal.TerminalFocusWebViewTest,iecxiv.meshfabric.ui.terminal.TerminalKeyBarTest --no-daemon --stacktrace
+            cp -r app/build/outputs/androidTest-results validation/targeted-results
+            bash ./gradlew :app:connectedDebugAndroidTest --rerun-tasks --no-daemon --stacktrace
+      - name: Print precise failures and preserve diff
+        if: always()
+        run: |
+          mkdir -p validation
+          git diff > validation/terminal-only.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          lines=[]
+          for directory in ['app/build/outputs/androidTest-results','app/build/test-results','validation/targeted-results']:
+              for report in Path(directory).rglob('*.xml'):
+                  try: root=ET.parse(report).getroot()
+                  except ET.ParseError: continue
+                  for case in root.iter('testcase'):
+                      for kind in ['failure','error']:
+                          for error in case.findall(kind):
+                              lines.append(str(report)+'\n'+case.get('classname','')+'.'+case.get('name','')+'\n'+error.get('message','')+'\n'+(error.text or ''))
+          text='\n\n'.join(lines)
+          Path('validation/failures.txt').write_text(text)
+          print(text)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-terminal-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only to unchanged terminal branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/fix-terminal-layout-focus
+          git fetch origin work/fix-terminal-layout-focus
+          test "$(git rev-parse origin/work/fix-terminal-layout-focus)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalFocusWebViewTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==expected
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(terminal): adaptive key height and connected focus test sequence'
+          git push origin HEAD:work/fix-terminal-layout-focus
