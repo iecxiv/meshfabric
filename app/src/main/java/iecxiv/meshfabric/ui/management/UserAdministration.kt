@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -188,8 +190,8 @@ ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(for
 }
 }
 if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
-TextButton(enabled=allowed,onClick={ advanced=true }) { Text(t("Permisos, características y consentimiento","Permissions, features and consent")) }
-TextButton(onClick=session::loadDetails,enabled=!s.detailsBusy) { Text(t("Actualizar ficha","Refresh details")) }
+ProfileGroupActionButton(t("Permisos, características y consentimiento","Permissions, features and consent"),Icons.Default.Security,allowed,onClick={ advanced=true })
+ProfileGroupActionButton(t("Actualizar ficha","Refresh details"),Icons.Default.Refresh,!s.detailsBusy,onClick=session::loadDetails)
 ProfileDisclosure(t("Accesos directos a grupos de dispositivos","Direct device-group access")) {
 TextButton(enabled=contactReady && !s.detailsBusy,onClick={directGrant=true;session.refresh()}) {Text(t("Conceder acceso directo","Grant direct access"))}
 Text(t("Solo enlaces directos recibidos. No representa todos los permisos efectivos ni los accesos heredados.","Received direct links only. This does not represent all effective rights or inherited access."),style=MaterialTheme.typography.bodySmall)
@@ -213,11 +215,10 @@ ProfileDisclosure(t("Grupos de usuarios recibidos","Received user groups")) {
 Text(t("Enlaces encontrados en la cuenta o en grupos recibidos. No son los reinos administrativos ni un cálculo de permisos efectivos.","Links found in the account or received groups. These are not administrative realms or a calculation of effective rights."),style=MaterialTheme.typography.bodySmall)
 val membershipIds=profileUserMembershipGroupIds(s,user)
 if(membershipIds==null) Text(t("Datos de membresía no disponibles.","Membership data unavailable.")) else if(membershipIds.isEmpty()) Text(t("No se han recibido enlaces de membresía.","No membership links received.")) else for(gid in membershipIds) {
-val received=profileReceivedUserGroup(s,gid)
+val membershipPresentation=profileReceivedLinkPresentation(s,user,gid,es)
 ManagementCard {
-Text(received?.optString("name").orEmpty().ifBlank {gid},style=MaterialTheme.typography.titleSmall)
-Text(gid,style=MaterialTheme.typography.bodySmall)
-if(onOpenUserGroup!=null && canOpenUserGroup(gid)) TextButton(onClick={onOpenUserGroup(gid)}) {Text(t("Abrir grupo de usuarios","Open user group"))} else Text(t("Ficha no recibida o temporalmente no disponible.","Entry not received or temporarily unavailable."),style=MaterialTheme.typography.bodySmall)
+Text(membershipPresentation.label,style=MaterialTheme.typography.titleSmall)
+if(membershipPresentation.usable && onOpenUserGroup!=null && canOpenUserGroup(gid)) TextButton(onClick={onOpenUserGroup(gid)}) {Text(t("Abrir grupo de usuarios","Open user group"))} else Text(t("Ficha no recibida, ambigua o temporalmente no disponible.","Entry not received, ambiguous or temporarily unavailable."),style=MaterialTheme.typography.bodySmall)
 }
 }
 TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy && s.userGroupPhase!="loading",onClick={session.refresh();session.loadDetails();session.loadUserGroupDirectory()}) {Text(t("Actualizar membresías recibidas","Refresh received memberships"))}
@@ -226,14 +227,19 @@ ProfileDisclosure(t("Dispositivos en común","Devices in common")) {
 if(s.nodes==null || s.userGroups==null) Text(missing) else {
 val common=s.nodes.filter { userAccess(s,user,it.optString("_id"),it.optString("meshid"))!=0L }
 if(common.isEmpty()) Text(t("No se observan dispositivos en común en los datos disponibles.","No common devices observed in available data."))
-for(node in common.take(100)) ManagementCard { ManagementInfoRow(node.optString("name"),node.optString("_id"));if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))} }
+for(node in common.take(100)) ManagementCard {
+val nodePresentation=profileReceivedLinkPresentation(s,user,node.optString("_id"),es)
+val groupLabel=if(node.optString("meshid").isNotBlank()) profileReceivedLinkPresentation(s,user,node.optString("meshid"),es).label else t("Grupo no disponible","Group unavailable")
+ManagementInfoRow(nodePresentation.label,groupLabel)
+if(nodePresentation.usable && onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}
+}
 if(common.size>100) Text(t("Se muestran los primeros 100 dispositivos.","Showing the first 100 devices."))
 }
 }
 ProfileDisclosure(t("Acciones y seguridad","Actions and security")) {
-TextButton(enabled=s.canWrite,onClick={ mode="device"; approved=false; session.loadDetails() }) { Text(t("Agregar dispositivo","Add device")) }
-TextButton(enabled=s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" }) { Text(t("Cambiar contraseña","Change password")) }
-TextButton(onClick={ mode="history"; if(!session.previousLogins(form.id)) feedback=t("No se pudo solicitar el historial.","Could not request history.") }) { Text(t("Inicios de sesión anteriores","Previous logins")) }
+ProfileGroupActionButton(t("Agregar dispositivo","Add device"),Icons.Default.Computer,s.canWrite,onClick={ mode="device"; approved=false; session.loadDetails() })
+ProfileGroupActionButton(t("Cambiar contraseña","Change password"),Icons.Default.Lock,s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" })
+ProfileGroupActionButton(t("Inicios de sesión anteriores","Previous logins"),Icons.Default.History,true,onClick={ mode="history"; if(!session.previousLogins(form.id)) feedback=t("No se pudo solicitar el historial.","Could not request history.") })
 }
 }
 }
