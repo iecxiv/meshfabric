@@ -16,7 +16,7 @@ val user:JSONObject?=null,val users:List<JSONObject> = emptyList(),val groups:Li
 val notice:String="disconnected",val readError:Boolean=false,val server:JSONObject?=null,
 val nodes:List<JSONObject>?=null,val userGroups:List<JSONObject>?=null,val sessions:JSONObject?=null,
 val detailsBusy:Boolean=false,val historyUser:String="",val history:JSONArray?=null,val historyBusy:Boolean=false,val historyFailed:Boolean=false,
-val listedUserGroups:List<JSONObject>?=null,val userGroupPhase:String="idle",val createdUserGroup:String="",val deletedUserGroup:String="",val removedMember:String="",val removedMemberGroup:String="",val addedMember:String="",val addedMemberGroup:String="",val revokedGroup:String="",val revokedDeviceGroup:String="",val grantedGroup:String="",val grantedDeviceGroup:String="",val revokedDirectUser:String="",val revokedDirectMesh:String="",val grantedDirectUser:String="",val grantedDirectMesh:String="",val editedDirectUser:String="",val editedDirectMesh:String="",val editedGroup:String="",val editedDeviceGroup:String=""
+val listedUserGroups:List<JSONObject>?=null,val userGroupPhase:String="idle",val createdUserGroup:String="",val deletedUserGroup:String="",val removedMember:String="",val removedMemberGroup:String="",val addedMember:String="",val addedMemberGroup:String="",val revokedGroup:String="",val revokedDeviceGroup:String="",val grantedGroup:String="",val grantedDeviceGroup:String="",val revokedDirectUser:String="",val revokedDirectMesh:String="",val grantedDirectUser:String="",val grantedDirectMesh:String="",val editedDirectUser:String="",val editedDirectMesh:String="",val editedGroup:String="",val editedDeviceGroup:String="",val advancedEditedDeviceGroup:String=""
 ) {
 val site:Long get()=user?.optLong("siteadmin",0L) ?: 0L
 val id:String get()=user?.optString("_id").orEmpty()
@@ -52,6 +52,26 @@ private fun directMeshRevocation()=profileUserMeshRevokeChannel(pendingAction,ex
 private fun directMeshGrant()=profileUserMeshGrantChannel(pendingAction,expected.optBoolean("directGrant"))
 private fun directMeshEdit()=pendingAction=="addmeshuser" && expected.optBoolean("directEdit")
 private fun groupMeshEdit()=pendingAction=="addmeshuser" && expected.optBoolean("groupEdit")
+private fun advancedOperation()=pendingAction=="editmesh" && expected.optBoolean("advancedOperation")
+private fun advancedAuthority():Boolean=runCatching {
+val s=state.value;val p=expected.getJSONObject("advancedRequest")
+require(valid() && s.ready && s.id==p.getString("_advancedActor") && broadcastServerLabel()==p.getString("_advancedServer"))
+require(deviceGroupAdvancedContext(s)==p.getString("_advancedContext"))
+val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==p.getString("meshid")})
+require(deviceGroupAdvancedValue(mesh,"mtype")==JSONObject(p.getString("_advancedBefore")).getLong("mtype"))
+val raw=mesh.optJSONObject("links")?.optJSONObject(s.id)?.opt("rights")
+val rights=if(raw is Number) userAdvancedMask(raw) else 0L
+ProfilePermissions.editGroup(userAdvancedMask(s.user?.opt("siteadmin")),rights)
+}.getOrDefault(false)
+private fun observeAdvancedSettings() {
+if(!advancedOperation()) return
+if(!advancedAuthority()) {stop();return}
+val p=expected.getJSONObject("advancedRequest");val ack=expected.optBoolean("advancedAck");val read=expected.optBoolean("advancedMeshRead")
+val snapshot=state.value.copy(groups=listOfNotNull(expected.optJSONObject("advancedMeshRecord")))
+if(!deviceGroupAdvancedReadbackReady(snapshot,p,ack,read) || !deviceGroupAdvancedReadbackReady(state.value,p,ack,read)) return
+state.update {it.copy(advancedEditedDeviceGroup=p.getString("meshid"))}
+finish("deviceGroupAdvancedObserved",false);source.requestServerData()
+}
 private fun directMeshOperation()=directMeshRevocation() || directMeshGrant() || directMeshEdit()
 private fun valid()=!source.isUserLogout && source.connectionState.value && binding==Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
 private fun send(action:String,fields:JSONObject=JSONObject()):Boolean=socket?.send(JSONObject(fields.toString()).put("action",action).toString())==true
@@ -91,7 +111,19 @@ state.value=ProfileState(notice=if(uncertain) "unknown" else reason)
 }
 @Synchronized fun close() { closed=true; stop(); scope.cancel() }
 @Synchronized fun refresh() { if(state.value.ready && !state.value.busy && valid()) { send("userinfo"); loadLists() } }
+private fun finishAdvancedUnknown() {
+readTimer?.cancel();reads.clear();listTags.clear()
+finish("unknown",false)
+state.update {it.copy(loading=false,readError=true)}
+}
+private fun expireListReads(epoch:Long) {
+if(epoch!=generation || reads.isEmpty()) return
+if(advancedOperation()) {finishAdvancedUnknown();return}
+reads.clear();listTags.clear()
+state.update {it.copy(loading=false,readError=true,notice="readFailed")}
+}
 private fun loadLists() {
+if(advancedOperation() && expected.optBoolean("advancedAck")) {expected.put("advancedMeshRead",false);expected.remove("advancedMeshRecord")}
 if(directMeshOperation() && expected.optBoolean("directAck")) expected.put("directUserRead",false).put("directMeshRead",false)
 if((pendingAction in setOf("removemeshuser","addmeshuser") && !directMeshOperation()) && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",false)
 reads.clear(); listTags.clear(); reads.add("meshes")
@@ -104,7 +136,7 @@ if(!send(action,JSONObject().put("tag",tag).put("responseid",tag))) {stop();retu
 }
 val epoch=generation
 readTimer?.cancel(); readTimer=scope.launch { delay(20_000); synchronized(this@ProfileSession) {
-if(epoch==generation && reads.isNotEmpty()) { reads.clear(); listTags.clear(); state.update { it.copy(loading=false,readError=true,notice="readFailed") } }
+expireListReads(epoch)
 } }
 }
 @Synchronized fun loadDetails() { loadDetailReads(false) }
@@ -227,7 +259,7 @@ return
 when(action) {
 "ping"->{ send("pong"); return }
 "close","stopped"->{ stop(); return }
-"serverinfo"->{ state.update { it.copy(server=JSONObject((p.optJSONObject("serverinfo") ?: p).toString())) }; return }
+"serverinfo"->{ state.update { it.copy(server=JSONObject((p.optJSONObject("serverinfo") ?: p).toString())) }; if(advancedOperation() && !advancedAuthority()) stop(); return }
 "userinfo"->{
 val u=p.optJSONObject("userinfo") ?: return
 if(u.optString("_id").isBlank()) return
@@ -236,6 +268,7 @@ val first=!state.value.ready
 directoryTimer?.cancel();directoryId=""
 state.update { it.copy(ready=true,user=JSONObject(u.toString()),listedUserGroups=null,userGroupPhase="idle",notice=if(first) "ready" else it.notice) }
 if(first) { timer?.cancel(); loadLists() }
+if(advancedOperation()) {if(!advancedAuthority()) {stop();return};if(expected.optBoolean("advancedAck")) loadLists()}
 if(directMeshOperation()) {if(!ProfilePermissions.manageUsers(state.value.site)) {stop();return};if(expected.optBoolean("directAck")) loadLists()}
 if(!directMeshOperation() && pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup","removemeshuser","addmeshuser")) {if(!profileUserGroupEditRole(state.value.site)) {stop();return};if(pendingAction=="editusergroup" || (pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck"))) requestUserGroupDirectory(true)}
 if((pendingAction in setOf("removemeshuser","addmeshuser") && !directMeshOperation()) && expected.optBoolean("meshAck")) {loadLists();requestUserGroupDirectory(true)}
@@ -253,6 +286,11 @@ val list=if(replyError) null else records(p.opt(action)); reads.remove(action);l
 if(directMeshOperation() && expected.optBoolean("directAck")) expected.put(if(action=="users") "directUserRead" else "directMeshRead",list!=null && profileUserGroupMemberReadValid(p))
 if(action=="meshes" && (pendingAction in setOf("removemeshuser","addmeshuser") && !directMeshOperation()) && expected.optBoolean("meshAck")) expected.put("meshDeviceRead",list!=null && profileUserGroupMemberReadValid(p))
 if(action=="meshes" && groupMeshEdit() && expected.optBoolean("meshAck")) {val record=list?.singleOrNull {it.optString("_id")==expected.optString("meshTarget")};expected.put("editDeviceRecord",record?.let {JSONObject(it.toString())})}
+if(action=="meshes" && advancedOperation() && expected.optBoolean("advancedAck")) {
+expected.put("advancedMeshRead",list!=null && profileUserGroupMemberReadValid(p))
+val record=list?.singleOrNull {it.optString("_id")==pendingTarget}
+expected.put("advancedMeshRecord",record?.let {JSONObject(it.toString())})
+}
 if((directMeshGrant() || directMeshEdit()) && expected.optBoolean("directAck")) {
 val id=expected.optString(if(action=="users") "directUser" else "directTarget")
 val record=list?.singleOrNull {it.optString("_id")==id}
@@ -260,6 +298,7 @@ expected.put(if(action=="users") "grantUserRecord" else "grantMeshRecord",record
 }
 state.update { if(list==null) it.copy(loading=reads.isNotEmpty(),readError=true,notice="readFailed") else if(action=="users") it.copy(users=list,loading=reads.isNotEmpty()) else it.copy(groups=list,loading=reads.isNotEmpty()) }
 if(reads.isEmpty()) readTimer?.cancel()
+if(advancedOperation()) observeAdvancedSettings()
 if(directMeshRevocation()) observeUserMeshRevocation()
 if(directMeshGrant()) observeUserMeshGrant()
 if(directMeshEdit()) observeUserMeshEdit()
@@ -305,6 +344,13 @@ if(e.optString("action")=="wssessioncount" && e.opt("count") is Number && e.optL
 }
 }
 if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {
+if(advancedOperation()) {
+if(!advancedAuthority()) {stop();return}
+if(deviceGroupAdvancedAck(p,pendingId)) {expected.put("advancedAck",true);loadLists()}
+else if(p.has("error") || p.has("err") || (p.has("result") && !p.optString("result").equals("ok",true))) finish("rejected",false)
+return
+}
+
 if(groupMeshEdit()) {
 if(profileGroupMeshEditAck(p,pendingId)) {expected.put("meshAck",true).put("meshGroupRead",false).put("meshDeviceRead",false);loadLists();requestUserGroupDirectory(true)}
 else if(profileGroupMeshGrantReplyRejected(p)) finish("rejected",false)
@@ -350,6 +396,19 @@ else if(ok && action=="userbroadcast") finish("broadcastAccepted",false)
 else if(ok && action in setOf("edituser","adddeviceuser","changeuserpass")) { if(action=="edituser") loadLists() else if(action=="adddeviceuser") loadDetails() }
 else if(ok) finish("confirmed")
 }
+}
+@Synchronized fun submitDeviceGroupAdvanced(input:JSONObject):Boolean {
+val p=runCatching {JSONObject(input.toString())}.getOrNull() ?: return false
+val s=state.value
+if(!valid() || !deviceGroupAdvancedAllowed(s,p,broadcastServerLabel())) return false
+val payload=deviceGroupAdvancedWire(p)
+pendingId=UUID.randomUUID().toString();pendingAction="editmesh";pendingTarget=p.getString("meshid");pendingNode=""
+expected=JSONObject().put("advancedOperation",true).put("advancedRequest",p).put("advancedAck",false).put("advancedMeshRead",false)
+val request=pendingId;val epoch=generation
+state.update {it.copy(busy=true,notice="pending",advancedEditedDeviceGroup="")}
+timer?.cancel();timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingId==request) finishAdvancedUnknown()}}
+if(!send("editmesh",payload.put("responseid",request))) {stop();return false}
+return true
 }
 @Synchronized fun submitUserMeshGrant(p:JSONObject):Boolean {
 val s=state.value
@@ -407,6 +466,7 @@ timer?.cancel();timer=scope.launch {delay(20_000);synchronized(this@ProfileSessi
 return true
 }
 @Synchronized fun submit(p:JSONObject):Boolean {
+if(p.keys().asSequence().any {it.startsWith("_advanced")} || (p.optString("action")=="editmesh" && DEVICE_GROUP_ADVANCED_FIELDS.any { p.has(it) })) return false
 val s=state.value
 if(!s.canWrite || !valid()) return false
 val action=p.optString("action")
