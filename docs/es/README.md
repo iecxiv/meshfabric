@@ -21,3 +21,9 @@
 - [Navegación por unidades Windows](windows-file-drives.md)
 
 Estas guías incluyen notas históricas de implementación. Sus referencias a fases, commits, versiones y trabajo pendiente se conservan del documento original y deben interpretarse en ese contexto. Los inventarios técnicos CSV/JSON no se han traducido.
+
+## Gestión y cuenta — 1.3.1
+
+- [Gestión](profile.md)
+- [Mi cuenta y seguridad](profile-native.md)
+- [Administración de usuarios, grupos y accesos](profile-user-administration.md)

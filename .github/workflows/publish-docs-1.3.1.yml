@@ -1,0 +1,298 @@
+name: Update and verify 1.3.1 documentation only
+on:
+  push:
+    branches: [work/docs-1.3.1]
+    paths: [.github/workflows/publish-docs-1.3.1.yml]
+permissions:
+  contents: write
+concurrency:
+  group: docs-1.3.1
+  cancel-in-progress: false
+jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Update only guarded documentation
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = ec8354ee5afdc0af91cbfbee6be6f4e19015c821
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,re,subprocess
+          guards={'README.md':'8108abf67f4ea869fb4ef317dd510d3a9a128b6c','README_ES.md':'071ba459f576efaf61998b60c5555f9bbc31cb84','docs/profile.md':'c0be2e4e2446931cbb91196e4c6f295e5049f6b8','docs/profile-native.md':'4d3e45cb1c7b7415b813dbc1da49e84a0b8b8caf','docs/profile-user-administration.md':'f78e3b8e58a53581bf56258fad462b225aec2fd8','docs/es/README.md':'d9ee7ece4246e2a9e978f0010e40830e44c04824'}
+          for name,sha in guards.items():
+              assert subprocess.check_output(['git','hash-object',name],text=True).strip()==sha,name
+          def replace(s,a,b):
+              assert s.count(a)==1,a
+              return s.replace(a,b,1)
+          additions={
+          'README.md':'''### Native management and account security (1.3.1)
+
+          - Management provides My Account, Device Groups, Users and Groups (user groups) tabs.
+          - Manage users, user groups, individual memberships and device-group access, subject to server permissions.
+          - Review access grants, rights changes and removals before separate confirmation; direct and inherited access are distinguished.
+          - Manage your password, authenticator, existing security keys, backup codes, login history and login tokens natively.
+          - Your own user details provide separate password and MFA actions. Password opens its My Account dialog directly; MFA opens a choice of account-security options. Messaging, lock/unlock and administrative deletion are hidden for your own account.
+          - Send reviewed Broadcast or individual notifications; server acceptance does not guarantee delivery or reading.
+          - Use a session notice inbox, optional Android background alerts and notification preferences synchronized with the server web settings.
+          - Native FIDO2 sign-in and new security-key registration remain pending. Existing keys can be listed and removed.
+
+          Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
+
+          ''',
+          'README_ES.md':'''### Gestión nativa y seguridad de cuenta (1.3.1)
+
+          - Gestión ofrece Mi cuenta, Grupos de dispositivos, Usuarios y Grupos (de usuarios).
+          - Administra usuarios, grupos de usuarios, membresías individuales y accesos a grupos de dispositivos según los permisos del servidor.
+          - Revisa concesiones, cambios de derechos y retiradas antes de confirmarlos por separado; se distinguen accesos directos y heredados.
+          - Gestiona de forma nativa contraseña, autenticador, claves de seguridad existentes, códigos de respaldo, historial de accesos y tokens.
+          - Tu propia ficha ofrece dos acciones de contraseña y MFA. Contraseña abre directamente su diálogo de Mi cuenta; MFA abre un selector de opciones. Mensajes, bloqueo/desbloqueo y eliminación administrativa se ocultan para tu propia cuenta.
+          - Envía Broadcast o notificaciones individuales con revisión; la aceptación del servidor no garantiza entrega ni lectura.
+          - Utiliza la bandeja de avisos de la sesión, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web del servidor.
+          - El inicio de sesión FIDO2 nativo y el alta de nuevas claves siguen pendientes. Las claves existentes se pueden consultar y eliminar.
+
+          Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
+
+          '''}
+          for name,section in additions.items():
+              p=Path(name);s=p.read_text()
+              if name=='README.md':
+                  s=replace(s,'- Switch between Devices and Activity using the bottom navigation bar.','- Use the bottom navigation bar for Management, Server, Devices, Activity and Notices.')
+                  s=replace(s,'### Remote desktop\n',section+'### Remote desktop\n')
+                  s=replace(s,'- User administration, user-group administration, and permission-management screens.\n','')
+                  s=replace(s,'- YubiKey integration.','- Native FIDO2/YubiKey sign-in and registration of new security keys; listing and removing existing keys are available.')
+                  s=replace(s,'- Advanced hardware/software inventory.','- Broader hardware/software inventory coverage beyond the implemented device-details view.')
+              else:
+                  s=replace(s,'- Navegación inferior entre Dispositivos y Actividad.','- Navegación inferior entre Gestión, Servidor, Dispositivos, Actividad y Avisos.')
+                  s=replace(s,'### Escritorio remoto\n',section+'### Escritorio remoto\n')
+                  s=replace(s,'- Administración de usuarios, grupos de usuarios y permisos.\n','')
+                  s=replace(s,'- Integración con YubiKey.','- Inicio de sesión FIDO2/YubiKey nativo y alta de nuevas claves; la consulta y eliminación de claves existentes están disponibles.')
+                  s=replace(s,'- Inventario avanzado de hardware/software.','- Mayor cobertura de inventario de hardware/software más allá de la ficha de dispositivo implementada.')
+                  s=replace(s,'Consulta las [17 guías en español](docs/es/README.md).','Consulta el [índice de guías en español](docs/es/README.md).')
+              p.write_text(s)
+          docs={
+          'docs/profile.md':'''# Management — MeshFabric 1.3.1
+
+          [Español](es/profile.md) | [Project README](../README.md)
+
+          Management replaces the former Profile label. Its four tabs are My Account, Device Groups, Users and Groups (user groups). Device groups and user groups are different entities.
+
+          ## Available functionality
+
+          - Native account-security and preference controls: see [My Account](profile-native.md).
+          - Native users, user groups, memberships and device-group access: see [User and access administration](profile-user-administration.md).
+          - Device-group details include summary, devices and received access. Advanced settings cover supported flags, consent and inactivity expiry.
+          - User details link to received memberships, common device groups and visible devices. Navigation uses exact internal identifiers and available records, not names alone. Returning restores a valid originating view when possible.
+          - Connection indicators and outer spacing are consistent across the four Management and four Server tabs. Each indicator reports its own channel; it is not a statement that every channel is connected.
+
+          ## Safety and scope
+
+          Server permissions and policy remain authoritative. Missing records or failed reads mean unavailable data, not an empty inventory or proof of deletion. Common-access views are based on received visible data, not a complete effective-permission calculation.
+
+          Sensitive access changes use reviewed data and separate confirmation. Changed identity, permissions, data or connection can invalidate the review. Unknown outcomes are not success and writes are not automatically retried. Reads and writes are not atomic; concurrent administrator changes remain possible.
+
+          Native FIDO2 sign-in and new security-key registration remain pending. Listing/removing existing keys is available. Automated checks do not replace live-server and physical-device validation of every operation.
+          ''',
+          'docs/profile-native.md':'''# My Account — MeshFabric 1.3.1
+
+          [Español](es/profile-native.md) | [Management](profile.md)
+
+          My Account uses native controls rather than the old browser shortcuts. A private authenticated account channel remains separate from other application channels.
+
+          ## Security and account actions
+
+          - Change your password using the existing account dialog and current-password checks.
+          - Enrol a TOTP authenticator using a manual key and six-digit code, or explicitly confirm its removal.
+          - List and remove previously registered security keys. Native FIDO2 sign-in and registration of new keys are not implemented; there is no automatic browser fallback for registration.
+          - View, regenerate or clear backup codes with the corresponding visibility and confirmation controls. Structured code replies preserve reported usage state.
+          - View server-recorded web-login history; it may not contain app sign-ins.
+          - Create/list login tokens and revoke an individual token with confirmation.
+          - Change server-account language and local date/time presentation preferences.
+
+          Your own entry under Users has two shortcuts: Change password opens the password dialog directly after navigating to My Account; Manage MFA opens a selector for authenticator, existing keys and backup codes. Opening a shortcut does not change credentials or reset MFA. Navigation waits for readiness, consumes a request once and rejects a mismatched actor or server.
+
+          ## Notifications
+
+          Notification options are synchronized with the account's server web state, preserving unrelated settings and unknown bits. Saving is blocked when the required state is unavailable. Server-account language is distinct from Android application language.
+
+          The session inbox and optional Android alerts support received notices, including configured connectivity and AMT notifications. Reception, Android permission, channel settings and server policy remain separate. Delivery with a stopped process is not guaranteed; sound and group-name preferences affect presentation rather than defining additional notice types.
+
+          ## Operational limits
+
+          Requests are single-flight and are not automatically retried. Confirmation depends on each action's acknowledgement or readback; legacy replies are not all transactionally correlated. Password changes distinguish known success and rejection notifications. Account deletion requires explicit confirmation over HTTPS; an HTTP redirect is not proof of deletion. An ambiguous deletion attempt requires checking the account and signing out as instructed.
+
+          Secrets and drafts are not deliberately persisted or logged by these dialogs. Copying is explicit and marks clipboard data sensitive; this is not clipboard encryption. Security dialogs request secure-window handling. Lifecycle changes close or pause the channel. Test results do not establish that every account mutation has been verified on a live server.
+          ''',
+          'docs/profile-user-administration.md':'''# User and access administration — MeshFabric 1.3.1
+
+          [Español](es/profile-user-administration.md) | [Management](profile.md)
+
+          ## Users
+
+          User administration requires server-granted authority and stays within the current domain. Creation follows the identity mode announced by the server: username and email are separate when userNameIsEmail is false; email is the login identifier when true. An existing username account does not determine the mode for newly created accounts. The current creation form requires a valid email and matching repeated passwords in both modes.
+
+          Edit email and real name; edit phone or administrative email-verification status only when the server conditions permit. Marking an email verified is an administrative state change, not proof of mailbox ownership or a verification-message send.
+
+          Advanced controls cover supported server rights, restrictions, features, consent, quota and administrative realms. Unknown/protected rights and full-administrator masks remain guarded. Administrative realms are not user-group memberships. Lock/unlock preserves other rights. User deletion requires the exact account name, review and separate confirmation.
+
+          For your own account, messaging, lock/unlock and administrative deletion are hidden. Two separate password and MFA actions lead to native My Account controls. Other users retain their existing administrative controls, including password change preserving MFA, explicit MFA reset and reviewed individual notification. Visibility does not replace internal permission checks.
+
+          ## Groups and access
+
+          - Create, rename, describe and delete supported user groups; external-group restrictions remain enforced.
+          - Add or remove one eligible member at a time. Member addition retains the conservative identifier and known-link checks.
+          - Create, review, edit and remove supported assignments between user groups and device groups.
+          - Grant access to existing visible devices; this does not install an agent.
+          - Grant, review, edit and remove direct user access to device groups without treating it as inherited access.
+          - Device-group advanced settings include supported flags, mandatory consent and inactivity expiry from 0 to 2000 days. Zero removes a group-specific expiry override; it does not guarantee that global automatic removal is disabled.
+
+          Permissions and restrictions are distinct. Initial grants do not invent dependencies or unknown bits. Existing-rights edits preserve protected and unknown bits and reject unsupported full-administrator edits. Removing one membership or assignment does not prove the user lost every effective access path.
+
+          ## Messages, results and validation
+
+          Broadcast and individual notifications have different scopes and reviewed confirmation. They do not provide guaranteed delivery/read receipts or automatic retries.
+
+          Received names and context are preferred over visible internal IDs. Ambiguous or incomplete targets cannot authorize sensitive operations. Correlated replies and required readbacks distinguish acknowledged/observed results from unconfirmed outcomes. Concurrent changes can still occur between preflight reads and submission.
+
+          Unit and Android/Compose regressions cover policies, UI state, identity changes, navigation and readbacks. Compiling tests is not executing them; passing automation does not validate every live-server mutation or every physical-device layout.
+          ''',
+          'docs/es/profile.md':'''# Gestión — MeshFabric 1.3.1
+
+          [English](../profile.md) | [README](../../README_ES.md)
+
+          Gestión sustituye la etiqueta Perfil. Sus cuatro pestañas son Mi cuenta, Grupos de dispositivos, Usuarios y Grupos (de usuarios). Los dos tipos de grupo son entidades distintas.
+
+          ## Funciones disponibles
+
+          - Controles nativos de seguridad y preferencias: [Mi cuenta](profile-native.md).
+          - Usuarios, grupos, membresías y accesos: [Administración de usuarios y accesos](profile-user-administration.md).
+          - Fichas de grupos de dispositivos con resumen, dispositivos y accesos recibidos; ajustes avanzados de características, consentimiento y caducidad.
+          - Enlaces desde usuarios a membresías, grupos y dispositivos visibles. La navegación utiliza identificadores internos exactos y fichas disponibles, no solo nombres. Se recupera el origen cuando sigue siendo válido.
+          - Indicadores de conexión y espaciado exterior coherentes en las cuatro pestañas de Gestión y las cuatro de Servidor. Cada indicador describe su propio canal, no todas las conexiones de la aplicación.
+
+          ## Seguridad y alcance
+
+          El servidor conserva la autoridad sobre permisos y políticas. Datos ausentes o lecturas fallidas significan información no disponible, no inventario vacío ni prueba de eliminación. Los accesos comunes proceden de datos visibles recibidos, no de un cálculo completo de permisos efectivos.
+
+          Los cambios sensibles de acceso separan revisión y confirmación. Cambios de identidad, datos, permisos o conexión pueden invalidar la revisión. Un resultado desconocido no es éxito y no se reenvía automáticamente. Consultas y escrituras no son atómicas: siguen siendo posibles modificaciones concurrentes.
+
+          El inicio de sesión FIDO2 nativo y el alta de claves nuevas siguen pendientes; las claves existentes se pueden consultar y eliminar. Las pruebas automatizadas no sustituyen la validación de cada operación en un servidor y dispositivo reales.
+          ''',
+          'docs/es/profile-native.md':'''# Mi cuenta — MeshFabric 1.3.1
+
+          [English](../profile-native.md) | [Gestión](profile.md)
+
+          Mi cuenta utiliza controles nativos en lugar de los antiguos accesos al navegador. Su canal autenticado privado es independiente de los demás canales de la aplicación.
+
+          ## Seguridad y acciones
+
+          - Cambio de contraseña mediante el diálogo existente y comprobación de contraseña actual.
+          - Alta de autenticador TOTP con clave manual y código de seis dígitos; desactivación con confirmación explícita.
+          - Consulta y eliminación de claves de seguridad registradas. El inicio de sesión FIDO2 nativo y el alta de claves nuevas no están implementados; no se abre automáticamente un navegador como alternativa de alta.
+          - Consulta, regeneración y borrado de códigos de respaldo con controles de visibilidad y confirmación. Las respuestas estructuradas conservan el estado de uso informado.
+          - Historial web registrado por el servidor; puede no incluir accesos de la aplicación.
+          - Creación y consulta de tokens de inicio de sesión, con revocación individual confirmada.
+          - Idioma de la cuenta del servidor y preferencias locales de fecha y hora.
+
+          Tu propia ficha de Usuarios ofrece dos acciones: Cambiar contraseña abre directamente su diálogo después de navegar a Mi cuenta; Gestionar MFA abre un selector de autenticador, claves existentes y códigos de respaldo. Abrirlos no cambia credenciales ni restablece MFA. La navegación espera a que el canal esté preparado, consume la petición una sola vez y rechaza actor o servidor distintos.
+
+          ## Notificaciones
+
+          Las preferencias se sincronizan con el estado web de la cuenta, conservando ajustes ajenos y bits desconocidos. Guardar se bloquea si falta ese estado. El idioma de la cuenta del servidor es distinto del idioma Android de la aplicación.
+
+          La bandeja de sesión y las alertas Android opcionales muestran avisos recibidos, incluidos los eventos de conectividad y AMT configurados. Recepción, permiso Android, configuración del canal y políticas del servidor son independientes. No se garantiza entrega con el proceso detenido. Sonido y nombre del grupo son preferencias de presentación, no tipos adicionales de aviso.
+
+          ## Límites operativos
+
+          Las solicitudes se procesan de una en una y no se reintentan automáticamente. Cada acción exige su acuse o relectura; no todas las respuestas antiguas están correlacionadas transaccionalmente. El cambio de contraseña distingue notificaciones conocidas de éxito y rechazo. El borrado de cuenta exige confirmación y HTTPS: una redirección no demuestra eliminación. Un intento ambiguo requiere comprobar la cuenta y cerrar sesión según las indicaciones.
+
+          Estos diálogos no guardan ni registran deliberadamente secretos o borradores. La copia es explícita y marca el portapapeles como sensible; no lo cifra. Los diálogos de seguridad solicitan protección de ventana. El ciclo de vida pausa o cierra el canal. Las pruebas no demuestran que todas las modificaciones de cuenta se hayan verificado contra un servidor real.
+          ''',
+          'docs/es/profile-user-administration.md':'''# Administración de usuarios y accesos — MeshFabric 1.3.1
+
+          [English](../profile-user-administration.md) | [Gestión](profile.md)
+
+          ## Usuarios
+
+          La administración exige autoridad del servidor y permanece en el dominio actual. El alta sigue el modo de identidad anunciado: con userNameIsEmail=false, nombre de usuario y correo son campos separados; con true, el correo es el identificador de acceso. Una cuenta antigua no determina el modo de las nuevas. El formulario actual exige correo válido y contraseñas repetidas coincidentes en ambos modos.
+
+          Se editan correo y nombre real; teléfono y estado administrativo de verificación del correo solo aparecen cuando las condiciones del servidor lo permiten. Marcar un correo verificado no demuestra propiedad del buzón ni envía un mensaje de verificación.
+
+          Los ajustes avanzados incluyen permisos del servidor, restricciones, características, consentimiento, cuota y reinos administrativos. Se protegen los bits desconocidos, no delegables y las máscaras de administración completa. Los reinos no son membresías de grupos. Bloquear/desbloquear conserva los demás derechos. El borrado exige nombre exacto, revisión y confirmación separada.
+
+          En la propia cuenta se ocultan mensaje, bloqueo/desbloqueo y eliminación administrativa. Dos acciones separadas de contraseña y MFA llevan a los controles nativos de Mi cuenta. Para otros usuarios se mantienen sus controles, incluido cambio de contraseña conservando MFA, restablecimiento MFA explícito y notificación individual revisada. Ocultar botones no sustituye las comprobaciones internas.
+
+          ## Grupos y accesos
+
+          - Crear, editar y eliminar grupos de usuarios compatibles, respetando restricciones de grupos externos.
+          - Añadir o retirar un miembro elegible cada vez, conservando comprobaciones de identificador y enlaces conocidos.
+          - Crear, revisar, editar y retirar asignaciones entre grupos de usuarios y grupos de dispositivos.
+          - Conceder acceso a dispositivos existentes y visibles; no instala agentes.
+          - Conceder, revisar, editar y retirar acceso directo de usuarios a grupos de dispositivos sin confundirlo con acceso heredado.
+          - Ajustes avanzados de grupos de dispositivos: características compatibles, consentimiento obligatorio y caducidad de 0 a 2000 días. Cero elimina la excepción de caducidad del grupo; no garantiza desactivar la eliminación global.
+
+          Permisos y restricciones son distintos. Las concesiones iniciales no inventan dependencias ni bits desconocidos. La edición conserva bits protegidos y desconocidos y rechaza cambios de administración completa no admitidos. Retirar una membresía o asignación no demuestra pérdida de todas las vías de acceso efectivo.
+
+          ## Mensajes, resultados y validación
+
+          Broadcast y notificaciones individuales tienen alcances distintos y confirmación revisada. No ofrecen garantía de entrega/lectura ni reintentos automáticos.
+
+          Se prefieren nombres y contexto a identificadores visibles. Una identidad ambigua o incompleta no autoriza cambios sensibles. Los acuses correlacionados y las relecturas requeridas distinguen estados confirmados u observados de resultados desconocidos. Pueden producirse cambios concurrentes entre consulta y envío.
+
+          Hay regresiones unitarias y Android/Compose de políticas, identidad, navegación, interfaz y relecturas. Compilar pruebas no equivale a ejecutarlas; superar automatización no valida todas las modificaciones reales ni todos los diseños en dispositivos físicos.
+          '''}
+          for name,text in docs.items():
+              p=Path(name)
+              if name.startswith('docs/es/'):assert not p.exists(),name
+              p.write_text(text)
+          index=Path('docs/es/README.md');s=index.read_text()
+          section='\n## Gestión y cuenta — 1.3.1\n\n- [Gestión](profile.md)\n- [Mi cuenta y seguridad](profile-native.md)\n- [Administración de usuarios, grupos y accesos](profile-user-administration.md)\n'
+          assert '## Gestión y cuenta — 1.3.1' not in s
+          index.write_text(s.rstrip()+'\n'+section)
+          expected=sorted(list(additions)+list(docs)+['docs/es/README.md'])
+          assert len(expected)==9
+          for name in expected:
+              p=Path(name);text=p.read_text()
+              for target in re.findall(r'(?<!!)\[[^\]]+\]\(([^)]+)\)',text):
+                  if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:',target) or target.startswith('#'):continue
+                  local=target.split('#',1)[0]
+                  assert (p.parent/local).exists(),(name,target)
+              if name in docs:assert '1.3.1' in text and len(text)>200
+          Path('validation/expected.json').write_text(json.dumps(expected))
+          Path('validation/documentation-checks.txt').write_text('Nine Markdown files prepared. Local Markdown link targets exist. Both identity modes documented. Native FIDO2 sign-in and new key registration remain pending. No app sources, build configuration or runtime behavior changed. No live-server verification claimed.\n')
+          PY
+          git diff --check
+          git diff --exit-code -- app gradle gradle.properties build.gradle.kts settings.gradle.kts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: documentation-1.3.1-checks-${{ github.run_id }}
+          path: validation/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Commit documentation only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/docs-1.3.1
+          git fetch origin work/docs-1.3.1 main
+          test "$(git rev-parse origin/work/docs-1.3.1)" = "${{ github.sha }}"
+          test "$(git rev-parse origin/main)" = ec8354ee5afdc0af91cbfbee6be6f4e19015c821
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          expected=json.loads(Path('validation/expected.json').read_text())
+          assert len(expected)==9 and all(p.endswith('.md') for p in expected)
+          subprocess.run(['git','add','--',*expected],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: update bilingual README and management guides for 1.3.1'
+          git push origin HEAD:work/docs-1.3.1
