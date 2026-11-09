@@ -13,8 +13,21 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Browse devices grouped by their MeshCentral device groups, with online/offline status and operating-system information.
 - Expand or collapse individual groups or all groups, with saved group expansion preferences.
 - Search the device list by name or operating system.
-- Switch between Devices and Activity using the bottom navigation bar.
+- Use the bottom navigation bar for Management, Server, Devices, Activity and Notices.
 - Access desktop, terminal, file sessions, and device actions from each device card.
+
+### Native management and account security (1.3.1)
+
+- Management provides My Account, Device Groups, Users and Groups (user groups) tabs.
+- Manage users, user groups, individual memberships and device-group access, subject to server permissions.
+- Review access grants, rights changes and removals before separate confirmation; direct and inherited access are distinguished.
+- Manage your password, authenticator, existing security keys, backup codes, login history and login tokens natively.
+- Your own user details provide separate password and MFA actions. Password opens its My Account dialog directly; MFA opens a choice of account-security options. Messaging, lock/unlock and administrative deletion are hidden for your own account.
+- Send reviewed Broadcast or individual notifications; server acceptance does not guarantee delivery or reading.
+- Use a session notice inbox, optional Android background alerts and notification preferences synchronized with the server web settings.
+- Native FIDO2 sign-in and new security-key registration remain pending. Existing keys can be listed and removed.
+
+Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
 
 ### Remote desktop
 
@@ -272,13 +285,12 @@ Passing automated tests does not establish universal compatibility with Hacker's
 
 The following items are not presented as completed features:
 
-- User administration, user-group administration, and permission-management screens.
 - More complete effective-permission handling in the client interface.
 - Device/session sharing.
-- Advanced hardware/software inventory.
+- Broader hardware/software inventory coverage beyond the implemented device-details view.
 - Advanced device filters and favorites, beyond the existing device search and activity filters.
 - Inventory/activity export.
-- YubiKey integration.
+- Native FIDO2/YubiKey sign-in and registration of new security keys; listing and removing existing keys are available.
 - Multi-file selection and bulk file operations.
 - Automatic terminal reconnection, advanced terminal-state restoration, and broader reconnection validation. Retained output does not restore or prove continuity of the original remote process.
 - Completion of English/Spanish localization for native management features.

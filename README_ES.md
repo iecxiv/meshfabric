@@ -13,8 +13,21 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Dispositivos organizados por grupos de MeshCentral, con estado conectado/desconectado e información del sistema operativo.
 - Expansión y contracción de grupos, individualmente o todos a la vez, con preferencias guardadas.
 - Búsqueda por nombre o sistema operativo.
-- Navegación inferior entre Dispositivos y Actividad.
+- Navegación inferior entre Gestión, Servidor, Dispositivos, Actividad y Avisos.
 - Acceso al escritorio, terminal, archivos y acciones desde cada tarjeta de dispositivo.
+
+### Gestión nativa y seguridad de cuenta (1.3.1)
+
+- Gestión ofrece Mi cuenta, Grupos de dispositivos, Usuarios y Grupos (de usuarios).
+- Administra usuarios, grupos de usuarios, membresías individuales y accesos a grupos de dispositivos según los permisos del servidor.
+- Revisa concesiones, cambios de derechos y retiradas antes de confirmarlos por separado; se distinguen accesos directos y heredados.
+- Gestiona de forma nativa contraseña, autenticador, claves de seguridad existentes, códigos de respaldo, historial de accesos y tokens.
+- Tu propia ficha ofrece dos acciones de contraseña y MFA. Contraseña abre directamente su diálogo de Mi cuenta; MFA abre un selector de opciones. Mensajes, bloqueo/desbloqueo y eliminación administrativa se ocultan para tu propia cuenta.
+- Envía Broadcast o notificaciones individuales con revisión; la aceptación del servidor no garantiza entrega ni lectura.
+- Utiliza la bandeja de avisos de la sesión, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web del servidor.
+- El inicio de sesión FIDO2 nativo y el alta de nuevas claves siguen pendientes. Las claves existentes se pueden consultar y eliminar.
+
+Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
 
 ### Escritorio remoto
 
@@ -262,13 +275,12 @@ Superar pruebas automatizadas no garantiza compatibilidad universal con Hacker's
 
 No se presentan como funciones completadas:
 
-- Administración de usuarios, grupos de usuarios y permisos.
 - Tratamiento más completo de permisos efectivos en la interfaz.
 - Compartir dispositivos/sesiones.
-- Inventario avanzado de hardware/software.
+- Mayor cobertura de inventario de hardware/software más allá de la ficha de dispositivo implementada.
 - Filtros avanzados y favoritos, más allá de búsquedas y filtros actuales.
 - Exportación de inventario/actividad.
-- Integración con YubiKey.
+- Inicio de sesión FIDO2/YubiKey nativo y alta de nuevas claves; la consulta y eliminación de claves existentes están disponibles.
 - Selección múltiple y operaciones masivas de archivos.
 - Reconexión automática del terminal, restauración avanzada y validación más amplia de reconexión. La salida retenida no restaura ni demuestra continuidad del proceso remoto original.
 - Localización completa inglés/español de la gestión nativa.
@@ -280,4 +292,4 @@ Bajo la [Licencia Apache, versión 2.0](LICENSE).
 
 ## Índice de documentación técnica
 
-Consulta las [17 guías en español](docs/es/README.md).
+Consulta el [índice de guías en español](docs/es/README.md).
