@@ -1,0 +1,176 @@
+name: Validate and publish device group detail presentation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-device-group-detail-presentation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: device-group-detail-presentation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded detail actions and presentation regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          p=main/'CompactProfileGroups.kt'
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='147f34d2af8d5f28d06b0087ecafbcb69d764d99','Device group details changed'
+          assert (main/'ProfileReceivedLinkPresentation.kt').exists()
+          regression=tests/'DeviceGroupDetailPresentationTest.kt'
+          assert not regression.exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          s=p.read_text()
+          s=replace(s,'import androidx.compose.ui.platform.LocalConfiguration','import androidx.compose.ui.platform.LocalConfiguration\nimport androidx.compose.ui.platform.testTag')
+          anchor='@Composable internal fun DeviceGroupDetailsDialog('
+          component='''@Composable internal fun ProfileGroupActionButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,enabled:Boolean,dangerous:Boolean=false,onClick:()->Unit) {
+              TextButton(onClick=onClick,enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("profile-group-action"),colors=ButtonDefaults.textButtonColors(contentColor=if(dangerous) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)) {
+                  Icon(icon,null,Modifier.size(18.dp).testTag("profile-group-action-icon"))
+                  Spacer(Modifier.width(10.dp))
+                  Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+              }
+          }
+          '''
+          s=replace(s,anchor,component+anchor)
+          s=replace(s,'TextButton(enabled=s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit) {Text(t("Editar nombre y descripción","Edit name and description"))}','ProfileGroupActionButton(t("Editar nombre y descripción","Edit name and description"),Icons.Default.Edit,s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit)')
+          s=replace(s,'TextButton(enabled=s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true}) {Text(t("Ajustes avanzados","Advanced settings"))}','ProfileGroupActionButton(t("Ajustes avanzados","Advanced settings"),Icons.Default.Tune,s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true})')
+          s=replace(s,'TextButton(enabled=s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),onClick=onDelete,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)) {Text(t("Eliminar grupo","Delete group"))}','ProfileGroupActionButton(t("Eliminar grupo","Delete group"),Icons.Default.Delete,s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),dangerous=true,onClick=onDelete)')
+          old='val name=s.users.firstOrNull { it.optString("_id")==member }?.optString("name") ?: s.userGroups?.firstOrNull { it.optString("_id")==member }?.optString("name") ?: member'
+          s=replace(s,old,'val presentation=profileReceivedLinkPresentation(s,group,member,es)')
+          s=replace(s,'Text(name,maxLines=2,overflow=TextOverflow.Ellipsis)','Text(presentation.label,maxLines=2,overflow=TextOverflow.Ellipsis)')
+          for old in ['if(onOpenUser!=null && profileAccessUserTarget','if(onOpenUserGroup!=null && profileReceivedUserGroup','if(onReviewUserGroupAssignment!=null && profileAccessAssignmentPair']:
+              s=replace(s,old,old.replace('if(','if(presentation.usable && ',1))
+          anchor='if(presentation.usable && onOpenUser!=null && profileAccessUserTarget'
+          warning='if(!presentation.usable) Text(t("Acciones no disponibles: falta una ficha con nombre inequívoco.","Actions unavailable: an entry with an unambiguous name is missing."),style=MaterialTheme.typography.bodySmall)\n'
+          s=replace(s,anchor,warning+anchor)
+          p.write_text(s)
+          regression.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Edit
+          import androidx.compose.material.icons.filled.Tune
+          import androidx.compose.material.icons.filled.Delete
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.CompositionLocalProvider
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.compose.ui.unit.dp
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class DeviceGroupDetailPresentationTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun actionsKeepTextCallbacksAndDisabledStateWithDiscreetIcons() {
+                  var edits=0;var advanced=0;var deletes=0
+                  compose.setContent {MaterialTheme {Column {
+                      ProfileGroupActionButton("Editar nombre y descripción",Icons.Default.Edit,true,onClick={edits++})
+                      ProfileGroupActionButton("Ajustes avanzados",Icons.Default.Tune,true,onClick={advanced++})
+                      ProfileGroupActionButton("Eliminar grupo",Icons.Default.Delete,false,dangerous=true,onClick={deletes++})
+                  }}}
+                  compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(3)
+                  compose.onAllNodesWithTag("profile-group-action").assertCountEquals(3)
+                  compose.onNodeWithText("Editar nombre y descripción").assertIsEnabled().assertHeightIsAtLeast(48.dp).performClick()
+                  compose.onNodeWithText("Ajustes avanzados").assertIsEnabled().performClick()
+                  compose.onNodeWithText("Eliminar grupo").assertIsNotEnabled()
+                  compose.runOnIdle {assertEquals(1,edits);assertEquals(1,advanced);assertEquals(0,deletes)}
+              }
+              @Test fun accessDetailsUseNamesAndNeverExposeUnresolvedMemberIds() {
+                  val mid="mesh//office";val uid="user//alice";val gid="ugrp//team";val unknown="user//missing"
+                  val group=JSONObject().put("_id",mid).put("name","Oficina").put("links",JSONObject().put(uid,JSONObject().put("rights",8)).put(gid,JSONObject().put("rights",16)).put(unknown,JSONObject().put("rights",8)))
+                  val user=JSONObject().put("_id",uid).put("name","Alicia").put("email","alice@example.invalid")
+                  val team=JSONObject().put("_id",gid).put("name","Equipo").put("desc","Madrid")
+                  val state=ProfileState(ready=false,users=listOf(user),groups=listOf(group),userGroups=listOf(team))
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+                  try {
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              DeviceGroupDetailsDialog(session,state,mid,false,onDismiss={},onEdit={},onDelete={},initialTab=2)
+                          }}
+                      }
+                      compose.onNodeWithText("Usuario: Alicia · alice@example.invalid").assertExists()
+                      compose.onNodeWithText("Grupo de usuarios: Equipo · Madrid").assertExists()
+                      compose.onNodeWithText("Usuario: nombre no disponible").assertExists()
+                      for(id in listOf(mid,uid,gid,unknown)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)
+                      compose.onNodeWithText("Control remoto").assertExists()
+                      compose.onNodeWithText("Consola").assertExists()
+                      assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
+                  } finally {session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()}
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline actions, details, disclosure and navigation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.DeviceGroupDetailPresentationTest,iecxiv.meshfabric.ui.management.ReadableReceivedLinksTest,iecxiv.meshfabric.ui.management.ProfilePolishPresentationTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReceivedUserGroupNavigationTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ReadableMemberAddDialogTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-group-detail-presentation-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated sources if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupDetailPresentationTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupDetailPresentationTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): icon-led device group actions and readable access details'
+          git push origin HEAD:dev
