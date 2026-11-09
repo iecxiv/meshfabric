@@ -332,8 +332,9 @@ wire.clearResult(); mode=index
 when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"); 2->wire.request("otpauth-getpasswords"); 3->wire.request("previousLogins"); 6->wire.refreshWebState(); 9->wire.request("loginTokens") }
 }
 val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
-Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",onReconnect=wire::start)
+Column(modifier) {
+ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",modifier=Modifier.padding(horizontal=16.dp),onReconnect=wire::start)
+Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https","notRevoked") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 AccountNoticeBanner(state.notice,options,alerts,es,dateLocale,hours24)
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -357,6 +358,7 @@ AccountActionsCard {
 (3..9).forEach { index->
 CompactAccountActionRow(labels[index],icons[index],state.ready && !state.busy,dangerous=index==8,onClick={ openAction(index) })
 if(index<9) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+}
 }
 }
 }

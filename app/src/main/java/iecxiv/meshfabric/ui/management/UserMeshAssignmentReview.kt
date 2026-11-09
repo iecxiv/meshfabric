@@ -39,16 +39,22 @@ import org.json.JSONObject
     val canSend=identityReady && !identityInvalidated && !submitted && packet!=null && profileUserMeshRevokeAllowed(s,packet,server)
     val observed=submitted && s.notice=="userMeshRevokedObserved" && s.revokedDirectUser==uid && s.revokedDirectMesh==mid
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar acceso directo","Review direct access"))},text={
-        Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+            Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceVariant) {
+                Column(Modifier.padding(8.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
             Text(beforeServer,style=MaterialTheme.typography.bodySmall)
             Text(t("Usuario: ","User: ")+identityA.label)
             Text(t("Grupo de dispositivos: ","Device group: ")+identityB.label)
+                }
+            }
             if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
             if(s.loading || s.detailsBusy || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            ProfileDisclosure(t("Detalles técnicos de los enlaces","Technical link details")) {
             Text(t("Enlace recibido en el usuario: ","Link received in the user: ")+mask(profileGroupMeshReportedRights(user,mid)))
             Text(t("Enlace recibido en el grupo: ","Link received in the group: ")+mask(profileGroupMeshReportedRights(mesh,uid)))
             Text(t("Derechos directos del actor: ","Direct actor rights: ")+mask(profileGroupMeshReportedRights(mesh,actor)))
+            }
             Text(t("Retira esta asignación directa completa, incluidos los bits desconocidos. No borra el usuario ni el grupo y no retira accesos heredados u otras asignaciones. No demuestra pérdida de todos los accesos efectivos.","Removes this complete direct assignment, including unknown bits. Does not delete the user or group or remove inherited access or other assignments. Does not establish loss of all effective access."),style=MaterialTheme.typography.bodySmall)
             Text(t("Las lecturas y el envío no son atómicos. El servidor valida el estado existente al recibir la solicitud.","Reads and sending are not atomic. The server validates the state present when it receives the request."),style=MaterialTheme.typography.bodySmall)
             if(review && !submitted) Row {Checkbox(approved,{approved=it},enabled=reviewCurrent,modifier=Modifier.testTag("direct-revoke-consent"));Text(t("Confirmo retirar el acceso directo de este usuario a este grupo.","I confirm removing this user's direct access to this group."),Modifier.weight(1f))}

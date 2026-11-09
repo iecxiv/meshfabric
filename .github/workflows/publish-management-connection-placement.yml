@@ -1,0 +1,170 @@
+name: Validate management connection placement
+on:
+  push:
+    branches: [work/compact-management-on-fixed-dev]
+    paths: [.github/workflows/publish-management-connection-placement.yml]
+permissions:
+  contents: write
+concurrency:
+  group: management-connection-placement
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate management presentation only
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = f86b711965a0e298de00fe4f791e7c0c58a97929
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          def checked(name,sha):
+              p=root/name
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,name
+              return p,p.read_text()
+          def change(s,a,b):
+              assert s.count(a)==1,a
+              return s.replace(a,b,1)
+          p,s=checked('ProfileScreen.kt','cba95b9f6825259b8a9ac29cc53ad93a3a82b748')
+          anchor='if(tab==0) NativeAccountPane('
+          s=change(s,anchor,'if(tab!=0) ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)\n'+anchor)
+          p.write_text(s)
+          p,s=checked('NativeAccount.kt','e4c3dc427b2f7bf90265c57aaeac0d0c67ea4ba6')
+          old='Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {'
+          new='Column(modifier.verticalScroll(rememberScrollState()).padding(horizontal=16.dp).padding(bottom=16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {'
+          s=change(s,old,new)
+          p.write_text(s)
+          p=root/'ProfileManagementConnectionStatus.kt'
+          assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Modifier
+          @Composable internal fun ProfileManagementConnectionStatus(state:ProfileState,modifier:Modifier=Modifier,onReconnect:()->Unit) {
+              ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && state.notice=="connecting",reconnectEnabled=!state.busy,modifier=modifier,onReconnect=onReconnect)
+          }
+          ''')
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileManagementConnectionStatusTest.kt')
+          assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.compose.ui.unit.dp
+          import org.junit.Assert.assertEquals
+          import org.junit.Rule
+          import org.junit.Test
+          import java.util.Locale
+          class ProfileManagementConnectionStatusTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun profileChannelStatesStayIndependentAndReconnectOnlyOnClick() {
+                  val state=mutableStateOf(ProfileState(notice="connecting"));var retries=0
+                  compose.setContent {
+                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                      CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                          ProfileManagementConnectionStatus(state.value,onReconnect={retries++})
+                      }}
+                  }
+                  compose.onNodeWithText("Conectando con el canal de gestión...").assertIsDisplayed()
+                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+                  compose.runOnIdle {state.value=ProfileState(ready=true,notice="readFailed",readError=true)}
+                  compose.onNodeWithText("Canal de gestión conectado. El servidor valida los permisos.").assertIsDisplayed()
+                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+                  compose.runOnIdle {state.value=ProfileState(notice="unknown")}
+                  compose.onNodeWithText("Canal de gestión desconectado.").assertIsDisplayed()
+                  compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp).assertIsEnabled().performClick()
+                  compose.runOnIdle {assertEquals(1,retries)}
+              }
+              @Test fun busyStateDoesNotPermitReconnect() {
+                  compose.setContent {MaterialTheme {ProfileManagementConnectionStatus(ProfileState(busy=true),onReconnect={error("Unexpected reconnect")})}}
+                  compose.onNodeWithTag("management-reconnect").assertIsNotEnabled()
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute unit tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Record and verify Android evidence
+        if: always()
+        run: |
+          mkdir -p validation
+          git diff > validation/management-placement.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          cases=[];failures=[];skipped=[]
+          for report in Path('app/build/outputs/androidTest-results').rglob('*.xml'):
+              for case in ET.parse(report).getroot().iter('testcase'):
+                  name=case.get('classname','')+'.'+case.get('name','');cases.append(name)
+                  if case.find('skipped') is not None: skipped.append(name)
+                  for kind in ['failure','error']:
+                      for error in case.findall(kind): failures.append(name+'\n'+error.get('message','')+'\n'+(error.text or ''))
+          required={'ProfileManagementConnectionStatusTest','ManagementConnectionStatusTest','UserMeshAssignmentReviewTest','UserMeshEditDialogTest','TerminalFocusWebViewTest','TerminalKeyBarTest'}
+          present={name.rsplit('.',2)[-2] for name in cases}
+          missing=required-present
+          text=f'Cases: {len(cases)}; failures: {len(failures)}; skipped: {len(skipped)}; missing: {sorted(missing)}\n'+'\n\n'.join(failures)
+          Path('validation/results.txt').write_text(text);print(text)
+          assert cases and not failures and not skipped and not missing
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: management-connection-placement-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/compact-management-on-fixed-dev
+          git fetch origin work/compact-management-on-fixed-dev dev
+          test "$(git rev-parse origin/work/compact-management-on-fixed-dev)" = "${{ github.sha }}"
+          test "$(git rev-parse origin/dev)" = c32e62e5843c5aba93a55d34ffdfccaee3d4d1af
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'ProfileScreen.kt',main+'NativeAccount.kt',main+'ProfileManagementConnectionStatus.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileManagementConnectionStatusTest.kt'}
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(management): show connection across tabs with tighter top spacing'
+          git push origin HEAD:work/compact-management-on-fixed-dev
