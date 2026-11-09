@@ -22,6 +22,7 @@ class TerminalFocusWebViewTest {
     @Test fun explicitKeyboardAndDialogFocusAreLifecycleSafe() {
         val scenario = ActivityScenario.launch(TerminalEchoTestActivity::class.java)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        lateinit var session: TerminalSession
         lateinit var renderer: TerminalRenderSession
         lateinit var view: WebView
         var attachment = -1L
@@ -55,7 +56,7 @@ class TerminalFocusWebViewTest {
         fun imeVisible(): Boolean = state { ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true }
         try {
             scenario.onActivity {
-                val session = TerminalSession("synthetic-focus", MeshCentralClient(), scope)
+                session = TerminalSession("synthetic-focus", MeshCentralClient(), scope)
                 renderer = TerminalRenderSession(it, session, scope)
                 created = true
                 visibility = renderer.bindVisibility()
@@ -68,8 +69,27 @@ class TerminalFocusWebViewTest {
             } }
             assertFalse("Startup must not request terminal DOM focus", domFocused())
             assertFalse("Startup must not open IME", imeVisible())
+            scenario.onActivity {
+                assertFalse("Synthetic session must start disconnected", session.connectionState.value)
+                assertFalse("Disconnected session must reject focus", renderer.requestTerminalFocus(false))
+                assertFalse("Disconnected session must reject IME", renderer.requestTerminalFocus(true))
+                val socket = object : okhttp3.WebSocket {
+                    override fun request() = okhttp3.Request.Builder().url("https://example.invalid/").build()
+                    override fun queueSize(): Long = 0L
+                    override fun send(text: String): Boolean = true
+                    override fun send(bytes: okio.ByteString): Boolean = true
+                    override fun close(code: Int, reason: String?): Boolean = true
+                    override fun cancel() {}
+                }
+                session.activeSocket = socket
+                TerminalSession::class.java.getDeclaredMethod("handleIncomingData", java.lang.Long.TYPE, okhttp3.WebSocket::class.java, String::class.java).apply { isAccessible = true }.invoke(session, 0L, socket, "c")
+                assertTrue("Synthetic handshake must connect", session.connectionState.value)
+            }
             scenario.onActivity { assertTrue(renderer.requestTerminalFocus(false)) }
             await("Restore failed") { domFocused() && !imeVisible() }
+            await("Focused connected renderer did not enable input") { state {
+                view.hasFocus() && view.hasWindowFocus() && view.onCreateInputConnection(EditorInfo()) != null
+            } }
             scenario.onActivity {
                 val info = EditorInfo()
                 assertNotNull(view.onCreateInputConnection(info))
@@ -106,7 +126,7 @@ class TerminalFocusWebViewTest {
                 assertFalse(renderer.requestTerminalFocus(true))
             }
         } finally {
-            scenario.onActivity { dialog?.dismiss(); if (created) renderer.destroy() }
+            scenario.onActivity { dialog?.dismiss(); if (created) { renderer.destroy(); session.closeSocketOnly() } }
             scope.cancel()
             scenario.close()
         }
