@@ -43,7 +43,7 @@ jobs:
           s=replace(s,'    val context=',setup+'    val context=groupIdentity.usable && !invalidated && ')
           s=replace(s,'val canReview=packet!=null &&','val canReview=context && identityReady && packet!=null &&')
           s=replace(s,'    val rows=','    LaunchedEffect(review,canReview) {if(review && !canReview) {approved=false;invalidated=true}}\n    val rows=')
-          s=replace(s,'it.optString("name").contains(query,true)))','it.optString("name").contains(query,true) || it.optString("realname").contains(query,true) || it.optString("email").contains(query,true)))')
+          s=replace(s,'it.optString("name").contains(query,true)','it.optString("name").contains(query,true) || it.optString("realname").contains(query,true) || it.optString("email").contains(query,true)')
           s=replace(s,'Text(group.optString("name"),style=MaterialTheme.typography.titleSmall)','Text(groupIdentity.label,style=MaterialTheme.typography.titleSmall)')
           s=replace(s,'            Text(group.getString("_id"),style=MaterialTheme.typography.bodySmall)','            if(!groupIdentity.usable || (selected!=null && !selectedIdentity.usable)) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente la cuenta y el grupo. Cierra y actualiza o selecciona una cuenta identificable.","Cannot confirm: a name is missing or visible information does not uniquely identify the account and group. Close and refresh or select an identifiable account."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)')
           s=replace(s,'Text(t("Usuario: ","User: ")+selected?.optString("_id").orEmpty())','Text(t("Usuario: ","User: ")+selectedIdentity.label)')
