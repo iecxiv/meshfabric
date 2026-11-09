@@ -1,0 +1,133 @@
+name: Validate and publish user groups actions card
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-groups-actions-card.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-groups-actions-card-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded actions card and UI test
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt')
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupsActionsCardTest.kt')
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='c2284e3c92c9ab79d524c392af9fb4def33626e1','User groups pane changed'
+          assert not test.exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          s=p.read_text()
+          s=replace(s,'import androidx.compose.ui.Modifier','import androidx.compose.ui.Modifier\nimport androidx.compose.ui.platform.testTag')
+          s=replace(s,'            Text(t("Grupos de usuarios","User groups"),style=MaterialTheme.typography.titleMedium)\n            Text(t("Grupos del dominio actual; son distintos de los grupos de dispositivos.","Groups in the current domain; these are separate from device groups."),style=MaterialTheme.typography.bodySmall)\n','')
+          start='TextButton(enabled=refreshAction!=UserGroupsRefreshAction.NONE,onClick='
+          s=replace(s,start,'ManagementCard(Modifier.testTag("user-groups-server-actions")) {\nText(t("Acciones del servidor","Server actions"),style=MaterialTheme.typography.titleSmall)\n'+start)
+          end='}) {Text(t("Crear grupo de usuarios","Create user group"))}\n'
+          s=replace(s,end,end+'}\n')
+          p.write_text(s)
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.CompositionLocalProvider
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class UserGroupsActionsCardTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun serverActionsAreGroupedAndOldHeadingIsAbsent() {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  try {
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              UserGroupsDirectoryPane(session,ProfileState(),onOpenUser={},onOpenDeviceGroup={})
+                          }}
+                      }
+                      compose.onNodeWithText("Grupos de usuarios").assertDoesNotExist()
+                      compose.onNodeWithText("Grupos del dominio actual; son distintos de los grupos de dispositivos.").assertDoesNotExist()
+                      compose.onNodeWithTag("user-groups-server-actions").assertExists()
+                      compose.onNode(hasText("Acciones del servidor") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertExists()
+                      compose.onNode(hasText("Reconectar") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertExists()
+                      compose.onNode(hasText("Crear grupo de usuarios") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertIsNotEnabled()
+                      compose.onNodeWithText("Buscar grupo").assertExists()
+                  } finally {
+                      session.close()
+                      val field=client.javaClass.getDeclaredField("scope").apply {isAccessible=true}
+                      (field.get(client) as CoroutineScope).cancel()
+                  }
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline actions card and navigation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserGroupsActionsCardTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.ReceivedUserGroupNavigationTest,iecxiv.meshfabric.ui.management.GroupMeshEditDialogTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-groups-actions-card-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupsActionsCardTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupsActionsCardTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged files'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(profile): group user group server actions in a card'
+          git push origin HEAD:dev
