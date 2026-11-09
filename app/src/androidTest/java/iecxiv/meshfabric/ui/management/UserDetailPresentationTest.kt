@@ -94,17 +94,20 @@ import java.util.Locale
     }}
     @Test fun commonDeviceUnavailableShowsDisabledButtonAndReason() {Fixture().use {f->
         compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(3)
         compose.onNodeWithText("Abrir ficha").assertIsNotEnabled()
         compose.onNodeWithText("Ficha no disponible con los datos y la conexión actuales.").assertExists()
         assertNull(f.openedDevice);f.assertNoIds()
     }}
     @Test fun commonDeviceAvailableStillNavigatesByInternalId() {Fixture(deviceCanOpen=true).use {f->
         compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(3)
         compose.onNodeWithText("Abrir ficha").performScrollTo().assertIsEnabled().performClick()
         assertEquals(nid,f.openedDevice);f.assertNoIds()
     }}
     @Test fun homonymousCommonDevicesOpenTheirOwnExactIds() {Fixture(deviceCanOpen=true,ambiguousDevice=true).use {f->
         compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(4)
         val buttons=compose.onAllNodesWithText("Abrir ficha")
         buttons.assertCountEquals(2)
         buttons[0].performScrollTo().assertIsEnabled().performClick()
@@ -116,6 +119,7 @@ import java.util.Locale
     }}
     @Test fun duplicateExactDeviceIdStillBlocksBothEntries() {Fixture(deviceCanOpen=true,duplicateDeviceId=true).use {f->
         compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(4)
         val buttons=compose.onAllNodesWithText("Abrir ficha")
         buttons.assertCountEquals(2)
         buttons[0].assertIsNotEnabled();buttons[1].assertIsNotEnabled()

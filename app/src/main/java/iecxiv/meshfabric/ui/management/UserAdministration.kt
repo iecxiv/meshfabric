@@ -240,7 +240,7 @@ val groupLabel=if(node.optString("meshid").isNotBlank()) profileReceivedLinkPres
 ManagementInfoRow(nodePresentation.label,groupLabel)
 val deviceIdentityReady=s.nodes.count {it.optString("_id")==node.optString("_id")}==1 && profileDeviceIdsMatch(s.id,node.optString("_id"),node.optString("meshid"),node.optString("meshid"))
 val deviceCanOpen=deviceIdentityReady && onOpenDevice!=null && canOpenDevice(node.optString("_id"))
-TextButton(enabled=deviceCanOpen,onClick={onOpenDevice?.invoke(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}
+ProfileGroupActionButton(t("Abrir ficha","Open details"),Icons.Default.Computer,deviceCanOpen,onClick={onOpenDevice?.invoke(node.optString("_id"))})
 if(!deviceCanOpen) Text(if(!deviceIdentityReady) t("Ficha no disponible: identificación incompleta o ambigua.","Entry unavailable: incomplete or ambiguous identity.") else t("Ficha no disponible con los datos y la conexión actuales.","Entry unavailable with current data and connection."),style=MaterialTheme.typography.bodySmall)
 }
 if(common.size>100) Text(t("Se muestran los primeros 100 dispositivos.","Showing the first 100 devices."))
