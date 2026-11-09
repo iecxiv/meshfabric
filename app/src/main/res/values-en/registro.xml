@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="registro_title">Log</string>
+    <string name="registro_activity">Activity</string>
+    <string name="registro_events">Events</string>
+</resources>
