@@ -22,97 +22,49 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Generate header-only change and offline regressions
+      - name: Generate presentation and repair stable test selectors
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = 05ac3060190c5c6689a0a3119a2775b6b17c8e8f
+          test "$(git rev-parse HEAD^)" = 4621d3e22e14163c37fbc002a32e6bd899f30bde
           python3 - <<'PY'
           from pathlib import Path
-          import subprocess
+          import subprocess,textwrap
+          ref='4621d3e22e14163c37fbc002a32e6bd899f30bde:.github/workflows/publish-readable-user-lock-context.yml'
+          assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()=='d87cc0ca27001eb530bbdb8ab85ada8863f8b602'
+          workflow=subprocess.check_output(['git','show',ref],text=True)
+          start=workflow.index("          python3 - <<'PY'\n")+len("          python3 - <<'PY'\n")
+          end=workflow.index('\n          PY',start)
+          generator=textwrap.dedent(workflow[start:end])
+          exec(compile(generator,'pinned-user-lock-generator','exec'))
+          def replace_once(s,a,b):
+              assert s.count(a)==1,'Missing or nonunique anchor: '+a[:100]
+              return s.replace(a,b,1)
           main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
           tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
-          p=main/'UserAdministration.kt';test=tests/'UserLockPresentationTest.kt'
-          assert not test.exists()
-          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='2fbd972c197614e87e02177f232567c05fd2c17d'
-          original=p.read_text()
-          old='if(!creating) { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); if(deleting || locking) Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) else ProfileDisclosure(t("Identificador","Identifier")) { Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }'
-          new='if(!creating) { if(locking && user!=null) ProfileUserListIdentity(user,s.users) else { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); if(deleting) Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) else ProfileDisclosure(t("Identificador","Identifier")) { Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } } }'
-          assert original.count(old)==1
-          changed=original.replace(old,new,1)
-          assert changed.replace(new,old,1)==original,'Only the identity header may change'
-          p.write_text(changed)
-          test.write_text('''package iecxiv.meshfabric.ui.management
-          import android.content.res.Configuration
-          import androidx.compose.material3.MaterialTheme
-          import androidx.compose.runtime.*
-          import androidx.compose.ui.platform.LocalConfiguration
-          import androidx.compose.ui.test.*
-          import androidx.compose.ui.test.junit4.createComposeRule
-          import androidx.test.ext.junit.runners.AndroidJUnit4
-          import iecxiv.meshfabric.data.remote.MeshCentralClient
-          import kotlinx.coroutines.CoroutineScope
-          import kotlinx.coroutines.cancel
-          import kotlinx.coroutines.flow.MutableStateFlow
-          import org.json.JSONObject
-          import org.junit.Assert.*
-          import org.junit.Rule
-          import org.junit.Test
-          import org.junit.runner.RunWith
-          import java.util.Locale
-          @RunWith(AndroidJUnit4::class) class UserLockPresentationTest {
-              @get:Rule val compose=createComposeRule()
-              private val uid="user//alice"
-              private fun field(o:Any,n:String)=o.javaClass.getDeclaredField(n).apply {isAccessible=true}
-              private inner class Fixture(unlocking:Boolean=false,fullTarget:Boolean=false,selfAccount:Boolean=false):AutoCloseable {
-                  val client=MeshCentralClient();val session=ProfileSession(client)
-                  val target=JSONObject().put("_id",uid).put("name","Alicia").put("realname","Alicia García").put("email","alice@example.invalid").put("siteadmin",if(fullTarget) 0xffffffffL else if(unlocking) 32L else 0L)
-                  val baseline=ProfileState(ready=true,user=JSONObject().put("_id",if(selfAccount) uid else "user//admin").put("siteadmin",2L),users=listOf(target))
-                  val state=mutableStateOf(baseline)
-                  init {
-                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-lock-presentation")
-                      @Suppress("UNCHECKED_CAST") val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>;connected.value=true
-                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
-                      compose.setContent {
-                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
-                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
-                              UserAdministrationDialog(session,state.value,ProfileForm(true,if(unlocking) "unlock" else "lock",uid,"Alicia","alice@example.invalid"),onDismiss={})
-                          }}
-                      }
-                  }
-                  fun noIds() {for(id in listOf(uid,"user//admin")) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)}
-                  override fun close() {assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session));session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()}
-              }
-              @Test fun lockUsesReadableContextAndRetainsExistingConsentGate() {Fixture().use {f->
-                  compose.onNodeWithText("Bloquear usuario").assertExists()
-                  compose.onNodeWithText("Alicia · Alicia García · alice@example.invalid").assertExists()
-                  compose.onAllNodesWithTag("profile-user-list-icon",useUnmergedTree=true).assertCountEquals(1)
-                  compose.onNodeWithText("Enviar").assertIsNotEnabled()
-                  compose.onNode(isToggleable()).performClick()
-                  compose.onNodeWithText("Enviar").assertIsEnabled();f.noIds()
-              }}
-              @Test fun unlockUsesTheSameReadableContextAndConsent() {Fixture(unlocking=true).use {f->
-                  compose.onNodeWithText("Desbloquear usuario").assertExists()
-                  compose.onNodeWithText("Alicia · Alicia García · alice@example.invalid").assertExists()
-                  compose.onNodeWithText("Enviar").assertIsNotEnabled()
-                  compose.onNode(isToggleable()).performClick()
-                  compose.onNodeWithText("Enviar").assertIsEnabled();f.noIds()
-              }}
-              @Test fun identifierIsVisibleOnlyAfterExplicitExpansion() {Fixture().use {f->
-                  f.noIds();compose.onNodeWithText("Identificador").performClick();compose.onNodeWithText(uid).assertExists()
-              }}
-              @Test fun ownAccountRemainsBlocked() {Fixture(selfAccount=true).use {f->
-                  compose.onNode(isToggleable()).performClick();compose.onNodeWithText("Enviar").assertIsNotEnabled();f.noIds()
-              }}
-              @Test fun fullAdministratorRemainsBlocked() {Fixture(fullTarget=true).use {f->
-                  compose.onNode(isToggleable()).performClick();compose.onNodeWithText("Enviar").assertIsNotEnabled();f.noIds()
-              }}
-              @Test fun changedLockStateCannotBeSubmittedUnderTheOldOperation() {Fixture().use {f->
-                  compose.onNode(isToggleable()).performClick();compose.onNodeWithText("Enviar").assertIsEnabled()
-                  compose.runOnIdle {f.state.value=f.baseline.copy(users=listOf(JSONObject(f.target.toString()).put("siteadmin",32L)))}
-                  compose.waitForIdle();compose.onNodeWithText("Enviar").assertIsNotEnabled();f.noIds()
-              }}
-          }
-          ''')
+          p=main/'UserAdministration.kt';before_tags=p.read_text()
+          old_import='import androidx.compose.ui.platform.LocalConfiguration'
+          new_import=old_import+'\nimport androidx.compose.ui.platform.testTag'
+          old_button='},confirmButton={ if(mode!="history") TextButton(enabled=allowed && valid,'
+          new_button='},confirmButton={ if(mode!="history") TextButton(modifier=Modifier.testTag("user-admin-confirm"),enabled=allowed && valid,'
+          s=replace_once(before_tags,old_import,new_import)
+          s=replace_once(s,old_button,new_button)
+          assert s.replace(new_import,old_import,1).replace(new_button,old_button,1)==before_tags
+          p.write_text(s)
+          p=main/'ProfileUserListIdentity.kt';before_tag=p.read_text()
+          old='ProfileDisclosure(if(es) "Identificador" else "Identifier") {Text(account.optString("_id"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}'
+          new='Box(Modifier.testTag("profile-user-identifier")) { '+old+' }'
+          s=replace_once(before_tag,old,new)
+          assert s.replace(new,old,1)==before_tag
+          p.write_text(s)
+          p=tests/'UserLockPresentationTest.kt';s=p.read_text()
+          count=s.count('compose.onNodeWithText("Enviar")')
+          assert count>=8
+          s=s.replace('compose.onNodeWithText("Enviar")','compose.onNodeWithTag("user-admin-confirm").assertHasClickAction()')
+          old='compose.onNodeWithText("Identificador").performClick()'
+          new='compose.onNode(hasClickAction() and hasAnyAncestor(hasTestTag("profile-user-identifier")),useUnmergedTree=true).performScrollTo().performClick()'
+          s=replace_once(s,old,new)
+          assert s.count('@Test fun ')==6,'All six tests must remain'
+          p.write_text(s)
           PY
           git diff --check
       - name: Install compile SDK
@@ -171,13 +123,14 @@ jobs:
           test "${{ github.ref_name }}" = dev
           git fetch origin dev
           test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
-          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserLockPresentationTest.kt
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileUserListIdentity.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserLockPresentationTest.kt
           python3 - <<'PY'
           import subprocess
-          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserLockPresentationTest.kt'}
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'UserAdministration.kt',main+'ProfileUserListIdentity.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserLockPresentationTest.kt'}
           assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(profile): readable user context in lock and unlock dialogs'
+          git commit -m 'fix(profile): readable lock context with stable UI regression selectors'
           git push origin HEAD:dev
