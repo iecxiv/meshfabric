@@ -76,6 +76,18 @@ private fun directMeshOperation()=directMeshRevocation() || directMeshGrant() ||
 private fun valid()=!source.isUserLogout && source.connectionState.value && binding==Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
 private fun send(action:String,fields:JSONObject=JSONObject()):Boolean=socket?.send(JSONObject(fields.toString()).put("action",action).toString())==true
 @Synchronized fun broadcastServerLabel():String=if(!valid()) "" else runCatching { profileBroadcastServerLabel(OkHttpHelper.toWebSocketUrl(binding.first,"/control.ashx")) }.getOrDefault("")
+@Synchronized fun resetUserMfa(before:JSONObject,actor:String,site:Long,server:String,actorBefore:JSONObject?,serverBefore:String,confirmed:Boolean):Boolean {
+val s=state.value
+if(!confirmed || !valid() || !userMfaResetContext(s,before,actor,site,server,broadcastServerLabel(),true,actorBefore,serverBefore)) return false
+val packet=userMfaResetPacket(before)
+pendingId=UUID.randomUUID().toString();pendingAction="mfareset";pendingTarget=before.getString("_id");pendingNode="";expected=JSONObject()
+state.update {it.copy(busy=true,notice="sending")}
+val epoch=generation
+timer?.cancel()
+if(!send("changeuserpass",packet.put("responseid",pendingId))) {stop();return false}
+timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingAction=="mfareset") finish("unknown",false)}}
+return true
+}
 @Synchronized fun start() {
 if(closed || socket!=null || source.isUserLogout || !source.connectionState.value || source.authCookie.isBlank()) return
 binding=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)

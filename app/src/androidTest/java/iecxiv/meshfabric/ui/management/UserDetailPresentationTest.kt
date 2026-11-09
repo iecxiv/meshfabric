@@ -82,8 +82,8 @@ import java.util.Locale
     @Test fun mainAndSecurityActionsHaveIconsWithoutChangingTheirText() {Fixture().use {f->
         compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(2)
         compose.onNodeWithText("Acciones y seguridad").performScrollTo().performClick()
-        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(5)
-        for(label in listOf("Agregar dispositivo","Cambiar contraseña","Inicios de sesión anteriores")) compose.onNodeWithText(label).assertExists()
+        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(6)
+        for(label in listOf("Agregar dispositivo","Cambiar contraseña","Restablecer MFA","Inicios de sesión anteriores")) compose.onNodeWithText(label).assertExists()
         f.assertNoIds()
     }}
     @Test fun membershipsUseNamesAndNeverFallBackToLongIds() {Fixture().use {f->
