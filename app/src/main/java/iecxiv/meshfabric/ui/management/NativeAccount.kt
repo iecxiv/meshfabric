@@ -290,7 +290,7 @@ return true
 }
 }
 
-@Composable internal fun NativeAccountPane(source:MeshCentralClient,actor:String,modifier:Modifier=Modifier) {
+@Composable internal fun NativeAccountPane(source:MeshCentralClient,actor:String,modifier:Modifier=Modifier,pendingAction:ProfileOwnAccountRequest?=null,onActionConsumed:()->Unit={}) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(s:String,e:String)=if(es) s else e
 val context=LocalContext.current
@@ -304,13 +304,13 @@ var hours24 by remember(prefKey) { mutableStateOf(prefs.getBoolean("${prefKey}_2
 var dateLocale by remember(prefKey) { mutableStateOf(prefs.getString("${prefKey}_locale","").orEmpty()) }
 var alerts by remember(prefKey) { mutableStateOf(prefs.getBoolean("${prefKey}_alerts",false)) }
 val options=webNoticeOptions(state.webState?.let(::webNoticeMask) ?: 0L)
-var mode by remember { mutableStateOf<Int?>(null) }
+var mode by remember(wire) { mutableStateOf<Int?>(null) }
 DisposableEffect(wire) { onDispose { wire.dispose() } }
 LaunchedEffect(wire,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
 if(connected) { wire.start(); try { awaitCancellation() } finally { wire.pause() } } else wire.pause()
 } }
 LaunchedEffect(state.ready) { if(!state.ready) mode=null }
-val labels=listOf(t("Administrar la aplicación de autenticación","Manage authenticator app"),t("Administrar claves de seguridad","Manage security keys"),t("Administrar códigos de respaldo","Manage backup codes"),t("Ver inicios de sesión anteriores","View previous logins"),t("Habilitar notificaciones en la app","Enable in-app notifications"),t("Opciones de hora e idioma","Time and language options"),t("Opciones de notificación","Notification options"),t("Cambiar contraseña","Change password"),t("Eliminar cuenta","Delete account"),t("Crear token de inicio de sesión","Create login token"))
+val labels=listOf(t("Administrar la aplicación de autenticación","Manage authenticator app"),t("Administrar claves de seguridad","Manage security keys"),t("Administrar códigos de respaldo","Manage backup codes"),t("Ver inicios de sesión anteriores","View previous logins"),t("Habilitar notificaciones en la app","Enable in-app notifications"),t("Opciones de hora e idioma","Time and language options"),t("Opciones de notificación","Notification options"),t("Cambiar contraseña","Change password"),t("Eliminar cuenta","Delete account"),t("Crear token de inicio de sesión","Create login token"))+listOf(t("Gestionar MFA","Manage MFA"))
 val status=when(state.status) {
 "ready","received","offline","connecting"->""
 "confirmed"->t("El servidor confirmó el cambio o se observó el estado solicitado.","The server acknowledged the change or the requested state was observed.")
@@ -331,6 +331,7 @@ fun openAction(index:Int) {
 wire.clearResult(); mode=index
 when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"); 2->wire.request("otpauth-getpasswords"); 3->wire.request("previousLogins"); 6->wire.refreshWebState(); 9->wire.request("loginTokens") }
 }
+ProfileOwnAccountLaunch(pendingAction,actor,source.serverUrl,state.ready,state.busy,onOpen={openAction(it)},onConsumed=onActionConsumed)
 val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
 Column(modifier) {
 ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",modifier=Modifier.padding(horizontal=16.dp),onReconnect=wire::start)
@@ -388,6 +389,7 @@ Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrol
 if(status.isNotBlank()) Text(status)
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 when(selected) {
+10->{ProfileOwnMfaChoices(state.ready && !state.busy,onSelect={openAction(it)})}
 0->{
 val value=reply?.optString("secret").orEmpty()
 Text(t("Introduce esta clave manualmente en tu autenticador y confirma con su código de seis dígitos. No se activa hasta que el servidor lo confirme.","Enter this key manually in your authenticator and confirm with its six-digit code. It is not enabled until the server confirms."))

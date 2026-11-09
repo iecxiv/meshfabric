@@ -61,7 +61,7 @@ val labels=if(es) listOf("Copia de seguridad","Administrar usuarios","Restaurar 
 return labels.mapIndexedNotNull { i,label->label.takeIf { mask and (1L shl i)!=0L } }.joinToString(", ").ifBlank { if(es) "Permisos adicionales" else "Additional rights" }
 }
 
-@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onOpenGroup:(String)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onOpenUserGroup:((String)->Unit)?=null,canOpenUserGroup:(String)->Boolean={false},onDismiss:()->Unit) {
+@Composable internal fun UserAdministrationDialog(session:ProfileSession,s:ProfileState,form:ProfileForm,onOpenGroup:(String)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onOpenUserGroup:((String)->Unit)?=null,canOpenUserGroup:(String)->Boolean={false},onManageOwnAccount:((String)->Unit)?=null,onDismiss:()->Unit) {
 key(form) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(a:String,b:String)=if(es) a else b
@@ -257,9 +257,10 @@ if(common.size>100) Text(t("Se muestran los primeros 100 dispositivos.","Showing
 ProfileDisclosure(t("Acciones y seguridad","Actions and security")) {
 ProfileActionGroup {
 ProfileGroupActionButton(t("Agregar dispositivo","Add device"),Icons.Default.Computer,s.canWrite,onClick={ mode="device"; approved=false; session.loadDetails() })
-ProfileGroupActionButton(t("Cambiar contraseña","Change password"),Icons.Default.Lock,s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" })
-ProfileGroupActionButton(t("Restablecer MFA","Reset MFA"),Icons.Default.Security,contactReady && !s.detailsBusy && s.server!=null && s.server.opt("lock2factor")!=true && form.id!=s.id,onClick={mfaReset=true})
-ProfileGroupActionButton(t("Enviar mensaje","Send message"),Icons.Default.Email,contactReady && !s.detailsBusy && form.id!=s.id,onClick={userMessage=true})
+if(profileOwnAccount(s.id,form.id)) ProfileOwnAccountActions(contactReady && !s.detailsBusy && onManageOwnAccount!=null,onPassword={onManageOwnAccount?.invoke("password")},onMfa={onManageOwnAccount?.invoke("mfa")})
+if(!profileOwnAccount(s.id,form.id)) ProfileGroupActionButton(t("Cambiar contraseña","Change password"),Icons.Default.Lock,s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" })
+if(!profileOwnAccount(s.id,form.id)) ProfileGroupActionButton(t("Restablecer MFA","Reset MFA"),Icons.Default.Security,contactReady && !s.detailsBusy && s.server!=null && s.server.opt("lock2factor")!=true && form.id!=s.id,onClick={mfaReset=true})
+ProfileOtherUserActions(s.id,form.id) { ProfileGroupActionButton(t("Enviar mensaje","Send message"),Icons.Default.Email,contactReady && !s.detailsBusy && form.id!=s.id,onClick={userMessage=true}) }
 ProfileGroupActionButton(t("Inicios de sesión anteriores","Previous logins"),Icons.Default.History,true,onClick={ mode="history"; if(!session.previousLogins(form.id)) feedback=t("No se pudo solicitar el historial.","Could not request history.") })
 }
 }
