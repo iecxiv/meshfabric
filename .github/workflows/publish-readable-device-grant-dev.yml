@@ -22,12 +22,13 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Generate selector from pinned reviewed generator
+      - name: Generate selector without non-local Compose return
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = d144d40e5d169bc008f137151084aaa7df5d82b0
+          test "$(git rev-parse HEAD^)" = 3016d53206e2d2c8592026c124b6c25038bb521e
           git fetch origin 37f396427fb2314adcf02a4d9a62aa0b0f3008b7
           python3 - <<'PY'
+          from pathlib import Path
           import subprocess,textwrap
           ref='37f396427fb2314adcf02a4d9a62aa0b0f3008b7:.github/workflows/publish-readable-device-grant.yml'
           assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()=='6a9fd43385cce9061a42c1fb65aaffa6dd975d5d'
@@ -38,7 +39,18 @@ jobs:
           old='039ede1f0f875fa7dc2f88c0859d45864a7b418e'
           assert generator.count(old)==1
           generator=generator.replace(old,'01831d483ec0afe5ce3fc0c03b0e333732a0a084',1)
+          source=Path('app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt')
+          baseline=source.read_text()
           exec(compile(generator,'pinned-readable-device-generator','exec'))
+          generated=source.read_text()
+          bad='if(mode=="device") { UserDeviceGrantDialog(session,s,form.id,onBack={mode="profile";approved=false},onSaved=onDismiss); return@key }\n'
+          good='if(mode=="device") { UserDeviceGrantDialog(session,s,form.id,onBack={mode="profile";approved=false},onSaved=onDismiss) } else '
+          assert generated.count(bad)==1
+          assert generated.replace(bad,'',1)==baseline
+          fixed=generated.replace(bad,good,1)
+          assert fixed.replace(good,'',1)==baseline
+          assert 'return@key' not in fixed
+          source.write_text(fixed)
           PY
           git diff --check
       - name: Install compile SDK
