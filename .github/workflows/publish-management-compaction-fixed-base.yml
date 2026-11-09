@@ -1,0 +1,112 @@
+name: Validate management compaction on fixed base
+on:
+  push:
+    branches: [work/compact-management-on-fixed-dev]
+    paths: [.github/workflows/publish-management-compaction-fixed-base.yml]
+permissions:
+  contents: write
+concurrency:
+  group: management-compaction-fixed-base
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate only the two management dialogs
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = c32e62e5843c5aba93a55d34ffdfccaee3d4d1af
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path('.github/workflows/publish-compact-direct-access-dialogs.yml')
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='327699109cdd717db1abf13b1f939040976566cb'
+          code=p.read_text().split("          python3 - <<'PY'\n",1)[1].split('\n          PY\n',1)[0]
+          code='\n'.join(line[10:] for line in code.splitlines())
+          exec(compile(code,'guarded-management-generator','exec'),{})
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReview.kt','app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshEditDialog.kt'}
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==expected
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute unit tests compile instrumentation and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android Compose suite without exclusions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify Android evidence and print precise failures
+        if: always()
+        run: |
+          mkdir -p validation
+          git diff > validation/management-only.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          cases=[];failures=[];skipped=[]
+          for report in Path('app/build/outputs/androidTest-results').rglob('*.xml'):
+              root=ET.parse(report).getroot()
+              for case in root.iter('testcase'):
+                  name=case.get('classname','')+'.'+case.get('name','');cases.append(name)
+                  if case.find('skipped') is not None: skipped.append(name)
+                  for kind in ['failure','error']:
+                      for error in case.findall(kind): failures.append(name+'\n'+error.get('message','')+'\n'+(error.text or ''))
+          required={'iecxiv.meshfabric.ui.management.UserMeshAssignmentReviewTest','iecxiv.meshfabric.ui.management.UserMeshEditDialogTest','iecxiv.meshfabric.ui.terminal.TerminalFocusWebViewTest','iecxiv.meshfabric.ui.terminal.TerminalKeyBarTest'}
+          present={name.rsplit('.',1)[0] for name in cases}
+          missing=required-present
+          text=f'Android cases: {len(cases)}; failures: {len(failures)}; skipped: {len(skipped)}\nMissing required classes: {sorted(missing)}\n'+'\n\n'.join(failures)
+          Path('validation/results.txt').write_text(text)
+          print(text)
+          assert cases and not failures and not skipped and not missing,'Android evidence incomplete or failing'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: management-fixed-base-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only to unchanged management branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/compact-management-on-fixed-dev
+          git fetch origin work/compact-management-on-fixed-dev dev
+          test "$(git rev-parse origin/work/compact-management-on-fixed-dev)" = "${{ github.sha }}"
+          test "$(git rev-parse origin/dev)" = c32e62e5843c5aba93a55d34ffdfccaee3d4d1af
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReview.kt','app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshEditDialog.kt'}
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==expected
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(management): compact direct access review and rights editor context'
+          git push origin HEAD:work/compact-management-on-fixed-dev
