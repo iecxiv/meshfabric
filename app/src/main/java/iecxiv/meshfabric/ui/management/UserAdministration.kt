@@ -233,7 +233,8 @@ if(membershipPresentation.usable && onOpenUserGroup!=null && canOpenUserGroup(gi
 TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy && s.userGroupPhase!="loading",onClick={session.refresh();session.loadDetails();session.loadUserGroupDirectory()}) {Text(t("Actualizar membresías recibidas","Refresh received memberships"))}
 }
 ProfileDisclosure(t("Dispositivos en común","Devices in common")) {
-if(s.nodes==null || s.userGroups==null) Text(missing) else {
+if(s.nodes==null) Text(if(s.detailsBusy) t("Consultando dispositivos...","Loading devices...") else missing) else {
+if(s.userGroups==null) Text(t("Datos de grupos de usuarios no disponibles: se muestran solo accesos conocidos; los heredados pueden estar incompletos.","User-group data unavailable: only known access is shown; inherited access may be incomplete."),style=MaterialTheme.typography.bodySmall)
 val common=s.nodes.filter { userAccess(s,user,it.optString("_id"),it.optString("meshid"))!=0L }
 if(common.isEmpty()) Text(t("No se observan dispositivos en común en los datos disponibles.","No common devices observed in available data."))
 for(node in common.take(100)) ManagementCard {

@@ -331,10 +331,11 @@ if(action=="users" && pendingAction=="edituser") list?.firstOrNull { it.optStrin
 }
 "nodes","usergroups","wssessioncount"->{
 if(action !in details) return
+val detailReplyError=p.has("error") || p.has("err") || (p.has("result") && !p.optString("result").equals("ok",true))
 details.remove(action)
 when(action) {
 "nodes"->{
-val raw=p.optJSONObject("nodes")
+val raw=if(detailReplyError) null else p.optJSONObject("nodes")
 val nodes=if(raw==null) null else runCatching {
 val all=mutableListOf<JSONObject>()
 for(mesh in raw.keys()) { val a=raw.getJSONArray(mesh); for(i in 0 until a.length()) all.add(JSONObject(a.getJSONObject(i).toString()).put("meshid",mesh)) }
@@ -342,8 +343,11 @@ require(all.all { it.optString("_id").startsWith("node/") }); require(all.map { 
 }.getOrNull()
 state.update { it.copy(nodes=nodes) }; nodes?.forEach(::observeNode)
 }
-"usergroups"->state.update { it.copy(userGroups=records(p.opt("ugroups"))) }
-else->{ val counts=p.optJSONObject("wssessions")?.takeIf { o->o.keys().asSequence().all { key->(o.opt(key) as? Number)?.let { it.toDouble()>=0 && it.toDouble()<=Int.MAX_VALUE && it.toDouble()%1.0==0.0 }==true } }; state.update { it.copy(sessions=counts?.let { JSONObject(it.toString()) }) } }
+"usergroups"->{
+val groups=if(detailReplyError || !p.has("ugroups")) null else if(p.isNull("ugroups")) emptyList<JSONObject>() else records(p.opt("ugroups"))
+state.update {it.copy(userGroups=groups)}
+}
+else->{ val counts=(if(detailReplyError) null else p.optJSONObject("wssessions"))?.takeIf { o->o.keys().asSequence().all { key->(o.opt(key) as? Number)?.let { it.toDouble()>=0 && it.toDouble()<=Int.MAX_VALUE && it.toDouble()%1.0==0.0 }==true } }; state.update { it.copy(sessions=counts?.let { JSONObject(it.toString()) }) } }
 }
 state.update { it.copy(detailsBusy=details.isNotEmpty()) }; if(details.isEmpty()) detailsTimer?.cancel()
 }

@@ -19,16 +19,16 @@ import java.util.Locale
     @get:Rule val compose=createComposeRule()
     private val uid="user//alice";private val gid="ugrp//team";private val missing="ugrp//missing";private val mid="mesh//office";private val nid="node//laptop"
     private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
-    private inner class Fixture(val groupMode:String="",val deviceCanOpen:Boolean=false,val ambiguousDevice:Boolean=false,val duplicateDeviceId:Boolean=false):AutoCloseable {
+    private inner class Fixture(val groupMode:String="",val deviceCanOpen:Boolean=false,val ambiguousDevice:Boolean=false,val duplicateDeviceId:Boolean=false,val groupDataMissing:Boolean=false,val nodesLoading:Boolean=false,val selfAccount:Boolean=false):AutoCloseable {
         var openedGroup:String?=null
         var openedDevice:String?=null
         val client=MeshCentralClient();val session=ProfileSession(client)
-        val actor=JSONObject().put("_id","user//admin").put("siteadmin",2L).put("links",JSONObject().put(mid,JSONObject().put("rights",8)))
-        val user=JSONObject().put("_id",uid).put("name","Alicia").put("email","alice@example.invalid").put("siteadmin",0).put("links",JSONObject().put(gid,JSONObject().put("rights",1)).put(missing,JSONObject().put("rights",1)).put(mid,JSONObject().put("rights",8)).put(nid,JSONObject().put("rights",8)))
+        val actor=JSONObject().put("_id",if(selfAccount) uid else "user//admin").put("siteadmin",2L).put("links",JSONObject().put(mid,JSONObject().put("rights",8)))
+        val user=JSONObject().put("_id",uid).put("name","Alicia").put("email","alice@example.invalid").put("siteadmin",if(selfAccount) 2 else 0).put("links",JSONObject().put(gid,JSONObject().put("rights",1)).put(missing,JSONObject().put("rights",1)).put(mid,JSONObject().put("rights",8)).put(nid,JSONObject().put("rights",8)))
         val team=JSONObject().put("_id",gid).put("name","Equipo").put("desc","Madrid").put("links",JSONObject().put(uid,JSONObject().put("rights",1)))
         val mesh=JSONObject().put("_id",mid).put("name",if(groupMode=="missing") "" else "Oficina").put("desc","Madrid")
         val node=JSONObject().put("_id",nid).put("name","Portátil").put("desc","Personal").put("meshid",mid)
-        val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=if(groupMode=="ambiguous") listOf(mesh,JSONObject(mesh.toString()).put("_id","mesh//other")) else listOf(mesh),nodes=if(duplicateDeviceId) listOf(node,JSONObject(node.toString())) else if(ambiguousDevice) listOf(node,JSONObject(node.toString()).put("_id","node//other")) else listOf(node),userGroups=listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
+        val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=if(groupMode=="ambiguous") listOf(mesh,JSONObject(mesh.toString()).put("_id","mesh//other")) else listOf(mesh),nodes=if(nodesLoading) null else if(duplicateDeviceId) listOf(node,JSONObject(node.toString())) else if(ambiguousDevice) listOf(node,JSONObject(node.toString()).put("_id","node//other")) else listOf(node),detailsBusy=nodesLoading,userGroups=if(groupDataMissing) null else listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
         init {
             compose.setContent {
                 val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
@@ -130,6 +130,25 @@ import java.util.Locale
         compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
         compose.onNodeWithText("Dispositivo: Portátil · Personal").assertExists()
         compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").assertExists()
+        f.assertNoIds()
+    }}
+    @Test fun ownAccountKeepsKnownDevicesWhenUserGroupsAreUnavailable() {Fixture(deviceCanOpen=true,groupDataMissing=true,selfAccount=true).use {f->
+        compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        compose.onNodeWithText("Dispositivo: Portátil · Personal").assertExists()
+        compose.onNodeWithText("Datos de grupos de usuarios no disponibles:",substring=true).assertExists()
+        compose.onNodeWithText("Abrir ficha").performScrollTo().assertIsEnabled().performClick()
+        assertEquals(nid,f.openedDevice);f.assertNoIds()
+    }}
+    @Test fun missingGroupDataDoesNotBypassDeviceNavigationAvailability() {Fixture(groupDataMissing=true,selfAccount=true).use {f->
+        compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        compose.onNodeWithText("Dispositivo: Portátil · Personal").assertExists()
+        compose.onNodeWithText("Abrir ficha").assertIsNotEnabled()
+        assertNull(f.openedDevice);f.assertNoIds()
+    }}
+    @Test fun ownAccountDistinguishesLoadingDevicesFromAnEmptyList() {Fixture(nodesLoading=true,groupDataMissing=true,selfAccount=true).use {f->
+        compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        compose.onNodeWithText("Consultando dispositivos...").assertExists()
+        compose.onAllNodesWithText("No se observan dispositivos en común",substring=true).assertCountEquals(0)
         f.assertNoIds()
     }}
     @Test fun passwordModeStillStatesThatMultifactorMethodsArePreserved() {Fixture().use {f->

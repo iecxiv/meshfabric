@@ -93,5 +93,5 @@ import java.util.Locale
             if(dirty) check(t("Confirmo aplicar los cambios a este usuario.","I confirm applying the changes to this user."),approved) { approved=it }
             if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.error)
         }
-    },confirmButton={Button(modifier=Modifier.testTag("user-advanced-send"),enabled=allowed && approved,onClick={if(allowed && approved && packet!=null && session.submit(packet)) onSaved() else feedback=t("No se ha enviado el cambio.","The change was not sent.")}) {Text(t("Aplicar","Apply"))}},dismissButton={TextButton(onClick=onDismiss){Text(t("Cancelar","Cancel"))}})
+    },confirmButton={Button(modifier=Modifier.testTag("user-advanced-send"),enabled=allowed && approved,onClick={if(allowed && approved && session.submit(packet)) onSaved() else feedback=t("No se ha enviado el cambio.","The change was not sent.")}) {Text(t("Aplicar","Apply"))}},dismissButton={TextButton(onClick=onDismiss){Text(t("Cancelar","Cancel"))}})
 }
