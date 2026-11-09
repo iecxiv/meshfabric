@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
@@ -31,11 +32,12 @@ val refreshAction=userGroupsRefreshAction(s.ready,s.busy,s.loading,s.userGroupPh
 val feedback=userGroupsNoticeText(s.notice,es)
     LazyColumn(modifier,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         item {
-            Text(t("Grupos de usuarios","User groups"),style=MaterialTheme.typography.titleMedium)
-            Text(t("Grupos del dominio actual; son distintos de los grupos de dispositivos.","Groups in the current domain; these are separate from device groups."),style=MaterialTheme.typography.bodySmall)
             if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=if(userGroupsNoticeIsError(s.notice)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+ManagementCard(Modifier.testTag("user-groups-server-actions")) {
+Text(t("Acciones del servidor","Server actions"),style=MaterialTheme.typography.titleSmall)
 TextButton(enabled=refreshAction!=UserGroupsRefreshAction.NONE,onClick={when(refreshAction) {UserGroupsRefreshAction.RECONNECT->session.start();UserGroupsRefreshAction.REFRESH->{session.refresh();session.loadUserGroupDirectory()};UserGroupsRefreshAction.NONE->Unit}}) {Text(if(s.ready) t("Actualizar","Refresh") else t("Reconectar","Reconnect"))}
 TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;deleting=null;removing=null;creating=true}) {Text(t("Crear grupo de usuarios","Create user group"))}
+}
 if(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El servidor confirmó la creación: ","The server confirmed creation: ")+s.createdUserGroup,style=MaterialTheme.typography.bodySmall)
             if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El servidor confirmó la eliminación: ","The server confirmed deletion: ")+s.deletedUserGroup,style=MaterialTheme.typography.bodySmall)
 if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta del grupo. Usuario: ","Link absent in the group read. User: ")+s.removedMember+t("; grupo: ","; group: ")+s.removedMemberGroup,style=MaterialTheme.typography.bodySmall)
