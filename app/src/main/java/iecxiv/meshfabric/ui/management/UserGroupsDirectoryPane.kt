@@ -73,18 +73,19 @@ ProfileDisclosure(t("Miembros y accesos recibidos","Received members and access"
 val memberGroupUsable=remember(group) {runCatching {profileUserGroupDeleteSnapshot(group)}.isSuccess}
 var linkQuery by remember(group.optString("_id")) {mutableStateOf("")}
 OutlinedTextField(linkQuery,{linkQuery=it.take(256)},label={Text(t("Buscar enlace recibido","Search received links"))},singleLine=true,modifier=Modifier.fillMaxWidth())
-val matchingIds=ids.filter {linkQuery.isBlank() || it.contains(linkQuery,true) || links.optJSONObject(it)?.optString("name")?.contains(linkQuery,true)==true}
+val matchingIds=ids.filter {linkQuery.isBlank() || it.contains(linkQuery,true) || profileReceivedLinkPresentation(s,group,it,es).label.contains(linkQuery,true) || links.optJSONObject(it)?.optString("name")?.contains(linkQuery,true)==true}
                         if(ids.isEmpty()) Text(t("Sin asignaciones recibidas.","No assignments received."))
                         for(id in matchingIds.take(100)) {
-if(profileUserGroupMemberId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site) && memberGroupUsable && group.isNull("membershipType") && links.opt(id) is JSONObject,onClick={editing=null;creating=false;deleting=null;removing=JSONObject(group.toString()) to id;session.loadUserGroupDirectory()}) {Text(t("Retirar del grupo: ","Remove from group: ")+id)}
+val presentation=profileReceivedLinkPresentation(s,group,id,es)
+if(profileUserGroupMemberId(s.id,id)) TextButton(enabled=presentation.usable && s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site) && memberGroupUsable && group.isNull("membershipType") && links.opt(id) is JSONObject,onClick={editing=null;creating=false;deleting=null;removing=JSONObject(group.toString()) to id;session.loadUserGroupDirectory()}) {Text(t("Retirar del grupo: ","Remove from group: ")+presentation.label)}
                             val user=s.users.firstOrNull {it.optString("_id")==id}
                             val mesh=s.groups.firstOrNull {it.optString("_id")==id}
-if(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready",onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=group.optString("_id") to id;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Revisar asignación: ","Review assignment: ")+id)}
-if(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && !s.detailsBusy && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=group.optString("_id") to id}) {Text(t("Editar derechos de asignación: ","Edit assignment rights: ")+id)}
+if(profileGroupMeshId(s.id,id)) TextButton(enabled=presentation.usable && s.canWrite && s.userGroupPhase=="ready",onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=group.optString("_id") to id;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Revisar asignación: ","Review assignment: ")+presentation.label)}
+if(profileGroupMeshId(s.id,id)) TextButton(enabled=presentation.usable && s.canWrite && !s.detailsBusy && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=group.optString("_id") to id}) {Text(t("Editar derechos de asignación: ","Edit assignment rights: ")+presentation.label)}
                             when {
-                                user!=null && canAdministerUser(s,user)->TextButton(enabled=s.canWrite,onClick={onOpenUser(id)}) {Text(t("Usuario: ","User: ")+user.optString("name"))}
-                                mesh!=null->TextButton(enabled=s.ready && !s.busy,onClick={onOpenDeviceGroup(id)}) {Text(t("Grupo de dispositivos: ","Device group: ")+mesh.optString("name"))}
-                                else->Text(id,style=MaterialTheme.typography.bodySmall)
+                                user!=null && canAdministerUser(s,user)->TextButton(enabled=presentation.usable && s.canWrite,onClick={onOpenUser(id)}) {Text(presentation.label)}
+                                mesh!=null->TextButton(enabled=presentation.usable && s.ready && !s.busy,onClick={onOpenDeviceGroup(id)}) {Text(presentation.label)}
+                                else->Text(presentation.label,style=MaterialTheme.typography.bodySmall)
                             }
                         }
                         if(matchingIds.size>100) Text(t("Se muestran los primeros 100 enlaces coincidentes; busca para acotar.","Showing the first 100 matching links; search to narrow them down."),style=MaterialTheme.typography.bodySmall)
