@@ -1,0 +1,88 @@
+name: Validate user quota preservation and larger editor
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-editor-foundation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-editor-foundation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Preserve quotas on edituser and enlarge edit dialogs
+        run: |
+          python3 - <<'PY'
+          policy_source = 'package iecxiv.meshfabric.ui.management\n\ninternal const val MAX_SAFE_USER_QUOTA=9007199254740991L\n\ninternal fun userQuotaForEdit(value:Any?):Long? {\n    if(value==null) return null\n    require(value is Int || value is Long || value is Double) { "Unsupported quota type" }\n    val number=(value as Number).toDouble()\n    require(number.isFinite() && number>=0.0 && number<=MAX_SAFE_USER_QUOTA.toDouble() && number%1.0==0.0) { "Invalid quota" }\n    return number.toLong()\n}\ninternal fun userQuotaValuesMatch(actual:Any?,expected:Any?):Boolean=\n    runCatching { userQuotaForEdit(actual)==userQuotaForEdit(expected) }.getOrDefault(false)\n'
+          test_source = 'package iecxiv.meshfabric.ui.management\n\nimport org.junit.Assert.*\nimport org.junit.Test\n\nclass UserEditQuotaPolicyTest {\n    @Test fun absentQuotaStaysInherited() { assertNull(userQuotaForEdit(null)) }\n    @Test fun numericQuotaIsPreservedExactly() {\n        assertEquals(0L,requireNotNull(userQuotaForEdit(0)))\n        assertEquals(2048L,requireNotNull(userQuotaForEdit(2048)))\n        assertEquals(2048L,requireNotNull(userQuotaForEdit(2048.0)))\n        assertEquals(4294967296L,requireNotNull(userQuotaForEdit(4294967296L)))\n        assertEquals(MAX_SAFE_USER_QUOTA,requireNotNull(userQuotaForEdit(MAX_SAFE_USER_QUOTA)))\n    }\n    @Test fun malformedOrUnsafeQuotaIsRejected() {\n        for(value in listOf<Any>("2048",true,-1L,1.5,Double.NaN,Double.POSITIVE_INFINITY,9007199254740992L)) {\n            assertThrows(IllegalArgumentException::class.java) { userQuotaForEdit(value) }\n        }\n    }\n    @Test fun observationComparesNumbersAndAbsence() {\n        assertTrue(userQuotaValuesMatch(2048.0,2048L))\n        assertTrue(userQuotaValuesMatch(null,null))\n        assertFalse(userQuotaValuesMatch(null,0))\n        assertFalse(userQuotaValuesMatch(2048,4096))\n        assertFalse(userQuotaValuesMatch("invalid","invalid"))\n    }\n}\n'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'b75c9f0565e6872c0f69b609d9ea4cd87872455d','UserAdministration.kt':'e94513c24c349190543aac83aeff989bc557b41f'}
+          sources={}
+          for name,sha in expected.items():
+              path=base/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=path.read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing or nonunique anchor in '+name)
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileSession.kt','if(!allowed) return false',"""if(!allowed) return false
+          val preservedQuota=if(action=="edituser") runCatching {
+          val current=requireNotNull(target)
+          userQuotaForEdit(if(current.isNull("quota")) null else current.opt("quota"))
+          }.getOrElse { return false } else null""")
+          change('ProfileSession.kt','if(action=="edituser") payload.put("id",id)','if(action=="edituser") payload.put("id",id).put("quota",preservedQuota ?: JSONObject.NULL)')
+          change('ProfileSession.kt','if(action=="edituser") listOf("email","realname","siteadmin")','if(action=="edituser") listOf("email","realname","siteadmin","quota")')
+          change('ProfileSession.kt','if(key=="siteadmin")','if(key=="quota") userQuotaValuesMatch(if(account.isNull(key)) null else account.opt(key),if(expected.isNull(key)) null else expected.opt(key)) else if(key=="siteadmin")')
+          change('UserAdministration.kt','val locking=form.operation in setOf("lock","unlock")','val locking=form.operation in setOf("lock","unlock")\nval editing=!creating && !deleting && !locking')
+          change('UserAdministration.kt','ManagementDialog(onDismissRequest=onDismiss,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title=', 'ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=900.dp).fillMaxWidth(0.96f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title=')
+          change('UserAdministration.kt','.heightIn(max=440.dp)','.heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.72f).dp else 440.dp)')
+          new_files={base/'UserEditQuotaPolicy.kt':policy_source,Path('app/src/test/java/iecxiv/meshfabric/ui/management/UserEditQuotaPolicyTest.kt'):test_source}
+          for path in new_files:
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          for name,source in sources.items():(base/name).write_text(source)
+          for path,source in new_files.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(source)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-editor-foundation-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated quota preservation and editor layout
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserEditQuotaPolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserEditQuotaPolicyTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(users): preserve account quota and enlarge edit dialog'
+          git push origin HEAD:dev

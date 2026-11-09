@@ -1,0 +1,222 @@
+{
+  "upstream_repository": "Ylianst/MeshCentral",
+  "tag": "1.3.1",
+  "commit": "f436143527458d56da0336ea3047c006703fb4e4",
+  "source_blobs": {
+    "meshuser.js": "62d82550e2fa7ee66ffc55e4613cb57e8f9c2197",
+    "views/default.handlebars": "e0f9cfa2cf5bb5d9b760ec33903c8ab97db283d7"
+  },
+  "source_sha256": {
+    "meshuser.js": "ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671",
+    "views/default.handlebars": "0ed2d483d3545e9bb1ffb2be143b6d644bf5c0d9d4c1a2a3a1ccd7e87e88848f"
+  },
+  "server_commands_found": [
+    "changeuserpass",
+    "deleteuser",
+    "edituser",
+    "previousLogins",
+    "wssessioncount"
+  ],
+  "server_commands_not_found": [
+    "adddeviceuser",
+    "users"
+  ],
+  "web_anchor_lines": [
+    3509,
+    3510,
+    15667,
+    17356,
+    17362,
+    17374,
+    17380,
+    17746,
+    17862,
+    18432,
+    18433,
+    18434,
+    18435,
+    18436,
+    18437,
+    18438,
+    18439,
+    18441,
+    18442,
+    18443,
+    18444,
+    18445,
+    18650,
+    18656,
+    18660,
+    18661,
+    18662,
+    18663,
+    18664,
+    18665,
+    18666,
+    18667,
+    18668,
+    18669,
+    18670,
+    18671,
+    18707,
+    18717,
+    18732,
+    18758,
+    18806,
+    21381,
+    21383,
+    21384,
+    21385,
+    21386,
+    21387,
+    21388,
+    21389,
+    21390,
+    21391,
+    21392,
+    21393,
+    21394
+  ],
+  "blocks": [
+    {
+      "label": "server-constants",
+      "source": "meshuser.js",
+      "first_line": 1,
+      "last_line": 120,
+      "parts": [
+        "server-constants-01.txt",
+        "server-constants-02.txt"
+      ]
+    },
+    {
+      "label": "server-wssessioncount-1234",
+      "source": "meshuser.js",
+      "first_line": 1234,
+      "last_line": 1274,
+      "parts": [
+        "server-wssessioncount-1234-01.txt"
+      ]
+    },
+    {
+      "label": "server-deleteuser-1275",
+      "source": "meshuser.js",
+      "first_line": 1275,
+      "last_line": 1397,
+      "parts": [
+        "server-deleteuser-1275-01.txt",
+        "server-deleteuser-1275-02.txt",
+        "server-deleteuser-1275-03.txt"
+      ]
+    },
+    {
+      "label": "server-edituser-1443",
+      "source": "meshuser.js",
+      "first_line": 1443,
+      "last_line": 1593,
+      "parts": [
+        "server-edituser-1443-01.txt",
+        "server-edituser-1443-02.txt",
+        "server-edituser-1443-03.txt"
+      ]
+    },
+    {
+      "label": "server-changeuserpass-2054",
+      "source": "meshuser.js",
+      "first_line": 2054,
+      "last_line": 2112,
+      "parts": [
+        "server-changeuserpass-2054-01.txt"
+      ]
+    },
+    {
+      "label": "server-previousLogins-5283",
+      "source": "meshuser.js",
+      "first_line": 5283,
+      "last_line": 5336,
+      "parts": [
+        "server-previousLogins-5283-01.txt"
+      ]
+    },
+    {
+      "label": "web-context-1",
+      "source": "views/default.handlebars",
+      "first_line": 3369,
+      "last_line": 3609,
+      "parts": [
+        "web-context-1-01.txt",
+        "web-context-1-02.txt",
+        "web-context-1-03.txt",
+        "web-context-1-04.txt"
+      ]
+    },
+    {
+      "label": "web-context-2",
+      "source": "views/default.handlebars",
+      "first_line": 15527,
+      "last_line": 15766,
+      "parts": [
+        "web-context-2-01.txt",
+        "web-context-2-02.txt",
+        "web-context-2-03.txt",
+        "web-context-2-04.txt"
+      ]
+    },
+    {
+      "label": "web-context-3",
+      "source": "views/default.handlebars",
+      "first_line": 17216,
+      "last_line": 17479,
+      "parts": [
+        "web-context-3-01.txt",
+        "web-context-3-02.txt",
+        "web-context-3-03.txt",
+        "web-context-3-04.txt"
+      ]
+    },
+    {
+      "label": "web-context-4",
+      "source": "views/default.handlebars",
+      "first_line": 17606,
+      "last_line": 17961,
+      "parts": [
+        "web-context-4-01.txt",
+        "web-context-4-02.txt",
+        "web-context-4-03.txt",
+        "web-context-4-04.txt",
+        "web-context-4-05.txt",
+        "web-context-4-06.txt"
+      ]
+    },
+    {
+      "label": "web-context-5",
+      "source": "views/default.handlebars",
+      "first_line": 18292,
+      "last_line": 18905,
+      "parts": [
+        "web-context-5-01.txt",
+        "web-context-5-02.txt",
+        "web-context-5-03.txt",
+        "web-context-5-04.txt",
+        "web-context-5-05.txt",
+        "web-context-5-06.txt",
+        "web-context-5-07.txt",
+        "web-context-5-08.txt",
+        "web-context-5-09.txt",
+        "web-context-5-10.txt",
+        "web-context-5-11.txt"
+      ]
+    },
+    {
+      "label": "web-context-6",
+      "source": "views/default.handlebars",
+      "first_line": 21241,
+      "last_line": 21493,
+      "parts": [
+        "web-context-6-01.txt",
+        "web-context-6-02.txt",
+        "web-context-6-03.txt"
+      ]
+    }
+  ],
+  "scope": "Static source excerpts only. Web context ranges are not a guarantee of complete function coverage. No server requests, app changes, or runtime tests."
+}

@@ -1,0 +1,99 @@
+name: Validate and publish reviewed user group deletion
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-group-delete.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-group-delete-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed user group deletion
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'b987b31e61cdf9265c6988436b62d36ea0f460ac','UserGroupsDirectoryPane.kt':'72628eecbae441226983b533d7e3004cf0900626'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileSession.kt','val createdUserGroup:String=""','val createdUserGroup:String="",val deletedUserGroup:String=""')
+          change('ProfileSession.kt','if(pendingAction in setOf("editusergroup","createusergroup"))','if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup"))')
+          anchor='else if(ok && action=="createusergroup") {'
+          change('ProfileSession.kt',anchor,'else if(ok && action=="deleteusergroup") {\nif(profileUserGroupDeleteAck(pendingTarget,p.opt("ugrpid"))) {val removed=pendingTarget;state.update {it.copy(deletedUserGroup=removed)};finish("userGroupDeleted",false);loadUserGroupDirectory();loadLists();source.requestServerData()}\n}\n'+anchor)
+          anchor='val allowed=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'\n"deleteusergroup"->profileUserGroupDeleteAllowed(s,p,broadcastServerLabel())')
+          anchor='val payload=when(action) {"editusergroup"->profileUserGroupEditWire(p);"createusergroup"->profileUserGroupCreateWire(p);else->JSONObject().put("action",action)}'
+          change('ProfileSession.kt',anchor,'val payload=when(action) {"deleteusergroup"->profileUserGroupDeleteWire(p);"editusergroup"->profileUserGroupEditWire(p);"createusergroup"->profileUserGroupCreateWire(p);else->JSONObject().put("action",action)}')
+          change('ProfileSession.kt','if(action !in setOf("editusergroup","createusergroup"))','if(action !in setOf("editusergroup","createusergroup","deleteusergroup"))')
+          anchor='createdUserGroup=if(action=="createusergroup") "" else it.createdUserGroup)'
+          change('ProfileSession.kt',anchor,'createdUserGroup=if(action=="createusergroup") "" else it.createdUserGroup,deletedUserGroup=if(action=="deleteusergroup") "" else it.deletedUserGroup)')
+          anchor='var creating by remember(s.id) {mutableStateOf(false)}\nLaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false}}'
+          change('UserGroupsDirectoryPane.kt',anchor,'var creating by remember(s.id) {mutableStateOf(false)}\nvar deleting by remember(s.id) {mutableStateOf<JSONObject?>(null)}\nLaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null}}')
+          change('UserGroupsDirectoryPane.kt','onClick={editing=null;creating=true}','onClick={editing=null;deleting=null;creating=true}')
+          anchor='OutlinedTextField(query,{query=it.take(256)}'
+          change('UserGroupsDirectoryPane.kt',anchor,'if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El servidor confirmó la eliminación: ","The server confirmed deletion: ")+s.deletedUserGroup,style=MaterialTheme.typography.bodySmall)\n'+anchor)
+          anchor='ProfileDisclosure(t("Miembros y accesos recibidos","Received members and access"))'
+          change('UserGroupsDirectoryPane.kt',anchor,'TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site) && profileUserGroupDeleteShape(s.id,group),colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error),onClick={editing=null;creating=false;deleting=JSONObject(group.toString());session.loadUserGroupDirectory()}) {Text(t("Eliminar","Delete"))}\nif(profileUserGroupEditRole(s.site) && !profileUserGroupDeleteShape(s.id,group)) Text(t("Borrado no disponible: datos incompletos, enlaces no compatibles o restricciones de grupo externo.","Deletion unavailable: incomplete data, unsupported links or external-group restrictions."),style=MaterialTheme.typography.bodySmall)\n'+anchor)
+          anchor='if(creating && editing==null) UserGroupCreateDialog(session,s) {creating=false}'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\ndeleting?.let {UserGroupDeleteDialog(session,s,it) {deleting=null}}')
+          hashes={'.github/patches/user-group-delete/UserGroupDeletePolicy.kt.txt': '6c177bf6ab1afe062353c240e1a47f201ea7a07be42b4a6637cf5bee4c32f4a0', '.github/patches/user-group-delete/UserGroupDeleteDialog.kt.txt': 'a24402aa627f11a3fc747a2ae557784af301dfdb484b8d205d775b09ef42e7e3', '.github/patches/user-group-delete/UserGroupDeletePolicyTest.kt.txt': '3e7efbbd39a2e9255814d0734fea0dbb8ce48164f3c01501b7385722c440dc06', '.github/patches/user-group-delete/UserGroupDeleteRequestTest.kt.txt': 'b2cc7613363e549ba7bd96ef3ceb5a3f7f307e73a7313d800097790c4198534e'}
+          targets={'.github/patches/user-group-delete/UserGroupDeletePolicy.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupDeletePolicy.kt', '.github/patches/user-group-delete/UserGroupDeleteDialog.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupDeleteDialog.kt', '.github/patches/user-group-delete/UserGroupDeletePolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupDeletePolicyTest.kt', '.github/patches/user-group-delete/UserGroupDeleteRequestTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupDeleteRequestTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-group-delete-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated user group deletion
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupDeletePolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupDeleteDialog.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupDeletePolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupDeleteRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(user-groups): add reviewed deletion with exact correlated acknowledgement'
+          git push origin HEAD:dev

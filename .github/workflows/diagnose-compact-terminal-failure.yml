@@ -1,0 +1,120 @@
+name: Diagnose compact terminal failure (read only)
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/diagnose-compact-terminal-failure.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: iecxiv/meshfabric
+    steps:
+      - name: Collect exact failed run evidence and summarize
+        run: |
+          mkdir -p diagnostic
+          python3 - <<'PY'
+          import io,json,os,re,subprocess,zipfile
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          out=Path('diagnostic')
+          repo=os.environ['GH_REPO']
+          sha='bc321264faa19c93ad24d4032443cf772bac23b7'
+          workflow='publish-compact-dialogs-terminal-regressions.yml'
+          report=['# Diagnóstico de compactación y terminal',f'Commit objetivo: {sha}']
+          problems=[]
+          def api(endpoint):
+              return subprocess.check_output(['gh','api',f'repos/{repo}/{endpoint}'],stderr=subprocess.PIPE)
+          def save_json(name,data):
+              (out/name).write_text(json.dumps(data,indent=2,ensure_ascii=False))
+          def download(endpoint,name):
+              try:
+                  data=api(endpoint)
+                  (out/name).write_bytes(data)
+                  return data
+              except subprocess.CalledProcessError as e:
+                  problems.append(name+': '+e.stderr.decode(errors='replace'))
+                  return None
+          def inspect_zip(data,label,nested=False):
+              try:
+                  with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                      for info in archive.infolist():
+                          if info.is_dir() or info.file_size>20000000: continue
+                          name=info.filename
+                          if name.endswith('.xml'):
+                              try: root=ET.fromstring(archive.read(info))
+                              except ET.ParseError: continue
+                              cases=list(root.iter('testcase'))
+                              if not cases: continue
+                              failed=[(case,err) for case in cases for kind in ('failure','error') for err in case.findall(kind)]
+                              report.append(f'\n## XML {label}/{name}\nCasos: {len(cases)}; entradas de fallo/error: {len(failed)}')
+                              for case,err in failed:
+                                  report.append('\n### '+case.get('classname','')+'.'+case.get('name',''))
+                                  report.append('```text\n'+err.get('message','')+'\n'+(err.text or '')+'\n```')
+                          elif name.endswith('.txt') and not nested:
+                              lines=archive.read(info).decode(errors='replace').splitlines()
+                              indices=[i for i,line in enumerate(lines) if re.search(r'##\[error\]|Traceback|AssertionError|SyntaxError|IndentationError|^.*\be: file:|FAILED|What went wrong|Execution failed',line)]
+                              if indices:
+                                  chosen=set()
+                                  for i in indices:
+                                      chosen.update(range(max(0,i-3),min(len(lines),i+12)))
+                                  report.append('\n## Extracto de log '+name+'\n```text\n'+'\n'.join(lines[i] for i in sorted(chosen))+'\n```')
+              except zipfile.BadZipFile:
+                  problems.append('ZIP inválido: '+label)
+          try:
+              runs=json.loads(api(f'actions/workflows/{workflow}/runs?branch=dev&status=failure&per_page=100'))['workflow_runs']
+              matches=[run for run in runs if run['head_sha']==sha]
+              if not matches: raise RuntimeError('No se encontró una ejecución fallida del workflow y commit exactos; no se analizará otra ejecución.')
+              run=max(matches,key=lambda r:(r['run_number'],r.get('run_attempt',1)))
+              run_id=run['id'];attempt=run.get('run_attempt',1)
+              save_json('run.json',run)
+              report.extend([f"Run: {run_id}; intento: {attempt}; resultado: {run['conclusion']}",run['html_url']])
+              jobs=[];page=1
+              while True:
+                  batch=json.loads(api(f'actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}'))['jobs']
+                  jobs.extend(batch)
+                  if len(batch)<100: break
+                  page+=1
+              save_json('jobs.json',jobs)
+              for job in jobs:
+                  report.append('\n## Job '+job['name']+': '+str(job['conclusion']))
+                  for step in job.get('steps',[]):
+                      report.append('- '+step['name']+': '+str(step.get('conclusion')))
+              logs=download(f'actions/runs/{run_id}/attempts/{attempt}/logs','run-logs.zip')
+              if logs: inspect_zip(logs,'logs')
+              artifacts=[];page=1
+              while True:
+                  batch=json.loads(api(f'actions/runs/{run_id}/artifacts?per_page=100&page={page}'))['artifacts']
+                  artifacts.extend(batch)
+                  if len(batch)<100: break
+                  page+=1
+              save_json('artifacts.json',artifacts)
+              if not artifacts: report.append('\nNo hay artefactos de esta ejecución. Revisar primero el paso fallido en jobs.json y los logs; no asumir fallo de tests.')
+              for artifact in artifacts:
+                  aid=artifact['id']
+                  if artifact['expired'] or artifact['size_in_bytes']>50000000:
+                      problems.append('Artefacto caducado o mayor de 50 MB: '+str(aid));continue
+                  data=download(f'actions/artifacts/{aid}/zip',f'artifact-{aid}.zip')
+                  if data: inspect_zip(data,artifact['name'],nested=True)
+          except Exception as e:
+              problems.append(type(e).__name__+': '+str(e))
+          report.append('\n## Límites\nSolo se recopilan evidencias de la ejecución indicada. No se ejecutan correcciones ni se modifican fuentes. Recopilación correcta no significa validación superada.')
+          if problems: report.append('\n## Evidencia incompleta\n'+'\n'.join(problems))
+          text='\n'.join(report)
+          (out/'diagnosis.md').write_text(text)
+          print(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary: summary.write(text[:60000])
+          if problems: raise SystemExit(1)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compact-terminal-diagnosis-${{ github.run_id }}
+          path: diagnostic/
+          retention-days: 7
+          if-no-files-found: error

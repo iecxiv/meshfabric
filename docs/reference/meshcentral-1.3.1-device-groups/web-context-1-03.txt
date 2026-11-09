@@ -1,0 +1,89 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 8414-8753 | part 3/6 (may continue a source line)
+
+:             devNotify += Q('p20notifyIntelDeviceConnect').checked ? 2 : 0;
+8527:             devNotify += Q('p20notifyIntelDeviceDisconnect').checked ? 4 : 0;
+8528:             if (fx & 2) { devNotify += Q('p20notifyIntelAmtKvmActions').checked ? 8 : 0; }
+8529:             if (fx & 1) {
+8530:                 devNotify += Q('p20enotifyIntelDeviceConnect').checked ? 16 : 0;
+8531:                 devNotify += Q('p20enotifyIntelDeviceDisconnect').checked ? 32 : 0;
+8532:                 devNotify += Q('p20enotifyIntelDeviceHelp').checked ? 64 : 0;
+8533:             }
+8534:             if ((userinfo.msghandle != null) && ((features2 & 0x02000000) != 0)) {
+8535:                 devNotify += Q('p20emsgDeviceConnect').checked ? 128 : 0;
+8536:                 devNotify += Q('p20emsgDeviceDisconnect').checked ? 256 : 0;
+8537:                 devNotify += Q('p20emsgDeviceHelp').checked ? 512 : 0;
+8538:             }
+8539:             meshserver.send({ action: 'changeusernotify', nodeid: currentNode._id, notify: devNotify });
+8540:         }
+8541: 
+8542:         function makeUserDeviceRightsString(rights) {
+8543:             if (rights == 57592) { return "Full Device Rights"; }
+8544:             var str = [];
+8545:             if (rights & 8) {
+8546:                 var str1 = [];
+8547:                 if (rights & 256) str1.push("No Input");
+8548:                 if (rights & 512) str1.push("No Terminal");
+8549:                 if (rights & 1024) str1.push("No Files");
+8550:                 if (rights & 4194304) str1.push("No Registry");
+8551:                 if (rights & 8388608) str1.push("No Software");
+8552:                 if (rights & 2048) str1.push("No AMT");
+8553:                 if (rights & 4096) str1.push("Limited Input");
+8554:                 if (rights & 65536) str1.push("No Desktop");
+8555:                 if ((rights & 524288) && (serverinfo.guestdevicesharing !== false)) str1.push("Guest Share");
+8556:                 if (str1.length > 0) { str.push('Control (' + str1.join(', ') + ')'); } else { str.push("Control"); }
+8557:             }
+8558:             if (rights & 16) str.push("Console");
+8559:             if (rights & 32) str.push("Server Files");
+8560:             if (rights & 64) str.push("Wake");
+8561:             if (rights & 128) str.push("Notes");
+8562:             if (rights & 8192) str.push("Limit Events");
+8563:             if (rights & 16384) str.push("Chat");
+8564:             if (rights & 32768) str.push("Uninstall");
+8565:             if (rights & 131072) str.push("Commands");
+8566:             if (rights & 262144) str.push("Reset/Off");
+8567:             if (rights & 524288) str.push("Sharing");
+8568:             if (rights & 1048576) str.push("Details");
+8569:             if (rights & 2097152) str.push("Relay");
+8570:             if (str.length == 0) return "No Rights";
+8571:             return str.join(', ');
+8572:         }
+8573: 
+8574:         function makeDeviceGroupRightsString(rights) {
+8575:             if (rights == 0xFFFFFFFF) { return "Full Rights"; }
+8576:             var str = [];
+8577:             if (rights & 1) str.push("Edit Group");
+8578:             if (rights & 2) str.push("Manage Users");
+8579:             if (rights & 4) str.push("Manage Devices");
+8580:             if (rights & 8) {
+8581:                 var str1 = [];
+8582:                 if (rights & 256) str1.push("No Input");
+8583:                 if (rights & 512) str1.push("No Terminal");
+8584:                 if (rights & 1024) str1.push("No Files");
+8585:                 if (rights & 4194304) str1.push("No Registry");
+8586:                 if (rights & 8388608) str1.push("No Software");
+8587:                 if (rights & 2048) str1.push("No AMT");
+8588:                 if (rights & 4096) str1.push("Limited Input");
+8589:                 if (rights & 65536) str1.push("No Desktop");
+8590:                 if ((rights & 524288) && (serverinfo.guestdevicesharing !== false)) str1.push("Guest Share");
+8591:                 if (str1.length > 0) { str.push('Control (' + str1.join(', ') + ')'); } else { str.push("Control"); }
+8592:             }
+8593:             if (rights & 16) str.push("Console");
+8594:             if (rights & 32) str.push("Server Files");
+8595:             if (rights & 64) str.push("Wake");
+8596:             if (rights & 128) str.push("Notes");
+8597:             if (rights & 8192) str.push("Limit Events");
+8598:             if (rights & 16384) str.push("Chat");
+8599:             if (rights & 32768) str.push("Uninstall");
+8600:             if (rights & 131072) str.push("Commands");
+8601:             if (rights & 262144) str.push("Reset/Off");
+8602:             if (rights & 524288) str.push("Sharing");
+8603:             if (rights & 1048576) str.push("Details");
+8604:             if (rights & 2097152) str.push("Relay");
+8605:             if (str.length == 0) return "No Rights";
+8606:             return str.join(', ');
+8607:         }
+8608: 
+8609:         // Run commands on current device
+8

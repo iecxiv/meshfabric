@@ -1,0 +1,277 @@
+name: Validate own account actions and version 1.3.1
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-own-account-actions-version.yml]
+permissions:
+  contents: write
+concurrency:
+  group: own-account-actions-version
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded account navigation and version changes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 3c7110aaafb6c46983984f213b94063e4fa0b0b0
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,json,subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          changed=[]
+          def load(name,sha):
+              p=root/name
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,name
+              return p,p.read_text()
+          def change(s,a,b):
+              assert s.count(a)==1,a
+              return s.replace(a,b,1)
+          p,s=load('UserAdministration.kt','e78bee73d1edb6382e0c19b77df74fe3b4cd11df')
+          prefix=s.split('@Composable internal fun UserAdministrationDialog',1)[0]
+          s=change(s,'canOpenUserGroup:(String)->Boolean={false},onDismiss:','canOpenUserGroup:(String)->Boolean={false},onManageOwnAccount:((String)->Unit)?=null,onDismiss:')
+          lines=[];security=0;hidden=0
+          for line in s.splitlines():
+              if line.startswith('ProfileGroupActionButton(t("Cambiar contraseña",'):
+                  lines.append('if(profileOwnAccount(s.id,form.id)) ProfileOwnAccountActions(contactReady && !s.detailsBusy && onManageOwnAccount!=null,onPassword={onManageOwnAccount?.invoke("password")},onMfa={onManageOwnAccount?.invoke("mfa")})')
+                  line='if(!profileOwnAccount(s.id,form.id)) '+line;security+=1
+              elif line.startswith('ProfileGroupActionButton(t("Restablecer MFA",'):
+                  line='if(!profileOwnAccount(s.id,form.id)) '+line;security+=1
+              elif ('ProfileGroupActionButton' in line or 'TextButton' in line) and re.search(r'Enviar mensaje|userIsLocked\(|t\("Bloquear|t\("Desbloquear|t\("Eliminar',line) and not line.startswith('ManagementDialog('):
+                  line='ProfileOtherUserActions(s.id,form.id) { '+line+' }';hidden+=1
+              lines.append(line)
+          assert security==2 and hidden>=3,(security,hidden)
+          s='\n'.join(lines)+'\n'
+          assert s.split('@Composable internal fun UserAdministrationDialog',1)[0]==prefix
+          p.write_text(s);changed.append(str(p))
+          p,s=load('ProfileScreen.kt','26d3c79bdd62edd30c3e3bf58b569a8e0f08fcaa')
+          s=change(s,'var broadcast by remember { mutableStateOf(false) }','var broadcast by remember { mutableStateOf(false) }\nvar ownAccountRequest by remember(source,state.id,source.serverUrl,source.authCookie,connected) {mutableStateOf<ProfileOwnAccountRequest?>(null)}')
+          s=change(s,'groupDetailTab=0; broadcast=false } }','groupDetailTab=0; broadcast=false;ownAccountRequest=null } }')
+          s=change(s,'{ section=profileSectionKeys.getOrNull(it)','{ ownAccountRequest=null;section=profileSectionKeys.getOrNull(it)')
+          s=change(s,'NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth())','NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null})')
+          s=change(s,'if(users) TextButton(enabled=state.canWrite && canLockUser(state,row),','if(users && !profileOwnAccount(state.id,id)) TextButton(enabled=state.canWrite && canLockUser(state,row),')
+          s=change(s,'TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && id!=state.id else ProfilePermissions.deleteGroup','if(!users || !profileOwnAccount(state.id,id)) TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && id!=state.id else ProfilePermissions.deleteGroup')
+          anchor='canOpenUserGroup={gid->profileReceivedUserGroup(state,gid)!=null},onDismiss=closeProfileDialog)'
+          callback='canOpenUserGroup={gid->profileReceivedUserGroup(state,gid)!=null},onManageOwnAccount={action->if(connected && !source.isUserLogout && state.ready && profileOwnAccount(state.id,selected.id) && action in setOf("password","mfa")) {form=null;groupDetails=null;userGroupDetails=null;deviceDetails=null;deviceAssignment=null;origins=emptyList();groupDetailTab=0;broadcast=false;section="account";ownAccountRequest=ProfileOwnAccountRequest(state.id,source.serverUrl,action)}},onDismiss=closeProfileDialog)'
+          s=change(s,anchor,callback)
+          p.write_text(s);changed.append(str(p))
+          p,s=load('NativeAccount.kt','23054dd23598f7634623bacfa0329ee8dd8a3bfe')
+          prefix=s.split('@Composable internal fun NativeAccountPane',1)[0]
+          s=change(s,'NativeAccountPane(source:MeshCentralClient,actor:String,modifier:Modifier=Modifier)','NativeAccountPane(source:MeshCentralClient,actor:String,modifier:Modifier=Modifier,pendingAction:ProfileOwnAccountRequest?=null,onActionConsumed:()->Unit={})')
+          s=change(s,'var mode by remember { mutableStateOf<Int?>(null) }','var mode by remember(wire) { mutableStateOf<Int?>(null) }')
+          lines=s.splitlines()
+          indices=[i for i,line in enumerate(lines) if line.startswith('val labels=listOf(t("Administrar la aplicación de autenticación"')]
+          assert len(indices)==1
+          lines[indices[0]]+='+listOf(t("Gestionar MFA","Manage MFA"))'
+          s='\n'.join(lines)+'\n'
+          s=change(s,'val icons=listOf(Icons.Default.Security,','ProfileOwnAccountLaunch(pendingAction,actor,source.serverUrl,state.ready,state.busy,onOpen={openAction(it)},onConsumed=onActionConsumed)\nval icons=listOf(Icons.Default.Security,')
+          s=change(s,'when(selected) {\n0->{','when(selected) {\n10->{ProfileOwnMfaChoices(state.ready && !state.busy,onSelect={openAction(it)})}\n0->{')
+          assert s.split('@Composable internal fun NativeAccountPane',1)[0]==prefix
+          p.write_text(s);changed.append(str(p))
+          p=root/'ProfileOwnAccountNavigation.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Lock
+          import androidx.compose.material.icons.filled.Security
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          internal fun profileOwnAccount(actor:String,target:String)=actor.isNotBlank() && actor==target
+          internal data class ProfileOwnAccountRequest(val actor:String,val server:String,val action:String)
+          internal fun profileOwnAccountMode(request:ProfileOwnAccountRequest,actor:String,server:String):Int? {
+              if(!profileOwnAccount(actor,request.actor) || server.isBlank() || request.server!=server) return null
+              return when(request.action) {"password"->7;"mfa"->10;else->null}
+          }
+          @Composable internal fun ProfileOwnAccountActions(enabled:Boolean,onPassword:()->Unit,onMfa:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              ProfileActionGroup {
+                  ProfileGroupActionButton(if(es) "Cambiar contraseña" else "Change password",Icons.Default.Lock,enabled,onClick=onPassword)
+                  ProfileGroupActionButton(if(es) "Gestionar MFA" else "Manage MFA",Icons.Default.Security,enabled,onClick=onMfa)
+              }
+          }
+          @Composable internal fun ProfileOtherUserActions(actor:String,target:String,content:@Composable ()->Unit) {
+              if(!profileOwnAccount(actor,target)) content()
+          }
+          @Composable internal fun ProfileOwnAccountLaunch(request:ProfileOwnAccountRequest?,actor:String,server:String,ready:Boolean,busy:Boolean,onOpen:(Int)->Unit,onConsumed:()->Unit) {
+              LaunchedEffect(request,actor,server,ready,busy) {
+                  if(request!=null) {
+                      val mode=profileOwnAccountMode(request,actor,server)
+                      if(mode==null) onConsumed() else if(ready && !busy) {onConsumed();onOpen(mode)}
+                  }
+              }
+          }
+          @Composable internal fun ProfileOwnMfaChoices(enabled:Boolean,onSelect:(Int)->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              val labels=if(es) listOf("Administrar la aplicación de autenticación","Administrar claves de seguridad","Administrar códigos de respaldo") else listOf("Manage authenticator app","Manage security keys","Manage backup codes")
+              ProfileActionGroup {labels.forEachIndexed {index,label->TextButton(enabled=enabled,onClick={onSelect(index)}) {Text(label)}}}
+          }
+          ''');changed.append(str(p))
+          p=Path('app/build.gradle.kts');s=p.read_text()
+          before=re.findall(r'versionCode\s*=\s*\d+',s)
+          s=change(s,'versionName = "1.3.0"','versionName = "1.3.1"')
+          assert before==re.findall(r'versionCode\s*=\s*\d+',s)==['versionCode = 1']
+          p.write_text(s);changed.append(str(p))
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/management/ProfileOwnAccountPolicyTest.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class ProfileOwnAccountPolicyTest {
+              @Test fun identityUsesExactNonemptyId() {
+                  assertTrue(profileOwnAccount("user/a/admin","user/a/admin"))
+                  assertFalse(profileOwnAccount("user/a/admin","user/b/admin"))
+                  assertFalse(profileOwnAccount("",""))
+              }
+              @Test fun onlyTwoOwnSecurityDestinations() {
+                  assertEquals(7,profileOwnAccountMode(ProfileOwnAccountRequest("user/a/me","server","password"),"user/a/me","server"))
+                  assertEquals(10,profileOwnAccountMode(ProfileOwnAccountRequest("user/a/me","server","mfa"),"user/a/me","server"))
+                  assertNull(profileOwnAccountMode(ProfileOwnAccountRequest("user/a/me","server","delete"),"user/a/me","server"))
+              }
+              @Test fun staleActorOrServerNeverOpens() {
+                  val request=ProfileOwnAccountRequest("user/a/me","server","password")
+                  assertNull(profileOwnAccountMode(request,"user/a/other","server"))
+                  assertNull(profileOwnAccountMode(request,"user/a/me","different"))
+                  assertNull(profileOwnAccountMode(request,"user/a/me",""))
+              }
+          }
+          ''');changed.append(str(p))
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileOwnAccountNavigationTest.kt');assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import org.junit.Assert.assertEquals
+          import org.junit.Rule
+          import org.junit.Test
+          class ProfileOwnAccountNavigationTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun twoSeparateOwnSecurityActions() {
+                  var password=0;var mfa=0
+                  compose.setContent {MaterialTheme {ProfileOwnAccountActions(true,{password++},{mfa++})}}
+                  val actions=compose.onAllNodesWithTag("profile-group-action")
+                  actions.assertCountEquals(2)
+                  actions[0].performClick();actions[1].performClick()
+                  compose.runOnIdle {assertEquals(1,password);assertEquals(1,mfa)}
+              }
+              @Test fun administrativeActionsHiddenOnlyForSelf() {
+                  val target=mutableStateOf("user/a/me")
+                  compose.setContent {MaterialTheme {Column {ProfileOtherUserActions("user/a/me",target.value) {
+                      Text("Send message");Text("Lock user");Text("Delete user")
+                  }}}}
+                  listOf("Send message","Lock user","Delete user").forEach {compose.onNodeWithText(it).assertDoesNotExist()}
+                  compose.runOnIdle {target.value="user/a/other"}
+                  listOf("Send message","Lock user","Delete user").forEach {compose.onNodeWithText(it).assertIsDisplayed()}
+              }
+              @Test fun passwordLaunchWaitsAndIsConsumedOnce() {
+                  val ready=mutableStateOf(false)
+                  val request=mutableStateOf<ProfileOwnAccountRequest?>(ProfileOwnAccountRequest("user/a/me","server","password"))
+                  var opens=0;var mode=-1
+                  compose.setContent {ProfileOwnAccountLaunch(request.value,"user/a/me","server",ready.value,false,{opens++;mode=it},{request.value=null})}
+                  compose.runOnIdle {assertEquals(0,opens);ready.value=true}
+                  compose.waitForIdle()
+                  compose.runOnIdle {assertEquals(1,opens);assertEquals(7,mode);ready.value=false}
+                  compose.runOnIdle {ready.value=true}
+                  compose.waitForIdle()
+                  compose.runOnIdle {assertEquals(1,opens)}
+              }
+              @Test fun staleLaunchIsDiscarded() {
+                  val request=mutableStateOf<ProfileOwnAccountRequest?>(ProfileOwnAccountRequest("user/a/me","old-server","mfa"))
+                  var opens=0
+                  compose.setContent {ProfileOwnAccountLaunch(request.value,"user/a/me","new-server",true,false,{opens++},{request.value=null})}
+                  compose.waitForIdle()
+                  compose.runOnIdle {assertEquals(0,opens);assertEquals(null,request.value)}
+              }
+          }
+          ''');changed.append(str(p))
+          Path('validation/expected.json').write_text(json.dumps(sorted(changed)))
+          Path('validation/account-audit.txt').write_text(f'Own security links: {security}; hidden administrative action rows: {hidden}; versionCode unchanged: 1\nAccountWire transport unchanged. Existing administrative handlers and guards retained.\n')
+          PY
+          git diff --check
+      - name: Install SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute unit tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete test evidence
+        if: always()
+        run: |
+          mkdir -p validation
+          git diff > validation/account-changes.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap,xml.etree.ElementTree as ET
+          original=Path('.github/workflows/publish-management-action-checkbox-layout.yml')
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()=='9d3923b90309a1d1fa839af016a352f5a5ec6497'
+          code=original.read_text().split("          python3 - <<'PY'\n")[2].split('\n          PY\n',1)[0]
+          assert code.count('required={')==1
+          code=code.replace('required={',"required={'ProfileOwnAccountNavigationTest',",1)
+          exec(compile(textwrap.dedent(code),'complete-android-evidence','exec'),{})
+          cases=[]
+          for p in Path('app/build/test-results/testDebugUnitTest').rglob('*.xml'):
+              cases.extend(ET.parse(p).getroot().iter('testcase'))
+          own=[c for c in cases if c.get('classname','').endswith('.ProfileOwnAccountPolicyTest')]
+          assert len(own)==3
+          assert all(c.find('failure') is None and c.find('error') is None and c.find('skipped') is None for c in cases)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: own-account-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: own-account-version-1.3.1-apk-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only if dev is unchanged
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/expected.json').read_text())
+          subprocess.run(['git','add','--',*expected],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(management): route own security actions to account and set version 1.3.1'
+          git push origin HEAD:dev

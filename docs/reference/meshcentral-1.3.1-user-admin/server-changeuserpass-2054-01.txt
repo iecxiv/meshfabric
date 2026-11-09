@@ -1,0 +1,63 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2054-2112 | part 1/1 (may continue a source line)
+
+2054:             case 'changeuserpass':
+2055:                 {
+2056:                     // Change a user's password
+2057:                     if ((user.siteadmin & 2) == 0) break;
+2058:                     if (common.validateString(command.userid, 1, 256) == false) break;
+2059:                     if (common.validateString(command.pass, 0, 256) == false) break;
+2060:                     if ((command.hint != null) && (common.validateString(command.hint, 0, 256) == false)) break;
+2061:                     if (typeof command.removeMultiFactor != 'boolean') break;
+2062:                     if ((command.pass != '') && (common.checkPasswordRequirements(command.pass, domain.passwordrequirements) == false)) break; // Password does not meet requirements
+2063: 
+2064:                     var chguser = parent.users[command.userid];
+2065:                     if (chguser) {
+2066:                         // If we are not full administrator, we can't change anything on a different full administrator
+2067:                         if ((user.siteadmin != SITERIGHT_ADMIN) & (chguser.siteadmin === SITERIGHT_ADMIN)) break;
+2068: 
+2069:                         // Can only perform this operation on other users of our group.
+2070:                         if ((user.groups != null) && (user.groups.length > 0) && ((chguser.groups == null) || (findOne(chguser.groups, user.groups) == false))) break;
+2071: 
+2072:                         // Compute the password hash & save it
+2073:                         require('./pass').hash(command.pass, function (err, salt, hash, tag) {
+2074:                             if (!err) {
+2075:                                 if (command.pass != '') { chguser.salt = salt; chguser.hash = hash; }
+2076:                                 if ((domain.passwordrequirements != null) && (domain.passwordrequirements.hint === true) && (command.hint != null)) {
+2077:                                     var hint = command.hint;
+2078:                                     if (hint.length > 250) { hint = hint.substring(0, 250); }
+2079:                                     chguser.passhint = hint;
+2080:                                 }
+2081:                                 if (command.resetNextLogin === true) { chguser.passchange = -1; } else { chguser.passchange = Math.floor(Date.now() / 1000); }
+2082:                                 delete chguser.passtype;      // Remove the password type if one was present.
+2083:                                 if (command.removeMultiFactor === true) {
+2084:                                     delete chguser.otpkeys;   // One time backup codes
+2085:                                     delete chguser.otpsecret; // OTP Google Authenticator
+2086:                                     delete chguser.otphkeys;  // FIDO keys
+2087:                                     delete chguser.otpekey;   // Email 2FA
+2088:                                     delete chguser.phone;     // SMS 2FA
+2089:                                     delete chguser.otpdev;    // Push notification 2FA
+2090:                                     delete chguser.otpduo;    // Duo 2FA
+2091:                                 }
+2092:                                 db.SetUser(chguser);
+2093: 
+2094:                                 var targets = ['*', 'server-users', user._id, chguser._id];
+2095:                                 if (chguser.groups) { for (var i in chguser.groups) { targets.push('server-users:' + i); } }
+2096:                                 var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(chguser), action: 'accountchange', msgid: 75, msg: 'Changed account credentials', domain: domain.id };
+2097:                                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2098:                                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2099:                                 }
+2100:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+2101:                                 parent.parent.DispatchEvent(targets, obj, event);
+2102: 
+2103:                                 // Log in the auth log
+2104:                                 if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' changed account password of user ' + chguser.name); }
+2105:                             } else {
+2106:                                 // Report that the password change failed
+2107:                                 // TODO
+2108:                             }
+2109:                         }, 0);
+2110:                     }
+2111:                     break;
+2112:                 }

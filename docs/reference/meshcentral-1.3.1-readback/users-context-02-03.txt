@@ -1,0 +1,36 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: users | lines 7581-7611 | window 2 part 3 | not necessarily a complete handler
+
+7581:         if (isPhoneNumber(command.phone) == false) return; // Check phone
+7582: 
+7583:         const code = common.zeroPad(getRandomSixDigitInteger(), 6);
+7584:         const phoneCookie = parent.parent.encodeCookie({ a: 'verifyPhone', c: code, p: command.phone, s: ws.sessionId });
+7585:         parent.parent.smsserver.sendPhoneCheck(domain, command.phone, code, parent.getLanguageCodes(req), function (success) {
+7586:             ws.send(JSON.stringify({ action: 'verifyPhone', cookie: phoneCookie, success: success }));
+7587:         });
+7588:     }
+7589: 
+7590:     function serverCommandVerifyMessaging(command) {
+7591:         // Do not allow this command when logged in using a login token
+7592:         if (req.session.loginToken != null) return;
+7593: 
+7594:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return; // If this account is settings locked, return here.
+7595:         if (parent.parent.msgserver == null) return;
+7596:         if (common.validateString(command.handle, 1, 1024) == false) return; // Check handle length
+7597: 
+7598:         // Setup the handle for the right messaging service
+7599:         var handle = null;
+7600:         if ((command.service == 1) && ((parent.parent.msgserver.providers & 1) != 0)) { handle = 'telegram:@' + command.handle; }
+7601:         if ((command.service == 4) && ((parent.parent.msgserver.providers & 4) != 0)) { handle = 'discord:' + command.handle; }
+7602:         if ((command.service == 8) && ((parent.parent.msgserver.providers & 8) != 0)) { handle = 'xmpp:' + command.handle; }
+7603:         if ((command.service == 16) && ((parent.parent.msgserver.providers & 16) != 0)) { handle = parent.parent.msgserver.callmebotUrlToHandle(command.handle); }
+7604:         if ((command.service == 32) && ((parent.parent.msgserver.providers & 32) != 0)) { handle = 'pushover:' + command.handle; }
+7605:         if ((command.service == 64) && ((parent.parent.msgserver.providers & 64) != 0)) { handle = 'ntfy:' + command.handle; }
+7606:         if ((command.service == 128) && ((parent.parent.msgserver.providers & 128) != 0)) { handle = 'zulip:' + command.handle; }
+7607:         if ((command.service == 256) && ((parent.parent.msgserver.providers & 256) != 0)) { handle = 'slack:' + command.handle; }
+7608:         if (handle == null) return;
+7609: 
+7610:         // Send a verification message
+7611:         const code = common.zeroPad(getRandomSixDigitInteger(), 6);

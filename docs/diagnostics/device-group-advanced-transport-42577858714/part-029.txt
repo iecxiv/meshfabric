@@ -1,0 +1,34 @@
+ce#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3667: 11-09 07:19:17.653  1344  1634 I SP      : Scheduling job with delay of 0s for {m:b:u:l, fg}, 1 candidates
+3668: 11-09 07:19:17.681  1344  1344 I SuperpacksForegroundTaskService: SuperpacksForegroundTaskService.onStartCommand():43 SuperpacksForegroundTaskService.onStartCommand(): 1
+3698: 11-09 07:19:17.971  2942  3504 I ConfigUpdater: doneInstall
+3699: 11-09 07:19:18.064  1344  1634 I SP      : Sync for dynamic_art succeeded in 2097 ms: {added: [305f81355a729e382ea9f374dd286d9f, b1f6f47a53f7820be91b9fe247728980], metadata: false
+3700: 11-09 07:19:18.081  1681  4057 V DownloadManager: Deleting /data/data/com.android.providers.downloads/cache/en.fb.metadata via provider delete
+3701: 11-09 07:19:18.121  1445  1660 W ModernMediaScanner: Failed to visit /data/data/com.android.providers.downloads/cache/en.fb.metadata: java.nio.file.NoSuchFileException: /data/data/com.android.providers.downloads/cache/en.fb.metadata
+3702: 11-09 07:19:18.137  3312  4095 I GMS_MM_Logger: Memory Metric Logging not allowed. Stopping.
+3703: 11-09 07:19:18.146  1531  3063 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+3704: 11-09 07:19:18.155  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.libraries.search.googleapp.user#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3705: 11-09 07:19:18.156  1344  1634 I SP      : <==== Finishing job {m:b:u:l, fg}, 458 ms. elapsed since start
+3706: 11-09 07:19:18.156  1344  1634 I SuperpacksForegroundTaskService: SuperpacksForegroundTaskService.finishJob():56 SuperpacksForegroundTaskService.finishJob()
+3707: 11-09 07:19:18.175  1344  1634 I SP      : Download stopped: handwriting_recognition:pack_mapping_v1_lstm_20231127, succeeded foreground, size: 125598
+3708: 11-09 07:19:18.192  1344  1634 I SP      : Scheduling job with delay of 0s for {W:b:u:l, bg}, 1 candidates
+3709: 11-09 07:19:18.195  1445  1660 I MediaProvider: Scanned internal due to REASON_DEMAND, found 0 items in 75ms, 0 inserts 0 updates 0 deletes
+3710: 11-09 07:19:18.198   364   364 I netd    : tetherGetStats() -> {[]} <0.39ms>
+3711: 11-09 07:19:18.222  1344  1634 I SP      : Scheduling: download stopped, 0 started, 0 paused, 1 scheduled, 1 pending: manifests:emoticon_content_description-2022081613 * {W:b:u:l, bg}
+3712: 11-09 07:19:18.223  1344  1634 I SP      : GC for 'dynamic_art' (10) with ttl of 0 ms took 1 ms (0/1/0)
+3713: 11-09 07:19:18.228  1531  3051 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+3714: 11-09 07:19:18.239  1681  4057 V DownloadManager: Deleting /data/data/com.android.providers.downloads/cache/en.fb via provider delete
+3715: 11-09 07:19:18.241  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.gsf
+3716: 11-09 07:19:18.245  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.tag
+3717: 11-09 07:19:18.286  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.assistant.platform.ondevice.fulfillment.server.pop.user#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3718: 11-09 07:19:18.327  1344  1634 I SP      : Sync for handwriting_recognition succeeded in 931 ms: {added: [pack_mapping_v1_lstm_20231127], metadata: false
+3719: 11-09 07:19:18.342  1445  1660 W ModernMediaScanner: Failed to visit /data/data/com.android.providers.downloads/cache/en.fb: java.nio.file.NoSuchFileException: /data/data/com.android.providers.downloads/cache/en.fb
+3720: 11-09 07:19:18.343  1445  1660 I MediaProvider: Scanned internal due to REASON_DEMAND, found 0 items in 1ms, 0 inserts 0 updates 0 deletes
+3721: 11-09 07:19:18.369  1253  1260 W .gms.persistent: Suspending all threads took: 25.499ms
+3722: 11-09 07:19:18.375  1344  1634 I SP      : GC for 'handwriting_recognition' (10) with ttl of 0 ms took 0 ms (0/0/0)
+3723: 11-09 07:19:18.376  1344  1803 I HandwritingOnlineSuperpacks: HandwritingOnlineSuperpacks.lambda$syncInternal$1():204 syncInternal(): syncing packs
+3724: 11-09 07:19:18.439  1344  1783 I HandwritingOnlineSuperpacks: HandwritingOnlineSuperpacks.lambda$syncInternal$0():228 syncInternal(): used {old=[], new=[pack_mapping_v1_lstm_20231127], metadata=false, last batch=true} to update cache, success=true
+3725: 11-09 07:19:18.448  1344  1634 I HandwritingSlicingStrategy: HandwritingSlicingStrategy.getSlices():44 getSlices(): handwriting_recognition.86 useForeground=true
+3726: 11-09 07:19:18.448  1344  1634 I HandwritingSlicingStrategy: HandwritingSlicingStrategy.getSlices():103 getSlices(): result {slices=[{handwriting_recognition:pack_mapping_v1_lstm_20231127, m:*:*:*, fg}, {handwriting_recognition:transformer_latin_tflite_20231010_zip, m:*:*:*, fg}, {handwriting_recognition:qrnn_en_us_reco_20231010_fst_20230613_recospec_zip, m:*:*:*, fg}, {handwriting_recognition:transformer_latin_conf_tflite_20231010_zip, m:*:*:*, fg}, {handwriting_recognition:transformer_latin_seg_tflite_20231010_zip, m:*:*:*, fg}, {handwriting_recognition:en_us_20230613_compact_fst_zip, m:*:*:*, fg}, {handwriting_recognition:scribe_latin_20231123_tflite_zip, m:*:*:*, fg}, {handwriting_recognition:scribe_latin_20231123_recospec_zip, m:*:*:*, fg}], last batch=true, sync metadata=false}
+3727: 11-09 07:19:18.448  1344  1634 I SP      : Syncing handwriting_recognition (86) with slices: [{pack_mapping_v1_lstm_20231127, m:*:*:*, fg}, {transformer_latin_tflite_20231010_zip, m:*:*:*, fg}, {qrnn_en_us_reco_20231010_fst_20230613_recospec_zip, m:*:*:*, fg}, {transformer_latin_conf_tflite_20231010_zip, m:*:*:*, fg}, {transformer_latin_seg_tflite_20231010_zip, m:*:*:*, fg}, {en_us_20230613_compact_fst_zip, m:*:*:*, fg}, {scribe_latin_20231123_tflite_zip, m:*:*:*, fg}, {scribe_latin_20231123_recospec_zip, m:*:*:*, fg}], metadata: false
+3728: 11-09 07:19:18.468  1253  3756 I PhenotypeResourceReader:

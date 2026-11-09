@@ -1,0 +1,227 @@
+name: Validate and publish readable user editors
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-user-editors.yml]
+permissions:
+  contents: write
+concurrency:
+  group: readable-user-editors-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded identity presentation and editor regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          expected={'UserContactEditor.kt':'80fb3939641a35a902006c058fdd38530c513b5a','UserAdvancedEditor.kt':'417f8a01428c4daa3ed1ab6037391aaf316f458d'}
+          for name,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',str(main/name)],text=True).strip()==sha,'Source changed: '+name
+          assert (main/'ProfileReviewIdentity.kt').exists()
+          regression=tests/'ReadableUserEditorsTest.kt'
+          assert not regression.exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          warning='            if(!identityReady) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente al usuario. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the user. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)'
+          for name in expected:
+              contact=name=='UserContactEditor.kt'
+              p=main/name;s=p.read_text()
+              s=replace(s,'import androidx.compose.ui.platform.LocalConfiguration','import androidx.compose.ui.platform.LocalConfiguration\nimport androidx.compose.ui.platform.testTag')
+              anchor='    val id=user.optString("_id")'
+              keys='id,initialField' if contact else 'id'
+              setup='\n    val identityRecord=remember('+keys+') {JSONObject(user.toString())}\n    val identity=profileReviewIdentity(identityRecord,s.users,es)\n    val identityReady=identity.usable'
+              s=replace(s,anchor,anchor+setup)
+              anchor='    var feedback by remember('
+              s=replace(s,anchor,'    LaunchedEffect(identityReady) {if(!identityReady) approved=false}\n'+anchor)
+              if contact:
+                  s=replace(s,'val allowed=visible &&','val allowed=identityReady && visible &&')
+                  s=replace(s,'Text(user.optString("name"),style=MaterialTheme.typography.titleSmall)','Text(identity.label,style=MaterialTheme.typography.titleSmall)')
+                  s=replace(s,'            Text(id,style=MaterialTheme.typography.bodySmall)',warning)
+                  assert s.count('enabled=s.canWrite')==3
+                  s=s.replace('enabled=s.canWrite','enabled=identityReady && s.canWrite')
+                  s=replace(s,'isError=!userPhoneInputAllowed(phone),modifier=Modifier.fillMaxWidth())','isError=!userPhoneInputAllowed(phone),modifier=Modifier.fillMaxWidth().testTag("user-contact-value"))')
+                  s=replace(s,'Checkbox(approved,{approved=it},enabled=identityReady && s.canWrite)','Checkbox(approved,{approved=it},enabled=identityReady && s.canWrite,modifier=Modifier.testTag("user-contact-consent"))')
+                  s=replace(s,'Button(enabled=allowed && approved,','Button(modifier=Modifier.testTag("user-contact-send"),enabled=allowed && approved,')
+                  s=replace(s,'if(session.submit(packet))','if(allowed && approved && session.submit(packet))')
+              else:
+                  s=replace(s,'val allowed=s.canWrite &&','val allowed=identityReady && s.canWrite &&')
+                  s=replace(s,'Text(user.optString("name"),style=MaterialTheme.typography.titleSmall); Text(id,style=MaterialTheme.typography.bodySmall)','Text(identity.label,style=MaterialTheme.typography.titleSmall)\n'+warning)
+                  s=replace(s,'Checkbox(checked,onChange,enabled=enabled && s.canWrite)','Checkbox(checked,onChange,enabled=identityReady && enabled && s.canWrite,modifier=Modifier.testTag("user-advanced-check-"+label))')
+                  s=replace(s,'singleLine=true,enabled=s.canWrite,isError=','singleLine=true,enabled=identityReady && s.canWrite,isError=')
+                  s=replace(s,'val realmEnabled=userCanEditRealms(s,user) && s.canWrite','val realmEnabled=identityReady && userCanEditRealms(s,user) && s.canWrite')
+                  s=replace(s,'Button(enabled=allowed && approved,','Button(modifier=Modifier.testTag("user-advanced-send"),enabled=allowed && approved,')
+                  s=replace(s,'if(packet!=null && session.submit(packet))','if(allowed && approved && packet!=null && session.submit(packet))')
+              p.write_text(s)
+          regression.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class ReadableUserEditorsTest {
+              @get:Rule val compose=createComposeRule()
+              private val uid="user//person"
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private inner class Fixture(val mode:String,missingName:Boolean=false):AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val account=JSONObject().put("_id",uid).put("name",if(missingName) "" else "Alicia").put("email","alice@example.invalid").put("phone","+34911111111").put("quota",4096L).put("siteadmin",0)
+                  val baseline=ProfileState(ready=true,user=JSONObject().put("_id","user//admin").put("siteadmin",0xffffffffL),users=listOf(account),server=JSONObject().put("emailcheck",mode!="verification").put("features",0x02000000L))
+                  val state=mutableStateOf(baseline)
+                  init {
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              if(mode=="advanced") UserAdvancedEditor(session,state.value,account,onDismiss={},onSaved={})
+                              else UserContactEditor(session,state.value,account,onDismiss={},onSaved={},initialField=if(mode=="verification") "emailVerified" else "phone")
+                          }}
+                      }
+                  }
+                  fun ambiguous():ProfileState=baseline.copy(users=listOf(account,JSONObject(account.toString()).put("_id","user//other")))
+                  fun assertNoId() {compose.onAllNodesWithText(uid,substring=true).assertCountEquals(0)}
+                  override fun close() {
+                      assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
+                      session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()
+                  }
+              }
+              @Test fun contactUsesReadableIdentityAndRequiresFreshConsentAfterAmbiguity() {Fixture("contact").use {f->
+                  f.assertNoId()
+                  compose.onNodeWithText("Alicia · alice@example.invalid").assertExists()
+                  compose.onNodeWithTag("user-contact-value").performScrollTo().performTextReplacement("+34612345678")
+                  compose.onNodeWithTag("user-contact-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-contact-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("user-contact-send").assertIsEnabled()
+                  compose.runOnIdle {f.state.value=f.ambiguous()}
+                  compose.onNodeWithTag("user-contact-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline}
+                  compose.onNodeWithTag("user-contact-consent").assertIsOff()
+                  compose.onNodeWithTag("user-contact-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-contact-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("user-contact-send").assertIsEnabled()
+              }}
+              @Test fun missingContactNameBlocksInputsWithoutIdFallback() {Fixture("contact",true).use {f->
+                  f.assertNoId()
+                  compose.onNodeWithText("nombre no disponible").assertExists()
+                  compose.onNodeWithTag("user-contact-value").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-contact-send").assertIsNotEnabled()
+              }}
+              @Test fun advancedConsentChangeKeepsIdentityAndRequiresFreshApproval() {Fixture("advanced").use {f->
+                  f.assertNoId()
+                  compose.onNodeWithText("Alicia · alice@example.invalid").assertExists()
+                  compose.onNodeWithText("Consentimiento del usuario").performScrollTo().performClick()
+                  compose.onNodeWithTag("user-advanced-check-Avisar: escritorio").performScrollTo().performClick()
+                  val consent="user-advanced-check-Confirmo aplicar los cambios a este usuario."
+                  compose.onNodeWithTag(consent).performScrollTo().performClick()
+                  compose.onNodeWithTag("user-advanced-send").assertIsEnabled()
+                  compose.runOnIdle {f.state.value=f.ambiguous()}
+                  compose.onNodeWithTag("user-advanced-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline}
+                  compose.onNodeWithTag(consent).assertIsOff()
+                  compose.onNodeWithTag("user-advanced-send").assertIsNotEnabled()
+                  compose.onNodeWithTag(consent).performScrollTo().performClick()
+                  compose.onNodeWithTag("user-advanced-send").assertIsEnabled()
+                  f.assertNoId()
+              }}
+              @Test fun verificationRemainsUnavailableWithoutServerCapability() {Fixture("verification").use {f->
+                  f.assertNoId()
+                  compose.onNodeWithTag("user-contact-send").assertIsNotEnabled()
+                  compose.onNodeWithText("Esta opción ya no está disponible",substring=true).assertExists()
+              }}
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline editor, quota, policy, identity and presentation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.DeviceGroupDetailPresentationTest,iecxiv.meshfabric.ui.management.ReadableMemberAddDialogTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.ReadableReceivedLinksTest,iecxiv.meshfabric.ui.management.ProfilePolishPresentationTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - name: Show concrete Android test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for report in sorted(Path('app/build/outputs/androidTest-results').rglob('*.xml')):
+              try:
+                  root=ET.parse(report).getroot()
+              except ET.ParseError as error:
+                  print(str(report)+': '+str(error))
+                  continue
+              for case in root.iter('testcase'):
+                  failure=case.find('failure')
+                  if failure is None:
+                      failure=case.find('error')
+                  if failure is not None:
+                      print('\nFAILED: '+case.get('classname','')+'.'+case.get('name',''))
+                      print(failure.get('message','')[:2000])
+                      print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-user-editors-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated sources if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserContactEditor.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdvancedEditor.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableUserEditorsTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+n for n in ['UserContactEditor.kt','UserAdvancedEditor.kt']}|{'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableUserEditorsTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): readable user editors with renewed identity confirmation'
+          git push origin HEAD:dev

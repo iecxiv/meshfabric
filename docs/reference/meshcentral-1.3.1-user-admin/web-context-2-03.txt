@@ -1,0 +1,61 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15527-15766 | part 3/4 (may continue a source line)
+
+       }
+15653:         }
+15654: 
+15655:         function p20editmeshconsentEx(b, editType) {
+15656:             var consent = 0;
+15657:             if (Q('d20flag1').checked) { consent += 0x0001; }
+15658:             if (Q('d20flag2').checked) { consent += 0x0008; }
+15659:             if (Q('d20flag3').checked) { consent += 0x0002; }
+15660:             if (Q('d20flag4').checked) { consent += 0x0010; }
+15661:             if (Q('d20flag5').checked) { consent += 0x0004; }
+15662:             if (Q('d20flag6').checked) { consent += 0x0020; }
+15663:             if (Q('d20flag7').checked) { consent += 0x0040; }
+15664:             if (Q('d20flag8').checked) { consent += 0x0080; }
+15665:             if (Q('d20flag9').checked) { consent += 0x0100; }
+15666:             if (editType == 1) { meshserver.send({ action: 'editmesh', meshid: currentMesh._id, consent: consent }); }
+15667:             if (editType == 2) { meshserver.send({ action: 'edituser', id: currentUser._id, consent: consent }); }
+15668:             if (editType == 3) { meshserver.send({ action: 'changedevice', nodeid: currentNode._id, consent: consent }); }
+15669:             if (editType == 4) { meshserver.send({ action: 'editusergroup', ugrpid: currentUserGroup._id, consent: consent }); }
+15670:         }
+15671: 
+15672:         function p20editmeshfeatures() {
+15673:             if (xxdialogMode) return;
+15674:             var flags = (currentMesh.flags)?currentMesh.flags:0, x = '', expire = 0;
+15675:             if ((typeof currentMesh.expireDevs == 'number') && (currentMesh.expireDevs > 0)) { expire = currentMesh.expireDevs; if (expire > 2000) { expire = 2000; } }
+15676:             if ((serverinfo.devGroupSessionRecording == 1) && (currentMesh.mtype != 4)) {
+15677:                 x += '<div><label><input type=checkbox id=d20flag4 onchange=p20editmeshfeaturesValidate() ' + ((flags & 4) ? 'checked' : '') + '>' + "Record sessions" + '</label><br></div>';
+15678:             }
+15679:             if ((currentMesh.mtype == 2) || (currentMesh.mtype == 4)) {
+15680:                 x += '<div><label><input type=checkbox id=d20flag2 onchange=p20editmeshfeaturesValidate() ' + ((flags & 2) ? 'checked' : '') + '>' + ((currentMesh.mtype == 4)?"Sync server device name to port name":"Sync server device name to hostname") + '</label><br></div>';
+15681:                 if (currentMesh.mtype == 2) {
+15682:                     x += '<div style="margin-left:8px"><label><input type=checkbox id=d20flag8 onchange=p20editmeshfeaturesValidate() ' + ((flags & 8) ? 'checked' : '') + '>' + "Prefer value of --agentName" + '</label><br></div>';
+15683:                     x += '<div style="margin-left:8px"><label><input type=checkbox id=d20flag16 onchange=p20editmeshfeaturesValidate() ' + ((flags & 16) ? 'checked' : '') + '>' + "Allow to override server device name until next connection" + '</label><br></div>';
+15684:                 }
+15685:                 x += '<div><label><input type=checkbox id=d20flag1 onchange=p20editmeshfeaturesValidate() ' + ((flags & 1) ? 'checked' : '') + '>' + "Remove device on disconnect" + '</label><br></div>';
+15686:             }
+15687:             x += '<div><label><input type=checkbox id=d20expireDevice onchange=p20editmeshfeaturesValidate() ' + ((expire > 0) ? 'checked' : '') + '>' + "Automatically remove inactive devices" + '</label><br></div>';
+15688:             x += '<div style=margin-left:20px id=d20expireDeviceDev>' + "Inactivate days until removal" + ' <label><input type=number inputmode=numeric onchange=p20editmeshfeaturesValidate() onkeyup=p20editmeshfeaturesValidate() onpaste=p20editmeshfeaturesValidate() onkeydown=p20editmeshfeaturesValidate() maxlength=4 min=1 max=2000 style=width:80px value=\"' + ((expire == 0)?30:expire) + '\" id=d20expireDeviceDays></label><br></div>';
+15689: 
+15690:             if (serverinfo.autoremoveinactivedevices) {
+15691:                 if (serverinfo.autoremoveinactivedevices == 1) {
+15692:                     x += format('<span style=font-size:x-small;margin-left:6px>' + "By default, inactive devices will be removed after 1 day." + '</span>', serverinfo.autoremoveinactivedevices);
+15693:                 } else {
+15694:                     x += format('<span style=font-size:x-small;margin-left:6px>' + "By default, inactive devices will be removed after {0} days." + '</span>', serverinfo.autoremoveinactivedevices);
+15695:                 }
+15696:             }
+15697: 
+15698:             setDialogMode(2, "Edit Device Group Features", 3, p20editmeshfeaturesEx, x);
+15699:             p20editmeshfeaturesValidate();
+15700:         }
+15701: 
+15702:         function p20editmeshfeaturesValidate() {
+15703:             var flags = 0, ok = true;
+15704:             if (((currentMesh.mtype == 2) || (currentMesh.mtype == 4)) && (Q('d20flag1').checked)) { flags += 1; }
+15705:             if (currentMesh.mtype == 2) {
+15706:                 if (Q('d20flag2').checked) {
+15707:                     flags += 2;
+15708:       

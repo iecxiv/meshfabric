@@ -1,0 +1,95 @@
+name: Validate and publish empty user group creation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-group-create.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-group-create-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed empty user group creation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'808baa9906bedc1965c8e31eba824bd3df570213','UserGroupsDirectoryPane.kt':'ebf007a9637138bcdeaa15b3ce77723a875cdc68'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileSession.kt','val listedUserGroups:List<JSONObject>?=null,val userGroupPhase:String="idle"','val listedUserGroups:List<JSONObject>?=null,val userGroupPhase:String="idle",val createdUserGroup:String=""')
+          change('ProfileSession.kt','if(pendingAction=="editusergroup") {if(!profileUserGroupEditRole(state.value.site)) {stop();return};requestUserGroupDirectory(true)}','if(pendingAction in setOf("editusergroup","createusergroup")) {if(!profileUserGroupEditRole(state.value.site)) {stop();return};if(pendingAction=="editusergroup") requestUserGroupDirectory(true)}')
+          anchor='else if(ok && action=="editusergroup") requestUserGroupDirectory(true)'
+          change('ProfileSession.kt',anchor,'else if(ok && action=="createusergroup") {\nval created=p.opt("ugrpid") as? String\nif(created!=null && profileCreatedUserGroupId(state.value.id,created)) {state.update {it.copy(createdUserGroup=created)};finish("userGroupCreated",false);loadUserGroupDirectory()}\n}\n'+anchor)
+          anchor='val allowed=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'\n"createusergroup"->profileUserGroupCreateAllowed(s,p,broadcastServerLabel())')
+          anchor='val payload=if(action=="editusergroup") profileUserGroupEditWire(p) else JSONObject().put("action",action)\nif(action!="editusergroup") keys.filter(p::has).forEach { payload.put(it,p.get(it)) }'
+          change('ProfileSession.kt',anchor,'val payload=when(action) {"editusergroup"->profileUserGroupEditWire(p);"createusergroup"->profileUserGroupCreateWire(p);else->JSONObject().put("action",action)}\nif(action !in setOf("editusergroup","createusergroup")) keys.filter(p::has).forEach { payload.put(it,p.get(it)) }')
+          anchor='state.update { it.copy(busy=true,notice="sent") }'
+          change('ProfileSession.kt',anchor,'state.update { it.copy(busy=true,notice="sent",createdUserGroup=if(action=="createusergroup") "" else it.createdUserGroup) }')
+          anchor='var editing by remember(s.id) { mutableStateOf<JSONObject?>(null) }\nLaunchedEffect(s.ready) {if(!s.ready) editing=null}'
+          change('UserGroupsDirectoryPane.kt',anchor,'var editing by remember(s.id) { mutableStateOf<JSONObject?>(null) }\nvar creating by remember(s.id) {mutableStateOf(false)}\nLaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false}}')
+          anchor='TextButton(enabled=s.ready && !s.busy && s.userGroupPhase!="loading",onClick={session.loadUserGroupDirectory()}) {Text(t("Actualizar","Refresh"))}'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\nTextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;creating=true}) {Text(t("Crear grupo de usuarios","Create user group"))}\nif(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El servidor confirmó la creación: ","The server confirmed creation: ")+s.createdUserGroup,style=MaterialTheme.typography.bodySmall)')
+          anchor='editing?.let {UserGroupEditDialog(session,s,it) {editing=null}}'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\nif(creating && editing==null) UserGroupCreateDialog(session,s) {creating=false}')
+          hashes={'.github/patches/user-group-create/UserGroupCreatePolicy.kt.txt': 'dd81eeae839abef219ab18c05f8cebee9518209bdea5d635024f03945a98836c', '.github/patches/user-group-create/UserGroupCreateDialog.kt.txt': 'b3dc921de7c794868d31d62b9640456de7f631816f5ea03b89413e31c3309f47', '.github/patches/user-group-create/UserGroupCreatePolicyTest.kt.txt': '5af29fafa46e100eb3e5ce7e1782fd06468c433af1c5d9a1a808be4486d2c086', '.github/patches/user-group-create/UserGroupCreateRequestTest.kt.txt': 'c13761049b08dd4050b46146ff1e6fe6c6192efdc70956f1a785d05e25de972d'}
+          targets={'.github/patches/user-group-create/UserGroupCreatePolicy.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupCreatePolicy.kt', '.github/patches/user-group-create/UserGroupCreateDialog.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupCreateDialog.kt', '.github/patches/user-group-create/UserGroupCreatePolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupCreatePolicyTest.kt', '.github/patches/user-group-create/UserGroupCreateRequestTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupCreateRequestTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-group-create-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated empty user group creation
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupCreatePolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupCreateDialog.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupCreatePolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupCreateRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(user-groups): create empty groups with confirmed server identifier'
+          git push origin HEAD:dev

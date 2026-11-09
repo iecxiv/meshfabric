@@ -1,0 +1,80 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshctrl.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1654-1850 | part 1/3 (may continue a source line)
+
+1654:                 if (args.id) { op.meshid = args.id; }
+1655:                 if ((typeof args.devicename == 'string') && (args.devicename != '')) { op.devicename = args.devicename; }
+1656:                 if ((typeof args.hostname == 'string') && (args.hostname != '')) { op.hostname = args.hostname; }
+1657:                 if (args.type) {
+1658:                     if ((typeof parseInt(args.type) != 'number') || isNaN(parseInt(args.type))) { console.log("Invalid type."); process.exit(1); return; }
+1659:                     op.type = args.type;
+1660:                 }
+1661:                 ws.send(JSON.stringify(op));
+1662:                 break;
+1663:             }
+1664:             case 'editdevicegroup': {
+1665:                 var op = { action: 'editmesh', responseid: 'meshctrl' };
+1666:                 if (args.id) { op.meshid = args.id; } else if (args.group) { op.meshidname = args.group; }
+1667:                 if ((typeof args.name == 'string') && (args.name != '')) { op.meshname = args.name; }
+1668:                 if (args.desc === true) { op.desc = ""; } else if (typeof args.desc == 'string') { op.desc = args.desc; }
+1669:                 if (args.invitecodes === true) { op.invite = "*"; } else if (typeof args.invitecodes == 'string') {
+1670:                     var invitecodes = args.invitecodes.split(','), invitecodes2 = [];
+1671:                     for (var i in invitecodes) { if (invitecodes[i].length > 0) { invitecodes2.push(invitecodes[i]); } }
+1672:                     if (invitecodes2.length > 0) {
+1673:                         op.invite = { codes: invitecodes2, flags: 0 };
+1674:                         if (args.backgroundonly === true) { op.invite.flags = 2; }
+1675:                         else if (args.interactiveonly === true) { op.invite.flags = 1; }
+1676:                     }
+1677:                 }
+1678:                 if (args.flags != null) {
+1679:                     var flags = parseInt(args.flags);
+1680:                     if (typeof flags == 'number') { op.flags = flags; }
+1681:                 }
+1682:                 if (args.consent != null) {
+1683:                     var consent = parseInt(args.consent);
+1684:                     if (typeof consent == 'number') { op.consent = consent; }
+1685:                 }
+1686:                 ws.send(JSON.stringify(op));
+1687:                 break;
+1688:             }
+1689:             case 'movetodevicegroup': {
+1690:                 var op = { action: 'changeDeviceMesh', responseid: 'meshctrl', nodeids: [args.devid] };
+1691:                 if (args.id) { op.meshid = args.id; } else if (args.group) { op.meshname = args.group; }
+1692:                 ws.send(JSON.stringify(op));
+1693:                 break;
+1694:             }
+1695:             case 'addusertodevicegroup': {
+1696:                 var meshrights = 0;
+1697:                 if (args.fullrights) { meshrights = 0xFFFFFFFF; }
+1698:                 if (args.editgroup) { meshrights |= 1; }
+1699:                 if (args.manageusers) { meshrights |= 2; }
+1700:                 if (args.managedevices) { meshrights |= 4; }
+1701:                 if (args.remotecontrol) { meshrights |= 8; }
+1702:                 if (args.agentconsole) { meshrights |= 16; }
+1703:                 if (args.serverfiles) { meshrights |= 32; }
+1704:                 if (args.wakedevices) { meshrights |= 64; }
+1705:                 if (args.notes) { meshrights |= 128; }
+1706:                 if (args.desktopviewonly) { meshrights |= 256; }
+1707:                 if (args.noterminal) { meshrights |= 512; }
+1708:                 if (args.nofiles) { meshrights |= 1024; }
+1709:                 if (args.noregistry) { meshrights |= 4194304; }
+1710:                 if (args.nosoftware) { meshrights |= 8388608; }
+1711:                 if (args.noamt) { meshrights |= 2048; }
+1712:                 if (args.limiteddesktop) { meshrights |= 4096; }
+1713:                 if (args.limitedevents) { meshrights |= 8192; }
+1714:                 if (args.chatnotify) { meshrights |= 16384; }
+1715:                 if (args.uninstall) { meshrights |= 32768; }
+1716:                 var op = { action: 'addmeshuser', userids: [args.userid], meshadmin: meshrights, responseid: 'meshctrl' };
+1717:                 if (args.id) { op.meshid = args.id; } else if (args.group) { op.meshname = args.group; }
+1718:                 ws.send(JSON.stringify(op));
+1719:                 break;
+1720:             }
+1721:             case 'removeuserfromdevicegroup': {
+1722:                 var op = { action: 'removemeshuser', userid: args.userid, responseid: 'meshctrl' };
+1723:                 if (args.id) { op.meshid = args.id; } else if (args.group) { op.meshname = args.group; }
+1724:                 ws.send(JSON.stringify(op));
+1725:                 break;
+1726:             }
+1727:             case 'addusertodevice': {
+1728:                 var meshrights = 0;
+1729:                 if (args.fullrights) { meshrights = (8 + 16 + 32 + 64 + 

@@ -1,0 +1,12 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 1610-1735
+
+27:                         for (var i in pendingDispatchEvents) { var ev = pendingDispatchEvents[i]; parent.parent.DispatchEvent(ev[0], ev[1], ev[2]); }
+1728: 
+1729:                         // Log in the auth log
+1730:                         if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' created user group ' + ugrp.name); }
+1731: 
+1732:                         try { ws.send(JSON.stringify({ action: 'createusergroup', responseid: command.responseid, result: 'ok', ugrpid: ugrpid, links: ugrp.links })); } catch (ex) { }
+1733:                     });
+1734:                     break;
+1735:                 }

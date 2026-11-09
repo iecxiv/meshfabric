@@ -1,0 +1,99 @@
+name: Validate and publish advanced user editor
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-advanced-editor.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-advanced-editor-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed advanced user editor templates
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'771f4cbdd5459986b332d75b95470e54045d0db7','UserAdministration.kt':'4da59acd377e4d0f90046fed17c2690b76a1dae3'}
+          sources={}
+          for name,sha in expected.items():
+              path=base/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=path.read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name)
+              sources[name]=sources[name].replace(old,new,1)
+          lines=sources['ProfileSession.kt'].splitlines()
+          old=next(x for x in lines if x.startswith('private fun matches(account:JSONObject)'))
+          change('ProfileSession.kt',old,'private fun matches(account:JSONObject)=expected.length()>0 && expected.keys().asSequence().all { key->userEditFieldMatches(key,account,expected) }')
+          old=next(x for x in lines if x.startswith('"edituser"->target!=null'))
+          legacy=old.split('->',1)[1]
+          change('ProfileSession.kt',old,'"edituser"->if(p.has("_advancedBefore")) userAdvancedAllowed(s,target,p) else ('+legacy+') && p.keys().asSequence().all { it in setOf("action","id","email","realname","siteadmin","_previousSite","_beforeEmail","_beforeRealname") }')
+          change('ProfileSession.kt','userQuotaForEdit(if(current.isNull("quota")) null else current.opt("quota"))','if(p.has("_advancedBefore")) userQuotaForEdit(if(p.isNull("quota")) null else p.opt("quota")) else userQuotaForEdit(if(current.isNull("quota")) null else current.opt("quota"))')
+          change('ProfileSession.kt','"edituser"->listOf("email","realname","siteadmin")','"edituser"->listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota")')
+          change('ProfileSession.kt','if(action=="edituser") listOf("email","realname","siteadmin","quota")','if(action=="edituser") listOf("email","realname","siteadmin","flags","removeRights","consent","groups","quota")')
+          change('ProfileSession.kt','it.copy(server=JSONObject(p.toString()))','it.copy(server=JSONObject((p.optJSONObject("serverinfo") ?: p).toString()))')
+          change('UserAdministration.kt','var mode by remember { mutableStateOf("profile") }','var mode by remember { mutableStateOf("profile") }\nvar advanced by remember { mutableStateOf(false) }')
+          marker='ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing)'
+          change('UserAdministration.kt',marker,'if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {\n'+marker)
+          tail='})\n}\n}\n'
+          if not sources['UserAdministration.kt'].endswith(tail):raise RuntimeError('Unexpected dialog tail')
+          sources['UserAdministration.kt']=sources['UserAdministration.kt'][:-len(tail)]+'})\n}\n}\n}\n'
+          if 'return@key' in sources['UserAdministration.kt']:raise RuntimeError('Return inside key remains')
+          marker='TextButton(onClick=session::loadDetails,enabled=!s.detailsBusy)'
+          change('UserAdministration.kt',marker,'TextButton(enabled=allowed,onClick={ advanced=true }) { Text(t("Permisos, características y consentimiento","Permissions, features and consent")) }\n'+marker)
+          hashes={'.github/patches/user-advanced-editor/UserAdvancedPolicy.kt.txt': '1727dd85637fa08b872a57cff5774a7ade3b9874f03dd517dd3d298cae66f38c', '.github/patches/user-advanced-editor/UserAdvancedEditor.kt.txt': '5f6aa20c8e385d455c165c0486ef624d98d493d09abeb92e40701d28230f46a7', '.github/patches/user-advanced-editor/UserAdvancedPolicyTest.kt.txt': 'b2751b82c36f1ecccf9d0c2593e576a11767752ae1a0698895c73777ea1dc86d', '.github/patches/user-advanced-editor/UserAdvancedRequestTest.kt.txt': '2b7ab8418a3ad0bf524cf520c029e44c1f31e35c76199464048a375b662e8228'}
+          targets={'.github/patches/user-advanced-editor/UserAdvancedPolicy.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserAdvancedPolicy.kt', '.github/patches/user-advanced-editor/UserAdvancedEditor.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserAdvancedEditor.kt', '.github/patches/user-advanced-editor/UserAdvancedPolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/UserAdvancedPolicyTest.kt', '.github/patches/user-advanced-editor/UserAdvancedRequestTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserAdvancedRequestTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-advanced-editor-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated advanced user editor
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdvancedPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdvancedEditor.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserAdvancedPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserAdvancedRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(users): edit advanced rights features consent quota and realms'
+          git push origin HEAD:dev

@@ -1,0 +1,125 @@
+name: Validate common-device navigation icon
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-common-device-action-icon.yml]
+permissions:
+  contents: write
+concurrency:
+  group: profile-common-device-icon-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate presentation-only change and strengthen regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 8f25b1b5636cb8cd97e38f417e7f872bf83a63b7
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          source=Path('app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt')
+          for p,sha in [(source,'4731ba8f21abe84d35f0d92ee6a19b39ddda6214'),(tests,'7baf1bb3795fd68873424f9397f4648445b19b8d')]:
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,'Source changed: '+str(p)
+          original=source.read_text()
+          old='TextButton(enabled=deviceCanOpen,onClick={onOpenDevice?.invoke(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}'
+          new='ProfileGroupActionButton(t("Abrir ficha","Open details"),Icons.Default.Computer,deviceCanOpen,onClick={onOpenDevice?.invoke(node.optString("_id"))})'
+          assert original.count(old)==1
+          changed=original.replace(old,new,1)
+          assert changed.replace(new,old,1)==original
+          source.write_text(changed)
+          s=tests.read_text()
+          cases={'commonDeviceUnavailableShowsDisabledButtonAndReason':3,'commonDeviceAvailableStillNavigatesByInternalId':3,'homonymousCommonDevicesOpenTheirOwnExactIds':4,'duplicateExactDeviceIdStillBlocksBothEntries':4}
+          anchor='        compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()'
+          for name,count in cases.items():
+              marker='    @Test fun '+name+'('
+              assert s.count(marker)==1
+              start=s.index(marker)
+              end=s.find('\n    @Test',start+len(marker))
+              assert end!=-1
+              block=s[start:end]
+              assert block.count(anchor)==1
+              assertion='\n        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals('+str(count)+')'
+              block=block.replace(anchor,anchor+assertion,1)
+              s=s[:start]+block+s[end:]
+          tests.write_text(s)
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute presentation, navigation, grant and deletion regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest,iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show concrete test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for directory in [Path('app/build/outputs/androidTest-results'),Path('app/build/test-results')]:
+              for report in sorted(directory.rglob('*.xml')):
+                  try:
+                      root=ET.parse(report).getroot()
+                  except ET.ParseError:
+                      continue
+                  for case in root.iter('testcase'):
+                      for kind in ('failure','error'):
+                          failure=case.find(kind)
+                          if failure is not None:
+                              print(case.get('classname','')+'.'+case.get('name',''))
+                              print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: common-device-icon-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): shared icon for common-device navigation'
+          git push origin HEAD:dev

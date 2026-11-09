@@ -1,0 +1,64 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6541-6793 | part 1/4 (may continue a source line)
+
+6541: 
+6542:                 // Create the notification message
+6543:                 var notification = { action: 'msg', type: 'notify', id: Math.random(), value: "Account limit reached.", title: "Server Limit", userid: user._id, username: user.name, domain: domain.id, titleid: 2, msgid: 10 };
+6544: 
+6545:                 // Get the list of sessions for this user
+6546:                 var sessions = parent.wssessions[user._id];
+6547:                 if (sessions != null) { for (var i in sessions) { try { if (sessions[i].domainid == domain.id) { sessions[i].send(JSON.stringify(notification)); } } catch (ex) { } } }
+6548:                 // TODO: Notify all sessions on other peers.
+6549:             } else {
+6550:                 for (var i in command.users) {
+6551:                     // Check if this is an existing user
+6552:                     var newuserid = 'user/' + domain.id + '/' + command.users[i].user.toLowerCase();
+6553:                     var newuser = { type: 'user', _id: newuserid, name: command.users[i].user, creation: Math.floor(Date.now() / 1000), domain: domain.id };
+6554:                     if (domain.newaccountsrights) { newuser.siteadmin = domain.newaccountsrights; }
+6555:                     if (common.validateString(command.users[i].realname, 1, 256)) { newuser.realname = command.users[i].realname; }
+6556:                     if (command.users[i].email != null) { newuser.email = command.users[i].email.toLowerCase(); if (command.users[i].emailVerified === true) { newuser.emailVerified = true; } } // Email, always lowercase
+6557:                     if (command.users[i].resetNextLogin === true) { newuser.passchange = -1; } else { newuser.passchange = Math.floor(Date.now() / 1000); }
+6558:                     if (user.groups) { newuser.groups = user.groups; } // New accounts are automatically part of our groups (Realms).
+6559: 
+6560:                     if (parent.users[newuserid] == null) {
+6561:                         parent.users[newuserid] = newuser;
+6562: 
+6563:                         // Create a user, generate a salt and hash the password
+6564:                         require('./pass').hash(command.users[i].pass, function (err, salt, hash, newuser) {
+6565:                             if (err) throw err;
+6566:                             newuser.salt = salt;
+6567:                             newuser.hash = hash;
+6568:                             db.SetUser(newuser);
+6569: 
+6570:                             var event, targets = ['*', 'server-users'];
+6571:                             if (newuser.groups) { for (var i in newuser.groups) { targets.push('server-users:' + i); } }
+6572:                             if (newuser.email == null) {
+6573:                                 event = { etype: 'user', userid: newuser._id, username: newuser.name, account: parent.CloneSafeUser(newuser), action: 'accountcreate', msgid: 64, msgArgs: [newuser.name], msg: 'Account created, username is ' + newuser.name, domain: domain.id };
+6574:                             } else {
+6575:                                 event = { etype: 'user', userid: newuser._id, username: newuser.name, account: parent.CloneSafeUser(newuser), action: 'accountcreate', msgid: 65, msgArgs: [newuser.email], msg: 'Account created, email is ' + newuser.email, domain: domain.id };
+6576:                             }
+6577:                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6578:                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6579:                             }
+6580:                             if (parent.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
+6581:                             parent.parent.DispatchEvent(targets, obj, event);
+6582: 
+6583:                             // Log in the auth log
+6584:                             if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' created user account ' + newuser.name); }
+6585:                         }, newuser);
+6586:                     }
+6587:                 }
+6588:             }
+6589:         });
+6590:     }
+6591: 
+6592:     function serverCommandAddUserToUserGroup(command) {
+6593:         var err = null;
+6594:         try {
+6595:             if ((user.siteadmin & SITERIGHT_USERGROUPS) == 0) { err = 'Permission denied'; }
+6596:             else if (common.validateString(command.ugrpid, 1, 1024) == false) { err = 'Invalid groupid'; } // Check the meshid
+6597:             else if (common.validateStrArray(command.usernames, 1, 128) == false) { err = 'Invalid usernames'; } // Username is between 1 and 128 characters
+6598:             else {
+6599:                 var ugroupidsplit = command.ugrpid.split('/');
+6600:                 if ((ugroupidsplit.length != 3) || (ugroupidsplit[0] != 'ugrp') || ((obj.crossDomai

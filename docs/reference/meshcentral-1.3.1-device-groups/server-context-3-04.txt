@@ -1,0 +1,39 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6541-6793 | part 4/4 (may continue a source line)
+
+  if (common.validateString(command.lang, 1, 6) == false) return;
+6760: 
+6761:         // Always lowercase the language
+6762:         command.lang = command.lang.toLowerCase();
+6763: 
+6764:         // Update the user's language
+6765:         var oldlang = user.lang;
+6766:         if (command.lang == '*') { delete user.lang; } else { user.lang = command.lang; }
+6767:         parent.db.SetUser(user);
+6768: 
+6769:         // Event the change
+6770:         var message = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(user), action: 'accountchange', domain: domain.id, msgid: 3, msgArgs: ['', (oldlang ? oldlang : 'default'), (user.lang ? user.lang : 'default')] };
+6771:         if (db.changeStream) { message.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+6772:         message.msg = 'Changed language from ' + (oldlang ? oldlang : 'default') + ' to ' + (user.lang ? user.lang : 'default');
+6773: 
+6774:         var targets = ['*', 'server-users', user._id];
+6775:         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+6776:         parent.parent.DispatchEvent(targets, obj, message);
+6777:     }
+6778: 
+6779:     function serverCommandClose(command) {
+6780:         // Close the web socket session
+6781:         try { if (obj.req.session.ws == ws) delete obj.req.session.ws; } catch (e) { }
+6782:         try { ws.close(); } catch (e) { }
+6783:     }
+6784: 
+6785:     function serverCommandConfirmPhone(command) {
+6786:         // Do not allow this command when logged in using a login token
+6787:         if (req.session.loginToken != null) return;
+6788: 
+6789:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return; // If this account is settings locked, return here.
+6790:         if ((parent.parent.smsserver == null) || (typeof command.cookie != 'string') || (typeof command.code != 'string') || (obj.failedSmsCookieCheck == 1)) return; // Input checks
+6791:         var cookie = parent.parent.decodeCookie(command.cookie);
+6792:         if (cookie == null) return; // Invalid cookie
+6793:         if (cookie.s != ws.sessionId) return; // Invalid session

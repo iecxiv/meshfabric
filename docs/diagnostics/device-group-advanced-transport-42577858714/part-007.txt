@@ -1,0 +1,37 @@
+photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+282: 11-09 07:19:10.655  1445  1586 D PickerSyncController: Cloud-Media-in-Photo-Picker feature is disabled during PickerSyncController construction.
+283: 11-09 07:19:10.655  1445  1586 D PickerSyncLockManager: Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [Thread[fg,5,main]]
+284: 11-09 07:19:10.655  1445  1586 D CloseableReentrantLock: Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [Thread[fg,5,main]]
+285: 11-09 07:19:10.655  1445  1586 D PickerSyncLockManager: Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [Thread[fg,5,main]]
+286: 11-09 07:19:10.655  1445  1586 D CloseableReentrantLock: Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [Thread[fg,5,main]]
+287: 11-09 07:19:10.655  1445  1586 D CloseableReentrantLock: Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [Thread[fg,5,main]]
+288: 11-09 07:19:10.675  1445  1586 D PickerSyncController: Updated cloud provider to: null
+289: 11-09 07:19:10.676  1445  1586 D PickerSyncController: Ignoring cache media info for null authority with bundle: null
+339: 11-09 07:19:10.871  3300  3463 I BugleRcsProvisioning: BugleSystemBindingManager: onBuglePhenotypeFlagChanged
+340: 11-09 07:19:10.874  3300  3430 I BugleRcsEngine: SystemBinding enabled: true [CONTEXT log_prefix="SystemBindingManager" thread_id=42 ]
+341: 11-09 07:19:10.874  3300  3430 I BugleRcsEngine: System Binding updated [CONTEXT thread_id=42 ]
+342: 11-09 07:19:10.875  3300  3482 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=63 ]
+343: 11-09 07:19:10.877  1253  1948 I HeterodyneSyncScheduler: Scheduling Phenotype for a PhenotypeSyncImmediately(16, com.google.android.gms.icing.mdd) one off with window [1, 2] in seconds [CONTEXT service_id=51 ]
+344: 11-09 07:19:10.880  3300  3670 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=73 ]
+345: 11-09 07:19:10.880  3300  3463 I BugleTransport: onBuglePhenotypeFlagChanged: kicking off updateActiveTransport
+346: 11-09 07:19:10.882  3300  3482 W BugleAction: Failed to get msisdn from Bugle
+347: 11-09 07:19:10.883  3300  3482 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+348: 11-09 07:19:10.883  1253  1948 I HeterodyneSyncScheduler: Scheduling Phenotype for a PhenotypeSyncImmediately(7, com.google.lighter.android#com.google.android.gms) one off with window [1, 2] in seconds [CONTEXT service_id=51 ]
+349: 11-09 07:19:10.883  3300  3482 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+350: 11-09 07:19:10.883  3300  3482 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+351: 11-09 07:19:10.884  1253  1936 E czvx    : Phenotype API error. Event: # fozr@47ca1e09, EventCode: COMMIT_CONFIG [CONTEXT service_id=51 ]
+352: 11-09 07:19:10.884  1253  1936 E czvx    : czue: 29501: Stale snapshot for com.google.android.gms.magictether(change count changed - expected 1  but was 0)
+353: 11-09 07:19:10.884  1253  1936 E czvx    : 	at czwc.b(:com.google.android.gms@242335041@24.23.35 (190800-646585959):507)
+354: 11-09 07:19:10.884  1253  1936 E czvx    : 	at czwb.i(:com.google.android.gms@242335041@24.23.35 (190800-646585959):3)
+355: 11-09 07:19:10.884  1253  1936 E czvx    : 	at czvx.h(:com.google.android.gms@242335041@24.23.35 (190800-646585959):18)
+356: 11-09 07:19:10.884  1253  1936 E czvx    : 	at czvx.f(:com.google.android.gms@242335041@24.23.35 (190800-646585959):11)
+357: 11-09 07:19:10.884  1253  1936 E czvx    : 	at boey.hj(:com.google.android.gms@242335041@24.23.35 (190800-646585959):1)
+358: 11-09 07:19:10.884  1253  1936 E czvx    : 	at bofh.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):97)
+359: 11-09 07:19:10.884  1253  1936 E czvx    : 	at emsz.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):21)
+360: 11-09 07:19:10.884  1253  1936 E czvx    : 	at angs.c(:com.google.android.gms@242335041@24.23.35 (190800-646585959):50)
+361: 11-09 07:19:10.884  1253  1936 E czvx    : 	at angs.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):97)
+376: 11-09 07:19:10.885  1253  1936 W AsyncOperation: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+377: 11-09 07:19:10.885  1253  1936 W AsyncOperation: 	at anmg.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):8)
+378: 11-09 07:19:10.885  1253  1936 W AsyncOperation: 	at java.lang.Thread.run(Thread.java:1012)
+379: 11-09 07:19:10.885  1546  2684 W MobStoreFlagStore: Failed to commit due to stale snapshot for com.google.android.gms.magictether. Experiments may be delayed til next app start. Error code: 29501. Triggering flag update.
+380: 11-09 07:

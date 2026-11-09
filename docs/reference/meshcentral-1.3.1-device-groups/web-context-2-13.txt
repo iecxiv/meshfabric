@@ -1,0 +1,66 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 13/17 (may continue a source line)
+
+, xuserid);
+16151:             if (((userinfo._id) != xuserid) && (cmeshrights == 0xFFFFFFFF || (((cmeshrights & 2) != 0) && (meshrights != 0xFFFFFFFF)))) {
+16152:                 p20showAddMeshUserDialog(userid);
+16153:             } else {
+16154:                 var r = [];
+16155:                 if (meshrights == 0xFFFFFFFF) r.push("Full Administrator (all rights)"); else {
+16156:                     if ((meshrights & 1) != 0) r.push("Edit Device Group");
+16157:                     if ((meshrights & 2) != 0) r.push("Manage Device Group Users");
+16158:                     if ((meshrights & 4) != 0) r.push("Manage Device Group Computers");
+16159:                     if ((meshrights & 8) != 0) r.push("Remote Control");
+16160:                     if ((meshrights & 16) != 0) r.push("Agent Console");
+16161:                     if ((meshrights & 32) != 0) r.push("Server Files");
+16162:                     if ((meshrights & 64) != 0) r.push("Wake Devices");
+16163:                     if ((meshrights & 128) != 0) r.push("Edit Notes");
+16164:                     if (((meshrights & 8) != 0) && (meshrights & 256) != 0) r.push("Remote View Only");
+16165:                     if (((meshrights & 8) != 0) && (meshrights & 65536) != 0) r.push("No Desktop");
+16166:                     if (((meshrights & 8) != 0) && (meshrights & 512) != 0) r.push("No Terminal");
+16167:                     if (((meshrights & 8) != 0) && (meshrights & 1024) != 0) r.push("No Files");
+16168:                     if (((meshrights & 8) != 0) && (meshrights & 4194304) != 0) r.push("No Registry");
+16169:                     if (((meshrights & 8) != 0) && (meshrights & 8388608) != 0) r.push("No Software");
+16170:                     if (((meshrights & 8) != 0) && (meshrights & 2048) != 0) r.push("No Intel&reg; AMT");
+16171:                     if (((meshrights & 8) != 0) && ((meshrights & 4096) != 0) && ((meshrights & 256) == 0)) r.push("Limited Input");
+16172:                     if ((meshrights & 8192) != 0) r.push("Self Events Only");
+16173:                     if ((meshrights & 16384) != 0) r.push("Chat & Notify");
+16174:                     if ((meshrights & 32768) != 0) r.push("Uninstall");
+16175:                     if ((meshrights & 131072) != 0) r.push("Commands");
+16176:                     if ((meshrights & 262144) != 0) r.push("Reset/Off");
+16177:                     if ((meshrights & 524288) != 0) r.push("Sharing");
+16178:                     if ((meshrights & 1048576) != 0) r.push("Details");
+16179:                     if ((meshrights & 2097152) != 0) r.push("Relay");
+16180:                 }
+16181:                 if (r.length == 0) { r.push("No Rights"); }
+16182:                 var uname = xuserid.split('/')[2];
+16183:                 if (users && users[xuserid]) { uname = users[xuserid].name; }
+16184:                 if (userinfo._id == xuserid) { uname = userinfo.name; }
+16185:                 var buttons = 1, x = addHtmlValue("User Name", EscapeHtml(decodeURIComponent(uname)));
+16186:                 if (xuserid.split('/')[2] != uname) { x += addHtmlValue("User Identifier", EscapeHtml(xuserid.split('/')[2])); }
+16187: 
+16188:                 x += addHtmlValue("Permissions", r.join(", "));
+16189:                 if (((userinfo._id) != xuserid) && (cmeshrights == 0xFFFFFFFF || (((cmeshrights & 2) != 0) && (meshrights != 0xFFFFFFFF)))) buttons += 4;
+16190:                 setDialogMode(2, "Device Group User", buttons, p20viewuserEx, x, xuserid);
+16191:             }
+16192:         }
+16193: 
+16194:         function p20viewuserEx(button, userid) {
+16195:             if (button != 2) return;
+16196:             var uname = userid.split('/')[2];
+16197:             if (users && users[userid]) { uname = users[userid].name; }
+16198:             if (usergroups && usergroups[userid]) { uname = usergroups[userid].name; }
+16199:             if (userinfo._id == userid) { uname = userinfo.name; }
+16200:             if (userid.startsWith('user/')) { setDialogMode(2, "Remove User Permissions", 3, p20viewuserEx2, format("Confirm removal of rights for user \"{0}\"?", EscapeHtml(decodeURIComponent(uname))), userid); }
+16201:             if (userid.startsWith('ugrp/')) { setDialogMode(2, "Remove User Group Permissions", 3, p20viewuserEx2, format("Confirm removal of rights for user group \"{0}\"?", EscapeHtml(decodeURIComponent(uname))), userid); }
+16202:         }
+16203:         function p20deleteUser(e, userid) { haltEvent(e); p20viewuserEx(2, decodeURIComponent(userid)); return false; }
+16204:         function p20viewuserEx2(button, userid) { meshserver.send({ action: 'removemeshuser', meshid: currentMesh._id, meshname: currentMesh.name, userid: userid }); }
+16205: 
+16206:         function p20editmeshInviteCode() {
+16207:             if (xxdialogMode) return false;
+16208:             var meshrights = GetMeshRights(currentMesh);
+16209: 
+16210:             var servername = serverinfo.name;
+16211:             if ((servername.indexOf('.') == -1) || ((fea

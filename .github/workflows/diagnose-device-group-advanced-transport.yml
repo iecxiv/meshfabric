@@ -1,0 +1,140 @@
+name: Diagnose existing advanced transport Android test reports
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/diagnose-device-group-advanced-transport.yml]
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: diagnose-device-group-advanced-transport-dev
+  cancel-in-progress: false
+jobs:
+  diagnose-existing-artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify exact failed run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$GH_REPO" = 'iecxiv/meshfabric'
+          mkdir -p _diagnostic
+          gh api repos/iecxiv/meshfabric/actions/runs/42577858714 > _diagnostic/run.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('_diagnostic/run.json').read_text())
+          assert r['id']==42577858714
+          assert r['repository']['full_name']=='iecxiv/meshfabric'
+          assert r['head_branch']=='dev'
+          assert r['head_sha']=='6367d1b17fbea2b2a0a87190123bbfa99d6003f0'
+          assert r['path'].split('@')[0]=='.github/workflows/publish-device-group-advanced-transport.yml'
+          assert r['status']=='completed' and r['conclusion']=='failure'
+          print('Verified failed run:',r['id'],'attempt:',r['run_attempt'],'commit:',r['head_sha'])
+          PY
+      - name: Download existing reports from exact failed run
+        uses: actions/download-artifact@v4
+        with:
+          name: device-group-advanced-transport-42577858714
+          path: _diagnostic/reports
+          github-token: ${{ github.token }}
+          repository: iecxiv/meshfabric
+          run-id: 42577858714
+      - name: Print Android test failures and available instrumentation diagnostics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import os,re,uuid,xml.etree.ElementTree as ET
+          from html.parser import HTMLParser
+          root=Path('_diagnostic/reports')
+          files=sorted(p for p in root.rglob('*') if p.is_file())
+          if not files:raise RuntimeError('Downloaded artifact contains no files; no diagnosis is possible')
+          if len(files)>2000:raise RuntimeError('Artifact exceeds diagnostic file limit')
+          limit=220000
+          report=[]
+          def clean(value):
+              text=str(value)
+              text=re.sub(r'(?i)(authorization\s*[:=]\s*)(?:bearer|basic)\s+\S+',r'\1[REDACTED]',text)
+              text=re.sub(r'(?i)((?:authcookie|set-cookie|cookie|password|passwd|access_token|refresh_token|id_token)\s*[:=]\s*)[^\r\n]+',r'\1[REDACTED]',text)
+              return ''.join(c for c in text if c in '\n\t' or ord(c)>=32)
+          def emit(value=''):
+              global limit
+              text=clean(value)
+              if limit<=0:return
+              if len(text)>limit:text=text[:limit]+'\n[DIAGNOSTIC OUTPUT LIMIT REACHED]'
+              limit-=len(text)
+              print(text)
+              report.append(text)
+          marker='diagnostic-'+uuid.uuid4().hex
+          print('::stop-commands::'+marker)
+          failures=0
+          android_xml=0
+          try:
+              emit('BEGIN ADVANCED TRANSPORT DIAGNOSTIC')
+              emit('Source run: 42577858714; source commit: 6367d1b17fbea2b2a0a87190123bbfa99d6003f0')
+              emit('Existing artifact only. No tests rerun, no app sources changed, no publication.')
+              emit('FILES IN ARTIFACT: '+str(len(files)))
+              for p in files:
+                  emit(str(p.relative_to(root))+' | '+str(p.stat().st_size)+' bytes')
+              for p in files:
+                  rel=str(p.relative_to(root))
+                  if p.suffix.lower()!='.xml' or p.stat().st_size>16_000_000:continue
+                  if 'android' not in rel.lower() and 'connected' not in rel.lower():continue
+                  try:tree=ET.parse(p)
+                  except (ET.ParseError,OSError) as ex:
+                      emit('XML READ ERROR '+rel+': '+str(ex));continue
+                  android_xml+=1
+                  emit('\nANDROID XML: '+rel)
+                  for suite in tree.getroot().iter('testsuite'):
+                      emit('SUITE '+suite.get('name','')+' '+str({k:suite.get(k) for k in ('tests','failures','errors','skipped','time') if suite.get(k) is not None}))
+                  seen=set()
+                  for case in tree.getroot().iter('testcase'):
+                      for node in list(case):
+                          if node.tag not in ('failure','error'):continue
+                          seen.add(id(node));failures+=1
+                          emit('\nFAILURE '+str(failures)+': '+case.get('classname','')+'#'+case.get('name',''))
+                          emit('Type: '+node.get('type','')+'\nMessage: '+node.get('message',''))
+                          emit((''.join(node.itertext()))[:16000])
+                  for node in tree.getroot().iter():
+                      if node.tag not in ('failure','error') or id(node) in seen:continue
+                      failures+=1
+                      emit('\nSUITE/RUN FAILURE '+str(failures)+' in '+rel)
+                      emit('Type: '+node.get('type','')+'\nMessage: '+node.get('message',''))
+                      emit((''.join(node.itertext()))[:16000])
+              class PlainHTML(HTMLParser):
+                  def __init__(self):super().__init__();self.parts=[];self.hidden=0
+                  def handle_starttag(self,tag,attrs):
+                      if tag in ('script','style'):self.hidden+=1
+                  def handle_endtag(self,tag):
+                      if tag in ('script','style'):self.hidden=max(0,self.hidden-1)
+                      if tag in ('p','div','tr','li','pre','h1','h2','h3','td'):self.parts.append('\n')
+                  def handle_data(self,data):
+                      if not self.hidden:self.parts.append(data)
+              pattern=re.compile(r'AssertionError|FATAL EXCEPTION|INSTRUMENTATION_FAILED|INSTRUMENTATION_RESULT|Process crashed|Test run failed|Unable to|Exception:|Caused by:|Error:|failed to|failure',re.I)
+              for p in files:
+                  rel=str(p.relative_to(root))
+                  if p.suffix.lower() not in ('.html','.txt','.log') or p.stat().st_size>16_000_000:continue
+                  if 'android' not in rel.lower() and 'connected' not in rel.lower() and 'instrument' not in rel.lower():continue
+                  text=p.read_text(errors='replace')
+                  if p.suffix.lower()=='.html':
+                      parser=PlainHTML();parser.feed(text);text=''.join(parser.parts)
+                  lines=text.splitlines();selected=set()
+                  for i,line in enumerate(lines):
+                      if pattern.search(line):selected.update(range(max(0,i-3),min(len(lines),i+16)))
+                  if selected:
+                      emit('\nADDITIONAL ANDROID DIAGNOSTICS: '+rel)
+                      for i in sorted(selected):emit(str(i+1)+': '+lines[i][:5000])
+              emit('\nANDROID XML FILES PARSED: '+str(android_xml))
+              emit('EXPLICIT XML FAILURE/ERROR ENTRIES: '+str(failures))
+              if failures==0:emit('No explicit XML failure/error entries found. This does NOT mean the original tests passed; inspect the additional Android diagnostics and source reports.')
+              emit('END ADVANCED TRANSPORT DIAGNOSTIC')
+          finally:
+              print('::'+marker+'::')
+              summary='\n'.join(report)
+              summary=summary.replace('```','[backticks]').replace('~~~','[tildes]')
+              with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+                  out.write('## Existing advanced transport failure diagnosis\n\nDiagnostic extraction only; not a successful test rerun or publication.\n\n```text\n'+summary[:180000]+'\n```\n')
+          PY

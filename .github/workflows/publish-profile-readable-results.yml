@@ -1,0 +1,167 @@
+name: Validate and publish readable Profile results
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-readable-results.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-readable-results-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded named result presentation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,re
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          new=base/'ProfileDisplayNames.kt'
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileDisplayNamesTest.kt')
+          assert not new.exists() and not test.exists()
+          for filename in ('ProfileScreen.kt','UserGroupsDirectoryPane.kt'):
+              p=base/filename
+              expected=subprocess.check_output(['git','rev-parse','ad3de725859013bd4e3b417ca48872c8963035ab:'+str(p)],text=True).strip()
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==expected,'Source changed: '+filename
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          new.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.remember
+          import org.json.JSONObject
+
+          internal class ProfileDisplayNames {
+              private val received=linkedMapOf<String,String>()
+              fun observe(records:List<JSONObject>) {
+                  for(record in records) {
+                      val id=record.optString("_id");val name=record.optString("name").trim()
+                      if(id.isNotBlank() && name.isNotBlank() && name!=id && !name.startsWith("mesh/") && !name.startsWith("ugrp/") && !name.startsWith("node/") && !name.startsWith("user/")) received[id]=name
+                  }
+                  while(received.size>4096) received.remove(received.keys.first())
+              }
+              fun label(id:String,es:Boolean):String=received[id]?.let {"«"+it+"»"} ?: when {
+                  id.startsWith("mesh/")->if(es) "grupo de dispositivos (nombre no disponible)" else "device group (name unavailable)"
+                  id.startsWith("ugrp/")->if(es) "grupo de usuarios (nombre no disponible)" else "user group (name unavailable)"
+                  id.startsWith("node/")->if(es) "dispositivo (nombre no disponible)" else "device (name unavailable)"
+                  id.startsWith("user/")->if(es) "usuario (nombre no disponible)" else "user (name unavailable)"
+                  else->if(es) "elemento (nombre no disponible)" else "item (name unavailable)"
+              }
+          }
+          @Composable internal fun rememberProfileDisplayNames(s:ProfileState,server:String):ProfileDisplayNames {
+              val names=remember(s.id,server) {ProfileDisplayNames()}
+              names.observe(s.groups+s.users+s.listedUserGroups.orEmpty()+s.userGroups.orEmpty()+s.nodes.orEmpty()+listOfNotNull(s.user))
+              return names
+          }
+          ''')
+          p=base/'ProfileScreen.kt';s=p.read_text()
+          s=replace(s,'fun t(s:String,e:String)=if(es) s else e','fun t(s:String,e:String)=if(es) s else e')
+          anchor='val state by session.state.collectAsState()'
+          s=replace(s,anchor,anchor+'\nval displayNames=rememberProfileDisplayNames(state,session.broadcastServerLabel())')
+          start='val message=when(state.notice) {';end='val users=section=="users"'
+          assert s.count(start)==1 and s.count(end)==1
+          prefix,tail=s.split(start,1);block,suffix=tail.split(end,1)
+          pattern=r'\+state\.(editedDirectUser|editedDirectMesh|grantedDirectUser|grantedDirectMesh|revokedDirectUser|revokedDirectMesh|revokedGroup|revokedDeviceGroup)(?![A-Za-z])'
+          block,count=re.subn(pattern,lambda m:'+displayNames.label(state.'+m.group(1)+',es)',block)
+          assert count==8,'Unexpected Profile result ID count: '+str(count)
+          p.write_text(prefix+start+block+end+suffix)
+          p=base/'UserGroupsDirectoryPane.kt';s=p.read_text()
+          anchor='    fun t(a:String,b:String)=if(es) a else b'
+          s=replace(s,anchor,anchor+'\n    val displayNames=rememberProfileDisplayNames(s,session.broadcastServerLabel())')
+          pattern=r'\+s\.(createdUserGroup|deletedUserGroup|removedMember|removedMemberGroup|addedMember|addedMemberGroup|revokedGroup|revokedDeviceGroup|grantedGroup|grantedDeviceGroup|editedGroup|editedDeviceGroup)(?![A-Za-z])'
+          s,count=re.subn(pattern,lambda m:'+displayNames.label(s.'+m.group(1)+',es)',s)
+          assert count==12,'Unexpected directory result ID count: '+str(count)
+          s=replace(s,'t("El servidor confirmó la eliminación: ","The server confirmed deletion: ")+displayNames.label(s.deletedUserGroup,es)','t("El grupo ","Group ")+displayNames.label(s.deletedUserGroup,es)+t(" ha sido eliminado. Borrado confirmado por el servidor."," has been deleted. Deletion confirmed by the server.")')
+          p.write_text(s)
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class) class ProfileDisplayNamesTest {
+              private fun record(id:String,name:String)=JSONObject().put("_id",id).put("name",name)
+              @Test fun removedRecordKeepsItsReceivedNameForFeedback() {
+                  val names=ProfileDisplayNames();val id="ugrp//very-long-internal-id"
+                  names.observe(listOf(record(id,"Oficina Madrid")))
+                  names.observe(emptyList())
+                  assertEquals("«Oficina Madrid»",names.label(id,true))
+                  assertFalse(names.label(id,true).contains(id))
+              }
+              @Test fun missingNamesNeverFallBackToInternalIdentifiers() {
+                  for(id in listOf("mesh//long","ugrp//long","node//long","user//long")) {
+                      val names=ProfileDisplayNames();names.observe(listOf(record(id,id)))
+                      assertFalse(names.label(id,true).contains(id));assertFalse(names.label(id,false).contains(id))
+                  }
+              }
+              @Test fun independentContextsDoNotReuseNamesAndDuplicateNamesKeepDistinctKeys() {
+                  val a=ProfileDisplayNames();val b=ProfileDisplayNames()
+                  a.observe(listOf(record("mesh//one","Oficina"),record("mesh//two","Oficina")))
+                  assertEquals("«Oficina»",a.label("mesh//one",true));assertEquals("«Oficina»",a.label("mesh//two",true))
+                  assertNotEquals(a.label("mesh//one",true),b.label("mesh//one",true))
+                  a.observe(listOf(record("mesh//two","Almacén")))
+                  assertEquals("«Oficina»",a.label("mesh//one",true));assertEquals("«Almacén»",a.label("mesh//two",true))
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline presentation and operation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserGroupsActionsCardTest,iecxiv.meshfabric.ui.management.UserGroupDeleteRequestTest,iecxiv.meshfabric.ui.management.UserMeshEditSessionTest,iecxiv.meshfabric.ui.management.GroupMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-readable-results-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only after validation and if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileDisplayNames.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileDisplayNamesTest.kt
+          python3 - <<'PY'
+          import subprocess
+          root='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={root+n for n in ('ProfileDisplayNames.kt','ProfileScreen.kt','UserGroupsDirectoryPane.kt')}|{'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileDisplayNamesTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged files'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): show received names instead of IDs in operation results'
+          git push origin HEAD:dev

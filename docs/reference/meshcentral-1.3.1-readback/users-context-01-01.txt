@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: users | lines 5956-6005 | window 1 part 1 | not necessarily a complete handler
+
+5956:                 break;
+5957:             }
+5958:             default: {
+5959:                 // Unknown user action
+5960:                 console.log('Unknown action from user ' + user.name + ': ' + command.action + '.');
+5961:                 break;
+5962:             }
+5963:         }
+5964:     }
+5965: 
+5966:     const serverCommands = {
+5967:         'adddeviceuser': serverCommandAddDeviceUser,
+5968:         'addmeshuser': serverCommandAddMeshUser,
+5969:         'adduser': serverCommandAddUser,
+5970:         'adduserbatch': serverCommandAddUserBatch,
+5971:         'addusertousergroup': serverCommandAddUserToUserGroup,
+5972:         'agentdisconnect': serverCommandAgentDisconnect,
+5973:         'authcookie': serverCommandAuthCookie,
+5974:         'changeemail': serverCommandChangeEmail,
+5975:         'changelang': serverCommandChangeLang,
+5976:         'close': serverCommandClose,
+5977:         'confirmPhone': serverCommandConfirmPhone,
+5978:         'confirmMessaging': serverCommandConfirmMessaging,
+5979:         'emailuser': serverCommandEmailUser,
+5980:         'files': serverCommandFiles,
+5981:         'getClip': serverCommandGetClip,
+5982:         'getcookie': serverCommandGetCookie,
+5983:         'getnetworkinfo': serverCommandGetNetworkInfo,
+5984:         'getsysinfo': serverCommandGetSysInfo,
+5985:         'intersession': serverCommandInterSession,
+5986:         'interuser': serverCommandInterUser,
+5987:         'lastconnect': serverCommandLastConnect,
+5988:         'lastconnects': serverCommandLastConnects,
+5989:         'logincookie': serverCommandLoginCookie,
+5990:         'meshes': serverCommandMeshes,
+5991:         'ping': serverCommandPing,
+5992:         'pong': serverCommandPong,
+5993:         'powertimeline': serverCommandPowerTimeline,
+5994:         'print': serverCommandPrint,
+5995:         'removePhone': serverCommandRemovePhone,
+5996:         'removeMessaging': serverCommandRemoveMessaging,
+5997:         'removeuserfromusergroup': serverCommandRemoveUserFromUserGroup,
+5998:         'report': serverCommandReport,
+5999:         'serverclearerrorlog': serverCommandServerClearErrorLog,
+6000:         'serverconsole': serverCommandServerConsole,
+6001:         'servererrors': serverCommandServerErrors,
+6002:         'serverconfig': serverCommandServerConfig,
+6003:         'serverbackuppassword': serverCommandServerBackuppassword,
+6004:         'serverstats': serverCommandServerStats,
+6005:         'servertimelinestats': serverCommandServerTimelineStats,

@@ -1,0 +1,81 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 11/17 (may continue a source line)
+
+ '</div>';
+16012:                                 } else {
+16013:                                     x += '<div class=suggestionBoxItem onclick=\'p20setname("' + encodeURIComponentEx(sid.split('/')[2]) + '")\'><div>' + EscapeHtml(sname) + '</div><div class=suggestionBoxSubItem>' + EscapeHtml(sid.split('/')[2]) + '</div></div>';
+16014:                                 }
+16015:                             }
+16016:                             QH('dp20usersuggest', x);
+16017:                             showsuggestbox = true;
+16018:                         }
+16019:                     }
+16020:                 }
+16021:                 QV('dp20usersuggest', showsuggestbox);
+16022:             }
+16023:             QE('idx_dlgOkButton', ok);
+16024: 
+16025:             var nc;
+16026:             if (Q('p20fulladmin') != null) {
+16027:                 nc = !Q('p20fulladmin').checked;
+16028:                 //QE('p20fulladmin', meshrights == 0xFFFFFFFF);
+16029:                 //QE('p20editmesh', nc && (meshrights == 0xFFFFFFFF));
+16030:                 //QE('p20fulladmin', nc);
+16031:                 QE('p20editmesh', nc);
+16032:                 QE('p20manageusers', nc);
+16033:                 QE('p20managecomputers', nc);
+16034:             } else {
+16035:                 nc = (nodeid != '');
+16036:             }
+16037:             QE('p20remotecontrol', nc);
+16038:             QE('p20meshagentconsole', nc);
+16039:             QE('p20meshserverfiles', nc);
+16040:             QE('p20wakedevices', nc);
+16041:             QE('p20editnotes', nc);
+16042:             QE('p20limitevents', nc);
+16043:             QE('p20remoteview', nc && Q('p20remotecontrol').checked);
+16044:             if (serverinfo.guestdevicesharing !== false) { QE('p20guestshare', nc && Q('p20remotecontrol').checked && (Q('p20remoteview').checked || !Q('p20remotelimitedinput').checked)); }
+16045:             QE('p20remotelimitedinput', nc && Q('p20remotecontrol').checked && !Q('p20remoteview').checked);
+16046:             QE('p20nodesktop', nc && Q('p20remotecontrol').checked);
+16047:             QE('p20noterminal', nc && Q('p20remotecontrol').checked);
+16048:             QE('p20nofiles', nc && Q('p20remotecontrol').checked);
+16049:             QE('p20noregistry', nc && Q('p20remotecontrol').checked);
+16050:             QE('p20nosoftware', nc && Q('p20remotecontrol').checked);
+16051:             QE('p20noamt', nc && Q('p20remotecontrol').checked);
+16052:             QE('p20chatnotify', nc);
+16053:             QE('p20uninstall', nc);
+16054:             QE('p20commands', nc);
+16055:             QE('p20resetoff', nc);
+16056:             QE('p20details', nc);
+16057:             QE('p20relay', nc);
+16058:         }
+16059: 
+16060:         function p20showAddMeshUserDialogEx(b, t) {
+16061:             // Get the currently selected rights
+16062:             var meshadmin = 0;
+16063:             if ((Q('p20fulladmin') != null) && (Q('p20fulladmin').checked == true)) { meshadmin = 0xFFFFFFFF; } else {
+16064:                 if (Q('p20fulladmin') != null) {
+16065:                     if (Q('p20editmesh').checked == true) meshadmin += 1;
+16066:                     if (Q('p20manageusers').checked == true) meshadmin += 2;
+16067:                     if (Q('p20managecomputers').checked == true) meshadmin += 4;
+16068:                 }
+16069:                 if (Q('p20remotecontrol').checked == true) meshadmin += 8;
+16070:                 if (Q('p20meshagentconsole').checked == true) meshadmin += 16;
+16071:                 if (Q('p20meshserverfiles').checked == true) meshadmin += 32;
+16072:                 if (Q('p20wakedevices').checked == true) meshadmin += 64;
+16073:                 if (Q('p20editnotes').checked == true) meshadmin += 128;
+16074:                 if (Q('p20remoteview').checked == true) meshadmin += 256;
+16075:                 if (Q('p20nodesktop').checked == true) meshadmin += 65536;
+16076:                 if (Q('p20noterminal').checked == true) meshadmin += 512;
+16077:                 if (Q('p20nofiles').checked == true) meshadmin += 1024;
+16078:                 if (Q('p20noregistry').checked == true) meshadmin += 4194304;
+16079:                 if (Q('p20nosoftware').checked == true) meshadmin += 8388608;
+16080:                 if (Q('p20noamt').checked == true) meshadmin += 2048;
+16081:                 if ((Q('p20remotelimitedinput').checked == true) && (!Q('p20remoteview').checked)) meshadmin += 4096;
+16082:                 if (Q('p20limitevents').checked == true) meshadmin += 8192;
+16083:                 if (Q('p20chatnotify').checked == true) meshadmin += 16384;
+16084:                 if (Q('p20uninstall').checked == true) meshadmin += 32768;
+16085:                 if (Q('p20commands').checked == true) meshadmin += 131072;
+16086:                 if (Q('p20resetoff').checked == true) meshadmin += 262144;
+16087:                 if ((serverinfo.guestdevicesharing !== false) && (Q('p20guestshare').checked == true) && (Q('p20remoteview').checked ||

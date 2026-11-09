@@ -1,0 +1,116 @@
+name: Validate management layout with correct checkbox touch assertions
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-management-checkbox-touch-test.yml]
+permissions:
+  contents: write
+concurrency:
+  group: management-action-checkbox-layout
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded layout changes and correct touch assertions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = dc9b431711a3c76eb103d22ffcdec65035e8a786
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          original=Path('.github/workflows/publish-management-action-checkbox-layout.yml')
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()=='9d3923b90309a1d1fa839af016a352f5a5ec6497'
+          code=original.read_text().split("          python3 - <<'PY'\n",1)[1].split('\n          PY\n',1)[0]
+          exec(compile(textwrap.dedent(code),'guarded-layout-generator','exec'),{})
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileCompactActionLayoutTest.kt')
+          s=test.read_text()
+          old='compose.onNodeWithTag("check").assertHeightIsAtLeast(48.dp).performClick().assertIsOn()'
+          new='compose.onNodeWithTag("check").assertTouchHeightIsEqualTo(48.dp).assertTouchWidthIsEqualTo(48.dp).performTouchInput {click()}.assertIsOn()'
+          assert s.count(old)==1
+          s=s.replace(old,new,1)
+          assert s.count('class ProfileCompactActionLayoutTest {')==1
+          s=s.replace('class ProfileCompactActionLayoutTest {','@OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)\nclass ProfileCompactActionLayoutTest {',1)
+          assert 'assertEquals(text.center.y,control.center.y,1f)' in s
+          assert s.count('assertHeightIsAtLeast(48.dp)')==2
+          test.write_text(s)
+          PY
+          git diff --check
+      - name: Install SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute unit tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Require unchanged complete test evidence gate
+        if: always()
+        run: |
+          mkdir -p validation
+          git diff > validation/presentation.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          original=Path('.github/workflows/publish-management-action-checkbox-layout.yml')
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()=='9d3923b90309a1d1fa839af016a352f5a5ec6497'
+          code=original.read_text().split("          python3 - <<'PY'\n")[2].split('\n          PY\n',1)[0]
+          exec(compile(textwrap.dedent(code),'unchanged-test-evidence-gate','exec'),{})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: management-layout-touch-fix-evidence-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: management-layout-touch-fix-apk-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only if dev has not moved
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/expected.json').read_text())
+          subprocess.run(['git','add','--',*expected],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(management): compact actions and align checkboxes with verified touch targets'
+          git push origin HEAD:dev

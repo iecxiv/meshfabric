@@ -1,0 +1,26 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 3455-3707
+
+t.
+3686:                             if ((xxcurrentView == 20) && (currentMesh != null) && (currentMesh._id == node.meshid)) { mainUpdate(4096); }
+3687: 
+3688:                             break;
+3689:                         }
+3690:                         case 'removenode': {
+3691:                             var index = -1;
+3692:                             for (var i in nodes) { if (nodes[i]._id == message.event.nodeid) { index = i; break; } }
+3693:                             if (index != -1) {
+3694:                                 var node = nodes[index];
+3695:                                 if (currentNode == node) {
+3696:                                     if (xxcurrentView >= 9 && xxcurrentView < 20) { setDialogMode(0); go(1); }
+3697:                                     currentNode = null;
+3698:                                     // TODO: Correctly disconnect from this node (Desktop/Terminal/Files...)
+3699:                                 }
+3700:                                 nodes.splice(index, 1);
+3701: 
+3702:                                 // Web page update
+3703:                                 mainUpdate(4 | 16);
+3704: 
+3705:                                 // If we are looking at the device group for this device, update that.
+3706:                                 if ((xxcurrentView == 20) && (currentMesh != null) && (currentMesh._id == node.meshid)) { mainUpdate(4096); }
+3707:                             }

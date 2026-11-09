@@ -1,0 +1,51 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 7/17 (may continue a source line)
+
+nge=p20validateAddMeshUserDialog() id=dp2groupid style=width:100%' + (selected?' disabled':'') + '>' + y + '</select></div>');
+15780:             } else if (userid == 3) {
+15781:                 var y = '';
+15782:                 if (selected) { selected = decodeURIComponent(selected); }
+15783:                 var omeshs = getOrderedList(meshes, 'name');
+15784:                 for (var i in omeshs) { if ((selected != null) || (currentUserGroup.links == null) || (currentUserGroup.links[omeshs[i]._id] == null)) { y += '<option value=' + encodeURIComponentEx(omeshs[i]._id) + ((selected == omeshs[i]._id)?' selected':' ') + '>' + EscapeHtml(omeshs[i].name) + '</option>'; } }
+15785:                 x += addHtmlValue("Device Group", '<div style=width:230px;margin:0;padding:0><select onchange=p20validateAddMeshUserDialog(' + userid + ') id=dp2groupid style=width:100%>' + y + '</select></div>');
+15786:             } else if ((userid == 4) || (userid == 7)) {
+15787:                 var y = '', selectedMeshId = null, selectedNode = null;
+15788:                 if (selected != null) { selectedNode = getNodeFromId(decodeURIComponent(selected)); if (selectedNode != null) { selectedMeshId = selectedNode.meshid; } }
+15789:                 var omeshs = getOrderedList(meshes, 'name');
+15790:                 for (var i in omeshs) {
+15791:                     if ((omeshs[i].links[userinfo._id] != null) && (omeshs[i].links[userinfo._id].rights & 7)) { // Only show device groups that we have user administrator for.
+15792:                         if (selectedMeshId == null) { selectedMeshId = omeshs[i]._id; } y += '<option value=' + encodeURIComponentEx(omeshs[i]._id) + ((selectedMeshId == omeshs[i]._id)?' selected':' ') + '>' + EscapeHtml(omeshs[i].name) + '</option>';
+15793:                     }
+15794:                 }
+15795:                 x += addHtmlValue("Device Group", '<div style=width:230px;margin:0;padding:0><select onchange=p20changeMeshAddMeshUserDialog(' + userid + ') id=dp2meshid style=width:100%>' + y + '</select></div>');
+15796:                 y = '';
+15797:                 var onodes = getOrderedList(nodes, 'name');
+15798:                 for (var i in onodes) { if (onodes[i].meshid == selectedMeshId) { y += '<option value=' + encodeURIComponentEx(onodes[i]._id) + ((selectedNode == onodes[i])?' selected':' ') + '>' + EscapeHtml(onodes[i].name) + '</option>'; } }
+15799:                 x += addHtmlValue("Device", '<div style=width:230px;margin:0;padding:0><select onchange=p20validateAddMeshUserDialog(' + userid + ') id=dp2nodeid style=width:100%>' + y + '</select></div>');
+15800:             } else {
+15801:                 userid = decodeURIComponent(userid);
+15802:                 var uname = userid.split('/')[2];
+15803:                 if (users && users[userid]) { uname = users[userid].name; }
+15804:                 if (usergroups && usergroups[userid]) { uname = usergroups[userid].name; }
+15805:                 if (userinfo._id == userid) { uname = userinfo.name; }
+15806:                 if (userid.startsWith('ugrp/')) {
+15807:                     x += format("Group permissions for {0}.", uname) + '<br /><br />';
+15808:                 } else {
+15809:                     x += format("Group permissions for user {0}.", uname) + '<br /><br />';
+15810:                 }
+15811:             }
+15812: 
+15813:             var urights = -1, meshRightsActive = ((userid != 4) && (userid != 5) && (userid != 6) && (userid != 7));
+15814: 
+15815:             x += '<div style="height:120px;overflow-y:scroll;border:1px solid gray;resize:vertical;">';
+15816:             if (meshRightsActive) {
+15817:                 x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20fulladmin>' + "Full Administrator" + '</label><br>';
+15818:                 x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20editmesh>' + "Edit Device Group" + '</label><br>';
+15819:                 x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20manageusers>' + "Manage Device Group Users" + '</label><br>';
+15820:                 x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20managecomputers>' + "Manage Device Group Computers" + '</label><br>';
+15821:             }
+15822:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20remotecontrol>' + "Remote Control & Relay" + '</label><br>';
+15823:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20remoteview style=margin-left:12px>' + "Remote View Only" + '</label><br>';
+15824:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20remotelimitedinput style=margin-left:12px>' + "Limited Input Only" + '</label><br>';
+15825:             if (serverinfo.guestdevicesharing !== false) { x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20guestshare style=margin-

@@ -1,0 +1,113 @@
+name: Validate and publish conditional user contact controls
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-contact-visibility.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-contact-visibility-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Gate contact controls on server capabilities and stored phone
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          expected={
+          'app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt':'7b0326a45bd098e48cbf3dff17ffbb9a073cedf1',
+          'app/src/main/java/iecxiv/meshfabric/ui/management/UserContactEditor.kt':'3f41b4da5a111a07fa3ed53313a29524909522f7',
+          'app/src/main/java/iecxiv/meshfabric/ui/management/UserContactPolicy.kt':'aede69b35d187876b8cffddff7059e2213b95adb',
+          'app/src/test/java/iecxiv/meshfabric/ui/management/UserContactPolicyTest.kt':'f85ddc8a8fb93a39b5d30f666de2d099767d7cf9',
+          'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserContactRequestTest.kt':'da53498e965036b9f5df34d3d6a248494e0e7d90'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',name],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=Path(name).read_text()
+          def key(short):return next(name for name in sources if name.endswith('/'+short))
+          def change(short,old,new,count=1):
+              name=key(short)
+              if sources[name].count(old)!=count:raise RuntimeError('Missing/nonunique anchor: '+short+': '+old[:80])
+              sources[name]=sources[name].replace(old,new)
+          change('UserContactPolicy.kt','internal val USER_CONTACT_FIELDS=', 'internal fun userPhoneVisible(features:Any?,hasPhone:Boolean)=hasPhone || (runCatching { userAdvancedMask(features) }.getOrDefault(0L) and 0x02000000L!=0L)\ninternal fun userEmailStatusVisible(emailcheck:Any?)=emailcheck==true\n\ninternal val USER_CONTACT_FIELDS=')
+          change('UserContactPolicy.kt','if(field=="phone") require(userPhoneInputAllowed(userContactValue(p,field) as String))','if(field=="phone") { require(userPhoneVisible(s.server?.opt("features"),target.has("phone") && !target.isNull("phone"))); require(userPhoneInputAllowed(userContactValue(p,field) as String)) }')
+          change('UserContactPolicy.kt','s.server?.opt("emailcheck")==true','userEmailStatusVisible(s.server?.opt("emailcheck"))')
+          change('UserAdministration.kt','var contact by remember { mutableStateOf(false) }','var contact by remember { mutableStateOf(false) }\nvar contactField by remember { mutableStateOf("phone") }')
+          change('UserAdministration.kt','UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss)','UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss,initialField=contactField)')
+          change('UserAdministration.kt','TextButton(enabled=allowed,onClick={ contact=true }) { Text(t("Teléfono y estado del correo","Phone and email status")) }\n','')
+          change('UserAdministration.kt','val selectedNode=','val contactReady=allowed && email==original?.optString("email").orEmpty() && realname==original?.optString("realname").orEmpty()\nval selectedNode=')
+          anchor='field(t("Correo electrónico","Email"),email,{ email=it },enabled=!s.emailIdentity)'
+          change('UserAdministration.kt',anchor,anchor+'\nif(userEmailStatusVisible(s.server?.opt("emailcheck"))) TextButton(enabled=contactReady,onClick={ contactField="emailVerified"; contact=true }) { Text(t("Estado del correo: ","Email status: ")+if(user.optBoolean("emailVerified")) t("Verificado","Verified") else t("No verificado","Not verified")) }')
+          anchor='field(t("Nombre real","Real name"),realname,{ realname=it })'
+          change('UserAdministration.kt',anchor,anchor+'\nif(userPhoneVisible(s.server?.opt("features"),user.has("phone") && !user.isNull("phone"))) TextButton(enabled=contactReady,onClick={ contactField="phone"; contact=true }) { Text(t("Teléfono: ","Phone: ")+user.optString("phone").ifBlank { t("No establecido","Not set") }) }')
+          change('UserAdministration.kt','field(t("Nombre real","Real name"),realname,{ realname=it })','field(t("Nombre real","Real name"),realname,{ realname=it })\nif(allowed && !contactReady && (userEmailStatusVisible(s.server?.opt("emailcheck")) || userPhoneVisible(s.server?.opt("features"),user.has("phone") && !user.isNull("phone")))) Text(t("Guarda primero los cambios de correo y nombre real antes de editar el contacto.","Save email and real-name changes before editing contact information."),style=MaterialTheme.typography.bodySmall)')
+          change('UserContactEditor.kt','onSaved:()->Unit) {','onSaved:()->Unit,initialField:String="phone") {')
+          change('UserContactEditor.kt','var field by remember(id) { mutableStateOf("phone") }','val field=initialField')
+          change('UserContactEditor.kt','remember(id)','remember(id,initialField)',count=5)
+          change('UserContactEditor.kt','val supportsVerification=s.server?.opt("emailcheck")==true','val supportsVerification=userEmailStatusVisible(s.server?.opt("emailcheck"))\n    val visible=when(field) { "phone"->userPhoneVisible(s.server?.opt("features"),user.has("phone") && !user.isNull("phone")); "emailVerified"->supportsVerification; else->false }')
+          change('UserContactEditor.kt','val allowed=userContactAllowed(s,current,packet)','val allowed=visible && userContactAllowed(s,current,packet)')
+          change('UserContactEditor.kt','title={Text(t("Contacto y estado del correo","Contact and email status"))}','title={Text(if(field=="phone") t("Teléfono","Phone") else t("Estado del correo","Email status"))}')
+          change('UserContactEditor.kt','            Row(Modifier.heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) { RadioButton(field=="phone",{field="phone";approved=false},enabled=s.canWrite);Text(t("Teléfono","Phone")) }\n','')
+          change('UserContactEditor.kt','            Row(Modifier.heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically) { RadioButton(field=="emailVerified",{field="emailVerified";approved=false},enabled=s.canWrite && supportsVerification);Text(t("Estado de verificación del correo","Email verification status")) }\n','')
+          change('UserContactEditor.kt','if(field=="phone") {','if(visible && field=="phone") {')
+          change('UserContactEditor.kt','            } else {\n                Text(email.ifBlank','            } else if(visible) {\n                Text(email.ifBlank')
+          change('UserContactEditor.kt','if(!supportsVerification) Text(t("El servidor no ha anunciado comprobación de correo; su estado no se puede editar aquí.","The server has not announced email checking; its status cannot be edited here."),style=MaterialTheme.typography.bodySmall)','if(!visible) Text(t("Esta opción ya no está disponible con los datos actuales del servidor y del usuario. Cierra y actualiza la ficha.","This option is no longer available with the current server and user data. Close and refresh the details."),style=MaterialTheme.typography.bodySmall)')
+          change('UserContactEditor.kt','Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(approved,','if(visible) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(approved,')
+          change('UserContactRequestTest.kt','server=JSONObject().put("emailcheck",true))','server=JSONObject().put("emailcheck",true).put("features",0x02000000L))')
+          def append_tests(short,body):
+              name=key(short)
+              if not sources[name].endswith('}\n'):raise RuntimeError('Unexpected test class tail')
+              sources[name]=sources[name][:-2]+body+'}\n'
+          append_tests('UserContactPolicyTest.kt',r"""    @Test fun phoneIsHiddenWithoutKnownCapabilityOrStoredValue() { assertFalse(userPhoneVisible(null,false));assertFalse(userPhoneVisible(0L,false));assertFalse(userPhoneVisible("33554432",false)) }
+              @Test fun smsOrStoredPhoneShowsPhone() { assertTrue(userPhoneVisible(0x02000000L,false));assertTrue(userPhoneVisible(null,true));assertTrue(userPhoneVisible(0L,true)) }
+              @Test fun emailStatusRequiresExplicitCapability() { assertTrue(userEmailStatusVisible(true));assertFalse(userEmailStatusVisible(null));assertFalse(userEmailStatusVisible(false));assertFalse(userEmailStatusVisible("true")) }
+          """)
+          append_tests('UserContactRequestTest.kt',r"""    @Test fun noSmsAndNoPhoneRejectsPhoneWrite() { val u=user();val s=state(u).copy(server=JSONObject().put("features",0));val p=userContactPacket(u.getString("_id"),userContactSnapshot(u),"phone","+34612345678");assertFalse(userContactAllowed(s,u,p)) }
+              @Test fun storedPhoneCanBeRemovedWithoutSmsCapability() { val u=user().put("phone","+34612345678");val s=state(u).copy(server=JSONObject());val p=userContactPacket(u.getString("_id"),userContactSnapshot(u),"phone","");assertTrue(userContactAllowed(s,u,p)) }
+              @Test fun disabledEmailCapabilityRejectsStatusWrite() { val u=user();val s=state(u).copy(server=JSONObject().put("emailcheck",false));val p=userContactPacket(u.getString("_id"),userContactSnapshot(u),"emailVerified",true);assertFalse(userContactAllowed(s,u,p)) }
+          """)
+          if 'return@key' in sources[key('UserAdministration.kt')]:raise RuntimeError('Unsupported return inside composable key')
+          for name,text in sources.items():Path(name).write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-contact-visibility-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated conditional contact controls
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserContactEditor.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserContactPolicy.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserContactPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserContactRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(users): show contact options only under MeshCentral conditions'
+          git push origin HEAD:dev

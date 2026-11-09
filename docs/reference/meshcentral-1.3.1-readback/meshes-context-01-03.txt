@@ -1,0 +1,26 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: meshes | lines 6030-6050 | window 1 part 3 | not necessarily a complete handler
+
+6030:         'amtstats': [serverUserCommandAmtStats, ""],
+6031:         'args': [serverUserCommandArgs, ""],
+6032:         'autobackup': [serverUserCommandAutoBackup, ""],
+6033:         'backupconfig': [serverUserCommandBackupConfig, ""],
+6034:         'badlogins': [serverUserCommandBadLogins, "Displays or resets the invalid login rate limiting table."],
+6035:         'bad2fa': [serverUserCommandBad2fa, "Displays or resets the invalid 2FA rate limiting table."],
+6036:         'certexpire': [serverUserCommandCertExpire, ""],
+6037:         'certhashes': [serverUserCommandCertHashes, ""],
+6038:         'closeusersessions': [serverUserCommandCloseUserSessions, "Disconnects all sessions for a specified user."],
+6039:         'cores': [serverUserCommandCores, ""],
+6040:         'dbcounters': [serverUserCommandDbCounters, ""],
+6041:         'dbstats': [serverUserCommandDbStats, ""],
+6042:         'dbcompact': [serverUserCommandDbCompact, ""],
+6043:         'dispatchtable': [serverUserCommandDispatchTable, ""],
+6044:         'dropallcira': [serverUserCommandDropAllCira, ""],
+6045:         'dupagents': [serverUserCommandDupAgents, ""],
+6046:         'email': [serverUserCommandEmail, ""],
+6047:         'emailnotifications': [serverUserCommandEmailNotifications, ""],
+6048:         'msgnotifications': [serverUserCommandMessageNotifications, ""],
+6049:         'firebase': [serverUserCommandFirebase, ""],
+6050:         'heapdump': [serverUserCommandHeapDump, ""],

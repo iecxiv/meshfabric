@@ -1,0 +1,85 @@
+name: Validate and publish read-only assignment review
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-assignment-review.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-assignment-review-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply read-only review
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          path=base/'UserGroupsDirectoryPane.kt'
+          if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!='53b79ba22ccdd424527b0bd97932ce3350fca7bb':raise RuntimeError('Pane changed')
+          subprocess.run(['git','merge-base','--is-ancestor','97dc9935a76691e0595afcce2372161bfb7dfb12','HEAD'],check=True)
+          text=path.read_text()
+          def change(old,new):
+              global text
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:80])
+              text=text.replace(old,new,1)
+          anchor='var adding by remember(s.id) {mutableStateOf<JSONObject?>(null)}'
+          change(anchor,anchor+'\nvar reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}')
+          change('editing=null;creating=false;deleting=null;removing=null;adding=null}}','editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null}}')
+          anchor='val mesh=s.groups.firstOrNull {it.optString("_id")==id}'
+          change(anchor,anchor+'\nif(profileGroupMeshId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready",onClick={editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=group.optString("_id") to id;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Revisar asignación: ","Review assignment: ")+id)}')
+          anchor='adding?.let {UserGroupMemberAddDialog(session,s,it) {adding=null}}'
+          change(anchor,anchor+'\nreviewingMesh?.let {(gid,mid)->GroupMeshAssignmentReview(session,s,gid,mid) {reviewingMesh=null}}')
+          hashes={'.github/patches/group-mesh-assignment-review/GroupMeshAssignmentReview.kt.txt': '4cd552b299a00c573725e8db71846f6f7ad09ad671aeb2572d13a1df8fed7f17', '.github/patches/group-mesh-assignment-review/GroupMeshAssignmentReviewTest.kt.txt': '58ff440bf20e186c9902d191e2cad99a29d9339dc06a6f989dda7b21d323c294'}
+          targets={'.github/patches/group-mesh-assignment-review/GroupMeshAssignmentReview.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReview.kt', '.github/patches/group-mesh-assignment-review/GroupMeshAssignmentReviewTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReviewTest.kt'}
+          updates={path:text}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();target=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if target.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[target]=data.decode()
+          for target,content in updates.items():
+              target.parent.mkdir(parents=True,exist_ok=True);target.write_text(content)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-assignment-review-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish read-only review without enabling revocation
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReview.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReviewTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(user-groups): add read-only two-sided device group assignment review'
+          git push origin HEAD:dev

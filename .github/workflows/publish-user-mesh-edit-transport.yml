@@ -1,0 +1,144 @@
+name: Validate and publish direct user mesh edit transport
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-edit-transport.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-edit-transport-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded isolated edit transport and offline receiver tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          session=base/'ProfileSession.kt'
+          template=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshGrantSessionTest.kt')
+          test=template.with_name('UserMeshEditSessionTest.kt')
+          guards={str(session):'9bbc6bb2033c5a68fa74a49036aa6fb4be5acf11',str(base/'UserMeshEditPolicy.kt'):'d34a291d252e1f155748c113b0fb60132d8bf40c',str(template):'05861039c5eb91d8eb1acdb1130edf2aa5a8c1bc'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+          if test.exists():raise RuntimeError('Test already exists')
+          def replace(text,old,new):
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              return text.replace(old,new,1)
+          s=session.read_text()
+          submit=s[s.index('@Synchronized fun submitUserMeshGrant('):s.index('@Synchronized fun submitUserMeshRevoke(')]
+          submit=submit.replace('submitUserMeshGrant','submitUserMeshEdit').replace('profileUserMeshGrant','profileUserMeshEdit').replace('directGrant','directEdit').replace('grantedDirectUser','editedDirectUser').replace('grantedDirectMesh','editedDirectMesh')
+          observe=s[s.index('private fun observeUserMeshGrant()'):s.index('private fun observeGroupMeshRevocation()')]
+          observe=observe.replace('observeUserMeshGrant','observeUserMeshEdit').replace('directMeshGrant','directMeshEdit').replace('profileUserMeshGrantReadbackReady','profileUserMeshEditReadbackReady').replace('grantedDirectUser','editedDirectUser').replace('grantedDirectMesh','editedDirectMesh').replace('userMeshGrantedObserved','userMeshEditedObserved')
+          ack='''if(directMeshEdit()) {
+          if(profileUserMeshEditAck(p,pendingId)) {expected.put("directAck",true).put("directUserRead",false).put("directMeshRead",false);loadLists()}
+          else if(profileGroupMeshGrantReplyRejected(p)) finish("rejected",false)
+          return
+          }
+          '''
+          s=replace(s,'val grantedDirectUser:String="",val grantedDirectMesh:String=""','val grantedDirectUser:String="",val grantedDirectMesh:String="",val editedDirectUser:String="",val editedDirectMesh:String=""')
+          s=replace(s,'private fun directMeshOperation()=directMeshRevocation() || directMeshGrant()','private fun directMeshEdit()=pendingAction=="addmeshuser" && expected.optBoolean("directEdit")\nprivate fun directMeshOperation()=directMeshRevocation() || directMeshGrant() || directMeshEdit()')
+          s=replace(s,'private fun observeUserMeshRevocation() {\nif(!directMeshOperation()) return','private fun observeUserMeshRevocation() {\nif(!directMeshRevocation()) return')
+          s=replace(s,'private fun observeGroupMeshRevocation() {',observe+'private fun observeGroupMeshRevocation() {')
+          s=replace(s,'if(directMeshGrant() && expected.optBoolean("directAck")) {','if((directMeshGrant() || directMeshEdit()) && expected.optBoolean("directAck")) {')
+          s=replace(s,'if(directMeshGrant()) observeUserMeshGrant()','if(directMeshGrant()) observeUserMeshGrant()\nif(directMeshEdit()) observeUserMeshEdit()')
+          s=replace(s,'if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {','if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {\n'+ack)
+          s=replace(s,'@Synchronized fun submitUserMeshRevoke(',submit+'@Synchronized fun submitUserMeshRevoke(')
+          session.write_text(s)
+          t=template.read_text().replace('UserMeshGrantSessionTest','UserMeshEditSessionTest').replace('profileUserMeshGrantPacket','profileUserMeshEditPacket').replace('submitUserMeshGrant','submitUserMeshEdit').replace('userMeshGrantedObserved','userMeshEditedObserved').replace('grantedDirectUser','editedDirectUser').replace('grantedDirectMesh','editedDirectMesh')
+          t=replace(t,'private fun user(linked:Boolean)','private fun user(linked:Boolean,rights:Long=0x80000010L)')
+          t=replace(t,'private fun mesh(linked:Boolean)','private fun mesh(linked:Boolean,rights:Long=0x80000010L)')
+          if t.count('JSONObject().put("rights",8)')!=2:raise RuntimeError('Unexpected rights fixture')
+          t=t.replace('JSONObject().put("rights",8)','JSONObject().put("rights",rights)')
+          t=replace(t,'users=listOf(user(false)),groups=listOf(mesh(false))','users=listOf(user(true,0x80000008L)),groups=listOf(mesh(true,0x80000008L))')
+          t=replace(t,'reply("users",oldTags.getValue("users"),false);reply("meshes",oldTags.getValue("meshes"),false)','reply("users",oldTags.getValue("users"),true,0x80000008L);reply("meshes",oldTags.getValue("meshes"),true,0x80000008L)')
+          t=replace(t,'s.groups.single(),8,true)','s.groups.single(),0x80000010L,true)')
+          t=replace(t,'assertFalse(session.submit(packet))','assertFalse(session.submit(packet))\n            assertFalse(session.submitUserMeshGrant(packet))')
+          t=replace(t,'fun reply(action:String,tag:String?,linked:Boolean=true)','fun reply(action:String,tag:String?,linked:Boolean=true,rights:Long=0x80000010L)')
+          t=replace(t,'if(action=="users") user(linked) else mesh(linked)','if(action=="users") user(linked,rights) else mesh(linked,rights)')
+          extra='''    @Test fun losingUnknownBitsOrKeepingOldRightsNeverConfirms() {for(wrong in listOf(16L,0x80000008L)) for(side in listOf("users","meshes")) Harness().use {h->
+                  h.begin();h.ack();val tags=h.tags()
+                  for(action in listOf("users","meshes")) h.reply(action,tags.getValue(action),true,if(action==side) wrong else 0x80000010L)
+                  h.unobserved();assertTrue(h.session.state.value.busy)
+              }}
+              @Test fun submissionRevalidatesFrozenBilateralState() {Harness().use {h->
+                  val s=h.session.state.value
+                  val p=profileUserMeshEditPacket(actor,h.session.broadcastServerLabel(),s.users.single(),s.groups.single(),0x80000010L,true)
+                  s.users.single().getJSONObject("links").getJSONObject(mid).put("rights",0x80000020L)
+                  s.groups.single().getJSONObject("links").getJSONObject(uid).put("rights",0x80000020L)
+                  assertFalse(h.session.submitUserMeshEdit(p))
+                  assertTrue(h.wire.sent.none {it.optString("action")=="addmeshuser"})
+              }}
+              @Test fun explicitRejectionDoesNotReadBackOrRetry() {Harness().use {h->
+                  h.begin();val count=h.wire.sent.size
+                  h.receive(JSONObject().put("action","addmeshuser").put("responseid",h.operation.getString("responseid")).put("success",0).put("failed",1).put("result","Access denied"))
+                  assertEquals("rejected",h.session.state.value.notice);assertFalse(h.session.state.value.busy)
+                  h.unobserved();assertEquals(count,h.wire.sent.size)
+              }}
+              @Test fun duplicateAckCreatesANewCorrelatedRound() {Harness().use {h->
+                  h.begin();h.ack();val first=h.tags();h.reply("users",first.getValue("users"))
+                  h.ack();val latest=h.tags();assertNotEquals(first,latest)
+                  h.reply("meshes",first.getValue("meshes"));h.reply("meshes",latest.getValue("meshes"));h.unobserved()
+                  h.reply("users",latest.getValue("users"));assertEquals("userMeshEditedObserved",h.session.state.value.notice)
+              }}
+          '''
+          t=t.rstrip()
+          if not t.endswith('}'):raise RuntimeError('Unexpected test structure')
+          test.write_text(t[:-1]+extra+'}\n')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline edit, grant and revocation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshEditRequestTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-edit-transport-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated transport only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshEditSessionTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): connect isolated direct user mesh rights edit transport'
+          git push origin HEAD:dev

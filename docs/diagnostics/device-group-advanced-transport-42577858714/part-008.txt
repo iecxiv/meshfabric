@@ -1,0 +1,41 @@
+19:10.886  1546  3721 I NotificationsModuleTask: Registered accounts to Chime successfully. registration reason = REGISTRATION_ID_CHANGED [CONTEXT service_id=358 ]
+381: 11-09 07:19:10.891  1253  1936 I HeterodyneSyncScheduler: Scheduling Phenotype for a PhenotypeSyncImmediately(6, com.google.android.gms.people) one off with window [1, 2] in seconds [CONTEXT service_id=51 ]
+382: 11-09 07:19:10.892  1546  1546 I LT_PhenotypeApiImplV12: Phenotype registration succeeded
+383: 11-09 07:19:10.895  3300  3482 I Bugle   : getRawTelephonyPhoneNumber redacted-pii[0-chars] [CONTEXT sub_id=-1 ]
+384: 11-09 07:19:10.900  1253  3667 I NetworkScheduler.Stats: Task com.google.android.gms/com.google.android.gms.notifications.registration.service.NotificationsRegistrationTaskBoundService finished executing. cause:5 result: 1 elapsed_millis: 649 uptime_millis: 649 exec_start_elapsed_seconds: 95 [CONTEXT service_id=218 ]
+385: 11-09 07:19:10.901  1546  1546 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.notifications.registration.service.NotificationsRegistrationTaskBoundService.ACTION_TASK_READY dat=chimera-action:/... cmp=com.google.android.gms/.chimera.GmsInternalBoundBrokerService }
+386: 11-09 07:19:10.909  3300  3691 I BugleTransport: isChatAvailable: RcsAvailability is DISABLED_VIA_GSERVICES (RCS is disabled for this carrier by Google)
+387: 11-09 07:19:10.913  3300  3482 W BugleAction: No default number, returning empty msisdn
+388: 11-09 07:19:10.913  3300  3482 I BugleRcsEngine: isRcsAvailableForSubId called with an invalid sub id: -2 [CONTEXT log_prefix="RcsProvisioningManager" thread_id=63 ]
+389: 11-09 07:19:10.933  3300  3499 I BugleTransport: updateActiveTransport: refreshing chat transport
+390: 11-09 07:19:10.933  3300  3499 I BugleTransport: Tachygram is disabled because the RCS Configuration is empty [CONTEXT ratelimit_period="5 SECONDS" skipped=1 ]
+391: 11-09 07:19:10.934  3300  3499 I BugleTransport: Enabled chat transport is TRANSPORT_RCS [CONTEXT group_by="TRANSPORT_RCS" ratelimit_period="5 SECONDS" skipped=1 ]
+392: 11-09 07:19:10.934  3300  3499 I BugleTransport: refreshChatTransport: isChatAvailable: false, enabledTransport: 1, configuration: <empty>
+393: 11-09 07:19:10.951  3300  3691 I RcsClientLib: Connecting RcsEngineLifecycleService
+394: 11-09 07:19:10.955  3300  3691 W RcsClientLib: No CS.apk RCS service found. Is RCS running in Bugle?
+401: 11-09 07:19:10.987   561   835 D InetDiagMessage: Destroyed live tcp sockets for uids={10094} in 3ms
+402: 11-09 07:19:10.992  3300  3451 I BugleRcsEngine: SystemBinding enabled: true [CONTEXT log_prefix="SystemBindingManager" thread_id=48 ]
+403: 11-09 07:19:10.992  3300  3444 I BugleRcsEngine: System Binding updated [CONTEXT thread_id=44 ]
+404: 11-09 07:19:10.999  3300  3452 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=49 ]
+405: 11-09 07:19:11.000  3300  3691 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=79 ]
+406: 11-09 07:19:11.002  3708  3723 I BugleRcsEngine: triggerStopRcsStack for msisdn:redacted-pii:phone_number[chars:0,last2:] [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=39 ]
+407: 11-09 07:19:11.003  3708  3801 I BugleRcsEngine: handleMessage processing message:[STOP_RCS_STACK] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+408: 11-09 07:19:11.003  3708  3801 I BugleRcsEngine: RCS engine STOP RCS stack [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+409: 11-09 07:19:11.003  3708  3801 I BugleRcsEngine: imsModule is null, shutdown not required [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=65 ]
+410: 11-09 07:19:11.004  3708  3801 I BugleRcsEngine: skipping imsModule.stop [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=65 ]
+411: 11-09 07:19:11.004  3708  3801 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+412: 11-09 07:19:11.004  3300  3467 I RcsClientLib: Disconnecting RcsEngineLifecycleService
+413: 11-09 07:19:11.009  3708  3801 I BugleRcsEngine: RCS Configuration storage in Bugle is disabled by p/h flag, using ProvisioningEngineStateCacheUtil.getProvisioningConfigurationForGivenSimIfExist() [CONTEXT log_prefix="ProvisioningEngineDataRetriever" thread_id=65 ]
+414: 11-09 07:19:11.040  3300  3464 D MddListenableWorkerFactory: createWorker for class: com.google.android.apps.messaging.shared.datamodel.workqueue.WorkQueueWorkerShim
+415: 11-09 07:19:11.043  3300  3499 I BugleTransport: onBuglePhenotypeFlagChanged: kicking off updateActiveTransport
+416: 11-09 07:19:11.043  3300  3464 W BugleAction: Failed to get msisdn from Bugle
+417: 11-09 07:19:11.044  3300  3464 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+418: 11-09 07:19:11.044  3300  3464 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+419: 11-09 07:19:11.044  3300  3453 I BugleTransport: isChatAvailable: RcsAvailability is DISABLED_VIA_GSERVICES (RCS is disabled for this carrier by Google)
+420: 11-09 07:19:11.059  3300  3482 I BugleRcsProvisioning: BugleSystemBindingManager: onBuglePhenotypeFlagChanged
+421: 11-09 07:19:11.069  3300  3452 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=49 ]
+422: 11-09 07:19:11.071  3300  3430 I BugleRcsEngine: SystemBinding enabled: true [CONTEXT log_prefix="SystemBindingManager" thread_id=42 ]
+423: 11-09 07:19:11.073  3300  3430 I BugleRcsEngine: System Binding updated [CONTEXT thread_id=42 ]
+424: 11-09 07:19:11.073  3300  3498 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=66 ]
+425: 11-09 07:19:11.073  3300  3464 I Bugle   : getRawTelephonyPhoneNumber redacted-pii[0-chars] [CONTEXT sub_id=-1 ]
+426: 11-09 07:19:11.073  1253

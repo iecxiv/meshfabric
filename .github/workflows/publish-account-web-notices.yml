@@ -1,0 +1,329 @@
+name: Validate and publish account web notification fixes
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-account-web-notices.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-account-web-notices-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply exact reviewed changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base = Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected = {
+              'NativeAccount.kt': '2db422f62b0bfc7f22536b180d6286d53063a315',
+              'NoticeInbox.kt': 'fc2ce7c4e43dc45bc0903119617848f255f4d385',
+              'AccountPreferences.kt': '8caaafb9d06eeca2053a6b2ec0a3efd0ce8b1ef3'
+          }
+          sources = {}
+          for name, sha in expected.items():
+              path = base / name
+              if subprocess.check_output(['git', 'hash-object', str(path)], text=True).strip() != sha:
+                  raise RuntimeError('Base changed; review required: ' + name)
+              sources[name] = path.read_text()
+          def replace(name, old, new):
+              if sources[name].count(old) != 1:
+                  raise RuntimeError('Missing/nonunique patch anchor: ' + name + ': ' + old[:100])
+              sources[name] = sources[name].replace(old, new, 1)
+          helper = '''package iecxiv.meshfabric.ui.management
+
+          import org.json.JSONArray
+          import org.json.JSONObject
+
+          internal fun accountServerInfo(packet:JSONObject):JSONObject =
+              JSONObject((packet.optJSONObject("serverinfo") ?: packet).toString())
+
+          internal fun webNoticeNumber(value:Any?):Long? = when(value) {
+              is String -> value.takeIf { it.matches(Regex("[0-9]{1,10}")) }?.toLongOrNull()
+              is Number -> value.toDouble().takeIf { it.isFinite() && it >= 0 && it <= 4294967295.0 && it % 1.0 == 0.0 }?.toLong()
+              else -> null
+          }?.takeIf { it in 0..0xffffffffL }
+
+          internal fun webNoticeState(packet:JSONObject):JSONObject? {
+              val event=(if(packet.optString("action")=="event") packet.optJSONObject("event") else packet) ?: return null
+              if(event.optString("action")!="userWebState") return null
+              val value=event.opt("state")
+              val text=when(value) { is String->value; is JSONObject->value.toString(); else->return null }
+              if(text.toByteArray(Charsets.UTF_8).size>10000) return null
+              return runCatching { JSONObject(text) }.getOrNull()?.takeIf { webNoticeMask(it)!=null }
+          }
+
+          internal fun webNoticeMask(state:JSONObject):Long? =
+              if(!state.has("notifications")) 0L else webNoticeNumber(state.opt("notifications"))
+
+          internal fun webNoticeOptions(mask:Long)=AccountNoticeOptions(
+              sound=mask and 1L!=0L,groupName=mask and 16L!=0L,
+              connections=mask and 2L!=0L,disconnections=mask and 4L!=0L,amt=mask and 8L!=0L)
+
+          internal fun webNoticeFlags(options:AccountNoticeOptions):Long =
+              (if(options.sound) 1L else 0L) or (if(options.connections) 2L else 0L) or
+              (if(options.disconnections) 4L else 0L) or (if(options.amt) 8L else 0L) or
+              (if(options.groupName) 16L else 0L)
+
+          internal fun mergeWebNoticeState(state:JSONObject,before:Long,options:AccountNoticeOptions):JSONObject? {
+              val previous=webNoticeMask(state) ?: return null
+              if(previous!=before) return null
+              val updated=(previous and 31L.inv()) or webNoticeFlags(options)
+              val result=JSONObject(state.toString()).put("notifications",updated.toString())
+              return result.takeIf { it.toString().toByteArray(Charsets.UTF_8).size<=10000 }
+          }
+
+          internal fun webNoticeKind(packet:JSONObject)=if(packet.has("amtMessage") && !packet.isNull("amtMessage")) "amt" else "general"
+          internal fun noticeNodeKey(id:String)=id.removePrefix("node//").removePrefix("node/").trim()
+
+          internal fun noticeConnectivity(event:JSONObject):Pair<String,Int>? {
+              val action=event.optString("action")
+              if(action !in setOf("changenode","nodeconnect","nodedisconnect")) return null
+              val node=event.optJSONObject("node")
+              val id=event.optString("nodeid").ifBlank { node?.optString("_id").orEmpty() }.ifBlank { (event.opt("node") as? String).orEmpty() }
+              val key=noticeNodeKey(id)
+              if(key.isBlank()) return null
+              val value=when {
+                  node?.has("conn")==true -> node.opt("conn")
+                  event.has("conn") -> event.opt("conn")
+                  action=="nodedisconnect" -> 0
+                  else -> return null
+              }
+              val number=(value as? Number)?.toDouble() ?: return null
+              if(!number.isFinite() || number<0 || number>Int.MAX_VALUE || number%1.0!=0.0) return null
+              return key to number.toInt()
+          }
+
+          internal fun noticeSnapshotNodes(packet:JSONObject):List<JSONObject> {
+              val raw=packet.opt("nodes")
+              fun records(a:JSONArray)=(0 until a.length()).mapNotNull { a.optJSONObject(it) }
+              return when(raw) {
+                  is JSONArray -> records(raw)
+                  is JSONObject -> raw.keys().asSequence().flatMap { key ->
+                      when(val value=raw.opt(key)) {
+                          is JSONArray -> records(value).asSequence()
+                          is JSONObject -> sequenceOf(value)
+                          else -> emptySequence()
+                      }
+                  }.toList()
+                  else -> emptyList()
+              }
+          }
+          '''
+          replace('NativeAccount.kt', 'val notice:AccountNotice?=null)', 'val notice:AccountNotice?=null,val webState:JSONObject?=null)')
+          replace('NativeAccount.kt', 'if(action=="serverinfo") { state.update { it.copy(server=JSONObject(p.toString())) }; return }', '''if(action=="serverinfo") { state.update { it.copy(server=accountServerInfo(p)) }; return }
+          if(action=="userWebState" || (action=="event" && p.optJSONObject("event")?.optString("action")=="userWebState")) {
+          val snapshot=webNoticeState(p) ?: return
+          state.update { it.copy(webState=snapshot) }
+          if(pending=="userWebState" && webNoticeMask(snapshot)==args.optLong("notifications",-1)) finish(null,"confirmed")
+          return
+          }''')
+          method = '''@Synchronized fun saveNotificationOptions(options:AccountNoticeOptions,before:Long):Boolean {
+          val s=state.value
+          if(!s.ready || s.busy || !same()) return false
+          val site=ProfilePermissions.normalized(s.user?.optLong("siteadmin",0L) ?: 0L)
+          if(site!=0xffffffffL && site and 1024L!=0L) return false
+          val snapshot=s.webState ?: return false
+          val updated=mergeWebNoticeState(snapshot,before,options) ?: return false
+          pending="userWebState"; rid=UUID.randomUUID().toString()
+          args=JSONObject().put("notifications",webNoticeMask(updated))
+          state.update { it.copy(busy=true,status="sent",reply=null) }
+          val generation=epoch
+          timer?.cancel(); timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generation==epoch && pending.isNotBlank()) pause("unknown") } }
+          val payload=JSONObject().put("action","userWebState").put("state",updated.toString()).put("responseid",rid)
+          if(socket?.send(payload.toString())!=true) { pause("unknown"); return false }
+          return true
+          }
+          '''
+          replace('NativeAccount.kt', '@Synchronized fun request(action:String,fields:JSONObject=JSONObject()):Boolean {', method + '@Synchronized fun request(action:String,fields:JSONObject=JSONObject()):Boolean {')
+          replace('NativeAccount.kt', 'var options by remember(prefKey) { mutableStateOf(AccountNoticeOptions(prefs.getBoolean("${prefKey}_sound",false),prefs.getBoolean("${prefKey}_groupname",true),prefs.getBoolean("${prefKey}_connect",false),prefs.getBoolean("${prefKey}_disconnect",false),prefs.getBoolean("${prefKey}_amt",false))) }', 'val options=webNoticeOptions(state.webState?.let(::webNoticeMask) ?: 0L)')
+          replace('NativeAccount.kt', 'var draft by remember { mutableStateOf(options) }', '''val beforeMask=state.webState?.let(::webNoticeMask)
+          var draft by remember(beforeMask) { mutableStateOf(options) }''')
+          replace('NativeAccount.kt', 'Text(t("Preferencias locales de esta cuenta y servidor. Se aplican a los avisos recibidos mientras Mi Usuario está abierto; deben estar habilitadas las notificaciones en la app.","Local preferences for this account and server. Apply to notices received while My user is open; in-app notifications must be enabled."),style=MaterialTheme.typography.bodySmall)', '''Text(t("Opciones compartidas con la web de esta cuenta. Los cambios se envían al servidor; la confirmación requiere observar userWebState. La recepción y el permiso Android son independientes.","Options shared with this account's web interface. Changes are sent to the server; confirmation requires observing userWebState. Reception and Android permission are independent."),style=MaterialTheme.typography.bodySmall)
+          if(beforeMask==null) Text(t("No se ha recibido el estado web. Guardar permanece deshabilitado para no sobrescribir otros ajustes.","Web state has not been received. Saving remains disabled to avoid overwriting other settings."),style=MaterialTheme.typography.bodySmall)''')
+          replace('NativeAccount.kt', 'action("Guardar opciones","Save options") { options=draft; prefs.edit().putBoolean("${prefKey}_sound",draft.sound).putBoolean("${prefKey}_groupname",draft.groupName).putBoolean("${prefKey}_connect",draft.connections).putBoolean("${prefKey}_disconnect",draft.disconnections).putBoolean("${prefKey}_amt",draft.amt).apply(); feedback=t("Opciones locales guardadas.","Local options saved.") }', '''action("Guardar opciones en el servidor","Save server options",beforeMask!=null) {
+          feedback=if(beforeMask!=null && wire.saveNotificationOptions(draft,beforeMask)) t("Solicitud enviada; confirmación pendiente.","Request sent; confirmation pending.") else t("No enviado. El estado o los permisos han cambiado; vuelve a consultar.","Not sent. State or permissions changed; reload before retrying.")
+          }''')
+          replace('NativeAccount.kt', 'Text(t("AMT filtra eventos de redirección que el servidor emita con protocolo 101. El sonido usa el tono de notificación y depende de los ajustes del sistema. Estas opciones no modifican las preferencias web del servidor ni habilitan recepción en segundo plano.","AMT filters redirection events emitted by the server with protocol 101. Sound uses the notification tone and depends on system settings. These options do not modify server web preferences or enable background reception."),style=MaterialTheme.typography.bodySmall)', '''Text(t("AMT filtra mensajes marcados amtMessage. Conexiones y desconexiones se generan a partir de cambios de conectividad. Sonido y nombre del grupo modifican la presentación; no son tipos de mensaje. Android puede modificar el sonido del canal. No se garantiza entrega con el proceso detenido ni actualización inmediata de una pestaña web que no procese el evento.","AMT filters messages marked amtMessage. Connections and disconnections are generated from connectivity changes. Sound and group name affect presentation; they are not message types. Android may override channel sound. Delivery with a stopped process or immediate refresh in a web tab that ignores the event is not guaranteed."),style=MaterialTheme.typography.bodySmall)''')
+          replace('NativeAccount.kt', 'announce("general",p)', 'announce(webNoticeKind(p),p)')
+          replace('NativeAccount.kt', '''private fun noticeEvent(e:JSONObject) {
+          val action=e.optString("action")
+          if(action=="nodeconnect" || action=="nodedisconnect") {
+          val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
+          val number=e.opt("conn") as? Number
+          val next=if(number!=null && number.toDouble()>=0 && number.toDouble()<=Int.MAX_VALUE && number.toDouble()%1.0==0.0) number.toInt() else if(action=="nodedisconnect") 0 else return
+          if(id.isBlank()) return
+          val before=connectivity.put(id,next)
+          val (gained,lost)=accountConnectionChange(before,next)
+          if(gained!=0) announce("connect",e,gained)
+          if(lost!=0) announce("disconnect",e,lost)
+          } else if(action=="relaylog" && e.optInt("protocol")==101) announce("amt",e)
+          }''', '''private fun noticeEvent(e:JSONObject) {
+          val (id,next)=noticeConnectivity(e) ?: return
+          val (gained,lost)=accountConnectionChange(connectivity.put(id,next),next)
+          if(gained!=0) announce("connect",e,gained)
+          if(lost!=0) announce("disconnect",e,lost)
+          }''')
+          replace('NativeAccount.kt', 'if(action=="nodeconnect" || action=="nodedisconnect") { noticeEvent(p); return }', 'if(action in setOf("nodeconnect","nodedisconnect","changenode")) { noticeEvent(p); return }')
+          replace('NativeAccount.kt', 'connectivity[it.id]=it.conn', 'connectivity[noticeNodeKey(it.id)]=it.conn')
+          replace('NativeAccount.kt', 'else if(kind=="amt") e.optString("msg").take(600)', 'else if(kind=="amt") e.optString("value").ifBlank { e.optString("msg") }.take(1000)')
+          replace('NoticeInbox.kt', 'private var actor=""', '''private var actor=""
+          private var account:JSONObject?=null
+          private var webMask:Long?=null''')
+          replace('NoticeInbox.kt', 'identity=connection; actor=userId; data.value=NoticeInboxState(); connectivity.clear()', 'identity=connection; actor=userId; account=null; webMask=null; data.value=NoticeInboxState(); connectivity.clear()')
+          replace('NoticeInbox.kt', 'connectivity[it.id]=it.conn', 'connectivity[noticeNodeKey(it.id)]=it.conn')
+          replace('NoticeInbox.kt', 'val options=AccountNoticeOptions(prefs.getBoolean("${key}_sound",false),prefs.getBoolean("${key}_groupname",true),prefs.getBoolean("${key}_connect",false),prefs.getBoolean("${key}_disconnect",false),prefs.getBoolean("${key}_amt",false))', 'val options=webNoticeOptions(webMask ?: 0L)')
+          replace('NoticeInbox.kt', '''val s=data.value
+          if(!s.enabled || !accountNoticeAllowed(kind,s.options)) return
+          val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }''', '''val s=data.value
+          val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }.ifBlank { (e.opt("node") as? String).orEmpty() }
+          val nodeMatch=source.groupedDevices.value.firstNotNullOfOrNull { (g,nodes)->nodes.firstOrNull { noticeNodeKey(it.id)==noticeNodeKey(id) }?.let { g to it } }
+          val meshId=e.optString("meshid").ifBlank { e.optJSONObject("node")?.optString("meshid").orEmpty() }.ifBlank { nodeMatch?.first?.id.orEmpty() }
+          val groupFlags=webNoticeNumber(account?.optJSONObject("links")?.optJSONObject(meshId)?.opt("notify")) ?: 0L
+          val effectiveOptions=webNoticeOptions((webMask ?: 0L) or (groupFlags and 14L))
+          if(!s.enabled || !accountNoticeAllowed(kind,effectiveOptions)) return''')
+          replace('NoticeInbox.kt', 'val match=source.groupedDevices.value.firstNotNullOfOrNull { (g,nodes)->nodes.firstOrNull { it.id==id }?.let { g to it } }', 'val match=nodeMatch')
+          replace('NoticeInbox.kt', 'else if(kind=="amt") e.optString("msg").take(600)', 'else if(kind=="amt") e.optString("value").ifBlank { e.optString("msg") }.take(1000)')
+          replace('NoticeInbox.kt', 'publisher.post(notificationScope,entry,s.options)', 'publisher.post(notificationScope,entry,effectiveOptions)')
+          replace('NoticeInbox.kt', '''@Synchronized fun receive(p:JSONObject) {
+          if(!matchesCurrentSource()) { clear(); return }
+          val action=p.optString("action")''', '''@Synchronized fun receive(p:JSONObject) {
+          val action=p.optString("action")
+          if(action=="userinfo") {
+          val info=p.optJSONObject("userinfo") ?: return
+          val userId=info.optString("_id")
+          if(!userId.startsWith("user/")) return
+          bind(userId,current())
+          if(matchesCurrentSource()) account=JSONObject(info.toString())
+          return
+          }
+          if(!matchesCurrentSource()) { clear(); return }
+          webNoticeState(p)?.let { snapshot->webMask=webNoticeMask(snapshot); reloadPreferences(); return }
+          if(action=="nodes") {
+          noticeSnapshotNodes(p).forEach { node->noticeConnectivity(JSONObject().put("action","changenode").put("node",node))?.let { (id,conn)->connectivity[id]=conn } }
+          return
+          }''')
+          replace('NoticeInbox.kt', 'append("general",p); return', 'append(webNoticeKind(p),p); return')
+          replace('NoticeInbox.kt', '''val kind=e.optString("action")
+          if(kind=="nodeconnect" || kind=="nodedisconnect") {
+          val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
+          if(id.isBlank()) return
+          val n=e.opt("conn") as? Number
+          val next=if(n!=null && n.toDouble()>=0 && n.toDouble()<=Int.MAX_VALUE && n.toDouble()%1.0==0.0) n.toInt() else if(kind=="nodedisconnect") 0 else return
+          val (gained,lost)=accountConnectionChange(connectivity.put(id,next),next)
+          if(gained!=0) append("connect",e,gained)
+          if(lost!=0) append("disconnect",e,lost)
+          } else if(kind=="relaylog" && e.optInt("protocol")==101) append("amt",e)''', '''if(e.optString("action")=="accountchange") {
+          val info=e.optJSONObject("account")
+          if(info?.optString("_id")==actor) account=JSONObject(info.toString())
+          }
+          val (id,next)=noticeConnectivity(e) ?: return
+          val (gained,lost)=accountConnectionChange(connectivity.put(id,next),next)
+          if(gained!=0) append("connect",e,gained)
+          if(lost!=0) append("disconnect",e,lost)''')
+          replace('NoticeInbox.kt', 'identity=null; actor=""; connectivity.clear(); data.value=NoticeInboxState()', 'identity=null; actor=""; account=null; webMask=null; connectivity.clear(); data.value=NoticeInboxState()')
+          replace('NoticeInbox.kt', '2 to "Intel AMT CIRA",4 to "Intel AMT"', '2 to "Intel AMT",4 to "Intel AMT CIRA"')
+          replace('AccountPreferences.kt', '2 to "Intel AMT CIRA",4 to "Intel AMT"', '2 to "Intel AMT",4 to "Intel AMT CIRA"')
+          tests = '''package iecxiv.meshfabric.ui.management
+
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+
+          @RunWith(AndroidJUnit4::class)
+          class WebNoticeProtocolTest {
+              @Test fun nestedServerInfoExposesLanguages() {
+                  val packet=JSONObject().put("action","serverinfo").put("serverinfo",JSONObject().put("languages",org.json.JSONArray().put("en").put("es")))
+                  assertEquals(listOf("en","es"),accountLanguageTags(accountServerInfo(packet).getJSONArray("languages")))
+              }
+              @Test fun allFiveOptionsRoundTrip() {
+                  for(mask in 0L..31L) assertEquals(mask,webNoticeFlags(webNoticeOptions(mask)))
+              }
+              @Test fun preservesOtherWebSettingsAndUnknownBits() {
+                  val original=JSONObject().put("notifications","256").put("theme","dark").put("desktopsettings","{}")
+                  val changed=mergeWebNoticeState(original,256L,webNoticeOptions(31L))!!
+                  assertEquals(287L,webNoticeMask(changed))
+                  assertEquals("dark",changed.getString("theme"))
+                  assertEquals("{}",changed.getString("desktopsettings"))
+                  assertEquals("256",original.getString("notifications"))
+                  assertNull(mergeWebNoticeState(original,0L,webNoticeOptions(0L)))
+              }
+              @Test fun acceptsStringAndObjectWebState() {
+                  val state=JSONObject().put("notifications","31")
+                  val event=JSONObject().put("action","userWebState").put("state",state.toString())
+                  assertEquals(31L,webNoticeMask(webNoticeState(event)!!))
+                  event.put("state",state)
+                  assertEquals(31L,webNoticeMask(webNoticeState(JSONObject().put("action","event").put("event",event))!!))
+                  state.put("notifications",false)
+                  assertNull(webNoticeState(event))
+              }
+              @Test fun changenodeUsesNestedConnectivityAndCanonicalId() {
+                  val packet=JSONObject().put("action","changenode").put("node",JSONObject().put("_id","node//abc").put("conn",5))
+                  assertEquals("abc" to 5,noticeConnectivity(packet))
+                  assertEquals(4 to 0,accountConnectionChange(1,5))
+                  assertEquals(0 to 4,accountConnectionChange(5,1))
+                  packet.getJSONObject("node").put("conn","bad")
+                  assertNull(noticeConnectivity(packet))
+              }
+              @Test fun amtIsNotBroadcastOrRelayLog() {
+                  assertEquals("amt",webNoticeKind(JSONObject().put("amtMessage",0)))
+                  assertEquals("general",webNoticeKind(JSONObject().put("tag","broadcast")))
+                  assertNull(noticeConnectivity(JSONObject().put("action","relaylog").put("protocol",101)))
+              }
+          }
+          '''
+          new = {base / 'WebNoticeProtocol.kt': helper, Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/WebNoticeProtocolTest.kt'): tests}
+          for path in new:
+              if path.exists():
+                  raise RuntimeError('New file already exists: ' + str(path))
+          for name, text in sources.items():
+              (base / name).write_text(text)
+          for path, text in new.items():
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile instrumentation tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Upload validation reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: account-web-notices-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated Kotlin changes
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/management/NativeAccount.kt app/src/main/java/iecxiv/meshfabric/ui/management/NoticeInbox.kt app/src/main/java/iecxiv/meshfabric/ui/management/AccountPreferences.kt app/src/main/java/iecxiv/meshfabric/ui/management/WebNoticeProtocol.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/WebNoticeProtocolTest.kt
+          git commit -m 'fix(profile): sync web notification settings and decode account languages and device notices'
+          git push origin HEAD:dev

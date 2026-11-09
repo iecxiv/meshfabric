@@ -1,0 +1,110 @@
+name: Validate and publish individual user group member removal
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-group-member-remove.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-group-member-remove-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed member removal
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'7648f1cd5904bb2560c8d391b915243991325cc1','UserGroupsDirectoryPane.kt':'70ad2180e8ee3418a58e95a5b20d2d06a72087ca'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileSession.kt','val deletedUserGroup:String=""','val deletedUserGroup:String="",val removedMember:String="",val removedMemberGroup:String=""')
+          change('ProfileSession.kt','(state.value.busy && (!verify || pendingAction!="editusergroup"))','(state.value.busy && (!verify || (pendingAction!="editusergroup" && !(pendingAction=="removeuserfromusergroup" && expected.optBoolean("memberAck")))))')
+          anchor='if(pendingAction=="editusergroup" && list?.singleOrNull {it.optString("_id")==pendingTarget}?.let {profileUserGroupEditObserved(it,expected)}==true) finish("userGroupObserved",false)'
+          change('ProfileSession.kt',anchor,anchor+'\nif(pendingAction=="removeuserfromusergroup" && profileUserGroupMemberReadValid(p) && list?.singleOrNull {it.optString("_id")==expected.optString("memberGroup")}?.let {profileUserGroupMemberRemovalObserved(it,pendingTarget,expected.optBoolean("memberAck"))}==true) {val member=pendingTarget;val memberGroup=expected.optString("memberGroup");state.update {it.copy(removedMember=member,removedMemberGroup=memberGroup)};finish("userGroupMemberObserved",false);loadLists();source.requestServerData()}')
+          anchor='if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup")) {if(!profileUserGroupEditRole(state.value.site)) {stop();return};if(pendingAction=="editusergroup") requestUserGroupDirectory(true)}'
+          change('ProfileSession.kt',anchor,'if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup")) {if(!profileUserGroupEditRole(state.value.site)) {stop();return};if(pendingAction=="editusergroup" || (pendingAction=="removeuserfromusergroup" && expected.optBoolean("memberAck"))) requestUserGroupDirectory(true)}')
+          anchor='val e=p.optJSONObject("event") ?: return'
+          change('ProfileSession.kt',anchor,anchor+'\nif(pendingAction=="removeuserfromusergroup" && expected.optBoolean("memberAck") && e.optString("action")=="usergroupchange" && e.optString("ugrpid")==expected.optString("memberGroup") && state.value.userGroupPhase!="loading") requestUserGroupDirectory(true)')
+          anchor='else if(ok && action=="deleteusergroup") {'
+          change('ProfileSession.kt',anchor,'else if(ok && action=="removeuserfromusergroup") {expected.put("memberAck",true);requestUserGroupDirectory(true)}\n'+anchor)
+          anchor='val allowed=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'\n"removeuserfromusergroup"->profileUserGroupMemberRemoveAllowed(s,p,broadcastServerLabel())')
+          anchor='val payload=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'"removeuserfromusergroup"->profileUserGroupMemberRemoveWire(p);')
+          change('ProfileSession.kt','if(action !in setOf("editusergroup","createusergroup","deleteusergroup"))','if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup"))')
+          anchor='expected=JSONObject()\nif(action=="edituser")'
+          change('ProfileSession.kt',anchor,'expected=JSONObject()\nif(action=="removeuserfromusergroup") expected.put("memberGroup",p.getString("ugrpid")).put("memberAck",false)\nif(action=="edituser")')
+          anchor='deletedUserGroup=if(action=="deleteusergroup") "" else it.deletedUserGroup)'
+          change('ProfileSession.kt',anchor,'deletedUserGroup=if(action=="deleteusergroup") "" else it.deletedUserGroup,removedMember=if(action=="removeuserfromusergroup") "" else it.removedMember,removedMemberGroup=if(action=="removeuserfromusergroup") "" else it.removedMemberGroup)')
+          anchor='var deleting by remember(s.id) {mutableStateOf<JSONObject?>(null)}\nLaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null}}'
+          change('UserGroupsDirectoryPane.kt',anchor,'var deleting by remember(s.id) {mutableStateOf<JSONObject?>(null)}\nvar removing by remember(s.id) {mutableStateOf<Pair<JSONObject,String>?>(null)}\nLaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null}}')
+          change('UserGroupsDirectoryPane.kt','onClick={editing=null;deleting=null;creating=true}','onClick={editing=null;deleting=null;removing=null;creating=true}')
+          anchor='OutlinedTextField(query,{query=it.take(256)}'
+          change('UserGroupsDirectoryPane.kt',anchor,'if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta del grupo. Usuario: ","Link absent in the group read. User: ")+s.removedMember+t("; grupo: ","; group: ")+s.removedMemberGroup,style=MaterialTheme.typography.bodySmall)\n'+anchor)
+          anchor='val ids=links.keys().asSequence().sorted().toList()'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\nval memberGroupUsable=remember(group) {runCatching {profileUserGroupDeleteSnapshot(group)}.isSuccess}\nvar linkQuery by remember(group.optString("_id")) {mutableStateOf("")}\nOutlinedTextField(linkQuery,{linkQuery=it.take(256)},label={Text(t("Buscar enlace recibido","Search received links"))},singleLine=true,modifier=Modifier.fillMaxWidth())\nval matchingIds=ids.filter {linkQuery.isBlank() || it.contains(linkQuery,true) || links.optJSONObject(it)?.optString("name")?.contains(linkQuery,true)==true}')
+          anchor='for(id in ids.take(100)) {'
+          change('UserGroupsDirectoryPane.kt',anchor,'for(id in matchingIds.take(100)) {\nif(profileUserGroupMemberId(s.id,id)) TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site) && memberGroupUsable && group.isNull("membershipType") && links.opt(id) is JSONObject,onClick={editing=null;creating=false;deleting=null;removing=JSONObject(group.toString()) to id;session.loadUserGroupDirectory()}) {Text(t("Retirar del grupo: ","Remove from group: ")+id)}')
+          change('UserGroupsDirectoryPane.kt','if(ids.size>100) Text(t("Se muestran los primeros 100 enlaces recibidos.","Showing the first 100 received links."),style=MaterialTheme.typography.bodySmall)','if(matchingIds.size>100) Text(t("Se muestran los primeros 100 enlaces coincidentes; busca para acotar.","Showing the first 100 matching links; search to narrow them down."),style=MaterialTheme.typography.bodySmall)')
+          anchor='deleting?.let {UserGroupDeleteDialog(session,s,it) {deleting=null}}'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\nremoving?.let {(group,id)->UserGroupMemberRemoveDialog(session,s,group,id) {removing=null}}')
+          hashes={'.github/patches/user-group-member-remove/UserGroupMemberRemovePolicy.kt.txt': '07a615ea072ead1786ac86ea2f99da7527572208f7075e7ebf34bc5eb1c1172e', '.github/patches/user-group-member-remove/UserGroupMemberRemoveDialog.kt.txt': '8b20c4f28c278175c72713cb0e4e8fce7457b49b71bc7690ae3cb3962cbc5f63', '.github/patches/user-group-member-remove/UserGroupMemberRemovePolicyTest.kt.txt': 'a6d78c0c738c43faef730587771a0413be2ba251e11607a27047d64ab3990b00', '.github/patches/user-group-member-remove/UserGroupMemberRemoveRequestTest.kt.txt': 'dbf96cc48396660c6a4bff06aba898fdf0255175599d7fc88c559bbc2f3c7b46'}
+          targets={'.github/patches/user-group-member-remove/UserGroupMemberRemovePolicy.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemovePolicy.kt', '.github/patches/user-group-member-remove/UserGroupMemberRemoveDialog.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemoveDialog.kt', '.github/patches/user-group-member-remove/UserGroupMemberRemovePolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemovePolicyTest.kt', '.github/patches/user-group-member-remove/UserGroupMemberRemoveRequestTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemoveRequestTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-group-member-remove-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated member removal
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemovePolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemoveDialog.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemovePolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupMemberRemoveRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(user-groups): remove individual members with ack and group readback'
+          git push origin HEAD:dev

@@ -30,7 +30,7 @@ internal fun TerminalPasteDialog(
 ) {
     var acknowledged by remember(text) { mutableStateOf(false) }
     val multiline = text != null && TerminalPastePolicy.multiline(text)
-    AlertDialog(
+    iecxiv.meshfabric.ui.components.AppAlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(stringResource(if (editing) R.string.terminal_paste_edit_title else R.string.terminal_paste_title)) },
         text = {

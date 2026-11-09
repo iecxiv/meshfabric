@@ -1,0 +1,179 @@
+name: Validate isolated direct user mesh grant transport
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-grant-transport.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-grant-transport-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Connect policy through isolated transport and add offline session regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          session=base/'ProfileSession.kt'
+          template=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshRevokeSessionTest.kt')
+          guards={str(session):'f2ec3296c4b04caf174c84a6b29c9d4358fa52c7',str(base/'UserMeshGrantPolicy.kt'):'f66fb6c36a54d479e2ea27d5de10775d14b6ade4',str(template):'1f4c2cf496cfe02be1d901d70bacc665773a0bcb'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+          def replace(text,old,new,count=1):
+              if text.count(old)!=count:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              return text.replace(old,new)
+          s=session.read_text()
+          s=replace(s,'val revokedDirectUser:String="",val revokedDirectMesh:String=""','val revokedDirectUser:String="",val revokedDirectMesh:String="",val grantedDirectUser:String="",val grantedDirectMesh:String=""')
+          if '!directMeshRevocation()' not in s:raise RuntimeError('Missing group exclusions')
+          s=s.replace('!directMeshRevocation()','!directMeshOperation()')
+          anchor='private fun directMeshRevocation()=profileUserMeshRevokeChannel(pendingAction,expected.optBoolean("directMesh"))'
+          s=replace(s,anchor,anchor+'\nprivate fun directMeshGrant()=profileUserMeshGrantChannel(pendingAction,expected.optBoolean("directGrant"))\nprivate fun directMeshOperation()=directMeshRevocation() || directMeshGrant()')
+          s=replace(s,'if(directMeshRevocation() && expected.optBoolean("directAck"))','if(directMeshOperation() && expected.optBoolean("directAck"))',2)
+          s=replace(s,'if(directMeshRevocation()) {if(!ProfilePermissions.manageUsers','if(directMeshOperation()) {if(!ProfilePermissions.manageUsers')
+          s=replace(s,'if(directMeshRevocation()) return','if(directMeshOperation()) return')
+          anchor='private fun observeGroupMeshRevocation() {'
+          observer='''private fun observeUserMeshGrant() {
+          if(!directMeshGrant()) return
+          val uid=expected.optString("directUser");val mid=expected.optString("directTarget");val rights=expected.optLong("directRights",-1)
+          val ack=expected.optBoolean("directAck");val ur=expected.optBoolean("directUserRead");val mr=expected.optBoolean("directMeshRead")
+          val snapshots=state.value.copy(users=listOfNotNull(expected.optJSONObject("grantUserRecord")),groups=listOfNotNull(expected.optJSONObject("grantMeshRecord")))
+          if(!profileUserMeshGrantReadbackReady(snapshots,uid,mid,rights,ack,ur,mr) || !profileUserMeshGrantReadbackReady(state.value,uid,mid,rights,ack,ur,mr)) return
+          state.update {it.copy(grantedDirectUser=uid,grantedDirectMesh=mid)}
+          finish("userMeshGrantedObserved",false);source.requestServerData()
+          }
+          '''
+          s=replace(s,anchor,observer+anchor)
+          anchor='state.update { if(list==null) it.copy(loading=reads.isNotEmpty(),readError=true,notice="readFailed")'
+          capture='''if(directMeshGrant() && expected.optBoolean("directAck")) {
+          val id=expected.optString(if(action=="users") "directUser" else "directTarget")
+          val record=list?.singleOrNull {it.optString("_id")==id}
+          expected.put(if(action=="users") "grantUserRecord" else "grantMeshRecord",record?.let {JSONObject(it.toString())})
+          }
+          '''
+          s=replace(s,anchor,capture+anchor)
+          s=replace(s,'if(directMeshRevocation()) observeUserMeshRevocation()','if(directMeshRevocation()) observeUserMeshRevocation()\nif(directMeshGrant()) observeUserMeshGrant()')
+          anchor='if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {\nif(directMeshRevocation()) {'
+          ack='''if(pendingId.isNotBlank() && p.optString("responseid")==pendingId && action==pendingAction) {
+          if(directMeshGrant()) {
+          if(profileUserMeshGrantAck(p,pendingId)) {expected.put("directAck",true).put("directUserRead",false).put("directMeshRead",false);loadLists()}
+          else if(profileGroupMeshGrantReplyRejected(p)) finish("rejected",false)
+          return
+          }
+          if(directMeshRevocation()) {'''
+          s=replace(s,anchor,ack)
+          anchor='@Synchronized fun submitUserMeshRevoke(p:JSONObject):Boolean {'
+          transport='''@Synchronized fun submitUserMeshGrant(p:JSONObject):Boolean {
+          val s=state.value
+          if(!valid() || !profileUserMeshGrantAllowed(s,p,broadcastServerLabel())) return false
+          val payload=profileUserMeshGrantWire(p)
+          val uid=p.getJSONArray("userids").getString(0)
+          pendingId=UUID.randomUUID().toString();pendingAction="addmeshuser";pendingTarget=uid;pendingNode=""
+          expected=JSONObject().put("directGrant",true).put("directUser",uid).put("directTarget",p.getString("meshid")).put("directRights",userAdvancedMask(p.get("meshadmin"))).put("directAck",false).put("directUserRead",false).put("directMeshRead",false)
+          payload.put("responseid",pendingId)
+          if(socket?.send(payload.toString())!=true) {stop("unknown");return false}
+          state.update {it.copy(busy=true,notice="sent",grantedDirectUser="",grantedDirectMesh="")}
+          val epoch=generation
+          timer?.cancel();timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingId.isNotBlank()) stop("unknown")}}
+          return true
+          }
+          '''
+          s=replace(s,anchor,transport+anchor)
+          test=template.with_name('UserMeshGrantSessionTest.kt')
+          if test.exists():raise RuntimeError('Grant session test already exists')
+          t=template.read_text()
+          for old,new in [('UserMeshRevokeSessionTest','UserMeshGrantSessionTest'),('submitUserMeshRevoke','submitUserMeshGrant'),('profileUserMeshRevokePacket','profileUserMeshGrantPacket'),('removemeshuser','addmeshuser'),('userMeshRevokedObserved','userMeshGrantedObserved'),('revokedDirectUser','grantedDirectUser'),('revokedDirectMesh','grantedDirectMesh'),('bothReadOrdersRequireAckAndBothAbsences','bothReadOrdersRequireAckAndExactRights'),('eitherRemainingLinkPreventsObservation','eitherMissingLinkPreventsObservation')]:t=t.replace(old,new)
+          t=replace(t,'users=listOf(user(true)),groups=listOf(mesh(true))','users=listOf(user(false)),groups=listOf(mesh(false))')
+          t=replace(t,'reply("users",oldTags.getValue("users"),true);reply("meshes",oldTags.getValue("meshes"),true)','reply("users",oldTags.getValue("users"),false);reply("meshes",oldTags.getValue("meshes"),false)')
+          t=replace(t,'linked:Boolean=false','linked:Boolean=true')
+          old='assertTrue(session.submitUserMeshGrant(profileUserMeshGrantPacket(actor,server,s.users.single(),s.groups.single(),true)))'
+          new='val packet=profileUserMeshGrantPacket(actor,server,s.users.single(),s.groups.single(),8,true)\n            assertFalse(session.submit(packet))\n            assertTrue(session.submitUserMeshGrant(packet))'
+          t=replace(t,old,new)
+          t=replace(t,'setOf("action","userid","meshid","responseid")','setOf("action","userids","meshid","meshadmin","responseid")')
+          t=replace(t,'result:String="ok"','result:String="Added user target"')
+          t=replace(t,'.put("result",result))','.put("result",result).put("success",1).put("failed",0))')
+          t=replace(t,'assertEquals("",session.state.value.grantedDirectUser)','assertEquals("",session.state.value.grantedDirectUser);assertEquals("",session.state.value.grantedGroup);assertTrue(wire.sent.none {it.optString("action")=="usergroups"})')
+          extra='''
+              @Test fun interleavedEventCannotReplaceCorrelatedUserSnapshot() {Harness().use {h->
+                  h.begin();h.ack();val tags=h.tags()
+                  h.reply("users",tags.getValue("users"),false)
+                  h.receive(JSONObject().put("action","event").put("event",JSONObject().put("action","accountchange").put("account",user(true))))
+                  h.reply("meshes",tags.getValue("meshes"),true)
+                  h.unobserved();assertTrue(h.session.state.value.busy)
+              }}
+              @Test fun identityRefreshStartsANewReadRoundWithoutGroupQueries() {Harness().use {h->
+                  h.begin();h.ack();val first=h.tags();h.reply("users",first.getValue("users"))
+                  h.receive(JSONObject().put("action","userinfo").put("userinfo",JSONObject().put("_id",actor).put("siteadmin",2)))
+                  val latest=h.tags();assertNotEquals(first,latest)
+                  h.reply("meshes",first.getValue("meshes"));h.reply("users",first.getValue("users"));h.unobserved()
+                  h.reply("meshes",latest.getValue("meshes"));h.unobserved()
+                  h.reply("users",latest.getValue("users"));assertEquals("userMeshGrantedObserved",h.session.state.value.notice)
+                  assertEquals("",h.session.state.value.grantedGroup);assertTrue(h.wire.sent.none {it.optString("action")=="usergroups"})
+              }}
+              @Test fun losingManageUsersStopsTheDirectChannelWithoutRetry() {Harness().use {h->
+                  h.begin();h.ack();val count=h.wire.sent.size
+                  h.receive(JSONObject().put("action","userinfo").put("userinfo",JSONObject().put("_id",actor).put("siteadmin",0)))
+                  assertEquals("unknown",h.session.state.value.notice);h.unobserved();assertEquals(count,h.wire.sent.size)
+              }}
+          '''
+          t=t.rstrip()
+          if not t.endswith('}'):raise RuntimeError('Unexpected test structure')
+          t=t[:-1]+extra+'}\n'
+          session.write_text(s);test.write_text(t)
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline direct grant and existing channel regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest,iecxiv.meshfabric.ui.management.UserMeshAssignmentReviewTest,iecxiv.meshfabric.ui.management.GroupMeshGrantRequestTest,iecxiv.meshfabric.ui.management.GroupMeshRevokeIntegrationTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-grant-transport-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated transport without grant UI if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshGrantSessionTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): connect isolated direct user mesh grant transport'
+          git push origin HEAD:dev

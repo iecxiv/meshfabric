@@ -1,0 +1,41 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 17606-17961 | part 6/6 (may continue a source line)
+
+' + name + '</span></div></div><td style=text-align:center>' + usercount + '<td style=text-align:center>' + meshcount + '<td style=text-align:center>' + devicecount;
+17926:             return x;
+17927:         }
+17928: 
+17929:         function p50updateInfo() {
+17930:             var elements = document.getElementsByClassName('UserGroupCheckbox'), checkcount = 0;
+17931:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) checkcount++; }
+17932:             QE('UsersGroupsGroupActionButton', checkcount > 0);
+17933:             Q('UsersGroupsSelectAllButton').value = (checkcount > 0)?"Select None":"Select All";
+17934:         }
+17935: 
+17936:         // Called to select all or unselect all users
+17937:         function p50usersSelectallButtonFunction() {
+17938:             var eself = encodeURIComponentEx(userinfo._id);
+17939:             var elements = document.getElementsByClassName('UserGroupCheckbox'), checkcount = 0;
+17940:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) checkcount++; }
+17941:             for (var i=0;i<elements.length;i++) { elements[i].checked = (checkcount == 0) && (elements[i].value != eself); }
+17942:             p50updateInfo();
+17943:         }
+17944: 
+17945:         // Called to perform a group action on many users
+17946:         function p50usersGroupActionFunction() {
+17947:             var elements = document.getElementsByClassName('UserGroupCheckbox'), checkcount = 0;
+17948:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) checkcount++; }
+17949:             if (checkcount == 0) return;
+17950: 
+17951:             var x = "Select an operation to perform on all selected users." + '<br /><br />';
+17952:             x += addHtmlValue("Operation", '<select style=width:240px id=d50groupop><option value=1>' + "Delete group" + '</option></select>');
+17953:             setDialogMode(2, "Group Action", 3, p50usersGroupActionFunctionEx, x);
+17954:         }
+17955: 
+17956:         function p50usersGroupActionFunctionEx() {
+17957:             var elements = document.getElementsByClassName('UserGroupCheckbox'), userids = [];
+17958:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) { userids.push(decodeURIComponent(elements[i].value)); } }
+17959:             var op = Q('d50groupop').value;
+17960:             if (op == 1) {
+17961:                 // Delete user groups, ask for confirmation

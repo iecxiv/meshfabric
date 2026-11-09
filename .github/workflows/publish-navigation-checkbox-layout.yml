@@ -1,0 +1,112 @@
+name: Validate and publish navigation and checkbox layout
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-navigation-checkbox-layout.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-navigation-checkbox-layout-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Reorder display and center checkbox labels
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'CompactBottomNavigation.kt':'7618414e53e813a88020d2165f5d4ca3b6bc6564','NativeAccount.kt':'c155edfe6fe152bda4d6d729e4372fd11c828b52','MeshFabricHome.kt':'da53546d6ddd2ee0f696a472a68e634a8362b1a6'}
+          sources={}
+          for name,sha in expected.items():
+              path=base/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:
+                  raise RuntimeError('Base changed: '+name)
+              sources[name]=path.read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:
+                  raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:100])
+              sources[name]=sources[name].replace(old,new,1)
+          if 'var page by rememberSaveable { mutableIntStateOf(0) }' not in sources['MeshFabricHome.kt']:
+              raise RuntimeError('Default page changed; review navigation policy')
+          if 'if(page==0)' not in sources['MeshFabricHome.kt'] or 'else if(page==4)' not in sources['MeshFabricHome.kt']:
+              raise RuntimeError('Page identifiers changed; review navigation policy')
+          change('CompactBottomNavigation.kt','@Composable internal fun CompactBottomNavigation(page:Int,onSelect:(Int)->Unit) {','internal val bottomNavigationPageOrder=listOf(1,4,0,2,3)\n\n@Composable internal fun CompactBottomNavigation(page:Int,onSelect:(Int)->Unit) {')
+          change('CompactBottomNavigation.kt','listOf(stringResource(R.string.my_server_devices),stringResource(R.string.my_server_activity),stringResource(R.string.navigation_server),if(es) "Perfil" else "Profile",if(es) "Avisos" else "Notices").forEachIndexed { index,label->','''val labels=listOf(if(es) "Equipos" else "Devices",stringResource(R.string.my_server_activity),stringResource(R.string.navigation_server),if(es) "Perfil" else "Profile",if(es) "Avisos" else "Notices")
+          bottomNavigationPageOrder.forEach { index->
+          val label=labels[index]''')
+          checkbox='Row { Checkbox('
+          count=sources['NativeAccount.kt'].count(checkbox)
+          if count!=8:
+              raise RuntimeError('Checkbox row count changed: '+str(count))
+          sources['NativeAccount.kt']=sources['NativeAccount.kt'].replace(checkbox,'Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(')
+          if checkbox in sources['NativeAccount.kt']:
+              raise RuntimeError('An unaligned account checkbox row remains')
+          test=Path('app/src/test/java/iecxiv/meshfabric/ui/management/BottomNavigationOrderTest.kt')
+          if test.exists():
+              raise RuntimeError('Navigation test already exists; review patch')
+          test_source='''package iecxiv.meshfabric.ui.management
+
+          import org.junit.Assert.*
+          import org.junit.Test
+
+          class BottomNavigationOrderTest {
+              @Test fun visualOrderUsesStablePageIds() {
+                  assertEquals(listOf(1,4,0,2,3),bottomNavigationPageOrder)
+              }
+              @Test fun equipmentKeepsItsExistingIdInTheMiddle() {
+                  assertEquals(0,bottomNavigationPageOrder[2])
+              }
+              @Test fun everyDestinationAppearsExactlyOnce() {
+                  assertEquals(listOf(0,1,2,3,4),bottomNavigationPageOrder.sorted())
+                  assertEquals(5,bottomNavigationPageOrder.distinct().size)
+              }
+          }
+          '''
+          for name in ['CompactBottomNavigation.kt','NativeAccount.kt']:
+              (base/name).write_text(sources[name])
+          test.parent.mkdir(parents=True,exist_ok=True)
+          test.write_text(test_source)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: navigation-checkbox-layout-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated layout changes
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/management/CompactBottomNavigation.kt app/src/main/java/iecxiv/meshfabric/ui/management/NativeAccount.kt app/src/test/java/iecxiv/meshfabric/ui/management/BottomNavigationOrderTest.kt
+          git commit -m 'fix(ui): reorder bottom navigation and align account checkbox labels'
+          git push origin HEAD:dev

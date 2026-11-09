@@ -1,0 +1,199 @@
+name: Validate and publish user detail presentation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-detail-presentation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: user-detail-presentation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded user presentation changes and offline regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          p=main/'UserAdministration.kt'
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='cd7216495b1b40e97c1999ff45164b734ce951db','User administration changed'
+          assert 'internal fun ProfileGroupActionButton(' in (main/'CompactProfileGroups.kt').read_text()
+          assert (main/'ProfileReceivedLinkPresentation.kt').exists()
+          regression=tests/'UserDetailPresentationTest.kt'
+          assert not regression.exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          original=p.read_text();s=original
+          s=replace(s,'import androidx.compose.material3.*','import androidx.compose.material3.*\nimport androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.*')
+          s=replace(s,'TextButton(enabled=allowed,onClick={ advanced=true }) { Text(t("Permisos, características y consentimiento","Permissions, features and consent")) }','ProfileGroupActionButton(t("Permisos, características y consentimiento","Permissions, features and consent"),Icons.Default.Security,allowed,onClick={ advanced=true })')
+          s=replace(s,'TextButton(onClick=session::loadDetails,enabled=!s.detailsBusy) { Text(t("Actualizar ficha","Refresh details")) }','ProfileGroupActionButton(t("Actualizar ficha","Refresh details"),Icons.Default.Refresh,!s.detailsBusy,onClick=session::loadDetails)')
+          s=replace(s,'TextButton(enabled=s.canWrite,onClick={ mode="device"; approved=false; session.loadDetails() }) { Text(t("Agregar dispositivo","Add device")) }','ProfileGroupActionButton(t("Agregar dispositivo","Add device"),Icons.Default.Computer,s.canWrite,onClick={ mode="device"; approved=false; session.loadDetails() })')
+          s=replace(s,'TextButton(enabled=s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" }) { Text(t("Cambiar contraseña","Change password")) }','ProfileGroupActionButton(t("Cambiar contraseña","Change password"),Icons.Default.Lock,s.canWrite && form.id!=s.id,onClick={ mode="password"; approved=false; password=""; repeated="" })')
+          s=replace(s,'TextButton(onClick={ mode="history"; if(!session.previousLogins(form.id)) feedback=t("No se pudo solicitar el historial.","Could not request history.") }) { Text(t("Inicios de sesión anteriores","Previous logins")) }','ProfileGroupActionButton(t("Inicios de sesión anteriores","Previous logins"),Icons.Default.History,true,onClick={ mode="history"; if(!session.previousLogins(form.id)) feedback=t("No se pudo solicitar el historial.","Could not request history.") })')
+          s=replace(s,'val received=profileReceivedUserGroup(s,gid)','val membershipPresentation=profileReceivedLinkPresentation(s,user,gid,es)')
+          s=replace(s,'Text(received?.optString("name").orEmpty().ifBlank {gid},style=MaterialTheme.typography.titleSmall)\nText(gid,style=MaterialTheme.typography.bodySmall)','Text(membershipPresentation.label,style=MaterialTheme.typography.titleSmall)')
+          s=replace(s,'if(onOpenUserGroup!=null && canOpenUserGroup(gid))','if(membershipPresentation.usable && onOpenUserGroup!=null && canOpenUserGroup(gid))')
+          s=replace(s,'t("Ficha no recibida o temporalmente no disponible.","Entry not received or temporarily unavailable.")','t("Ficha no recibida, ambigua o temporalmente no disponible.","Entry not received, ambiguous or temporarily unavailable.")')
+          old='for(node in common.take(100)) ManagementCard { ManagementInfoRow(node.optString("name"),node.optString("_id"));if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))} }'
+          new='for(node in common.take(100)) ManagementCard {\nval nodePresentation=profileReceivedLinkPresentation(s,user,node.optString("_id"),es)\nval groupLabel=if(node.optString("meshid").isNotBlank()) profileReceivedLinkPresentation(s,user,node.optString("meshid"),es).label else t("Grupo no disponible","Group unavailable")\nManagementInfoRow(nodePresentation.label,groupLabel)\nif(nodePresentation.usable && onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}\n}'
+          s=replace(s,old,new)
+          marker='},confirmButton={ if(mode!="history")'
+          assert s.split(marker,1)[1]==original.split(marker,1)[1],'Submission code must remain unchanged'
+          marker='internal fun userDomain('
+          end='@Composable internal fun UserAdministrationDialog('
+          assert s[s.index(marker):s.index(end)]==original[original.index(marker):original.index(end)],'Permission and access functions must remain unchanged'
+          p.write_text(s)
+          regression.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.CompositionLocalProvider
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class UserDetailPresentationTest {
+              @get:Rule val compose=createComposeRule()
+              private val uid="user//alice";private val gid="ugrp//team";private val missing="ugrp//missing";private val mid="mesh//office";private val nid="node//laptop"
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private inner class Fixture:AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val actor=JSONObject().put("_id","user//admin").put("siteadmin",2L).put("links",JSONObject().put(mid,JSONObject().put("rights",8)))
+                  val user=JSONObject().put("_id",uid).put("name","Alicia").put("email","alice@example.invalid").put("siteadmin",0).put("links",JSONObject().put(gid,JSONObject().put("rights",1)).put(missing,JSONObject().put("rights",1)).put(mid,JSONObject().put("rights",8)).put(nid,JSONObject().put("rights",8)))
+                  val team=JSONObject().put("_id",gid).put("name","Equipo").put("desc","Madrid").put("links",JSONObject().put(uid,JSONObject().put("rights",1)))
+                  val mesh=JSONObject().put("_id",mid).put("name","Oficina").put("desc","Madrid")
+                  val node=JSONObject().put("_id",nid).put("name","Portátil").put("desc","Personal").put("meshid",mid)
+                  val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=listOf(mesh),nodes=listOf(node),userGroups=listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
+                  init {
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              UserAdministrationDialog(session,state,ProfileForm(true,"edit",uid,"Alicia","alice@example.invalid"),onDismiss={})
+                          }}
+                      }
+                  }
+                  fun assertNoIds() {for(id in listOf(uid,gid,missing,mid,nid)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)}
+                  override fun close() {
+                      assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
+                      session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()
+                  }
+              }
+              @Test fun mainAndSecurityActionsHaveIconsWithoutChangingTheirText() {Fixture().use {f->
+                  compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(2)
+                  compose.onNodeWithText("Acciones y seguridad").performScrollTo().performClick()
+                  compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(5)
+                  for(label in listOf("Agregar dispositivo","Cambiar contraseña","Inicios de sesión anteriores")) compose.onNodeWithText(label).assertExists()
+                  f.assertNoIds()
+              }}
+              @Test fun membershipsUseNamesAndNeverFallBackToLongIds() {Fixture().use {f->
+                  compose.onNodeWithText("Grupos de usuarios recibidos").performScrollTo().performClick()
+                  compose.onNodeWithText("Grupo de usuarios: Equipo · Madrid").assertExists()
+                  compose.onNodeWithText("Grupo de usuarios: nombre no disponible").assertExists()
+                  f.assertNoIds()
+              }}
+              @Test fun commonDevicesUseNamesAndParentGroupContext() {Fixture().use {f->
+                  compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+                  compose.onNodeWithText("Dispositivo: Portátil · Personal").assertExists()
+                  compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").assertExists()
+                  f.assertNoIds()
+              }}
+              @Test fun passwordModeStillStatesThatMultifactorMethodsArePreserved() {Fixture().use {f->
+                  compose.onNodeWithText("Acciones y seguridad").performScrollTo().performClick()
+                  compose.onNodeWithText("Cambiar contraseña").performScrollTo().performClick()
+                  compose.onNodeWithText("Se conservan sus métodos de autenticación multifactor.",substring=true).assertExists()
+                  f.assertNoIds()
+              }}
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline user actions, membership, MFA and navigation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.DeviceGroupDetailPresentationTest,iecxiv.meshfabric.ui.management.ProfileUserMembershipGroupLinksTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReceivedUserGroupNavigationTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.ReadableReceivedLinksTest,iecxiv.meshfabric.ui.management.ReadableMemberAddDialogTest,iecxiv.meshfabric.ui.management.ProfilePolishPresentationTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - name: Show concrete Android test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for report in sorted(Path('app/build/outputs/androidTest-results').rglob('*.xml')):
+              try:
+                  root=ET.parse(report).getroot()
+              except ET.ParseError as error:
+                  print(str(report)+': '+str(error))
+                  continue
+              for case in root.iter('testcase'):
+                  failure=case.find('failure')
+                  if failure is None:
+                      failure=case.find('error')
+                  if failure is not None:
+                      print('\nFAILED: '+case.get('classname','')+'.'+case.get('name',''))
+                      print(failure.get('message','')[:2000])
+                      print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-detail-presentation-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated sources if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): icon-led user actions and readable membership details'
+          git push origin HEAD:dev

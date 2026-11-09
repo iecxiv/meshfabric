@@ -1,0 +1,42 @@
+[CONTEXT thread_id=48 ]
+5005: 11-09 07:19:24.108  1546  2373 I PeopleGalProvider: Gal directories started.
+5006: 11-09 07:19:24.109  3300  3482 D MddListenableWorkerFactory: createWorker for class: com.google.android.apps.messaging.shared.datamodel.workqueue.WorkQueueWorkerShim
+5007: 11-09 07:19:24.110  1546  2373 I PeopleGalProvider: Method 1 completed.
+5008: 11-09 07:19:24.110  1546  2373 I PeopleGalProvider: Method 1 finished successfully.
+5009: 11-09 07:19:24.141  1531  2968 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+5010: 11-09 07:19:24.144  1546  2373 I PeopleGalProvider: Gal directories started.
+5011: 11-09 07:19:24.152  3300  3691 I WM-WorkerWrapper: Worker result SUCCESS for Work [ id=59618058-475f-4746-a79f-c63644d9fb61, tags={ com.google.android.apps.messaging.shared.datamodel.workqueue.WorkQueueWorkerShim,data_upgrade- } ]
+5017: 11-09 07:19:24.200  1546  4124 I PeopleGalProvider: Method 1 finished successfully.
+5018: 11-09 07:19:24.207  1344  1803 I PhenotypeModule: PhenotypeModule.handlePhenotypeConfigurationUpdatesInternal():538 Latency of updating configurations from phenotype (experiment v4): 5
+5019: 11-09 07:19:24.207  1344  1803 I PhenotypeModule: PhenotypeModule.handlePhenotypeConfigurationUpdates():478 Latency of updating configurations from phenotype (ExperimentV4): 6
+5020: 11-09 07:19:24.208  1344  1803 I PhenotypeModule: PhenotypeModule.handleResult():319 fetchAndUpdate() : Success, hasFlags=true, fetchStatus=2026-11-09 07:19:23{reason=BROADCAST, isFullFetch=false, isEmpty=false, registeredFormFactor=phone, fetchedFormFactor=phone, success=true, failureMessage=null, isDelta=true, fetchedFlagsCount=1, deletedFlagsCount=0, totalTime=681}
+5021: 11-09 07:19:24.208  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.libraries.search.googleapp.user#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+5022: 11-09 07:19:24.235  1546  4124 I GalProviderController: setting component enabled=1 for com.google.android.gms.people.service.galprovider.PeopleGalProvider
+5023: 11-09 07:19:24.247  1546  3901 I PeopleGalProvider: Gal directories started.
+5024: 11-09 07:19:24.259  1546  3901 I PeopleGalProvider: Method 1 completed.
+5025: 11-09 07:19:24.259  1546  3901 I PeopleGalProvider: Method 1 finished successfully.
+5026: 11-09 07:19:24.267  1546  4124 I GalProviderController: Setting component enabled succeeds.
+5027: 11-09 07:19:24.328  1546  4124 I PeopleGalProvider: Gal directories started.
+5028: 11-09 07:19:24.329  3300  3307 I .apps.messaging: Background concurrent mark compact GC freed 8197KB AllocSpace bytes, 38(1652KB) LOS objects, 49% free, 12MB/24MB, paused 718us,9.654ms total 214.135ms
+5029: 11-09 07:19:24.329  1546  4124 I PeopleGalProvider: Method 1 completed.
+5030: 11-09 07:19:24.329  1546  4124 I PeopleGalProvider: Method 1 finished successfully.
+5031: 11-09 07:19:24.347   561   653 D ConnectivityService: requestNetwork for uid/pid:10144/1531 activeRequest: null callbackRequest: 133 [NetworkRequest [ REQUEST id=133, [ Transports: CELLULAR Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED Forbidden: LOCAL_NETWORK Uid: 10144 RequestorUid: 10144 RequestorPkg: com.google.android.googlequicksearchbox UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false
+5032: 11-09 07:19:24.354   364   364 I netd    : networkSetPermissionForNetwork(101, 0) <3.91ms>
+5033: 11-09 07:19:24.355   561   835 W IPCThreadState: Sending oneway calls to frozen process.
+5034: 11-09 07:19:24.357   561   835 D ConnectivityService: NetReassign [133 : null → 101] [c 0] [a 6] [i 1]
+5035: 11-09 07:19:24.357   561   835 D ConnectivityService: reportNetworkConnectivity(100, false) by 10144
+5039: 11-09 07:19:24.374  3300  3444 I BugleRcsProvisioning: RcsProvisioningTrigger: updateAvailabilityForAllSimsAsync : hint = CSLIB_PHENOTYPE_UPDATE logTriggerEvent = true
+5040: 11-09 07:19:24.375  3300  3444 I Bugle   : RcsAvailabilityUtilForProvisioningEngineV2: updateAvailabilityForAllSimsAsync, hint: CSLIB_PHENOTYPE_UPDATE
+5041: 11-09 07:19:24.378  3300  3498 W .apps.messaging: Long monitor contention with owner Blocking Thread #4 (3463) at java.lang.Object ddhi.f()(PG:538) waiters=0 in java.lang.Object ddhi.f() for 402ms
+5042: 11-09 07:19:24.378  3300  3498 W BugleAction: Failed to get msisdn from Bugle
+5043: 11-09 07:19:24.381  1021  4187 D TrafficStats: tagSocket(83) with statsTag=0xffffff81, statsUid=-1
+5044: 11-09 07:19:24.382  1021  4187 D TrafficStats: tagSocket(83) with statsTag=0xffffff81, statsUid=-1
+5045: 11-09 07:19:24.385  3300  3689 W .apps.messaging: Long monitor contention with owner Blocking Thread #4 (3463) at java.lang.Object ddhi.f()(PG:538) waiters=1 in java.lang.Object ddhi.f() for 371ms
+5046: 11-09 07:19:24.386  3300  3689 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=78 ]
+5047: 11-09 07:19:24.386  3300  3464 W .apps.messaging: Long monitor contention with owner Blocking Thread #4 (3463) at java.lang.Object ddhi.f()(PG:538) waiters=2 in java.lang.Object ddhi.f() for 373ms
+5048: 11-09 07:19:24.386  3300  3464 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=54 ]
+5049: 11-09 07:19:24.386   364  4188 I resolv  : ResNSendHandler::run: 0 / {100 983140 100 983140 1073 1}
+5050: 11-09 07:19:24.386   364  4188 I resolv  : resolv_cache_lookup: FOUND IN CACHE entry=0x7343b8229390
+5051: 11-09 07:19:24.386   364  4189 I resolv  : ResNSendHandler::run: 0 / {100 983140 100 983140 1073 1}
+5052: 11-09 07:19:24.386   364  4189 I resolv  : resolv
+[DIAGNOSTIC OUTPUT LIMIT REACHED]

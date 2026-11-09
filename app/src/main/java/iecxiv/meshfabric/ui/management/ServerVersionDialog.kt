@@ -165,7 +165,7 @@ private class ServerVersionChannel(private val source:MeshCentralClient) {
         "connection"->label("No se pudo consultar el servidor. No se envió ninguna actualización.","Could not query the server. No update was sent.")
         else->""
     }
-    AlertDialog(onDismissRequest=onClose,title={ Text(stringResource(R.string.my_server_version)) },text={
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onClose,title={ Text(stringResource(R.string.my_server_version)) },text={
         Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text(channel?.serverLabel ?: "—",style=MaterialTheme.typography.bodySmall)
             if(notice.isNotEmpty()) Text(notice,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("unknown","rejected","denied","session","https","invalid","changed","connection","timeout")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -192,7 +192,7 @@ private class ServerVersionChannel(private val source:MeshCentralClient) {
             if(!state.ready && !state.attempted && state.pending.isEmpty() && state.notice in setOf("connection","timeout","invalid")) TextButton(onClick={ retry++ }) { Text(label("Reconectar para consultar","Reconnect to check")) }
         }
     },confirmButton={ TextButton(onClick=onClose) { Text(stringResource(R.string.my_server_close)) } })
-    proposal?.let { exact->AlertDialog(onDismissRequest={ proposal=null },title={ Text(label("Confirmar actualización del servidor","Confirm server update")) },text={
+    proposal?.let { exact->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ proposal=null },title={ Text(label("Confirmar actualización del servidor","Confirm server update")) },text={
         Column(Modifier.heightIn(max=400.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(channel?.serverLabel ?: "—")
             Text(label("Actual: ","Current: ")+exact.base.current.orEmpty())

@@ -1,0 +1,222 @@
+name: Validate and publish direct user mesh revocation UI
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-revoke-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-revoke-ui-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded UI and offline Compose tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          guards={str(base/'UserAdministration.kt'):'6cde3be9b6a91b5e774873601c3bd8215ad818f4',str(base/'ProfileScreen.kt'):'3c2df4ff98eaa7656d2edd67763bfc034fbc0bc9',str(base/'ProfileSession.kt'):'f2ec3296c4b04caf174c84a6b29c9d4358fa52c7',str(base/'UserMeshRevokePolicy.kt'):'37b4c24379881d2e27b68014678701ff69286587'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+          if not Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshRevokeSessionTest.kt').is_file():raise RuntimeError('Session regressions missing')
+          def replace(text,old,new):
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              return text.replace(old,new,1)
+          path=base/'UserAdministration.kt';s=path.read_text()
+          s=replace(s,'var advanced by remember { mutableStateOf(false) }','var advanced by remember { mutableStateOf(false) }\nvar directMesh by remember {mutableStateOf<String?>(null)}')
+          s=replace(s,'if(contact && user!=null) { UserContactEditor','if(directMesh!=null) { key(form.id,directMesh) { UserMeshAssignmentReview(session,s,form.id,requireNotNull(directMesh)) {directMesh=null} } } else if(contact && user!=null) { UserContactEditor')
+          anchor='ProfileDisclosure(t("Grupos de dispositivos en común","Device groups in common")) {'
+          block='''ProfileDisclosure(t("Accesos directos a grupos de dispositivos","Direct device-group access")) {
+          Text(t("Solo enlaces directos recibidos. No representa todos los permisos efectivos ni los accesos heredados.","Received direct links only. This does not represent all effective rights or inherited access."),style=MaterialTheme.typography.bodySmall)
+          val directGroups=s.groups.filter {g->user.optJSONObject("links")?.has(g.optString("_id"))==true || g.optJSONObject("links")?.has(form.id)==true}
+          if(directGroups.isEmpty()) Text(t("No se han recibido enlaces directos con los grupos visibles.","No direct links received for visible groups."))
+          for(g in directGroups) ManagementCard {
+          Text(g.optString("name").ifBlank {g.optString("_id")},style=MaterialTheme.typography.titleSmall)
+          Text(g.optString("_id"),style=MaterialTheme.typography.bodySmall)
+          TextButton(enabled=contactReady && !s.detailsBusy,onClick={directMesh=g.optString("_id");session.refresh()}) {Text(t("Revisar acceso directo","Review direct access"))}
+          }
+          }
+          '''
+          path.write_text(replace(s,anchor,block+anchor))
+          path=base/'ProfileScreen.kt';s=path.read_text()
+          path.write_text(replace(s,'"ready"->""','"ready"->""\n"userMeshRevokedObserved"->t("Ambos enlaces directos observados ausentes. Usuario: ","Both direct links observed absent. User: ")+state.revokedDirectUser+t("; grupo de dispositivos: ","; device group: ")+state.revokedDirectMesh'))
+          dialog=base/'UserMeshAssignmentReview.kt'
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReviewTest.kt')
+          for path in (dialog,test):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          dialog.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.window.DialogProperties
+          import androidx.compose.ui.window.SecureFlagPolicy
+          import org.json.JSONObject
+          
+          @Composable internal fun UserMeshAssignmentReview(session:ProfileSession,s:ProfileState,uid:String,mid:String,onDismiss:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              fun t(a:String,b:String)=if(es) a else b
+              fun mask(v:Long?)=v?.let {java.lang.String.format(java.util.Locale.ROOT,"0x%08X",it)} ?: t("No informado","Not reported")
+              val server=session.broadcastServerLabel()
+              val actor=remember {s.id};val beforeServer=remember {server}
+              val currentUser=s.users.singleOrNull {it.optString("_id")==uid}
+              val currentMesh=s.groups.singleOrNull {it.optString("_id")==mid}
+              var frozenUser by remember {mutableStateOf<JSONObject?>(null)}
+              var frozenMesh by remember {mutableStateOf<JSONObject?>(null)}
+              var approved by remember {mutableStateOf(false)}
+              var submitted by remember {mutableStateOf(false)}
+              var error by remember {mutableStateOf(false)}
+              val review=frozenUser!=null && frozenMesh!=null
+              val user=frozenUser ?: currentUser;val mesh=frozenMesh ?: currentMesh
+              val packet=if(review) runCatching {profileUserMeshRevokePacket(actor,beforeServer,requireNotNull(frozenUser),requireNotNull(frozenMesh),approved)}.getOrNull() else null
+              val candidate=if(currentUser!=null && currentMesh!=null) profileUserMeshRevokePacket(actor,beforeServer,currentUser,currentMesh,true) else null
+              val canPrepare=!submitted && candidate!=null && profileUserMeshRevokeAllowed(s,candidate,server)
+              val reviewCurrent=packet!=null && profileUserMeshRevokeAllowed(s,JSONObject(packet.toString()).put("_directConfirmed",true),server)
+              val canSend=!submitted && packet!=null && profileUserMeshRevokeAllowed(s,packet,server)
+              val observed=submitted && s.notice=="userMeshRevokedObserved" && s.revokedDirectUser==uid && s.revokedDirectMesh==mid
+              ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar acceso directo","Review direct access"))},text={
+                  Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                      Text(beforeServer,style=MaterialTheme.typography.bodySmall)
+                      Text(t("Usuario: ","User: ")+user?.optString("name").orEmpty());Text(uid,style=MaterialTheme.typography.bodySmall)
+                      Text(t("Grupo de dispositivos: ","Device group: ")+mesh?.optString("name").orEmpty());Text(mid,style=MaterialTheme.typography.bodySmall)
+                      if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
+                      if(s.loading || s.detailsBusy || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+                      Text(t("Enlace recibido en el usuario: ","Link received in the user: ")+mask(profileGroupMeshReportedRights(user,mid)))
+                      Text(t("Enlace recibido en el grupo: ","Link received in the group: ")+mask(profileGroupMeshReportedRights(mesh,uid)))
+                      Text(t("Derechos directos del actor: ","Direct actor rights: ")+mask(profileGroupMeshReportedRights(mesh,actor)))
+                      Text(t("Retira esta asignación directa completa, incluidos los bits desconocidos. No borra el usuario ni el grupo y no retira accesos heredados u otras asignaciones. No demuestra pérdida de todos los accesos efectivos.","Removes this complete direct assignment, including unknown bits. Does not delete the user or group or remove inherited access or other assignments. Does not establish loss of all effective access."),style=MaterialTheme.typography.bodySmall)
+                      Text(t("Las lecturas y el envío no son atómicos. El servidor valida el estado existente al recibir la solicitud.","Reads and sending are not atomic. The server validates the state present when it receives the request."),style=MaterialTheme.typography.bodySmall)
+                      if(review && !submitted) Row {Checkbox(approved,{approved=it},enabled=reviewCurrent,modifier=Modifier.testTag("direct-revoke-consent"));Text(t("Confirmo retirar el acceso directo de este usuario a este grupo.","I confirm removing this user's direct access to this group."),Modifier.weight(1f))}
+                      if(observed) Text(t("Respuesta confirmada y ambos enlaces directos observados ausentes en consultas posteriores.","Response confirmed and both direct links observed absent in subsequent reads."),style=MaterialTheme.typography.titleSmall)
+                      else if(submitted) Text(when(s.notice) {"rejected"->t("El servidor rechazó la solicitud.","The server rejected the request.");"unknown"->t("Resultado sin confirmar. Comprueba el estado antes de repetir.","Outcome unconfirmed. Check state before repeating.");else->t("Solicitud enviada; resultado todavía sin verificar.","Request sent; outcome not verified yet.")})
+                      else if(error || (review && !reviewCurrent)) Text(t("Esta copia no permite enviar. Vuelve atrás y actualiza los datos y permisos.","This copy cannot be sent. Go back and refresh data and permissions."),color=MaterialTheme.colorScheme.error)
+                      Text(t("No hay reintentos automáticos. Cerrar no cancela una solicitud ya enviada.","No automatic retries. Closing does not cancel an already sent request."),style=MaterialTheme.typography.bodySmall)
+                  }
+              },confirmButton={if(!submitted) Button(modifier=Modifier.testTag(if(review) "direct-revoke-send" else "direct-revoke-prepare"),enabled=if(review) canSend else canPrepare,colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error,contentColor=MaterialTheme.colorScheme.onError),onClick={
+                  if(!review) {if(canPrepare && currentUser!=null && currentMesh!=null) {frozenUser=JSONObject(currentUser.toString());frozenMesh=JSONObject(currentMesh.toString());approved=false;error=false}}
+                  else if(packet!=null && session.submitUserMeshRevoke(packet)) {submitted=true;approved=false} else error=true
+              }) {Text(if(review) t("Retirar acceso directo","Remove direct access") else t("Preparar retirada","Prepare removal"))}},dismissButton={Row {
+                  if(review && !submitted) TextButton(onClick={frozenUser=null;frozenMesh=null;approved=false;error=false;session.refresh()}) {Text(t("Volver y actualizar","Back and refresh"))}
+                  TextButton(onClick=onDismiss) {Text(t("Cerrar","Close"))}
+              }})
+          }
+          ''')
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import org.json.JSONObject
+          import org.junit.Assert.assertNull
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          
+          @RunWith(AndroidJUnit4::class)
+          class UserMeshAssignmentReviewTest {
+              @get:Rule val compose=createComposeRule()
+              private val actor="user//admin";private val uid="user//target";private val mid="mesh//group"
+              private fun state(rights:Long=8)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("links",JSONObject().put(uid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))))
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private inner class Fixture:AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val current=mutableStateOf(state())
+                  init {
+                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-ui-test")
+                      @Suppress("UNCHECKED_CAST")
+                      val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>
+                      connected.value=true
+                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
+                      compose.setContent {MaterialTheme {UserMeshAssignmentReview(session,current.value,uid,mid) {}}}
+                  }
+                  override fun close() {assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session));session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()}
+              }
+              @Test fun preparingDoesNotConfirmOrSend() {Fixture().use {
+                  compose.onNodeWithTag("direct-revoke-send").assertDoesNotExist()
+                  compose.onNodeWithTag("direct-revoke-prepare").assertIsEnabled().performClick()
+                  compose.onNodeWithTag("direct-revoke-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("direct-revoke-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("direct-revoke-send").assertIsEnabled()
+              }}
+              @Test fun changedBilateralRightsInvalidateFrozenConfirmation() {Fixture().use {f->
+                  compose.onNodeWithTag("direct-revoke-prepare").performClick()
+                  compose.onNodeWithTag("direct-revoke-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("direct-revoke-send").assertIsEnabled()
+                  compose.runOnIdle {f.current.value=state(16)}
+                  compose.onNodeWithTag("direct-revoke-send").assertIsNotEnabled()
+              }}
+              @Test fun loadingReadFailureOrLostRoleBlocksPreparation() {Fixture().use {f->
+                  for(s in listOf(state().copy(loading=true),state().copy(readError=true),state().copy(busy=true),state().copy(detailsBusy=true),state().copy(user=JSONObject().put("_id",actor).put("siteadmin",0)))) {
+                      compose.runOnIdle {f.current.value=s}
+                      compose.onNodeWithTag("direct-revoke-prepare").assertIsNotEnabled()
+                  }
+              }}
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute UI, policy and session tests offline
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMeshAssignmentReviewTest,iecxiv.meshfabric.ui.management.UserMeshRevokeRequestTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-revoke-ui-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated direct revocation UI if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReview.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReviewTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add confirmed direct user device-group access removal'
+          git push origin HEAD:dev

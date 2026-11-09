@@ -1,0 +1,26 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: users | lines 6056-6076 | window 1 part 3 | not necessarily a complete handler
+
+6056:         'leevents': [serverUserCommandLeEvents, ""],
+6057:         'maintenance': [serverUserCommandMaintenance, ""],
+6058:         'migrationagents': [serverUserCommandMigrationAgents, ""],
+6059:         'mps': [serverUserCommandMps, ""],
+6060:         'mpsstats': [serverUserCommandMpsStats, ""],
+6061:         'nodeconfig': [serverUserCommandNodeConfig, ""],
+6062:         'print': [serverUserCommandPrint, ""],
+6063:         'relays': [serverUserCommandRelays, ""],
+6064:         'removeinactivedevices': [serverUserCommandRemoveInactiveDevices, ""],
+6065:         'resetserver': [serverUserCommandResetServer, "Causes the server to reset, this is sometimes useful is the config.json file was changed."],
+6066:         'serverupdate': [serverUserCommandServerUpdate, "Updates server to latest version. Optional version argument to install specific version. Example: serverupdate 0.8.49"],
+6067:         'setmaxtasks': [serverUserCommandSetMaxTasks, ""],
+6068:         'showpaths': [serverUserCommandShowPaths, ""],
+6069:         'sms': [serverUserCommandSMS, "Send a SMS message to a specified phone number"],
+6070:         'msg': [serverUserCommandMsg, "Send a user message to a user handle"],
+6071:         'swarmstats': [serverUserCommandSwarmStats, ""],
+6072:         'tasklimiter': [serverUserCommandTaskLimiter, "Returns the internal status of the tasklimiter. This is a system used to smooth out work done by the server. It's used by, for example, agent updates so that not all agents are updated at the same time."],
+6073:         'trafficdelta': [serverUserCommandTrafficDelta, ""],
+6074:         'trafficstats': [serverUserCommandTrafficStats, ""],
+6075:         'updatecheck': [serverUserCommandUpdateCheck, ""],
+6076:         'usersessions': [serverUserCommandUserSessions, "Returns a list of active sessions grouped by user."],

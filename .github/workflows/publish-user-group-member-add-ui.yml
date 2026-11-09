@@ -1,0 +1,109 @@
+name: Validate and publish reviewed individual member addition
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-group-member-add-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-group-member-add-ui-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed selector and transport
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'f29e99112346e38189fa8b6cc035c8e18af75f92','UserGroupsDirectoryPane.kt':'524640b98978505d815ca456251748ad5382f4a3','UserGroupMemberAddPolicy.kt':'be8b96aeee6c2dc03a22a9db6a33f6e5d6ed371d'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileSession.kt','val removedMemberGroup:String=""','val removedMemberGroup:String="",val addedMember:String="",val addedMemberGroup:String=""')
+          change('ProfileSession.kt','!(pendingAction=="removeuserfromusergroup" && expected.optBoolean("memberAck"))','!(pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck"))')
+          anchor='if(pendingAction=="removeuserfromusergroup" && profileUserGroupMemberReadValid(p)'
+          change('ProfileSession.kt',anchor,'if(pendingAction=="addusertousergroup" && profileUserGroupMemberReadValid(p) && list?.singleOrNull {it.optString("_id")==expected.optString("memberGroup")}?.let {profileUserGroupMemberAddObserved(it,pendingTarget,expected.optBoolean("memberAck"))}==true) {val member=pendingTarget;val memberGroup=expected.optString("memberGroup");state.update {it.copy(addedMember=member,addedMemberGroup=memberGroup)};finish("userGroupMemberAddedObserved",false);loadLists();source.requestServerData()}\n'+anchor)
+          change('ProfileSession.kt','if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup"))','if(pendingAction in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup"))')
+          change('ProfileSession.kt','if(pendingAction=="editusergroup" || (pendingAction=="removeuserfromusergroup" && expected.optBoolean("memberAck")))','if(pendingAction=="editusergroup" || (pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck")))')
+          anchor='if(!ProfilePermissions.manageUsers(state.value.site)) {'
+          change('ProfileSession.kt',anchor,'if(pendingAction=="addusertousergroup" && !ProfilePermissions.manageUsers(state.value.site)) {stop();return}\n'+anchor)
+          change('ProfileSession.kt','if(pendingAction=="removeuserfromusergroup" && expected.optBoolean("memberAck") && e.optString("action")=="usergroupchange"','if(pendingAction in setOf("removeuserfromusergroup","addusertousergroup") && expected.optBoolean("memberAck") && e.optString("action")=="usergroupchange"')
+          anchor='else if(ok && action=="removeuserfromusergroup")'
+          change('ProfileSession.kt',anchor,'else if(ok && action=="addusertousergroup") {if(profileUserGroupMemberAddAck(p)) {expected.put("memberAck",true);requestUserGroupDirectory(true)}}\n'+anchor)
+          anchor='val allowed=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'\n"addusertousergroup"->profileUserGroupMemberAddAllowed(s,p,broadcastServerLabel())')
+          anchor='val payload=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'"addusertousergroup"->profileUserGroupMemberAddWire(p);')
+          change('ProfileSession.kt','if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup"))','if(action !in setOf("editusergroup","createusergroup","deleteusergroup","removeuserfromusergroup","addusertousergroup"))')
+          change('ProfileSession.kt','pendingTarget=if(action=="adddeviceuser")','pendingTarget=if(action=="addusertousergroup") p.getString("_addUser") else if(action=="adddeviceuser")')
+          change('ProfileSession.kt','if(action=="removeuserfromusergroup") expected.put("memberGroup",p.getString("ugrpid")).put("memberAck",false)','if(action in setOf("removeuserfromusergroup","addusertousergroup")) expected.put("memberGroup",p.getString("ugrpid")).put("memberAck",false)')
+          anchor='removedMemberGroup=if(action=="removeuserfromusergroup") "" else it.removedMemberGroup)'
+          change('ProfileSession.kt',anchor,'removedMemberGroup=if(action=="removeuserfromusergroup") "" else it.removedMemberGroup,addedMember=if(action=="addusertousergroup") "" else it.addedMember,addedMemberGroup=if(action=="addusertousergroup") "" else it.addedMemberGroup)')
+          anchor='var removing by remember(s.id) {mutableStateOf<Pair<JSONObject,String>?>(null)}'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\nvar adding by remember(s.id) {mutableStateOf<JSONObject?>(null)}')
+          change('UserGroupsDirectoryPane.kt','editing=null;creating=false;deleting=null;removing=null}}','editing=null;creating=false;deleting=null;removing=null;adding=null}}')
+          anchor='OutlinedTextField(query,{query=it.take(256)}'
+          change('UserGroupsDirectoryPane.kt',anchor,'if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en el grupo. Usuario: ","Added link observed in the group. User: ")+s.addedMember+t("; grupo: ","; group: ")+s.addedMemberGroup,style=MaterialTheme.typography.bodySmall)\n'+anchor)
+          anchor='ProfileDisclosure(t("Miembros y accesos recibidos","Received members and access"))'
+          change('UserGroupsDirectoryPane.kt',anchor,'TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && ProfilePermissions.manageUsers(s.site) && profileUserGroupEditRole(s.site) && group.isNull("membershipType") && group.opt("links") is JSONObject,onClick={val copy=runCatching {JSONObject(group.toString()).also {profileUserGroupDeleteSnapshot(it)}}.getOrNull();if(copy!=null) {editing=null;creating=false;deleting=null;removing=null;adding=copy;session.refresh()}}) {Text(t("Incorporar usuario","Add user"))}\n'+anchor)
+          anchor='removing?.let {(group,id)->UserGroupMemberRemoveDialog(session,s,group,id) {removing=null}}'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\nadding?.let {UserGroupMemberAddDialog(session,s,it) {adding=null}}')
+          sources.pop('UserGroupMemberAddPolicy.kt')
+          hashes={'.github/patches/user-group-member-add-ui/UserGroupMemberAddDialog.kt.txt': '9b83443fcad964585495c7b49b778d25f75df2fdaec9de55fbebabb32b5532b2', '.github/patches/user-group-member-add-ui/UserGroupMemberAddIntegrationPolicyTest.kt.txt': '57c43e911cba76ed6feb5997ec85d9b1b87abd0b968cccb6490e3643534bb0a5'}
+          targets={'.github/patches/user-group-member-add-ui/UserGroupMemberAddDialog.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberAddDialog.kt', '.github/patches/user-group-member-add-ui/UserGroupMemberAddIntegrationPolicyTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupMemberAddIntegrationPolicyTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: member-add-ui-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated individual member addition
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberAddDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupMemberAddIntegrationPolicyTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(user-groups): add reviewed selector and verified individual member addition'
+          git push origin HEAD:dev

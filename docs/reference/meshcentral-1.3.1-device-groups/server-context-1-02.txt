@@ -1,0 +1,92 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 5898-6116 | part 2/4 (may continue a source line)
+
+{ etype: 'node', userid: user._id, username: user.name, action: 'addnode', node: parent.CloneSafeNode(amtDevices[i]), msgid: 84, msgArgs: [amtDevices[i].name, mesh.name], msg: 'Added device ' + amtDevices[i].name + ' to device group ' + mesh.name, domain: domain.id });
+5955:                 }
+5956:                 break;
+5957:             }
+5958:             default: {
+5959:                 // Unknown user action
+5960:                 console.log('Unknown action from user ' + user.name + ': ' + command.action + '.');
+5961:                 break;
+5962:             }
+5963:         }
+5964:     }
+5965: 
+5966:     const serverCommands = {
+5967:         'adddeviceuser': serverCommandAddDeviceUser,
+5968:         'addmeshuser': serverCommandAddMeshUser,
+5969:         'adduser': serverCommandAddUser,
+5970:         'adduserbatch': serverCommandAddUserBatch,
+5971:         'addusertousergroup': serverCommandAddUserToUserGroup,
+5972:         'agentdisconnect': serverCommandAgentDisconnect,
+5973:         'authcookie': serverCommandAuthCookie,
+5974:         'changeemail': serverCommandChangeEmail,
+5975:         'changelang': serverCommandChangeLang,
+5976:         'close': serverCommandClose,
+5977:         'confirmPhone': serverCommandConfirmPhone,
+5978:         'confirmMessaging': serverCommandConfirmMessaging,
+5979:         'emailuser': serverCommandEmailUser,
+5980:         'files': serverCommandFiles,
+5981:         'getClip': serverCommandGetClip,
+5982:         'getcookie': serverCommandGetCookie,
+5983:         'getnetworkinfo': serverCommandGetNetworkInfo,
+5984:         'getsysinfo': serverCommandGetSysInfo,
+5985:         'intersession': serverCommandInterSession,
+5986:         'interuser': serverCommandInterUser,
+5987:         'lastconnect': serverCommandLastConnect,
+5988:         'lastconnects': serverCommandLastConnects,
+5989:         'logincookie': serverCommandLoginCookie,
+5990:         'meshes': serverCommandMeshes,
+5991:         'ping': serverCommandPing,
+5992:         'pong': serverCommandPong,
+5993:         'powertimeline': serverCommandPowerTimeline,
+5994:         'print': serverCommandPrint,
+5995:         'removePhone': serverCommandRemovePhone,
+5996:         'removeMessaging': serverCommandRemoveMessaging,
+5997:         'removeuserfromusergroup': serverCommandRemoveUserFromUserGroup,
+5998:         'report': serverCommandReport,
+5999:         'serverclearerrorlog': serverCommandServerClearErrorLog,
+6000:         'serverconsole': serverCommandServerConsole,
+6001:         'servererrors': serverCommandServerErrors,
+6002:         'serverconfig': serverCommandServerConfig,
+6003:         'serverbackuppassword': serverCommandServerBackuppassword,
+6004:         'serverstats': serverCommandServerStats,
+6005:         'servertimelinestats': serverCommandServerTimelineStats,
+6006:         'serverupdate': serverCommandServerUpdate,
+6007:         'serverversion': serverCommandServerVersion,
+6008:         'setClip': serverCommandSetClip,
+6009:         'smsuser': serverCommandSmsUser,
+6010:         'msguser': serverCommandMsgUser,
+6011:         'trafficdelta': serverCommandTrafficDelta,
+6012:         'trafficstats': serverCommandTrafficStats,
+6013:         'updateAgents': serverCommandUpdateAgents,
+6014:         'updateUserImage': serverCommandUpdateUserImage,
+6015:         'urlargs': serverCommandUrlArgs,
+6016:         'users': serverCommandUsers,
+6017:         'verifyemail': serverCommandVerifyEmail,
+6018:         'verifyPhone': serverCommandVerifyPhone,
+6019:         'verifyMessaging': serverCommandVerifyMessaging
+6020:     };
+6021: 
+6022:     const serverUserCommands = {
+6023:         '2falock': [serverUserCommand2faLock, "Shows and changes the 2FA lock state"],
+6024:         'acceleratorsstats': [serverUserCommandAcceleratorsStats, "Show data on work being offloaded to other CPU's"],
+6025:         'agentissues': [serverUserCommandAgentIssues, ""],
+6026:         'agentstats': [serverUserCommandAgentStats, ""],
+6027:         'amtacm': [serverUserCommandAmtAcm, ""],
+6028:         'amtmanager': [serverUserCommandAmtManager, ""],
+6029:         'amtpasswords': [serverUserCommandAmtPasswords, ""],
+6030:         'amtstats': [serverUserCommandAmtStats, ""],
+6031:         'args': [serverUserCommandArgs, ""],
+6032:         'autobackup': [serverUserCommandAutoBackup, ""],
+6033:         'backupconfig': [serverUserCommandBackupConfig, ""],
+6034:         'badlogins': [serverUserCommandBadLogins, "Displays or resets the invalid login rate limiting table."],
+6035:         'bad2fa': [serverUserCommandBad2fa, "Displays or resets the invalid 2FA rate limiting table."],
+6036:         'certexpire': [serverUserCommandCertExpire, ""],
+6037:         'certhashes': [serverUserCommandCertHashes, ""],
+6038:         'closeusersessions': [serverUserCommandCloseUserSessions, "Disconnects all sessions for a specified user."],
+6039:         'cores': [serverUserCommandCores, ""],
+6040:         'dbcounters': [serverUserCommandDbCounters, ""],
+6041:      

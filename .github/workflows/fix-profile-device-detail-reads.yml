@@ -1,0 +1,240 @@
+name: Validate profile device detail visibility and warning cleanup
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-profile-device-detail-reads.yml]
+permissions:
+  contents: write
+concurrency:
+  group: profile-detail-read-fix-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded read fixes and regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 34e7a4b0e2d6871a7f719a509d774244a9bafac6
+          python3 - <<'PY'
+          from pathlib import Path
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          def change(s,a,b):
+              assert s.count(a)==1,'Missing or nonunique anchor: '+a[:100]
+              return s.replace(a,b,1)
+          p=main/'UserAdvancedEditor.kt';s=p.read_text()
+          s=change(s,'if(allowed && approved && packet!=null && session.submit(packet))','if(allowed && approved && session.submit(packet))');p.write_text(s)
+          p=main/'UserGroupMemberAddDialog.kt';s=p.read_text()
+          s=change(s,'else if(canReview && packet!=null && session.submit(packet))','else if(canReview && session.submit(packet))');p.write_text(s)
+          p=main/'ProfileSession.kt';original=p.read_text();s=original
+          s=change(s,'"nodes","usergroups","wssessioncount"->{\nif(action !in details) return\ndetails.remove(action)','"nodes","usergroups","wssessioncount"->{\nif(action !in details) return\nval detailReplyError=p.has("error") || p.has("err") || (p.has("result") && !p.optString("result").equals("ok",true))\ndetails.remove(action)')
+          s=change(s,'val raw=p.optJSONObject("nodes")','val raw=if(detailReplyError) null else p.optJSONObject("nodes")')
+          s=change(s,'"usergroups"->state.update { it.copy(userGroups=records(p.opt("ugroups"))) }','''"usergroups"->{
+          val groups=if(detailReplyError || !p.has("ugroups")) null else if(p.isNull("ugroups")) emptyList<JSONObject>() else records(p.opt("ugroups"))
+          state.update {it.copy(userGroups=groups)}
+          }''')
+          s=change(s,'else->{ val counts=p.optJSONObject("wssessions")?.takeIf','else->{ val counts=(if(detailReplyError) null else p.optJSONObject("wssessions"))?.takeIf')
+          assert s[:s.index('private fun receive(p:JSONObject)')]==original[:original.index('private fun receive(p:JSONObject)')]
+          p.write_text(s)
+          p=main/'UserAdministration.kt';original=p.read_text();s=original
+          a='if(s.nodes==null || s.userGroups==null) Text(missing) else {'
+          b='''if(s.nodes==null) Text(if(s.detailsBusy) t("Consultando dispositivos...","Loading devices...") else missing) else {
+          if(s.userGroups==null) Text(t("Datos de grupos de usuarios no disponibles: se muestran solo accesos conocidos; los heredados pueden estar incompletos.","User-group data unavailable: only known access is shown; inherited access may be incomplete."),style=MaterialTheme.typography.bodySmall)'''
+          s=change(s,a,b)
+          assert s.replace(b,a,1)==original
+          p.write_text(s)
+          p=tests/'UserDetailPresentationTest.kt';s=p.read_text()
+          s=change(s,'val duplicateDeviceId:Boolean=false):AutoCloseable','val duplicateDeviceId:Boolean=false,val groupDataMissing:Boolean=false,val nodesLoading:Boolean=false,val selfAccount:Boolean=false):AutoCloseable')
+          s=change(s,'JSONObject().put("_id","user//admin").put("siteadmin",2L)','JSONObject().put("_id",if(selfAccount) uid else "user//admin").put("siteadmin",2L)')
+          s=change(s,'.put("siteadmin",0).put("links",JSONObject().put(gid,','.put("siteadmin",if(selfAccount) 2 else 0).put("links",JSONObject().put(gid,')
+          s=change(s,'nodes=if(duplicateDeviceId)','nodes=if(nodesLoading) null else if(duplicateDeviceId)')
+          s=change(s,'userGroups=listOf(team),listedUserGroups=','detailsBusy=nodesLoading,userGroups=if(groupDataMissing) null else listOf(team),listedUserGroups=')
+          marker='    @Test fun passwordModeStillStatesThatMultifactorMethodsArePreserved()'
+          extra='''    @Test fun ownAccountKeepsKnownDevicesWhenUserGroupsAreUnavailable() {Fixture(deviceCanOpen=true,groupDataMissing=true,selfAccount=true).use {f->
+                  compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+                  compose.onNodeWithText("Dispositivo: Portátil · Personal").assertExists()
+                  compose.onNodeWithText("Datos de grupos de usuarios no disponibles:",substring=true).assertExists()
+                  compose.onNodeWithText("Abrir ficha").performScrollTo().assertIsEnabled().performClick()
+                  assertEquals(nid,f.openedDevice);f.assertNoIds()
+              }}
+              @Test fun missingGroupDataDoesNotBypassDeviceNavigationAvailability() {Fixture(groupDataMissing=true,selfAccount=true).use {f->
+                  compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+                  compose.onNodeWithText("Dispositivo: Portátil · Personal").assertExists()
+                  compose.onNodeWithText("Abrir ficha").assertIsNotEnabled()
+                  assertNull(f.openedDevice);f.assertNoIds()
+              }}
+              @Test fun ownAccountDistinguishesLoadingDevicesFromAnEmptyList() {Fixture(nodesLoading=true,groupDataMissing=true,selfAccount=true).use {f->
+                  compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+                  compose.onNodeWithText("Consultando dispositivos...").assertExists()
+                  compose.onAllNodesWithText("No se observan dispositivos en común",substring=true).assertCountEquals(0)
+                  f.assertNoIds()
+              }}
+          '''
+          s=change(s,marker,extra+marker);p.write_text(s)
+          p=tests/'ProfileDetailReadsRegressionTest.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import okhttp3.WebSocket
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.lang.reflect.Proxy
+          @RunWith(AndroidJUnit4::class) class ProfileDetailReadsRegressionTest {
+              private val mid="mesh//office";private val nid="node//laptop"
+              private fun field(o:Any,n:String)=o.javaClass.getDeclaredField(n).apply {isAccessible=true}
+              private inner class Fixture:AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val requests=mutableListOf<JSONObject>()
+                  init {
+                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-detail-read-test")
+                      @Suppress("UNCHECKED_CAST") val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>;connected.value=true
+                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
+                      session.state.value=ProfileState(ready=true,user=JSONObject().put("_id","user//admin").put("siteadmin",2L))
+                      val socket=Proxy.newProxyInstance(WebSocket::class.java.classLoader,arrayOf(WebSocket::class.java)) {_,method,args->when(method.name) {
+                          "send"->{val text=args?.firstOrNull() as? String;if(text==null) false else {requests.add(JSONObject(text));true}}
+                          "close"->true
+                          "queueSize"->0L
+                          "toString"->"OfflineDetailReadSocket"
+                          else->null
+                      }} as WebSocket
+                      field(session,"socket").set(session,socket)
+                  }
+                  fun receive(p:JSONObject) {session.javaClass.getDeclaredMethod("receive",JSONObject::class.java).apply {isAccessible=true}.invoke(session,p)}
+                  fun nodes()=JSONObject().put("action","nodes").put("nodes",JSONObject().put(mid,JSONArray().put(JSONObject().put("_id",nid).put("name","Portátil"))))
+                  fun counts()=JSONObject().put("action","wssessioncount").put("wssessions",JSONObject())
+                  fun groups()=JSONObject().put("action","usergroups").put("ugroups",JSONObject.NULL)
+                  override fun close() {assertNull(field(client,"webSocket").get(client));session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()}
+              }
+              @Test fun explicitEmptyGroupsRemainAvailableInEveryReplyOrderAndAfterRefresh() {
+                  val orders=listOf(listOf(0,1,2),listOf(0,2,1),listOf(1,0,2),listOf(1,2,0),listOf(2,0,1),listOf(2,1,0))
+                  for(order in orders) Fixture().use {f->
+                      repeat(2) {
+                          f.session.loadDetails();assertTrue(f.session.state.value.detailsBusy)
+                          assertNull(f.session.state.value.nodes);assertNull(f.session.state.value.userGroups)
+                          val replies=listOf(f.nodes(),f.groups(),f.counts())
+                          order.forEach {f.receive(replies[it])}
+                          val s=f.session.state.value
+                          assertFalse(s.detailsBusy);assertNotNull(s.userGroups);assertTrue(requireNotNull(s.userGroups).isEmpty())
+                          assertEquals(nid,requireNotNull(s.nodes).single().getString("_id"));assertEquals(mid,requireNotNull(s.nodes).single().getString("meshid"))
+                      }
+                  }
+              }
+              @Test fun missingMalformedAndRejectedGroupReadsStayUnknownNotEmpty() {
+                  val bad=listOf(JSONObject().put("action","usergroups"),JSONObject().put("action","usergroups").put("ugroups","bad"),JSONObject().put("action","usergroups").put("ugroups",JSONObject.NULL).put("result","denied"),JSONObject().put("action","usergroups").put("ugroups",JSONObject.NULL).put("error","denied"))
+                  for(reply in bad) Fixture().use {f->
+                      f.session.loadDetails();f.receive(f.nodes());f.receive(f.counts());f.receive(reply)
+                      assertNull(f.session.state.value.userGroups);assertNotNull(f.session.state.value.nodes);assertFalse(f.session.state.value.detailsBusy)
+                  }
+              }
+              @Test fun taggedDirectoryReadCannotConsumeTheUserDetailReply() {Fixture().use {f->
+                  f.session.loadDetails();f.session.loadUserGroupDirectory()
+                  val request=f.requests.single {it.optString("tag").startsWith("profile-user-groups:")}
+                  f.receive(f.groups().put("tag",request.getString("tag")))
+                  assertEquals("ready",f.session.state.value.userGroupPhase)
+                  assertTrue(requireNotNull(f.session.state.value.listedUserGroups).isEmpty())
+                  assertNull(f.session.state.value.userGroups);assertTrue(f.session.state.value.detailsBusy)
+                  f.receive(f.nodes());f.receive(f.counts());f.receive(f.groups())
+                  assertNotNull(f.session.state.value.userGroups);assertFalse(f.session.state.value.detailsBusy)
+              }}
+              @Test fun rejectedNodeReadDoesNotPublishItsPayload() {Fixture().use {f->
+                  f.session.loadDetails();f.receive(f.nodes().put("result","denied"));f.receive(f.groups());f.receive(f.counts())
+                  assertNull(f.session.state.value.nodes);assertFalse(f.session.state.value.detailsBusy)
+              }}
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint without the two warnings
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation-build.log
+          python3 - <<'PY'
+          from pathlib import Path
+          lines=Path('validation-build.log').read_text().splitlines()
+          bad=[line for line in lines if any(name in line for name in ('UserAdvancedEditor.kt','UserGroupMemberAddDialog.kt')) and 'Condition is always' in line]
+          assert not bad,'Target warnings remain: '+str(bad)
+          PY
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute detail-read and profile regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ProfileDetailReadsRegressionTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.UserMessageDialogTest,iecxiv.meshfabric.ui.management.UserMfaResetDialogTest,iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show concrete test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for directory in [Path('app/build/outputs/androidTest-results'),Path('app/build/test-results')]:
+              for report in sorted(directory.rglob('*.xml')):
+                  try:
+                      root=ET.parse(report).getroot()
+                  except ET.ParseError:
+                      continue
+                  for case in root.iter('testcase'):
+                      for kind in ('failure','error'):
+                          failure=case.find(kind)
+                          if failure is not None:
+                              print(case.get('classname','')+'.'+case.get('name',''))
+                              print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-detail-read-validation-${{ github.run_id }}
+          path: |
+            validation-build.log
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdvancedEditor.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberAddDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileDetailReadsRegressionTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          tests='app/src/androidTest/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'ProfileSession.kt',main+'UserAdministration.kt',main+'UserAdvancedEditor.kt',main+'UserGroupMemberAddDialog.kt',tests+'UserDetailPresentationTest.kt',tests+'ProfileDetailReadsRegressionTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): distinguish empty detail reads and preserve known devices'
+          git push origin HEAD:dev

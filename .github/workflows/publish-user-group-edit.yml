@@ -1,0 +1,107 @@
+name: Validate and publish user group name and description editor
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-group-edit.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-group-edit-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed user group editor
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileSession.kt':'2f9fb23489aa2109d804fa35d5975672682992bb','UserGroupsDirectoryPane.kt':'13a65dbc24ef2eace3e6dfa3e64742344ce5b18c'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('UserGroupsDirectoryPane.kt','import androidx.compose.ui.unit.dp','import androidx.compose.ui.unit.dp\nimport org.json.JSONObject')
+          change('UserGroupsDirectoryPane.kt','var query by rememberSaveable(s.id) { mutableStateOf("") }','var query by rememberSaveable(s.id) { mutableStateOf("") }\nvar editing by remember(s.id) { mutableStateOf<JSONObject?>(null) }\nLaunchedEffect(s.ready) {if(!s.ready) editing=null}')
+          anchor='if(s.userGroupPhase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())'
+          change('UserGroupsDirectoryPane.kt',anchor,anchor+'\nif(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)')
+          anchor='ProfileDisclosure(t("Miembros y accesos recibidos","Received members and access"))'
+          change('UserGroupsDirectoryPane.kt',anchor,'TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site) && runCatching {profileUserGroupBefore(group)}.isSuccess,onClick={editing=JSONObject(group.toString())}) {Text(t("Editar","Edit"))}\n'+anchor)
+          name='UserGroupsDirectoryPane.kt'
+          if not sources[name].endswith('    }\n}\n'):raise RuntimeError('Unexpected pane ending')
+          sources[name]=sources[name][:-2]+'editing?.let {UserGroupEditDialog(session,s,it) {editing=null}}\n}\n'
+          change('ProfileSession.kt','@Synchronized fun loadUserGroupDirectory() {\nif(!state.value.ready || !valid() || state.value.busy) return','@Synchronized fun loadUserGroupDirectory() {requestUserGroupDirectory()}\nprivate fun requestUserGroupDirectory(verify:Boolean=false) {\nif(!state.value.ready || !valid() || (state.value.busy && (!verify || pendingAction!="editusergroup"))) return')
+          anchor='state.update {it.copy(listedUserGroups=list,userGroupPhase=if(list==null) "failed" else "ready")}\nreturn'
+          change('ProfileSession.kt',anchor,'state.update {it.copy(listedUserGroups=list,userGroupPhase=if(list==null) "failed" else "ready")}\nif(pendingAction=="editusergroup" && list?.singleOrNull {it.optString("_id")==pendingTarget}?.let {profileUserGroupEditObserved(it,expected)}==true) finish("userGroupObserved",false)\nreturn')
+          anchor='if(first) { timer?.cancel(); loadLists() }'
+          change('ProfileSession.kt',anchor,anchor+'\nif(pendingAction=="editusergroup") {if(!profileUserGroupEditRole(state.value.site)) {stop();return};requestUserGroupDirectory(true)}')
+          anchor='val e=p.optJSONObject("event") ?: return'
+          change('ProfileSession.kt',anchor,anchor+'\nif(pendingAction=="editusergroup" && e.optString("action")=="usergroupchange" && e.optString("ugrpid")==pendingTarget && state.value.userGroupPhase!="loading") requestUserGroupDirectory(true)')
+          anchor='val id=p.optString("id").ifBlank { p.optString("userid").ifBlank { p.optString("meshid") } }'
+          change('ProfileSession.kt',anchor,'val id=p.optString("id").ifBlank { p.optString("userid").ifBlank { p.optString("meshid").ifBlank {p.optString("ugrpid")} } }')
+          anchor='val allowed=when(action) {'
+          change('ProfileSession.kt',anchor,anchor+'\n"editusergroup"->profileUserGroupEditAllowed(s,p)')
+          anchor='val payload=JSONObject().put("action",action)\nkeys.filter(p::has).forEach { payload.put(it,p.get(it)) }'
+          change('ProfileSession.kt',anchor,'val payload=if(action=="editusergroup") profileUserGroupEditWire(p) else JSONObject().put("action",action)\nif(action!="editusergroup") keys.filter(p::has).forEach { payload.put(it,p.get(it)) }')
+          anchor='if(action=="adddeviceuser") expected.put("rights",p.getLong("rights"))'
+          change('ProfileSession.kt',anchor,anchor+'\nif(action=="editusergroup") listOf("name","desc").filter(payload::has).forEach {expected.put(it,payload.getString(it))}')
+          anchor='else if(ok && action=="userbroadcast") finish("broadcastAccepted",false)'
+          change('ProfileSession.kt',anchor,'else if(ok && action=="editusergroup") requestUserGroupDirectory(true)\n'+anchor)
+          anchor='if(epoch==generation && pendingId.isNotBlank()) stop("unknown") } }\nreturn true'
+          change('ProfileSession.kt',anchor,'if(epoch==generation && pendingId.isNotBlank()) stop("unknown") } }\nif(action=="editusergroup") requestUserGroupDirectory(true)\nreturn true')
+          hashes={'.github/patches/user-group-edit/UserGroupEditPolicy.kt.txt': 'e8ab2a5afb207710fbb55c0df142e338e060cf50e584a99993da0536b2fc2629', '.github/patches/user-group-edit/UserGroupEditDialog.kt.txt': 'd2cbc4613979d206849d0aa7458d7204a0dec7a23240890eabc0b03859c3b5d6', '.github/patches/user-group-edit/UserGroupEditPolicyTest.kt.txt': 'bddf3c8a98e8afd749a8728ccab913eee07141ec2a58566824bec293c5899b44', '.github/patches/user-group-edit/UserGroupEditRequestTest.kt.txt': '6f73eac22466deba92a8f8f581654fd6bffebda01c6388c11ce9aabe566d637d'}
+          targets={'.github/patches/user-group-edit/UserGroupEditPolicy.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupEditPolicy.kt', '.github/patches/user-group-edit/UserGroupEditDialog.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupEditDialog.kt', '.github/patches/user-group-edit/UserGroupEditPolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupEditPolicyTest.kt', '.github/patches/user-group-edit/UserGroupEditRequestTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupEditRequestTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-group-edit-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated user group editor
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupEditPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupEditDialog.kt app/src/test/java/iecxiv/meshfabric/ui/management/UserGroupEditPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserGroupEditRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(user-groups): edit name and description with readback verification'
+          git push origin HEAD:dev

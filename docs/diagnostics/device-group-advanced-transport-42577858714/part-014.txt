@@ -1,0 +1,35 @@
+095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.DisableAnimationsPreferenceController
+1522: 11-09 07:19:13.816  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.LargePointerIconPreferenceController
+1523: 11-09 07:19:13.817  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.display.AutoBrightnessDetailPreferenceController
+1524: 11-09 07:19:13.818  1095  3236 W BaseSearchIndex: Error initializing controller in fragment: com.android.settings.network.NetworkDashboardFragment$1@b8014c2, e: java.lang.IllegalArgumentException: Lifecycle must be set
+1525: 11-09 07:19:13.818  1934  1934 W JobInfo : Job 'com.google.android.partnersetup/.PhenotypeJobService#2' has a deadline with no functional constraints. The deadline won't improve job execution latency. Consider removing the deadline.
+1526: 11-09 07:19:13.819   561   578 W JobInfo : Job 'com.google.android.partnersetup/.PhenotypeJobService#2' has a deadline with no functional constraints. The deadline won't improve job execution latency. Consider removing the deadline.
+1527: 11-09 07:19:13.820  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.network.NetworkProviderCallsSmsController
+1528: 11-09 07:19:13.820  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.network.AirplaneModePreferenceController
+1529: 11-09 07:19:13.821  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.nfc.NfcForegroundPreferenceController
+1530: 11-09 07:19:13.823  4008  4008 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+1531: 11-09 07:19:13.826  1095  3599 V SettingsSearchProvider: com.android.settings.nfc.PaymentSettings$1@b5cb454 tried to add an empty non-indexable key
+1532: 11-09 07:19:13.826  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.DoubleTapPowerPreferenceController
+1533: 11-09 07:19:13.828  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.network.TetherPreferenceController
+1534: 11-09 07:19:13.828  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.network.AdaptiveConnectivityPreferenceController
+1535: 11-09 07:19:13.828  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.network.CellularSecurityPreferenceController
+1536: 11-09 07:19:13.829  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.LongPressPowerIllustrationPreferenceController
+1537: 11-09 07:19:13.829  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.LongPressPowerForPowerMenuPreferenceController
+1538: 11-09 07:19:13.829  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.LongPressPowerForAssistantPreferenceController
+1539: 11-09 07:19:13.829  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.LongPressPowerSensitivityPreferenceController
+2171: 11-09 07:19:14.312  1344  1344 I PhenotypeModule: PhenotypeModule.receiveBroadcast():563 onReceive() urgent = false
+2172: 11-09 07:19:14.316  1344  1344 I PhenotypeModule: PhenotypeModule.maybeFetchAndUpdate():222 maybeFetchAndUpdate: start new task to fetch
+2173: 11-09 07:19:14.316  1344  1805 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.consentverifier#com.google.android.inputmethod.latin
+2174: 11-09 07:19:14.322  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.onetimeinitializer
+2175: 11-09 07:19:14.322  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.notification.RemoteVolumeGroupController
+2176: 11-09 07:19:14.323  1344  1344 I PhenotypeModule: PhenotypeModule.receiveBroadcast():563 onReceive() urgent = false
+2177: 11-09 07:19:14.323  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.notification.RemoteVolumeGroupController
+2178: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.sound.MediaOutputPreferenceController
+2179: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.notification.CallVolumePreferenceController
+2180: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.sound.HandsFreeProfileOutputPreferenceController
+2181: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.notification.zen.ZenModePreferenceController
+2182: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.notification.SpatialAudioParentPreferenceController
+2183: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.sound.MediaControlsParentPreferenceController
+2184: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.VibrationPreferenceController
+2185: 11-09 07:19:14.325  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.PreventRingingParentPreferenceController
+2186: 11-09 07:19:1

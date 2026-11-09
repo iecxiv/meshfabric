@@ -22,7 +22,7 @@ import iecxiv.meshfabric.ui.components.NumberedTextEditor
 
 @Composable internal fun FabricDialog(title:String,onDismiss:()->Unit,confirm:String,enabled:Boolean=true,
     onConfirm:()->Unit,cancel:String?=stringResource(R.string.cancel),dangerous:Boolean=false,content:@Composable ()->Unit) {
-    AlertDialog(onDismissRequest=onDismiss,title={ Text(title,fontWeight=FontWeight.Bold,fontSize=18.sp) },
+    ManagementDialog(onDismissRequest=onDismiss,title={ Text(title,fontWeight=FontWeight.Bold,fontSize=18.sp) },
         text={ Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) { content() } },
         confirmButton={
             if(dangerous) Button(onClick=onConfirm,enabled=enabled,colors=ButtonDefaults.buttonColors(
@@ -37,7 +37,7 @@ import iecxiv.meshfabric.ui.components.NumberedTextEditor
     val busy=notes.phase==NotesPhase.LOADING || notes.phase==NotesPhase.SAVING
     val close:()->Unit={ if(notes.phase!=NotesPhase.SAVING) { if(notes.dirty) discard=true else onClose() } }
     Dialog(onDismissRequest=close,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surface,tonalElevation=6.dp,
+        iecxiv.meshfabric.ui.components.AppDialogSurface(shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
             modifier=Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.85f).padding(vertical=8.dp)) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {

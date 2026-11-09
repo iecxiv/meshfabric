@@ -1,0 +1,46 @@
+android.os.Looper.loopOnce(Looper.java:232)
+880: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at android.os.Looper.loop(Looper.java:317)
+881: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at android.os.HandlerThread.run(HandlerThread.java:85)
+882: 11-09 07:19:12.920  1445  1586 E StorageManager: Failed to set extended attributes for /storage/emulated/0/Android/media to set project id.: Operation not permitted
+883: 11-09 07:19:12.920  1445  1586 W MediaProvider: Failed to update quota type for /storage/emulated/0/Android/media
+884: 11-09 07:19:12.920  1445  1586 W MediaProvider: java.io.IOException: Failed to update quota type for /storage/emulated/0/Android/media
+885: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at android.os.storage.StorageManager.updateExternalStorageFileQuotaType(StorageManager.java:2598)
+886: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider.updateQuotaTypeForFileInternal(MediaProvider.java:976)
+887: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider.updateQuotaTypeForUri(MediaProvider.java:951)
+888: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider$5.lambda$onInsert$0(MediaProvider.java:1010)
+889: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider$5.$r8$lambda$4KU7YPdO1inr9tOLVzprJ5YcfCE(MediaProvider.java:0)
+890: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider$5$$ExternalSyntheticLambda2.run(R8$$SyntheticClass:0)
+891: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at android.os.Handler.handleCallback(Handler.java:959)
+892: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at android.os.Handler.dispatchMessage(Handler.java:100)
+893: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at android.os.Looper.loopOnce(Looper.java:232)
+894: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at android.os.Looper.loop(Looper.java:317)
+895: 11-09 07:19:12.920  1445  1586 W MediaProvider: 	at android.os.HandlerThread.run(HandlerThread.java:85)
+896: 11-09 07:19:12.927  1253  3756 I NetworkScheduler.Stats: Task com.google.android.gms/com.google.android.gms.ipa.base.IpaGcmTaskService started execution. cause:9 exec_start_elapsed_seconds: 98 [CONTEXT service_id=218 ]
+897: 11-09 07:19:12.945  1531  3051 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+898: 11-09 07:19:12.947  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+899: 11-09 07:19:12.951  1531  1531 W JobInfo : Job 'com.google.android.googlequicksearchbox/com.google.android.apps.gsa.tasks.BackgroundTasksJobService#-43' has a deadline with no functional constraints. The deadline won't improve job execution latency. Consider removing the deadline.
+946: 11-09 07:19:13.160  1546  3895 I Icing   : Usage reports ok 0, Failed Usage reports 0, indexed 0, rejected 0
+947: 11-09 07:19:13.163  1546  3895 I Icing   : Usage reports ok 0, Failed Usage reports 0, indexed 0, rejected 0
+948: 11-09 07:19:13.168  3300  3464 I BugleRcsProvisioning: BugleSystemBindingManager: onBuglePhenotypeFlagChanged
+949: 11-09 07:19:13.171  3300  3482 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=63 ]
+950: 11-09 07:19:13.176  3300  3430 I BugleRcsEngine: SystemBinding enabled: true [CONTEXT log_prefix="SystemBindingManager" thread_id=42 ]
+951: 11-09 07:19:13.177  3300  3430 I BugleRcsEngine: System Binding updated [CONTEXT thread_id=42 ]
+952: 11-09 07:19:13.180  3300  3452 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=49 ]
+953: 11-09 07:19:13.184  1531  2968 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.surveys#com.google.android.googlequicksearchbox
+954: 11-09 07:19:13.187  3328  4005 D CompatChangeReporter: Compat change id reported: 312399441; UID 10166; state: ENABLED
+955: 11-09 07:19:13.197  3300  3453 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.mdi.sync#com.google.android.apps.messaging
+956: 11-09 07:19:13.205  3300  3467 I Bugle   : BroadcastReceiverAsyncWorkTracker: Acknowledging broadcast of com.google.android.apps.messaging.shared.experiments.receiver.BuglePhenotypeBroadcastReceiver@c8b9039
+957: 11-09 07:19:13.212  3300  3464 I BugleTransport: onBuglePhenotypeFlagChanged: kicking off updateActiveTransport
+958: 11-09 07:19:13.218  3300  3482 W BugleAction: Failed to get msisdn from Bugle
+959: 11-09 07:19:13.222  3300  3482 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+960: 11-09 07:19:13.222  3300  3482 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+961: 11-09 07:19:13.223  3300  3463 I BugleTransport: isChatAvailable: RcsAvailability is DISABLED_VIA_GSERVICES (RCS is disabled for this carrier by Google)
+962: 11-09 07:19:13.239  3300  3482 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+963: 11-09 07:19:13.259  3300  3482 I Bugle   : getRawTelephonyPhoneNumber redacted-pii[0-chars] [CONTEXT sub_id=-1 ]
+964: 11-09 07:19:13.272  3300  3464 D MddListenableWorkerFactory: createWorker for class: com.google.android.apps.messaging.shared.datamodel.workqueue.WorkQueueWorkerShim
+965: 11-09 07:19:13.275  3300  3482 W BugleAction: No default number, returning empty msisdn
+966: 11-09 07:19:13.277  3300  3482 I BugleRcsEngine: isRcsAvailableForSubId called with an invalid sub id: -2 [CONTEXT log_prefix="RcsProvisioningManager" thread_id=63 ]
+967: 11-09 07:19:13.278  1531  2379 W SearchServiceCore: Abort, client detached.
+968: 11-09 07:19:13.284   364   364 I netd    : tetherGetStats() -> {[]} <0.25ms>
+969: 11-09 07:19:13.284  3300  3689 I BugleTransport: updateActiveTransport: refreshing chat transport
+970: 11-09 07:19:13.287  3300  3498 I WM-WorkerWrapper: Worker result SUC

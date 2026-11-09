@@ -1,0 +1,75 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 9/17 (may continue a source line)
+
+ights; QE('dp20username', false); }
+15870:             } else if (userid === 5) {
+15871:                 setDialogMode(2, selected?"Edit User Device Permissions":"Add User Device Permissions", selected?7:3, p20showAddMeshUserDialogEx, x, userid);
+15872:                 if (selected != null) {
+15873:                     selected = decodeURIComponent(selected);
+15874:                     if ((users != null) && (users[selected] != null)) { Q('dp20username').value = users[selected].name; } else { Q('dp20username').value = selected.split('/')[2]; }
+15875:                     urights = currentNode.links[selected].rights;
+15876:                     QE('dp20username', false);
+15877:                 }
+15878:                 Q('dp20username').focus();
+15879:             } else if (userid === 6) {
+15880:                 setDialogMode(2, selected?"Edit User Group Device Permissions":"Add User Group Device Permissions", selected?7:3, p20showAddMeshUserDialogEx, x, userid);
+15881:                 if (selected != null) { urights = currentNode.links[decodeURIComponent(selected)].rights; }
+15882:             } else {
+15883:                 if (userid.startsWith('ugrp/')) {
+15884:                     setDialogMode(2, "Edit Device Group Permissions", 7, p20showAddMeshUserDialogEx, x, userid);
+15885:                 } else {
+15886:                     setDialogMode(2, "Edit User Device Group Permissions", 7, p20showAddMeshUserDialogEx, x, userid);
+15887:                 }
+15888:                 var cmeshrights = GetMeshRights(currentMesh), urights = GetMeshRights(currentMesh, userid);
+15889:                 if (urights == 0xFFFFFFFF) { Q('p20fulladmin').checked = true; urights = -1; }
+15890:                 QE('p20fulladmin', GetMeshRights(currentMesh) == 0xFFFFFFFF);
+15891:             }
+15892: 
+15893:             if (urights != -1) {
+15894:                 if (meshRightsActive) {
+15895:                     if (urights & 1) { Q('p20editmesh').checked = true; }
+15896:                     if (urights & 2) { Q('p20manageusers').checked = true; }
+15897:                     if (urights & 4) { Q('p20managecomputers').checked = true; }
+15898:                 }
+15899:                 if (urights & 8) {
+15900:                     Q('p20remotecontrol').checked = true;
+15901:                     if (urights & 65536) { Q('p20nodesktop').checked = true; }
+15902:                     if (urights & 256) { Q('p20remoteview').checked = true; }
+15903:                     if ((urights & 524288) && (serverinfo.guestdevicesharing !== false)) { Q('p20guestshare').checked = true; }
+15904:                     if (urights & 512) { Q('p20noterminal').checked = true; }
+15905:                     if (urights & 1024) { Q('p20nofiles').checked = true; }
+15906:                     if (urights & 4194304) { Q('p20noregistry').checked = true; }
+15907:                     if (urights & 8388608) { Q('p20nosoftware').checked = true; }
+15908:                     if (urights & 2048) { Q('p20noamt').checked = true; }
+15909:                     if (urights & 4096) { Q('p20remotelimitedinput').checked = true; }
+15910:                 }
+15911:                 if (urights & 16) { Q('p20meshagentconsole').checked = true; }
+15912:                 if (urights & 32) { Q('p20meshserverfiles').checked = true; }
+15913:                 if (urights & 64) { Q('p20wakedevices').checked = true; }
+15914:                 if (urights & 128) { Q('p20editnotes').checked = true; }
+15915:                 if (urights & 8192) { Q('p20limitevents').checked = true; }
+15916:                 if (urights & 16384) { Q('p20chatnotify').checked = true; }
+15917:                 if (urights & 32768) { Q('p20uninstall').checked = true; }
+15918:                 if (urights & 131072) { Q('p20commands').checked = true; }
+15919:                 if (urights & 262144) { Q('p20resetoff').checked = true; }
+15920:                 if ((urights & 524288) && (serverinfo.guestdevicesharing !== false)) { Q('p20guestshare').checked = true; }
+15921:                 if (urights & 1048576) { Q('p20details').checked = true; }
+15922:                 if (urights & 2097152) { Q('p20relay').checked = true; }
+15923:             }
+15924: 
+15925:             p20validateAddMeshUserDialog(userid);
+15926:             return false;
+15927:         }
+15928: 
+15929:         function p20changeMeshAddMeshUserDialog(userid) {
+15930:             var y = '', meshid = decodeURIComponent(Q('dp2meshid').value);
+15931:             for (var i in nodes) { if (nodes[i].meshid == meshid) { y += '<option value=' + encodeURIComponentEx(nodes[i]._id) + '>' + EscapeHtml(nodes[i].name) + '</option>'; } }
+15932:             QH('dp2nodeid', y);
+15933:             p20validateAddMeshUserDialog(userid);
+15934:         }
+15935: 
+15936:         function p20setname(name) {
+15937:             name = decodeURIComponent(name);
+15938:             var xusers = Q('dp20username').value.split(',');
+15939:             for (var i in xusers) { xusers[i] = xusers[i].trim

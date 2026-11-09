@@ -1,0 +1,201 @@
+name: Validate Profile polish and shared actions heading
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-polish-and-action-heading.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-polish-and-action-heading-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded presentation changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          testroot=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          names=('CompactProfileGroups.kt','ProfileScreen.kt','UserAdministration.kt','UserMeshGrantDialog.kt','GroupMeshGrantDialog.kt','UserGroupsDirectoryPane.kt')
+          paths=[root/n for n in names]+[testroot/'UserGroupsActionsCardTest.kt']
+          helper=root/'ProfileGroupChoicePresentation.kt'
+          test=testroot/'ProfilePolishPresentationTest.kt'
+          assert not helper.exists() and not test.exists()
+          for p in paths+[root/'ServerGeneralPresentation.kt']:
+              before=subprocess.check_output(['git','rev-parse','1413d5a1a5ec054889e2b8c37b5594dd5da9c0b4:'+str(p)],text=True).strip()
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==before,'Source changed: '+str(p)
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:120]
+              return s.replace(old,new,1)
+          p=root/'UserGroupsDirectoryPane.kt';s=p.read_text()
+          s=replace(s,'ManagementCard(Modifier.testTag("user-groups-server-actions")) {\nText(t("Acciones del servidor","Server actions"),style=MaterialTheme.typography.titleSmall)','ServerGeneralActions {\nColumn(Modifier.testTag("user-groups-server-actions")) {')
+          s=replace(s,'}) {Text(t("Crear grupo de usuarios","Create user group"))}\n}','}) {Text(t("Crear grupo de usuarios","Create user group"))}\n}\n}')
+          p.write_text(s)
+          p=testroot/'UserGroupsActionsCardTest.kt';s=p.read_text()
+          old='compose.onNode(hasText("Acciones del servidor") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertExists()'
+          new='''val heading=androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.getString(iecxiv.meshfabric.R.string.my_server_actions)
+                      compose.onNodeWithText(heading).assertExists()
+                      compose.onNode(hasText(heading) and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertDoesNotExist()
+                      val headingBounds=compose.onNodeWithText(heading).fetchSemanticsNode().boundsInRoot
+                      val actionsBounds=compose.onNodeWithTag("user-groups-server-actions").fetchSemanticsNode().boundsInRoot
+                      org.junit.Assert.assertTrue("Heading must precede action controls",headingBounds.bottom<=actionsBounds.top)'''
+          s=replace(s,old,new);p.write_text(s)
+          p=root/'CompactProfileGroups.kt';s=p.read_text()
+          anchor='@Composable internal fun ProfileDisclosure(title:String,summary:String="",content:@Composable ()->Unit) {'
+          extra='''internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.vector.ImageVector=when {
+              title.contains("identificador",true) || title.contains("identifier",true)->Icons.Default.Fingerprint
+              title.contains("acceso",true) || title.contains("access",true) || title.contains("permiso",true) || title.contains("rights",true)->Icons.Default.Security
+              title.contains("dispositivo",true) || title.contains("device",true)->Icons.Default.Devices
+              title.contains("grupo",true) || title.contains("group",true)->Icons.Default.Group
+              title.contains("seguridad",true) || title.contains("security",true)->Icons.Default.Lock
+              title.contains("consent",true)->Icons.Default.VerifiedUser
+              title.contains("avanzado",true) || title.contains("advanced",true)->Icons.Default.Tune
+              title.contains("información",true) || title.contains("information",true)->Icons.Default.Info
+              else->Icons.Default.Settings
+          }
+          '''
+          s=replace(s,anchor,extra+anchor)
+          s=replace(s,'            Column(Modifier.weight(1f),horizontalAlignment=Alignment.Start) {','            Icon(profileDisclosureIcon(title),null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.primary)\n            Spacer(Modifier.width(10.dp))\n            Column(Modifier.weight(1f),horizontalAlignment=Alignment.Start) {')
+          s=replace(s,'                Text(title,style=MaterialTheme.typography.titleSmall)','                Text(title,style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)')
+          p.write_text(s)
+          p=root/'ProfileScreen.kt';s=p.read_text()
+          s=replace(s,'import androidx.compose.material3.*','import androidx.compose.material3.*\nimport androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Devices\nimport androidx.compose.ui.text.style.TextOverflow')
+          s=replace(s,'ManagementCard {\nText(name,style=MaterialTheme.typography.titleSmall)\nif(users)','ManagementCard {\nif(users) Text(name,style=MaterialTheme.typography.titleSmall) else Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {Icon(Icons.Default.Devices,null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.primary);Text(name,Modifier.weight(1f),style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)}\nif(users)')
+          s=replace(s,'if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium)','if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium,maxLines=3,overflow=TextOverflow.Ellipsis)')
+          p.write_text(s)
+          p=root/'UserAdministration.kt';s=p.read_text()
+          s=replace(s,'Text(g.optString("_id"),style=MaterialTheme.typography.bodySmall)\nTextButton(enabled=contactReady','TextButton(enabled=contactReady')
+          s=replace(s,'Text(g.optString("name").ifBlank {g.optString("_id")},style=MaterialTheme.typography.titleSmall)','Text(g.optString("name").ifBlank {t("Grupo sin nombre","Unnamed group")},style=MaterialTheme.typography.titleSmall)')
+          p.write_text(s)
+          helper.write_text('''package iecxiv.meshfabric.ui.management
+          import org.json.JSONObject
+          import java.util.Locale
+          private fun groupChoiceKey(mesh:JSONObject)=mesh.optString("name").trim().lowercase(Locale.ROOT)
+          internal fun profileGroupChoiceLabel(mesh:JSONObject,all:List<JSONObject>,es:Boolean):String {
+              val name=mesh.optString("name").trim()
+              if(name.isBlank()) return if(es) "Grupo sin nombre" else "Unnamed group"
+              val duplicates=all.count {groupChoiceKey(it)==groupChoiceKey(mesh)}>1
+              val desc=mesh.optString("desc").trim()
+              return if(duplicates && desc.isNotBlank()) name+" · "+desc else name
+          }
+          internal fun profileGroupChoiceUsable(mesh:JSONObject?,all:List<JSONObject>):Boolean {
+              if(mesh==null || mesh.optString("name").isBlank()) return false
+              val peers=all.filter {groupChoiceKey(it)==groupChoiceKey(mesh)}
+              if(peers.size<=1) return true
+              val desc=mesh.optString("desc").trim()
+              return desc.isNotBlank() && peers.count {it.optString("desc").trim().equals(desc,true)}==1
+          }
+          ''')
+          for filename in ('UserMeshGrantDialog.kt','GroupMeshGrantDialog.kt'):
+              p=root/filename;s=p.read_text()
+              s=replace(s,'var selected by remember {mutableStateOf("")}','var selected by remember {mutableStateOf("")}\n    var selectedLabel by remember {mutableStateOf("")}')
+              s=replace(s,'val draft=if(bound && rights!=null)','val draft=if(bound && rights!=null && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups))')
+              s=replace(s,'val current=bound && review!=null','val current=bound && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups) && review!=null')
+              s=replace(s,'onClick={selected=mid;error=false}','enabled=profileGroupChoiceUsable(mesh,s.groups),onClick={selected=mid;selectedLabel=profileGroupChoiceLabel(mesh,s.groups,es);error=false}')
+              s=replace(s,'Text((if(selected==mid) "[x] " else "[ ] ")+mesh.optString("name").ifBlank {mid}+" — "+mid)','Text((if(selected==mid) "● " else "○ ")+profileGroupChoiceLabel(mesh,s.groups,es))')
+              s=replace(s,'if(selected.isNotBlank()) Text(t("Grupo de dispositivos: ","Device group: ")+selected)','if(selected.isNotBlank()) Text(t("Grupo de dispositivos: ","Device group: ")+selectedLabel)')
+              s=replace(s,'else bound && packet!=null &&','else current && packet!=null &&')
+              anchor='                if(candidates.isEmpty())'
+              s=replace(s,anchor,'                if(candidates.any {!profileGroupChoiceUsable(it,s.groups)}) Text(t("Hay grupos sin nombre o sin datos suficientes para distinguirlos. Actualiza o asigna un nombre o descripción inequívocos antes de seleccionarlos.","Some groups have no name or cannot be distinguished with the received data. Refresh or give them an unambiguous name or description before selecting them."),style=MaterialTheme.typography.bodySmall)\n'+anchor)
+              p.write_text(s)
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Text
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class) class ProfilePolishPresentationTest {
+              @get:Rule val compose=createComposeRule()
+              private fun group(id:String,name:String,desc:String="")=JSONObject().put("_id",id).put("name",name).put("desc",desc)
+              @Test fun namesReplaceIdsAndDescriptionsDisambiguateOnlyWhenUnique() {
+                  val a=group("mesh//a","Oficina","Madrid");val b=group("mesh//b","Oficina","Barcelona")
+                  val all=listOf(a,b)
+                  assertEquals("Oficina · Madrid",profileGroupChoiceLabel(a,all,true))
+                  assertTrue(profileGroupChoiceUsable(a,all));assertTrue(profileGroupChoiceUsable(b,all))
+                  assertEquals("Oficina",profileGroupChoiceLabel(a,listOf(a),true))
+                  assertFalse(profileGroupChoiceLabel(a,all,true).contains("mesh//"))
+                  assertFalse(profileGroupChoiceUsable(a,listOf(a,group("mesh//c","Oficina","Madrid"))))
+                  assertFalse(profileGroupChoiceUsable(group("mesh//empty",""),emptyList()))
+                  assertFalse(profileGroupChoiceUsable(null,all))
+                  assertFalse(profileGroupChoiceUsable(group("mesh//x","Oficina"),listOf(a,group("mesh//x","Oficina"))))
+              }
+              @Test fun disclosureStillExpandsAndCollapsesWithItsTextTarget() {
+                  compose.setContent {MaterialTheme {Column {ProfileDisclosure("Información adicional") {Text("Detalle visible")}}}}
+                  compose.onNodeWithText("Detalle visible").assertDoesNotExist()
+                  compose.onNodeWithText("Información adicional").performClick()
+                  compose.onNodeWithText("Detalle visible").assertExists()
+                  compose.onNodeWithText("Información adicional").performClick()
+                  compose.onNodeWithText("Detalle visible").assertDoesNotExist()
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline UI, name and operation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ProfilePolishPresentationTest,iecxiv.meshfabric.ui.management.UserGroupsActionsCardTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserMeshGrantDialogTest,iecxiv.meshfabric.ui.management.UserMeshEditDialogTest,iecxiv.meshfabric.ui.management.GroupMeshEditDialogTest,iecxiv.meshfabric.ui.management.GroupMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedUiTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.ReceivedUserGroupNavigationTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-polish-heading-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only after validation and if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          import subprocess
+          root='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          testroot='app/src/androidTest/java/iecxiv/meshfabric/ui/management/'
+          expected={root+n for n in ('CompactProfileGroups.kt','ProfileScreen.kt','UserAdministration.kt','UserMeshGrantDialog.kt','GroupMeshGrantDialog.kt','UserGroupsDirectoryPane.kt','ProfileGroupChoicePresentation.kt')}|{testroot+'UserGroupsActionsCardTest.kt',testroot+'ProfilePolishPresentationTest.kt'}
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,'Unexpected staged files'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(profile): polish disclosures and group choices with shared actions heading'
+          git push origin HEAD:dev

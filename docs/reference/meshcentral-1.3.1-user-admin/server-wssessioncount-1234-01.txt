@@ -1,0 +1,45 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1234-1274 | part 1/1 (may continue a source line)
+
+1234:             case 'wssessioncount':
+1235:                 {
+1236:                     // Request a list of all web socket user session count
+1237:                     var wssessions = {};
+1238:                     if ((user.siteadmin & 2) == 0) { try { ws.send(JSON.stringify({ action: 'wssessioncount', wssessions: {}, tag: command.tag })); } catch (ex) { } break; }
+1239:                     if (parent.parent.multiServer == null) {
+1240:                         // No peering, use simple session counting
+1241:                         for (i in parent.wssessions) {
+1242:                             if ((obj.crossDomain === true) || (parent.wssessions[i][0].domainid == domain.id)) {
+1243:                                 if ((user.groups == null) || (user.groups.length == 0)) {
+1244:                                     // No user groups, count everything
+1245:                                     wssessions[i] = parent.wssessions[i].length;
+1246:                                 } else {
+1247:                                     // Only count if session is for a user in our user groups
+1248:                                     var sessionUser = parent.users[parent.wssessions[i][0].userid];
+1249:                                     if ((sessionUser != null) && findOne(sessionUser.groups, user.groups)) {
+1250:                                         wssessions[i] = parent.wssessions[i].length;
+1251:                                     }
+1252:                                 }
+1253:                             }
+1254:                         }
+1255:                     } else {
+1256:                         // We have peer servers, use more complex session counting
+1257:                         for (i in parent.sessionsCount) {
+1258:                             if ((obj.crossDomain === true) || (i.split('/')[1] == domain.id)) {
+1259:                                 if ((user.groups == null) || (user.groups.length == 0)) {
+1260:                                     // No user groups, count everything
+1261:                                     wssessions[i] = parent.sessionsCount[i];
+1262:                                 } else {
+1263:                                     // Only count if session is for a user in our user groups
+1264:                                     var sessionUser = parent.users[i];
+1265:                                     if ((sessionUser != null) && findOne(sessionUser.groups, user.groups)) {
+1266:                                         wssessions[i] = parent.sessionsCount[i];
+1267:                                     }
+1268:                                 }
+1269:                             }
+1270:                         }
+1271:                     }
+1272:                     try { ws.send(JSON.stringify({ action: 'wssessioncount', wssessions: wssessions, tag: command.tag })); } catch (ex) { } // wssessions is: userid --> count
+1273:                     break;
+1274:                 }

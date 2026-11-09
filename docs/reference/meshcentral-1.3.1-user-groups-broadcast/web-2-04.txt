@@ -1,0 +1,54 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 15569-15798
+
+tionBox style=\'top:30px;left:130px;display:none\'></div>';
+15748:                 x += '</div><br>';
+15749:             } else if (userid == 1) {
+15750:                 var y = '';
+15751:                 if (selected == null) {
+15752:                     var omeshs = getOrderedList(meshes, 'name');
+15753:                     for (var i in omeshs) { if ((currentUser.links == null) || (currentUser.links[omeshs[i]._id] == null)) { y += '<option value=' + encodeURIComponentEx(omeshs[i]._id) + '>' + EscapeHtml(omeshs[i].name) + '</option>'; } }
+15754:                 } else {
+15755:                     y += '<option value=' + selected + '>' + EscapeHtml(meshes[decodeURIComponent(selected)].name) + '</option>';
+15756:                 }
+15757:                 x += addHtmlValue("Device Group", '<div style=width:230px;margin:0;padding:0><select onchange=p20validateAddMeshUserDialog() id=dp2groupid style=width:100%' + (selected?' disabled':'') + '>' + y + '</select></div>');
+15758:             } else if (userid == 2) {
+15759:                 if (usergroups == null) return;
+15760:                 var y = '';
+15761:                 var ousergroups = getOrderedList(usergroups, 'name');
+15762:                 for (var i in ousergroups) {
+15763:                     if (currentMesh._id.split('/')[1] != ousergroups[i]._id.split('/')[1]) continue;
+15764:                     if ((currentMesh.links == null) || (currentMesh.links[ousergroups[i]._id] == null)) { y += '<option value=' + encodeURIComponentEx(ousergroups[i]._id) + '>' + EscapeHtml(ousergroups[i].name) + '</option>'; }
+15765:                 }
+15766:                 x += addHtmlValue("User Group", '<div style=width:230px;margin:0;padding:0><select onchange=p20validateAddMeshUserDialog() id=dp2groupid style=width:100%>' + y + '</select></div>');
+15767:             } else if (userid == 6) {
+15768:                 if (usergroups == null) return;
+15769:                 var y = '';
+15770:                 if (selected == null) {
+15771:                     var ousergroups = getOrderedList(usergroups, 'name');
+15772:                     for (var i in ousergroups) {
+15773:                         if ((ousergroups[i].membershipType != null) || (currentNode._id.split('/')[1] != ousergroups[i]._id.split('/')[1])) continue;
+15774:                         if ((currentNode.links == null) || (currentNode.links[ousergroups[i]._id] == null)) { y += '<option value=' + encodeURIComponentEx(ousergroups[i]._id) + '>' + EscapeHtml(ousergroups[i].name) + '</option>'; }
+15775:                     }
+15776:                 } else {
+15777:                     y += '<option value=' + selected + '>' + EscapeHtml(usergroups[decodeURIComponent(selected)].name) + '</option>';
+15778:                 }
+15779:                 x += addHtmlValue("User Group", '<div style=width:230px;margin:0;padding:0><select onchange=p20validateAddMeshUserDialog() id=dp2groupid style=width:100%' + (selected?' disabled':'') + '>' + y + '</select></div>');
+15780:             } else if (userid == 3) {
+15781:                 var y = '';
+15782:                 if (selected) { selected = decodeURIComponent(selected); }
+15783:                 var omeshs = getOrderedList(meshes, 'name');
+15784:                 for (var i in omeshs) { if ((selected != null) || (currentUserGroup.links == null) || (currentUserGroup.links[omeshs[i]._id] == null)) { y += '<option value=' + encodeURIComponentEx(omeshs[i]._id) + ((selected == omeshs[i]._id)?' selected':' ') + '>' + EscapeHtml(omeshs[i].name) + '</option>'; } }
+15785:                 x += addHtmlValue("Device Group", '<div style=width:230px;margin:0;padding:0><select onchange=p20validateAddMeshUserDialog(' + userid + ') id=dp2groupid style=width:100%>' + y + '</select></div>');
+15786:             } else if ((userid == 4) || (userid == 7)) {
+15787:                 var y = '', selectedMeshId = null, selectedNode = null;
+15788:                 if (selected != null) { selectedNode = getNodeFromId(decodeURIComponent(selected)); if (selectedNode != null) { selectedMeshId = selectedNode.meshid; } }
+15789:                 var omeshs = getOrderedList(meshes, 'name');
+15790:                 for (var i in omeshs) {
+15791:                     if ((omeshs[i].links[userinfo._id] != null) && (omeshs[i].links[userinfo._id].rights & 7)) { // Only show device groups that we have user administrator for.
+15792:                         if (selectedMeshId == null) { selectedMeshId = omeshs[i]._id; } y += '<option value=' + encodeURIComponentEx(omeshs[i]._id) + ((selectedMeshId == omeshs[i]._id)?' selected':' ') + '>' + EscapeHtml(omeshs[i].name) + '</option>';
+15793:                     }
+15794:                 }
+15795:                 x += addHtmlValue("Device Group", '<div style=width:230px;margin:0;padding:0><select onchange=p20changeMeshAddMeshUserDialog(' + userid + ') id=dp2meshid style=width:100%>' + y + '</select></div>');
+15796:                 y = '';
+15797:                 var onodes = getOrder

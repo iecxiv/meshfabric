@@ -1,0 +1,91 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshctrl.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 159-327 | part 1/3 (may continue a source line)
+
+159:         }
+160:         case 'addamtdevice': {
+161:             if (args.id == null) { console.log(winRemoveSingleQuotes("Missing device id, use --id '[deviceid]'")); }
+162:             else if (args.devicename == null) { console.log(winRemoveSingleQuotes("Missing devicename, use --devicename [devicename]")); }
+163:             else if (args.hostname == null) { console.log(winRemoveSingleQuotes("Missing hostname, use --hostname [hostname]")); }
+164:             else if (args.user == null) { console.log(winRemoveSingleQuotes("Missing user, use --user [user]")); }
+165:             else if (args.pass == null) { console.log(winRemoveSingleQuotes("Missing pass, use --pass [pass]")); }
+166:             else { ok = true; }
+167:             break;
+168:         }
+169:         case 'addusertodevicegroup': {
+170:             if ((args.id == null) && (args.group == null)) { console.log(winRemoveSingleQuotes("Device group identifier missing, use --id '[groupid]' or --group [groupname]")); }
+171:             else if (args.userid == null) { console.log("Add user to group missing useid, use --userid [userid]"); }
+172:             else { ok = true; }
+173:             break;
+174:         }
+175:         case 'removeuserfromdevicegroup': {
+176:             if ((args.id == null) && (args.group == null)) { console.log(winRemoveSingleQuotes("Device group identifier missing, use --id '[groupid]' or --group [groupname]")); }
+177:             else if (args.userid == null) { console.log("Remove user from group missing useid, use --userid [userid]"); }
+178:             else { ok = true; }
+179:             break;
+180:         }
+181:         case 'addusertodevice': {
+182:             if (args.userid == null) { console.log("Add user to device missing userid, use --userid [userid]"); }
+183:             else if (args.id == null) { console.log(winRemoveSingleQuotes("Add user to device missing device id, use --id '[deviceid]'")); }
+184:             else { ok = true; }
+185:             break;
+186:         }
+187:         case 'removeuserfromdevice': {
+188:             if (args.userid == null) { console.log("Remove user from device missing userid, use --userid [userid]"); }
+189:             else if (args.id == null) { console.log(winRemoveSingleQuotes("Remove user from device missing device id, use --id '[deviceid]'")); }
+190:             else { ok = true; }
+191:             break;
+192:         }
+193:         case 'adddevicegroup': {
+194:             if (args.name == null) { console.log("Message group name, use --name [name]"); }
+195:             else { ok = true; }
+196:             break;
+197:         }
+198:         case 'editdevicegroup':
+199:         case 'removedevicegroup': {
+200:             if ((args.id == null) && (args.group == null)) { console.log(winRemoveSingleQuotes("Device group identifier missing, use --id '[groupid]' or --group [groupname]")); }
+201:             else { ok = true; }
+202:             break;
+203:         }
+204:         case 'movetodevicegroup': {
+205:             if ((args.id == null) && (args.group == null)) { console.log(winRemoveSingleQuotes("Device group identifier missing, use --id '[groupid]' or --group [groupname]")); }
+206:             else if (args.devid == null) { console.log(winRemoveSingleQuotes("Device identifier missing, use --devid '[deviceid]'")); }
+207:             else { ok = true; }
+208:             break;
+209:         }
+210:         case 'broadcast': {
+211:             if (args.msg == null) { console.log("Message missing, use --msg [message]"); }
+212:             else { ok = true; }
+213:             break;
+214:         }
+215:         case 'showevents': {
+216:             ok = true;
+217:             break;
+218:         }
+219:         case 'adduser': {
+220:             if (args.user == null) { console.log("New account name missing, use --user [name]"); }
+221:             else if ((args.pass == null) && (args.randompass == null)) { console.log("New account password missing, use --pass [password] or --randompass"); }
+222:             else { ok = true; }
+223:             break;
+224:         }
+225:         case 'edituser': {
+226:             if (args.userid == null) { console.log("Edit account user missing, use --userid [id]"); }
+227:             else { ok = true; }
+228:             break;
+229:         }
+230:         case 'removeuser': {
+231:             if (args.userid == null) { console.log("Remove account userid missing, use --userid [id]"); }
+232:             else { ok = true; }
+233:             break;
+234:         }
+235:         case 'addusergroup': {
+236:             if (args.name == null) { console.log("New user group name missing, use --name [name]"); }
+237:             else { ok = true; }
+238:             break;
+239:         }
+240:         case 'removeusergroup': {
+241:             if (args.groupid == null) { console.log(winRemoveSingleQuotes("Remove user group id missing, use --groupid '[id]'")); }
+242:             else { ok = true; }
+243:             break;
+244:         }
+245:         c

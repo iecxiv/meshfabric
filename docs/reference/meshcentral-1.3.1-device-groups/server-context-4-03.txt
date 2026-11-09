@@ -1,0 +1,87 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 7178-7418 | part 3/4 (may continue a source line)
+
+igFilePath('mesherrors.txt'), function (err) { }); }
+7333:     }
+7334: 
+7335:     function serverCommandServerConsole(command) {
+7336:         // Do not allow this command when logged in using a login token
+7337:         if (req.session.loginToken != null) return;
+7338:         // This is a server console message, only process this if full administrator
+7339:         if (user.siteadmin != SITERIGHT_ADMIN) return;
+7340:         // Only accept if the console is allowed for this domain
+7341:         if ((domain.myserver === false) || ((domain.myserver != null) && (domain.myserver !== true) && (domain.myserver.console !== true))) return;
+7342: 
+7343:         var cmdargs = splitArgs(command.value);
+7344:         if (cmdargs.length == 0) return;
+7345:         const cmd = cmdargs[0].toLowerCase();
+7346:         cmdargs = parseArgs(cmdargs);
+7347:         var cmdData = { result: '', command: command, cmdargs: cmdargs };
+7348: 
+7349:         // Find the command in the lookup table and run it.
+7350:         var cmdTableEntry = serverUserCommands[cmd];
+7351:         if (cmdTableEntry != null) { try { cmdTableEntry[0](cmdData); } catch (ex) { cmdData.result = '' + ex; }
+7352:         } else { cmdData.result = 'Unknown command \"' + cmd + '\", type \"help\" for list of available commands.'; }
+7353: 
+7354:         // Send back the command result
+7355:         if (cmdData.result != '') { obj.send({ action: 'serverconsole', value: cmdData.result, tag: command.tag }); }
+7356:     }
+7357: 
+7358:     function serverCommandServerErrors(command) {
+7359:         // Load the server error log
+7360:         if (userHasSiteUpdate() && domainHasMyServerErrorLog())
+7361:             fs.readFile(parent.parent.getConfigFilePath('mesherrors.txt'), 'utf8', function (err, data) { obj.send({ action: 'servererrors', data: data }); });
+7362:     }
+7363: 
+7364:     function serverCommandServerConfig(command) {
+7365:         // Load the server config.json. This is a sensitive file so care must be taken to only send to trusted administrators.
+7366:         if (userHasSiteUpdate() && (domain.myserver !== false) && ((domain.myserver == null) || (domain.myserver.config === true))) {
+7367:             const configFilePath = common.joinPath(parent.parent.datapath, (parent.parent.args.configfile ? parent.parent.args.configfile : 'config.json'));
+7368:             fs.readFile(configFilePath, 'utf8', function (err, data) { obj.send({ action: 'serverconfig', data: data }); });
+7369:         }
+7370:     }
+7371: 
+7372:     function serverCommandServerStats(command) {
+7373:         // Only accept if the "My Server" tab is allowed for this domain
+7374:         if (domain.myserver === false) return;
+7375: 
+7376:         if ((user.siteadmin & 21) == 0) return; // Only site administrators with "site backup" or "site restore" or "site update" permissions can use this.
+7377:         if (common.validateInt(command.interval, 1000, 1000000) == false) {
+7378:             // Clear the timer
+7379:             if (obj.serverStatsTimer != null) { clearInterval(obj.serverStatsTimer); delete obj.serverStatsTimer; }
+7380:         } else {
+7381:             // Set the timer
+7382:             obj.SendServerStats();
+7383:             obj.serverStatsTimer = setInterval(obj.SendServerStats, command.interval);
+7384:         }
+7385:     }
+7386: 
+7387:     function serverCommandServerTimelineStats(command) {
+7388:         // Only accept if the "My Server" tab is allowed for this domain
+7389:         if (domain.myserver === false) return;
+7390: 
+7391:         if ((user.siteadmin & 21) == 0) return; // Only site administrators with "site backup" or "site restore" or "site update" permissions can use this.
+7392:         if (common.validateInt(command.hours, 0, 24 * 30) == false) return;
+7393:         db.GetServerStats(command.hours, function (err, docs) {
+7394:             if (err == null) { obj.send({ action: 'servertimelinestats', events: docs }); }
+7395:         });
+7396:     }
+7397: 
+7398:     function serverCommandServerUpdate(command) {
+7399:         // Do not allow this command when logged in using a login token
+7400:         if (req.session.loginToken != null) return;
+7401: 
+7402:         // Perform server update
+7403:         if (userHasSiteUpdate() && domainHasMyServerUpgrade() && !((command.version != null) && (typeof command.version != 'string')))
+7404:             parent.parent.performServerUpdate(command.version);
+7405:     }
+7406: 
+7407:     function serverCommandServerVersion(command) {
+7408:         // Check the server version
+7409:         if (command.responseid != null) {
+7410:             if (userHasSiteUpdate() && domainHasMyServerUpgrade()) {
+7411:                 parent.parent.getServerTags(function (tags, err) { obj.send({ action: 'serverversion', responseid: command.responseid, result: 'OK', tags: tags }); });
+7412:             }
+7413:             else { obj.send({ action: 'serverversion', responseid: command.responseid, result: 'Permission denied' }); }
+7414:

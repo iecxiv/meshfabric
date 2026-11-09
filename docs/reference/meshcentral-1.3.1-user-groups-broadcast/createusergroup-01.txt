@@ -1,0 +1,70 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 1610-1735
+
+1610:             case 'createusergroup':
+1611:                 {
+1612:                     var ugrpdomain, err = null;
+1613:                     try {
+1614:                         // Check if we are in a mode that does not allow manual user group creation
+1615:                         if (
+1616:                             (typeof domain.authstrategies == 'object') &&
+1617:                             (typeof domain.authstrategies['oidc'] == 'object') &&
+1618:                             (typeof domain.authstrategies['oidc'].groups == 'object') &&
+1619:                             ((domain.authstrategies['oidc'].groups.sync == true) || ((typeof domain.authstrategies['oidc'].groups.sync == 'object') && (domain.authstrategies['oidc'].groups.sync.enabled == true)))
+1620:                         ) {
+1621:                             err = "Not allowed in OIDC mode with user group sync.";
+1622:                         }
+1623: 
+1624:                         // Check if we have new group restriction
+1625:                         if ((user.siteadmin & SITERIGHT_USERGROUPS) == 0) { err = "Permission denied"; }
+1626: 
+1627:                         // Create user group validation
+1628:                         else if (common.validateString(command.name, 1, 64) == false) { err = "Invalid group name"; } // User group name is between 1 and 64 characters
+1629:                         else if ((command.desc != null) && (common.validateString(command.desc, 0, 1024) == false)) { err = "Invalid group description"; } // User group description is between 0 and 1024 characters
+1630: 
+1631:                         // If we are cloning from an existing user group, check that.
+1632:                         if (command.clone) {
+1633:                             if (common.validateString(command.clone, 1, 256) == false) { err = "Invalid clone groupid"; }
+1634:                             else {
+1635:                                 var clonesplit = command.clone.split('/');
+1636:                                 if ((clonesplit.length != 3) || (clonesplit[0] != 'ugrp') || ((command.domain == null) && (clonesplit[1] != domain.id))) { err = "Invalid clone groupid"; }
+1637:                                 else if (parent.userGroups[command.clone] == null) { err = "Invalid clone groupid"; }
+1638:                             }
+1639: 
+1640:                             if (err == null) {
+1641:                                 // Get new user group domain
+1642:                                 ugrpdomain = parent.parent.config.domains[clonesplit[1]];
+1643:                                 if (ugrpdomain == null) { err = "Invalid domain"; }
+1644:                             }
+1645:                         } else {
+1646:                             // Get new user group domain
+1647:                             ugrpdomain = domain;
+1648:                             if ((obj.crossDomain === true) && (command.domain != null)) { ugrpdomain = parent.parent.config.domains[command.domain]; }
+1649:                             if (ugrpdomain == null) { err = "Invalid domain"; }
+1650:                         }
+1651: 
+1652:                         // In some situations, we need a verified email address to create a device group.
+1653:                         if ((err == null) && (domain.mailserver != null) && (ugrpdomain.auth != 'sspi') && (ugrpdomain.auth != 'ldap') && (user.emailVerified !== true) && (user.siteadmin != SITERIGHT_ADMIN)) { err = "Email verification required"; } // User must verify it's email first.
+1654:                     } catch (ex) { err = "Validation exception: " + ex; }
+1655: 
+1656:                     // Handle any errors
+1657:                     if (err != null) {
+1658:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'createusergroup', responseid: command.responseid, result: err })); } catch (ex) { } }
+1659:                         break;
+1660:                     }
+1661: 
+1662:                     // We only create Agent-less Intel AMT mesh (Type1), or Agent mesh (Type2)
+1663:                     parent.crypto.randomBytes(48, function (err, buf) {
+1664:                         // Create new device group identifier
+1665:                         var ugrpid = 'ugrp/' + ugrpdomain.id + '/' + buf.toString('base64').replace(/\+/g, '@').replace(/\//g, '$');
+1666: 
+1667:                         // Create the new device group
+1668:                         var ugrp = { type: 'ugrp', _id: ugrpid, name: command.name, desc: command.desc, domain: ugrpdomain.id, links: {} };
+1669: 
+1670:                         // Clone the existing group if required
+1671:                         var pendingDispatchEvents = [];
+1672:                         if (command.clone != null) {
+1673:                             var cgroup = parent.userGroups[command.clone];
+1674:                             if (cgroup.links) {
+1675:                                 for (var i in cgroup.links) {
+1676:                      

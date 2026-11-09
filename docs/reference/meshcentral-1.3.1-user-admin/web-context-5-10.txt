@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 10/11 (may continue a source line)
+
+erDialogEx, format("Confirm deletion of user {0}?", EscapeHtml(currentUser.name)) + '<br /><br /><label><input id=p10check type=checkbox onchange=p10validateDeleteNodeDialog() />' + "Confirm" + '</label>');
+18815:             p10validateDeleteNodeDialog();
+18816:         }
+18817: 
+18818:         function p30showDeleteUserDialogEx() {
+18819:             meshserver.send({ action: 'deleteuser', userid: currentUser._id, username: currentUser.name });
+18820:         }
+18821: 
+18822:         // Draw device power bars. The bars are 766px wide.
+18823:         function drawUserPermissions() {
+18824:             var count = 1, x = '';
+18825: 
+18826:             // Display common device groups
+18827:             var deviceGroupCount = 0, newDeviceGroup = false;
+18828:             for (var i in meshes) { if (meshes[i]._id.split('/')[1] != currentUser._id.split('/')[1]) continue; deviceGroupCount++; if ((currentUser.links == null) || (currentUser.links[i] == null)) { newDeviceGroup = true; } }
+18829:             if ((deviceGroupCount > 0) && (newDeviceGroup)) { x += '<a href=# onclick="return p20showAddMeshUserDialog(1)" style=cursor:pointer;margin-right:10px><img src=images/icon-addnew.png border=0 height=12 width=12> ' + "Add Device Group" + '</a>'; }
+18830:             x += '<table style="color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;border-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col style=text-align:left;width:430px>' + "Common Device Groups" + '</th><th scope=col style=text-align:left></th></tr>';
+18831:             if (currentUser.links) {
+18832:                 var omeshes = [];
+18833:                 for (var i in currentUser.links) { if (i.startsWith('mesh/')) { if (meshes[i] != null) { omeshes.push(meshes[i]); } } }
+18834:                 omeshes = getOrderedList(omeshes, 'name');
+18835:                 for (var i in omeshes) {
+18836:                     var cr = 0, mesh = omeshes[i], r = currentUser.links[mesh._id].rights, trash = '', rights = makeDeviceGroupRightsString(r);
+18837:                     if (mesh == null) { continue; }
+18838:                     if ((userinfo.links) && (userinfo.links[mesh._id] != null) && (userinfo.links[mesh._id].rights != null)) { cr = userinfo.links[mesh._id].rights; }
+18839:                     var meshname = '<i>' + "Unknown Device Group" + '</i>';
+18840:                     if (mesh) { meshname = '<a href=# onclick=\'gotoMesh("' + mesh._id + '");haltEvent(event);\'>' + EscapeHtml(mesh.name) + '</a>'; }
+18841:                     if ((currentUser._id != userinfo._id) && ((cr & 2) != 0)) { // 2 = MESHRIGHT_MANAGEUSERS
+18842:                         trash = '<a href=# onclick=\'return p30removeMeshFromUser(event,"' + encodeURIComponentEx(mesh._id) + '")\' title="' + "Remove user rights to this device group" + '" style=cursor:pointer><img src=images/trash.png border=0 height=10 width=10></a>';
+18843:                         rights = '<span style=cursor:pointer onclick=p20showAddMeshUserDialog(1,"' + encodeURIComponentEx(mesh._id) + '")>' + rights + ' <img class=hoverButton style=cursor:pointer src=images/link5.png></span>';
+18844:                     }
+18845:                     x += '<tr ' + (((++count % 2) == 0) ? 'style=background-color:#DDD' : '') + '><td style=width:30%><div title="' + "Device Group" + '" class=m99></div><div>&nbsp;' + meshname + '<div></div></div></td><td style=width:70%><div style=float:right>' + trash + '</div><div>' + rights + '</div></td></tr>';
+18846:                 }
+18847:             }
+18848:             if (count == 1) { x += '<tr><td><div style=padding:6px>&nbsp;<i>' + "No device groups in common" + '</i><div></div></div></td><td></td></tr>'; }
+18849:             x += '</tbody></table>';
+18850: 
+18851:             // Display user groups
+18852:             if (usergroups != null) {
+18853:                 count = 1;
+18854:                 x += '<br />';
+18855:                 if ((userinfo.siteadmin & 256) != 0) {
+18856:                     var userGroupCount = 0, newUserGroup = false;
+18857:                     for (var i in usergroups) {
+18858:                         if ((usergroups[i].membershipType != null) || (usergroups[i]._id.split('/')[1] != currentUser._id.split('/')[1])) continue;
+18859:                         userGroupCount++;
+18860:                         if ((currentUser.links == null) || (currentUser.links[i] == null)) { newUserGroup = true; }
+18861:                     }
+18862:                     if ((userGroupCount > 0) && (newUserGroup)) { x += '<a href=# onclick="return p30showAddUserGroupDialog()" style=cursor:pointer;margin-right:10px><img src=images/icon-addnew.png border=0 height=12 width=12> ' + "Add User Group" + '</a>'; }
+18863:                 }
+18864:                 x += '<table style="color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;borde

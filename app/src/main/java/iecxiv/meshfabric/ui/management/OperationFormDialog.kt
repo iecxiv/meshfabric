@@ -24,7 +24,7 @@ import iecxiv.meshfabric.R
         return
     }
     Dialog(onDismissRequest=onDismiss) {
-        Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surface,tonalElevation=6.dp,
+        iecxiv.meshfabric.ui.components.AppDialogSurface(shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
             modifier=Modifier.fillMaxWidth().padding(horizontal=4.dp,vertical=8.dp)) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text(title,fontWeight=FontWeight.Bold,fontSize=18.sp)

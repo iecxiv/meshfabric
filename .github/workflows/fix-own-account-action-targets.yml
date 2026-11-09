@@ -1,0 +1,131 @@
+name: Validate own account action targets by actual screen
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-own-account-action-targets.yml]
+permissions:
+  contents: write
+concurrency:
+  group: own-account-actions-version
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate changes with separate exact action checks
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 8c3dc2a811ba364cb342fa844110215669f200f6
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          original=Path('.github/workflows/publish-own-account-actions-version.yml')
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()=='6b394f1ad18a84b0a9cf7c9bd4bf24a88d9eaf90'
+          code=textwrap.dedent(original.read_text().split("          python3 - <<'PY'\n",1)[1].split('\n          PY\n',1)[0])
+          lines=code.splitlines();replaced=0
+          for i,line in enumerate(lines):
+              if line.lstrip().startswith("elif ('ProfileGroupActionButton' in line or 'TextButton' in line)"):
+                  indent=line[:len(line)-len(line.lstrip())]
+                  lines[i]=indent+'''elif line.startswith('ProfileGroupActionButton(t("Enviar mensaje",'):'''
+                  replaced+=1
+          assert replaced==1
+          code='\n'.join(lines)+'\n'
+          old='assert security==2 and hidden>=3,(security,hidden)'
+          assert code.count(old)==1
+          code=code.replace(old,'assert security==2 and hidden==1,(security,hidden)',1)
+          exec(compile(code,'exact-account-action-generator','exec'),{})
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          detail=(root/'UserAdministration.kt').read_text()
+          screen=(root/'ProfileScreen.kt').read_text()
+          message='ProfileOtherUserActions(s.id,form.id) { ProfileGroupActionButton(t("Enviar mensaje",'
+          lock='if(users && !profileOwnAccount(state.id,id)) TextButton(enabled=state.canWrite && canLockUser(state,row),'
+          delete='if(!users || !profileOwnAccount(state.id,id)) TextButton(enabled=state.canWrite && (if(users) canAdministerUser(state,row) && id!=state.id else ProfilePermissions.deleteGroup'
+          assert detail.count(message)==1,'Message must be hidden only for self in the detail screen'
+          assert screen.count(lock)==1,'Lock action must be hidden only for self in the user list'
+          assert screen.count(delete)==1,'Delete action must be hidden only for self in the user list; device groups unchanged'
+          controls=[line for line in detail.splitlines() if line.lstrip().startswith(('ProfileGroupActionButton(','TextButton('))]
+          assert not any(any(label in line for label in ['"Bloquear"','"Desbloquear"','"Eliminar"','Icons.Default.Delete']) for line in controls),'Unexpected destructive detail action requires an explicit implementation'
+          assert 'mode=="password"->approved && form.id!=s.id' in detail
+          assert 'deleting->typedId==form.id && form.id!=s.id' in detail
+          assert 'locking->user!=null && canLockUser(s,user)' in detail
+          Path('validation/action-location-checks.txt').write_text('PASS: detail message guarded once.\nPASS: user-list lock guarded once.\nPASS: user-list delete guarded once.\nPASS: no additional destructive detail controls detected.\nPASS: internal self-operation guards retained.\n')
+          PY
+          git diff --check
+      - name: Install SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute unit tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Require unchanged complete Android and unit evidence
+        if: always()
+        run: |
+          mkdir -p validation
+          git diff > validation/account-changes.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          original=Path('.github/workflows/publish-own-account-actions-version.yml')
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()=='6b394f1ad18a84b0a9cf7c9bd4bf24a88d9eaf90'
+          code=original.read_text().split("          python3 - <<'PY'\n")[2].split('\n          PY\n',1)[0]
+          exec(compile(textwrap.dedent(code),'unchanged-full-test-evidence','exec'),{})
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: own-account-action-fix-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: own-account-action-fix-version-1.3.1-apk-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only if dev is unchanged
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/expected.json').read_text())
+          subprocess.run(['git','add','--',*expected],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(management): own account security navigation and version 1.3.1'
+          git push origin HEAD:dev

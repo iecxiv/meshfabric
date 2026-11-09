@@ -1,0 +1,62 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 16/17 (may continue a source line)
+
+dow.meshPowerChart = new Chart(document.getElementById('meshPowerChart').getContext('2d'), {
+16335:                 type: 'doughnut',
+16336:                 data: { datasets: [{ data: [0, 0], backgroundColor: ['#20F', '#40D', '#60B', '#809', '#A07', '#C05'] }] },
+16337:                 options: { shadowColor: 'blue', responsive: true, plugins: { legend: { display: false } }, animation: { animateScale: true, animateRotate: true }, layout: { padding: { left: 10, right: 10, top: 10, bottom: 10 } } }
+16338:             });
+16339:             window.meshOsChart = new Chart(document.getElementById('meshOsChart').getContext('2d'), {
+16340:                 type: 'doughnut',
+16341:                 data: { datasets: [{ data: [0, 0], backgroundColor: ['#20F', '#30E', '#40D', '#50C', '#60B', '#70A', '#809', '#908', '#A07', '#B06', '#C05'] }] },
+16342:                 options: { responsive: true, plugins: { legend: { display: false } }, animation: { animateScale: true, animateRotate: true }, layout: { padding: { left: 10, right: 10, top: 10, bottom: 10 } } }
+16343:             });
+16344:             window.meshConnChart = new Chart(document.getElementById('meshConnChart').getContext('2d'), {
+16345:                 type: 'doughnut',
+16346:                 data: { datasets: [{ data: [0, 0], backgroundColor: ['#20F', '#40D', '#60B', '#809', '#A07', '#C05'] }], labels: ["Not Connected", "Agent", "Intel&reg; AMT", "Agent + Intel&reg; AMT"] },
+16347:                 options: { responsive: true, plugins: { legend: { display: false } }, animation: { animateScale: true, animateRotate: true }, layout: { padding: { left: 10, right: 10, top: 10, bottom: 10 } } }
+16348:             });
+16349:             window.meshSecurityChart = new Chart(document.getElementById('meshSecurityChart').getContext('2d'), {
+16350:                 type: 'doughnut',
+16351:                 data: { datasets: [{ data: [0, 0], backgroundColor: ['#20F', '#40D', '#60B', '#809', '#A07', '#C05'] }], labels: ["OK", "Anti-virus not active", "No automatic update", "Firewall not active", "Multiple Issues"] },
+16352:                 options: { responsive: true, plugins: { legend: { display: false } }, animation: { animateScale: true, animateRotate: true }, layout: { padding: { left: 10, right: 10, top: 10, bottom: 10 } } }
+16353:             });
+16354:         }
+16355: 
+16356:         function p21updateMesh() {
+16357:             if (currentMesh == null) return;
+16358: 
+16359:             // Add device group name
+16360:             var meshrights = GetMeshRights(currentMesh), mname = EscapeHtml(currentMesh.name);
+16361:             if (mname.length == 0) { mname = '<i>' + "None" + '</i>'; }
+16362:             if ((meshrights & 1) != 0) { mname = '<span tabindex=0 title="' + "Click here to edit the device group name" + '" onclick=p20editmesh(1) onkeyup="if (event.key == \'Enter\') p20editmesh(1)" style=cursor:pointer>' + mname + ' <img class=hoverButton src="images/link5.png" /></span>'; }
+16363:             QH('p21meshName', mname);
+16364: 
+16365:             // Update charts
+16366:             var power = {};
+16367:             var conn = {};
+16368:             var agentTypes = {};
+16369:             var powerStates = {};
+16370:             var connectivityStates = [ 0, 0, 0, 0 ]; // None, Agent, AMT, Agent + AMT
+16371:             var securityStates = [ 0, 0, 0, 0, 0 ]; // OK, no AV, no firewall, no update, many Issues
+16372:             var showAgents = false;
+16373:             var showPower = false;
+16374:             var showConn = false;
+16375:             var showSecurity = false;
+16376:             for (var i in nodes) {
+16377:                 if (nodes[i].meshid == currentMesh._id) {
+16378:                     if (nodes[i].agent) { showAgents = true; if (agentTypes[nodes[i].agent.id] == null) { agentTypes[nodes[i].agent.id] = 1; } else { agentTypes[nodes[i].agent.id]++; } }
+16379:                     if (nodes[i].pwr) { showPower = true; if (powerStates[nodes[i].pwr] == null) { powerStates[nodes[i].pwr] = 1; } else { powerStates[nodes[i].pwr]++; } }
+16380:                     if (nodes[i].conn == 0) { showConn = true; connectivityStates[0]++; }
+16381:                     else if ((nodes[i].conn & 6) != 0) { showConn = true; if ((nodes[i].conn & 1) != 0) { connectivityStates[3]++; } else { connectivityStates[2]++; } }
+16382:                     else if ((nodes[i].conn & 1) != 0) { showConn = true; connectivityStates[1]++; }
+16383:                     if (nodes[i].wsc) {
+16384:                         showSecurity = true;
+16385:                         var sok = 0;
+16386:                         if (nodes[i].wsc.antiVirus == 'OK') { sok++; }
+16387:                         if (nodes[i].wsc.autoUpdate == 'OK') { sok++; }
+16388:                         if (nodes[i].wsc.firewall == 'OK') { sok++; }
+16389:                         if (sok == 3) { securityStates[0]++; }
+16390:                         else if (sok < 2) { securityStates[4]++; }
+16391:                 

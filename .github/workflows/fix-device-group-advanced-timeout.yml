@@ -1,0 +1,135 @@
+name: Validate advanced transport timeout lifecycle fix
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-device-group-advanced-timeout.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-device-group-advanced-transport-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded transport generator and timeout lifecycle correction
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast,subprocess,textwrap
+          workflow=Path('.github/workflows/publish-device-group-advanced-transport.yml')
+          assert subprocess.check_output(['git','hash-object',str(workflow)],text=True).strip()=='c1eb43ed270295961000b87e4b6e5b23a4ca50da','Transport generator changed'
+          source=workflow.read_text()
+          start='      - name: Apply guarded isolated transport and offline socket tests\n        run: |\n'
+          end='      - name: Install compile SDK\n'
+          assert source.count(start)==1 and source.count(end)==1
+          lines=textwrap.dedent(source.split(start,1)[1].split(end,1)[0]).strip().splitlines()
+          assert lines[0]=="python3 - <<'PY'" and lines[-2:]==['PY','git diff --check']
+          script='\n'.join(lines[1:-2])+'\n'
+          ast.parse(script)
+          exec(compile(script,str(workflow)+'::guarded-generator','exec'),{'__name__':'__main__'})
+          session=Path('app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt')
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedSessionTest.kt')
+          def replace(text,old,new):
+              assert text.count(old)==1,'Missing/nonunique correction anchor: '+old[:100]
+              return text.replace(old,new,1)
+          s=session.read_text()
+          helpers='''private fun finishAdvancedUnknown() {
+          readTimer?.cancel();reads.clear();listTags.clear()
+          finish("unknown",false)
+          state.update {it.copy(loading=false,readError=true)}
+          }
+          private fun expireListReads(epoch:Long) {
+          if(epoch!=generation || reads.isEmpty()) return
+          if(advancedOperation()) {finishAdvancedUnknown();return}
+          reads.clear();listTags.clear()
+          state.update {it.copy(loading=false,readError=true,notice="readFailed")}
+          }
+          '''
+          s=replace(s,'private fun loadLists() {',helpers+'private fun loadLists() {')
+          s=replace(s,'if(epoch==generation && reads.isNotEmpty()) { reads.clear(); listTags.clear(); state.update { it.copy(loading=false,readError=true,notice="readFailed") } }','expireListReads(epoch)')
+          a='@Synchronized fun submitDeviceGroupAdvanced(input:JSONObject):Boolean {'
+          b='@Synchronized fun submitUserMeshGrant('
+          assert s.count(a)==1 and s.count(b)==1
+          prefix,tail=s.split(a,1)
+          method,suffix=tail.split(b,1)
+          method=replace(method,'if(epoch==generation && pendingId==request) finish("unknown",false)','if(epoch==generation && pendingId==request) finishAdvancedUnknown()')
+          s=prefix+a+method+b+suffix
+          session.write_text(s)
+          t=test.read_text()
+          added='''    @Test fun readDeadlineTerminatesAdvancedOperationAndRejectsLateEvidence() {for(role in listOf(0L,2L)) Harness(role).use {h->
+                  h.begin();h.ack();val tags=h.tags();val count=h.wire.sent.size
+                  synchronized(h.session) {h.session.javaClass.getDeclaredMethod("expireListReads",java.lang.Long.TYPE).apply {isAccessible=true}.invoke(h.session,get(h.session,"generation"))}
+                  h.unobserved();assertEquals("unknown",h.session.state.value.notice);assertFalse(h.session.state.value.busy);assertFalse(h.session.state.value.loading);assertTrue(h.session.state.value.readError);assertFalse(h.session.state.value.canWrite)
+                  h.reply("meshes",tags.getValue("meshes"));tags["users"]?.let {h.reply("users",it)};h.ack()
+                  h.unobserved();assertEquals("unknown",h.session.state.value.notice);assertEquals(count,h.wire.sent.size);assertEquals(1,h.wire.sent.count {it.optString("action")=="editmesh"})
+              }}
+              @Test fun ordinaryReadDeadlineStillReportsReadFailed() {Harness().use {h->
+                  h.session.refresh();val count=h.wire.sent.size
+                  synchronized(h.session) {h.session.javaClass.getDeclaredMethod("expireListReads",java.lang.Long.TYPE).apply {isAccessible=true}.invoke(h.session,get(h.session,"generation"))}
+                  assertEquals("readFailed",h.session.state.value.notice);assertTrue(h.session.state.value.readError);assertFalse(h.session.state.value.loading);assertFalse(h.session.state.value.busy);assertEquals(count,h.wire.sent.size);assertTrue(h.wire.sent.none {it.optString("action")=="editmesh"})
+              }}
+              '''
+          t=replace(t,'@Test fun actualTimeoutLeavesAnUnknownOutcomeWithoutResending()',added+'@Test fun actualTimeoutLeavesAnUnknownOutcomeWithoutResending()')
+          test.write_text(t)
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline advanced transport and access regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedRequestTest,iecxiv.meshfabric.ui.management.GroupMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-group-advanced-timeout-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated transport only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedSessionTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedSessionTest.kt'}
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,'Unexpected staged source set'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): validate advanced transport with terminal unknown timeout outcome'
+          git push origin HEAD:dev

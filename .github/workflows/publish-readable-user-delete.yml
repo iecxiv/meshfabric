@@ -1,0 +1,124 @@
+name: Validate and publish readable user deletion
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-user-delete.yml]
+permissions:
+  contents: write
+concurrency:
+  group: readable-user-delete-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate deletion without non-local Compose returns
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 8809ead92f5efef3da3947de6a890c14973cc244
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          ref='8809ead92f5efef3da3947de6a890c14973cc244:.github/workflows/publish-readable-user-delete.yml'
+          assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()=='3280acd51e8ecfd647d6dfb7bbba2e3ae1ab4bdd'
+          workflow=subprocess.check_output(['git','show',ref],text=True)
+          start=workflow.index("          python3 - <<'PY'\n")+len("          python3 - <<'PY'\n")
+          end=workflow.index('\n          PY',start)
+          generator=textwrap.dedent(workflow[start:end])
+          old='039ede1f0f875fa7dc2f88c0859d45864a7b418e'
+          assert generator.count(old)==1
+          generator=generator.replace(old,'c8b7f7dfbb8662b7c44a54c5f1cfa5f5a4a5fd67',1)
+          source=Path('app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt')
+          baseline_source=source.read_text()
+          exec(compile(generator,'pinned-user-delete-generator','exec'))
+          generated=source.read_text()
+          bad='if(deleting) { UserDeleteDialog(session,s,form.id,onDismiss); return@key }\n'
+          assert generated.count(bad)==1
+          assert generated.replace(bad,'',1)==baseline_source
+          anchor='if(mode=="device") { UserDeviceGrantDialog('
+          assert baseline_source.count(anchor)==1
+          route='if(deleting) { UserDeleteDialog(session,s,form.id,onDismiss) } else '
+          fixed=baseline_source.replace(anchor,route+anchor,1)
+          assert fixed.replace(route,'',1)==baseline_source
+          assert 'return@key' not in fixed
+          source.write_text(fixed)
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute deletion and existing profile regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedUiTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show concrete test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          roots=[Path('app/build/outputs/androidTest-results'),Path('app/build/test-results')]
+          for directory in roots:
+              for report in sorted(directory.rglob('*.xml')):
+                  try:
+                      root=ET.parse(report).getroot()
+                  except ET.ParseError:
+                      continue
+                  for case in root.iter('testcase'):
+                      for kind in ('failure','error'):
+                          failure=case.find(kind)
+                          if failure is not None:
+                              print(case.get('classname','')+'.'+case.get('name',''))
+                              print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-user-delete-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserDeleteDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDeleteDialogTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'UserAdministration.kt',main+'UserDeleteDialog.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDeleteDialogTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): exact-name user deletion with frozen review and confirmation'
+          git push origin HEAD:dev

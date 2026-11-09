@@ -1,0 +1,131 @@
+name: Validate and publish readable new assignment rights selection
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-grant-rights-picker.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-group-mesh-grant-rights-picker-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded readable rights selection and unit tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          ui=base/'GroupMeshGrantDialog.kt'
+          for path,sha in {ui:'c5802d664109afdeb121dc74194997a45892cce4',base/'CompactProfileGroups.kt':'6e1dae99efab0b2a880fc7ae2cfde5138e0fbd11'}.items():
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+str(path))
+          s=ui.read_text()
+          anchor='internal fun profileGroupMeshGrantHex'
+          if s.count(anchor)!=1:raise RuntimeError('Missing/nonunique helper anchor')
+          helper='''internal fun profileGroupMeshToggleGrantBit(current:Long,bit:Long,checked:Boolean):Long? {
+              if(current!=0L && !profileGroupMeshInitialGrantRights(current)) return null
+              if(!profileGroupMeshInitialGrantRights(bit) || (bit and (bit-1L))!=0L) return null
+              return if(checked) current or bit else current and bit.inv()
+          }
+          '''
+          s=s.replace(anchor,helper+anchor,1)
+          lines=s.splitlines()
+          fields=[line for line in lines if line.strip().startswith('OutlinedTextField(hex,')]
+          if len(fields)!=1:raise RuntimeError('Missing/nonunique hex field')
+          old=fields[0]
+          picker='''                Text(t("Selección: ","Selection: ")+(rights?.let {deviceGroupRightsLabel(it,es)} ?: if(hex.isBlank()) t("Sin permisos seleccionados","No rights selected") else t("Máscara no válida: corrígela en Avanzado","Invalid mask: correct it in Advanced")),style=MaterialTheme.typography.bodySmall)
+                          Text(t("Las opciones incluyen permisos y restricciones. Marcar una restricción no equivale a conceder el acceso correspondiente. No se añaden dependencias automáticamente.","Options include rights and restrictions. Selecting a restriction does not grant the corresponding access. Dependencies are not added automatically."),style=MaterialTheme.typography.bodySmall)
+                          ProfileDisclosure(t("Seleccionar permisos y restricciones","Select rights and restrictions")) {
+                              for(index in 3..23) {
+                                  val bit=1L shl index
+                                  Row {
+                                      Checkbox(checked=(rights ?: 0L) and bit!=0L,enabled=bound && s.canWrite && (hex.isBlank() || rights!=null),onCheckedChange={checked->
+                                          profileGroupMeshToggleGrantBit(rights ?: 0L,bit,checked)?.let {value->hex=if(value==0L) "" else java.lang.Long.toHexString(value);approved=false;error=false}
+                                      })
+                                      Text(deviceGroupRightsLabel(bit,es),Modifier.weight(1f))
+                                  }
+                              }
+                          }
+                          ProfileDisclosure(t("Avanzado: máscara hexadecimal","Advanced: hexadecimal mask")) {
+          '''+old+'\n                }'
+          s=s.replace(old,picker,1)
+          reviews=[line for line in s.splitlines() if line.strip().startswith('Text(t("Derechos congelados: ')]
+          if len(reviews)!=1:raise RuntimeError('Missing/nonunique frozen rights summary')
+          s=s.replace(reviews[0],reviews[0]+'\n                Text(deviceGroupRightsLabel(review.getLong("meshadmin"),es),style=MaterialTheme.typography.bodySmall)',1)
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/GroupMeshGrantRightsPickerTest.kt')
+          if unit.exists():raise RuntimeError('New test already exists')
+          tests='''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class GroupMeshGrantRightsPickerTest {
+              @Test fun selectingOneBitPreservesOtherSelections() {
+                  assertEquals(8L,profileGroupMeshToggleGrantBit(0,8,true))
+                  assertEquals(264L,profileGroupMeshToggleGrantBit(8,256,true))
+                  assertEquals(256L,profileGroupMeshToggleGrantBit(264,8,false))
+                  assertEquals(0L,profileGroupMeshToggleGrantBit(8,8,false))
+              }
+              @Test fun everyDisplayedBitMatchesTheExistingAllowlist() {
+                  var value=0L
+                  for(index in 3..23) {val bit=1L shl index;assertTrue(profileGroupMeshInitialGrantRights(bit));value=requireNotNull(profileGroupMeshToggleGrantBit(value,bit,true))}
+                  assertEquals(0x00fffff8L,value)
+                  for(index in 3..23) value=requireNotNull(profileGroupMeshToggleGrantBit(value,1L shl index,false))
+                  assertEquals(0L,value)
+                  assertFalse(profileGroupMeshInitialGrantRights(value))
+              }
+              @Test fun protectedUnknownAndMultipleBitsAreRejected() {
+                  for(bit in listOf(0L,1L,2L,4L,264L,0x01000000L,0x80000000L,0xffffffffL,-1L)) assertNull(profileGroupMeshToggleGrantBit(8,bit,true))
+                  assertNull(profileGroupMeshToggleGrantBit(0x80000008L,8,false))
+                  assertNull(profileGroupMeshToggleGrantBit(-1,8,false))
+              }
+              @Test fun readableSummaryUsesExistingLabels() {
+                  assertEquals("Control remoto",deviceGroupRightsLabel(8,true))
+                  assertEquals("Remote control",deviceGroupRightsLabel(8,false))
+                  assertEquals("Control remoto, Solo visualizar",deviceGroupRightsLabel(264,true))
+              }
+          }
+          '''
+          ui.write_text(s)
+          unit.parent.mkdir(parents=True,exist_ok=True);unit.write_text(tests)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-grant-rights-picker-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated readable rights selection
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshGrantDialog.kt app/src/test/java/iecxiv/meshfabric/ui/management/GroupMeshGrantRightsPickerTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add readable rights selection for new group assignments'
+          git push origin HEAD:dev

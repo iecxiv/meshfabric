@@ -1,0 +1,50 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2573-2679 | part 2/2 (may continue a source line)
+
+j, 'resubscribe');
+2635: 
+2636:                             if (deluserid.startsWith('user/')) {
+2637:                                 // Notify user change
+2638:                                 var targets = ['*', 'server-users', user._id, deluser._id];
+2639:                                 var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(deluser), action: 'accountchange', msgid: 78, msgArgs: [deluser.name], msg: 'Device group membership changed: ' + deluser.name, domain: xdomain.id };
+2640:                                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2641:                                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2642:                                 }
+2643:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+2644:                                 parent.parent.DispatchEvent(targets, obj, event);
+2645:                             } else if (deluserid.startsWith('ugrp/')) {
+2646:                                 // Notify user group change
+2647:                                 var targets = ['*', 'server-ugroups', user._id, deluser._id];
+2648:                                 var event = { etype: 'ugrp', username: user.name, ugrpid: deluser._id, name: deluser.name, desc: deluser.desc, action: 'usergroupchange', links: deluser.links, msgid: 79, msgArgs: [deluser.name], msg: 'User group changed: ' + deluser.name, domain: xdomain.id };
+2649:                                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2650:                                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2651:                                 }
+2652:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+2653:                                 parent.parent.DispatchEvent(targets, obj, event);
+2654:                             }
+2655:                         }
+2656:                     }
+2657: 
+2658:                     // Remove user from the mesh
+2659:                     if (mesh.links[command.userid] != null) {
+2660:                         delete mesh.links[command.userid];
+2661:                         db.Set(mesh);
+2662: 
+2663:                         // Notify mesh change
+2664:                         var event;
+2665:                         if (deluser != null) {
+2666:                             event = { etype: 'mesh', username: user.name, userid: deluser.name, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msgid: 83, msgArgs: [deluser.name, mesh.name], msg: 'Removed user ' + deluser.name + ' from device group ' + mesh.name, domain: xdomain.id, invite: mesh.invite };
+2667:                         } else {
+2668:                             event = { etype: 'mesh', username: user.name, userid: (deluserid.split('/')[2]), meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msgid: 83, msgArgs: [(deluserid.split('/')[2]), mesh.name], msg: 'Removed user ' + (deluserid.split('/')[2]) + ' from device group ' + mesh.name, domain: xdomain.id, invite: mesh.invite };
+2669:                         }
+2670:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2671:                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2672:                         }
+2673:                         parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(mesh, [user._id, command.userid]), obj, event);
+2674:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'removemeshuser', responseid: command.responseid, result: 'ok' })); } catch (ex) { } }
+2675:                     } else {
+2676:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'removemeshuser', responseid: command.responseid, result: 'User not in group' })); } catch (ex) { } }
+2677:                     }
+2678:                     break;
+2679:                 }

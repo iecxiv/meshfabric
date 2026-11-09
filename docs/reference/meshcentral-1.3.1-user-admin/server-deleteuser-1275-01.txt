@@ -1,0 +1,62 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1275-1397 | part 1/3 (may continue a source line)
+
+1275:             case 'deleteuser':
+1276:                 {
+1277:                     // Delete a user account
+1278:                     var err = null, delusersplit, deluserid, deluser, deluserdomain;
+1279:                     try {
+1280:                         if ((user.siteadmin & 2) == 0) { err = 'Permission denied'; }
+1281:                         else if (common.validateString(command.userid, 1, 2048) == false) { err = 'Invalid userid'; }
+1282:                         else {
+1283:                             if (command.userid.indexOf('/') < 0) { command.userid = 'user/' + domain.id + '/' + command.userid; }
+1284:                             delusersplit = command.userid.split('/');
+1285:                             deluserid = command.userid;
+1286:                             deluser = parent.users[deluserid];
+1287:                             if (deluser == null) { err = 'User does not exists'; }
+1288:                             else if ((obj.crossDomain !== true) && ((delusersplit.length != 3) || (delusersplit[1] != domain.id))) { err = 'Invalid domain'; } // Invalid domain, operation only valid for current domain
+1289:                             else if ((deluser.siteadmin === SITERIGHT_ADMIN) && (user.siteadmin != SITERIGHT_ADMIN)) { err = 'Permission denied'; } // Need full admin to remote another administrator
+1290:                             else if ((obj.crossDomain !== true) && (user.groups != null) && (user.groups.length > 0) && ((deluser.groups == null) || (findOne(deluser.groups, user.groups) == false))) { err = 'Invalid user group'; } // Can only perform this operation on other users of our group.
+1291:                         }
+1292:                     } catch (ex) { err = 'Validation exception: ' + ex; }
+1293: 
+1294:                     // Get domain
+1295:                     deluserdomain = domain;
+1296:                     if (obj.crossDomain === true) { deluserdomain = parent.parent.config.domains[delusersplit[1]]; }
+1297:                     if (deluserdomain == null) { err = 'Invalid domain'; }
+1298: 
+1299:                     // Handle any errors
+1300:                     if (err != null) {
+1301:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'deleteuser', responseid: command.responseid, result: err })); } catch (ex) { } }
+1302:                         break;
+1303:                     }
+1304: 
+1305:                     // Remove all links to this user
+1306:                     if (deluser.links != null) {
+1307:                         for (var i in deluser.links) {
+1308:                             if (i.startsWith('mesh/')) {
+1309:                                 // Get the device group
+1310:                                 mesh = parent.meshes[i];
+1311:                                 if (mesh) {
+1312:                                     // Remove user from the mesh
+1313:                                     if (mesh.links[deluser._id] != null) { delete mesh.links[deluser._id]; parent.db.Set(mesh); }
+1314: 
+1315:                                     // Notify mesh change
+1316:                                     change = 'Removed user ' + deluser.name + ' from device group ' + mesh.name;
+1317:                                     var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msgid: 72, msgArgs: [deluser.name, mesh.name], msg: change, domain: deluserdomain.id, invite: mesh.invite };
+1318:                                     if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1319:                                         event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1320:                                     }
+1321:                                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+1322:                                     parent.parent.DispatchEvent(parent.CreateMeshDispatchTargets(mesh, [deluser._id, user._id]), obj, event);
+1323:                                 }
+1324:                             } else if (i.startsWith('node/')) {
+1325:                                 // Get the node and the rights for this node
+1326:                                 parent.GetNodeWithRights(deluserdomain, deluser, i, function (node, rights, visible) {
+1327:                                     if ((node == null) || (node.links == null) || (node.links[deluser._id] == null)) return;
+1328: 
+1329:                                     // Remove the link and save the node to the database
+1330:                                     delete node.links[deluser._id];
+1331:                                     if (Object.keys(node.links).length == 0) { delete node.links; }
+1332:                                     db.Set(parent.cle

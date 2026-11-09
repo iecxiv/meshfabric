@@ -1,0 +1,182 @@
+name: Validate uniform connection spacing
+on:
+  push:
+    branches: [work/compact-management-on-fixed-dev]
+    paths: [.github/workflows/publish-unified-connection-spacing.yml]
+permissions:
+  contents: write
+concurrency:
+  group: unified-connection-spacing
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate uniform header and content spacing
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 296c63bab3f4503cf12b91a2d683ed4a5fe22fcd
+          python3 - <<'PY'
+          from pathlib import Path
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          def change(s,a,b):
+              assert s.count(a)==1,a
+              return s.replace(a,b,1)
+          for name in ['ProfileScreen.kt','UserGroupsDirectoryPane.kt']:
+              p=root/name;s=p.read_text()
+              s=change(s,'contentPadding=PaddingValues(16.dp)','contentPadding=managementConnectionContentPadding')
+              p.write_text(s)
+          p=root/'MyServerScreen.kt';s=p.read_text()
+          header='            ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,onReconnect={retry++})\n'
+          s=change(s,header,'')
+          anchor='        ServerSectionTabs(tab) { tab=it }\n'
+          s=change(s,anchor,anchor+'        ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,modifier=Modifier.padding(horizontal=16.dp),onReconnect={retry++})\n')
+          s=change(s,'Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {','Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {')
+          p.write_text(s)
+          p=root/'NativeAccount.kt';s=p.read_text()
+          prefix=s.split('@Composable internal fun NativeAccountPane(')[0]
+          row='ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",onReconnect=wire::start)'
+          old='Column(modifier.verticalScroll(rememberScrollState()).padding(horizontal=16.dp).padding(bottom=16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {\n'+row
+          new='Column(modifier) {\n'+row.replace('onReconnect=wire::start','modifier=Modifier.padding(horizontal=16.dp),onReconnect=wire::start')+'\nColumn(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {'
+          s=change(s,old,new)
+          s=change(s,'\n}\nmode?.let { selected->key(selected) {','\n}\n}\nmode?.let { selected->key(selected) {')
+          assert s.split('@Composable internal fun NativeAccountPane(')[0]==prefix
+          p.write_text(s)
+          p=root/'ManagementConnectionSpacing.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.PaddingValues
+          import androidx.compose.ui.unit.dp
+          internal val managementConnectionContentPadding=PaddingValues(start=16.dp,top=4.dp,end=16.dp,bottom=16.dp)
+          ''')
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ManagementConnectionSpacingTest.kt');assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalDensity
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.compose.ui.unit.Density
+          import androidx.compose.ui.unit.dp
+          import org.junit.Assert.assertEquals
+          import org.junit.Rule
+          import org.junit.Test
+          class ManagementConnectionSpacingTest {
+              @get:Rule val compose=createComposeRule()
+              private fun verify(scale:Float) {
+                  val ready=mutableStateOf(true);var density=1f
+                  compose.setContent {
+                      val original=LocalDensity.current
+                      density=original.density
+                      CompositionLocalProvider(LocalDensity provides Density(original.density,scale)) {MaterialTheme {
+                          Column(Modifier.width(240.dp).testTag("section-root")) {
+                              ManagementConnectionStatus(ready.value,false,modifier=Modifier.padding(horizontal=16.dp),onReconnect={})
+                              Column(Modifier.padding(managementConnectionContentPadding)) {Box(Modifier.fillMaxWidth().height(24.dp).testTag("first-content"))}
+                          }
+                      }}
+                  }
+                  fun verifyBounds():Float {
+                      val root=compose.onNodeWithTag("section-root").fetchSemanticsNode().boundsInRoot
+                      val row=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
+                      val content=compose.onNodeWithTag("first-content").fetchSemanticsNode().boundsInRoot
+                      assertEquals(root.top,row.top,0.5f)
+                      assertEquals(4f*density,content.top-row.bottom,0.5f)
+                      assertEquals(16f*density,content.left-root.left,0.5f)
+                      return content.top
+                  }
+                  val before=verifyBounds()
+                  compose.runOnIdle {ready.value=false}
+                  compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp)
+                  assertEquals(before,verifyBounds(),0.5f)
+              }
+              @Test fun compactOuterGapsStayStable()=verify(1f)
+              @Test fun largeTextPreservesGapAndReconnectTarget()=verify(1.8f)
+          }
+          ''')
+          for name in ['ProfileScreen.kt','UserGroupsDirectoryPane.kt','MyServerScreen.kt','NativeAccount.kt']:
+              assert (root/name).read_text().count('managementConnectionContentPadding')==1,name
+          PY
+          git diff --check
+      - name: Install SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute unit tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify evidence and print precise failures
+        if: always()
+        run: |
+          mkdir -p validation
+          git diff > validation/spacing.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          cases=[];failures=[];skipped=[]
+          for report in Path('app/build/outputs/androidTest-results').rglob('*.xml'):
+              for case in ET.parse(report).getroot().iter('testcase'):
+                  name=case.get('classname','')+'.'+case.get('name','');cases.append(name)
+                  if case.find('skipped') is not None: skipped.append(name)
+                  for kind in ['failure','error']:
+                      for err in case.findall(kind): failures.append(name+'\n'+err.get('message','')+'\n'+(err.text or ''))
+          required={'ManagementConnectionSpacingTest','ManagementConnectionStatusTest','ProfileManagementConnectionStatusTest','UserMeshAssignmentReviewTest','UserMeshEditDialogTest','TerminalFocusWebViewTest','TerminalKeyBarTest'}
+          missing=required-{name.rsplit('.',2)[-2] for name in cases}
+          text=f'Cases: {len(cases)}; failures: {len(failures)}; skipped: {len(skipped)}; missing: {sorted(missing)}\n'+'\n\n'.join(failures)
+          Path('validation/results.txt').write_text(text);print(text)
+          assert cases and not failures and not skipped and not missing
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unified-connection-spacing-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only to unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/compact-management-on-fixed-dev
+          git fetch origin work/compact-management-on-fixed-dev dev
+          test "$(git rev-parse origin/work/compact-management-on-fixed-dev)" = "${{ github.sha }}"
+          test "$(git rev-parse origin/dev)" = c32e62e5843c5aba93a55d34ffdfccaee3d4d1af
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+n for n in ['ProfileScreen.kt','UserGroupsDirectoryPane.kt','MyServerScreen.kt','NativeAccount.kt','ManagementConnectionSpacing.kt']}
+          expected.add('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ManagementConnectionSpacingTest.kt')
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): uniform connection header gaps across management and server tabs'
+          git push origin HEAD:work/compact-management-on-fixed-dev

@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 6189-6487 | part 5/5 (may continue a source line)
+
+in = newuserdomain.newaccountsrights; }
+6438:                 if (command.email != null) { newuser.email = command.email.toLowerCase(); if (command.emailVerified === true) { newuser.emailVerified = true; } } // Email
+6439:                 if (command.resetNextLogin === true) { newuser.passchange = -1; } else { newuser.passchange = Math.floor(Date.now() / 1000); }
+6440:                 if (user.groups) { newuser.groups = user.groups; } // New accounts are automatically part of our groups (Realms).
+6441:                 if (common.validateString(command.realname, 1, 256)) { newuser.realname = command.realname; }
+6442:                 if ((command.consent != null) && (typeof command.consent == 'number')) { if (command.consent == 0) { delete chguser.consent; } else { newuser.consent = command.consent; } change = 1; }
+6443:                 if ((command.phone != null) && (typeof command.phone == 'string') && ((command.phone == '') || isPhoneNumber(command.phone))) { if (command.phone == '') { delete newuser.phone; } else { newuser.phone = command.phone; } change = 1; }
+6444: 
+6445:                 // Auto-join any user groups
+6446:                 if (typeof newuserdomain.newaccountsusergroups == 'object') {
+6447:                     for (var i in newuserdomain.newaccountsusergroups) {
+6448:                         var ugrpid = newuserdomain.newaccountsusergroups[i];
+6449:                         if (ugrpid.indexOf('/') < 0) { ugrpid = 'ugrp/' + newuserdomain.id + '/' + ugrpid; }
+6450:                         var ugroup = parent.userGroups[ugrpid];
+6451:                         if (ugroup != null) {
+6452:                             // Add group to the user
+6453:                             if (newuser.links == null) { newuser.links = {}; }
+6454:                             newuser.links[ugroup._id] = { rights: 1 };
+6455: 
+6456:                             // Add user to the group
+6457:                             ugroup.links[newuser._id] = { userid: newuser._id, name: newuser.name, rights: 1 };
+6458:                             db.Set(ugroup);
+6459: 
+6460:                             // Notify user group change
+6461:                             var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: ugroup._id, name: ugroup.name, desc: ugroup.desc, action: 'usergroupchange', links: ugroup.links, msgid: 80, msgArgs: [newuser.name, ugroup.name], msg: 'Added user ' + newuser.name + ' to user group ' + ugroup.name, addUserDomain: newuserdomain.id };
+6462:                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+6463:                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+6464:                             }
+6465:                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+6466:                             parent.parent.DispatchEvent(['*', ugroup._id, user._id, newuser._id], obj, event);
+6467:                         }
+6468:                     }
+6469:                 }
+6470: 
+6471:                 parent.users[newuserid] = newuser;
+6472: 
+6473:                 // Create a user, generate a salt and hash the password
+6474:                 require('./pass').hash(command.pass, function (err, salt, hash, tag) {
+6475:                     if (err == null) {
+6476:                         newuser.salt = salt;
+6477:                         newuser.hash = hash;
+6478:                         db.SetUser(newuser);
+6479: 
+6480:                         var event, targets = ['*', 'server-users'];
+6481:                         if (newuser.groups) { for (var i in newuser.groups) { targets.push('server-users:' + i); } }
+6482:                         if (command.email == null) {
+6483:                             event = { etype: 'user', userid: newuser._id, username: newusername, account: parent.CloneSafeUser(newuser), action: 'accountcreate', msgid: 64, msgArgs: [command.username], msg: 'Account created, username is ' + command.username, domain: newuserdomain.id };
+6484:                         } else {
+6485:                             event = { etype: 'user', userid: newuser._id, username: newusername, account: parent.CloneSafeUser(newuser), action: 'accountcreate', msgid: 65, msgArgs: [command.email.toLowerCase()], msg: 'Account created, email is ' + command.email.toLowerCase(), domain: newuserdomain.id };
+6486:                         }
+6487:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {

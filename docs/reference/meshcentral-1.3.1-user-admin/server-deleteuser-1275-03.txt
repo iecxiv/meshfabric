@@ -1,0 +1,14 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1275-1397 | part 3/3 (may continue a source line)
+
+ domain: deluserdomain.id });
+1389:                     parent.parent.DispatchEvent([deluserid], obj, 'close');
+1390: 
+1391:                     if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'deleteuser', responseid: command.responseid, result: 'ok' })); } catch (ex) { } }
+1392: 
+1393:                     // Log in the auth log
+1394:                     if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' deleted user account ' + deluser.name); }
+1395: 
+1396:                     break;
+1397:                 }

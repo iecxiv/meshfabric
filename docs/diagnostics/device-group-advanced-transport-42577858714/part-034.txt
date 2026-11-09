@@ -1,0 +1,46 @@
+ing pair HTTP connection
+4627: 11-09 07:19:22.000  1344  1696 I putmethod.latin: IncrementDisableThreadFlip blocked for 12.314ms
+4628: 11-09 07:19:22.027  1531  2629 I A       : [Upload] Connected
+4629: 11-09 07:19:22.037  1414  1682 E SP.Service.AiAi: captions_i18n_v0_mandatory is opened by other clients. It will stay open until all clients close it.
+4630: 11-09 07:19:22.037  1414  1682 E SP.Service.AiAi: captions_i18n_v0_mandatory is opened by other clients. It will stay open until all clients close it.
+4631: 11-09 07:19:22.037  1414  1682 I SP.Service.AiAi: UnspecifiedLegacyClient is already not in the set of current clients for captions_i18n_v0_mandatory
+4632: 11-09 07:19:22.060  1531  2629 I NetworkRecognitionRnr: Using pair HTTP connection
+4633: 11-09 07:19:22.072  1531  2626 I A       : [Upload] Connected
+4634: 11-09 07:19:22.073  1414  2051 I AiAiCaptions: ComponentsManagerImpl::update()
+4635: 11-09 07:19:22.073  1414  2051 I AiAiCaptions: updateBasicComponents::updateBasicComponents()
+4636: 11-09 07:19:22.080  1414  2051 I AiAiCaptions: Would enable com.google.android.apps.miphone.aiai.captions.settingsui.settingsactivity.CaptionsSettingsActivity but already enabled
+4655: 11-09 07:19:22.100  1531  1531 E A       : 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+4656: 11-09 07:19:22.100  1531  1531 E A       : 	at java.lang.Thread.run(Thread.java:1012)
+4657: 11-09 07:19:22.100  1531  1531 E A       : 	at com.google.android.apps.gsa.shared.util.c.a.l.run(PG:42)
+4658: 11-09 07:19:22.100  1531  1531 E A       : Caused by: com.google.android.apps.gsa.shared.speech.b.n: errorCode: 65586, engine: 2
+4659: 11-09 07:19:22.100  1531  1531 E A       : 	at com.google.android.apps.gsa.s3.o.hi(PG:6)
+4660: 11-09 07:19:22.100  1531  1531 E A       : 	... 14 more
+4661: 11-09 07:19:22.100  1531  1531 E A       : Caused by: com.google.android.apps.gsa.shared.speech.b.j: errorCode: 401, engine: 2
+4662: 11-09 07:19:22.100  1531  1531 E A       : 	at com.google.android.apps.gsa.assistant.shared.n.i.b(PG:30)
+4663: 11-09 07:19:22.100  1531  1531 E A       : 	at com.google.android.apps.gsa.s3.producers.j.hs(PG:11)
+4664: 11-09 07:19:22.100  1531  1531 E A       : 	at com.google.android.apps.gsa.speech.k.a.g.d(PG:135)
+4665: 11-09 07:19:22.100  1531  1531 E A       : 	... 12 more
+4666: 11-09 07:19:22.103  1531  1531 W A       : Failed to sync device settings.
+4667: 11-09 07:19:22.103  1531  1531 I A       : Retrying to sync device settings.
+4668: 11-09 07:19:22.116  1531  1531 W JobInfo : Job 'com.google.android.googlequicksearchbox/com.google.android.apps.gsa.tasks.BackgroundTasksJobService#-353' has a deadline with functional constraints and an extremely short time window of 0 ms (delay=60000, deadline=60000). The functional constraints are not likely to be satisfied when the job runs.
+4669: 11-09 07:19:22.116   561  1941 W JobInfo : Job 'com.google.android.googlequicksearchbox/com.google.android.apps.gsa.tasks.BackgroundTasksJobService#-353' has a deadline with functional constraints and an extremely short time window of 0 ms (delay=60000, deadline=60000). The functional constraints are not likely to be satisfied when the job runs.
+4670: 11-09 07:19:22.118   561  1941 W JobInfo : Job 'com.google.android.googlequicksearchbox/com.google.android.apps.gsa.tasks.BackgroundTasksJobService#-353' has a deadline with functional constraints and an extremely short time window of 0 ms (delay=60000, deadline=60000). The functional constraints are not likely to be satisfied when the job runs.
+4671: 11-09 07:19:22.140  2162  4111 W ComposerEventProcessor: callback.start() returned error code: -1
+4672: 11-09 07:19:22.140  2162  4111 E LocalSynthesizer: synthesizeWithoutLoadingVoice() failed
+4673: 11-09 07:19:22.143  2162  2162 W gle.android.tts: Long monitor contention with owner SynthThread (4111) at int bux.e(btz, bup, but, byz, buw)(PG:108) waiters=0 in void bux.a() for 320ms
+4674: 11-09 07:19:22.152  1414  2051 I AiAiCaptions: initialize(): bound to superpacks service.
+4675: 11-09 07:19:22.155  2162  4111 I GoogleTTSServiceImpl: Skipping Synthesiscallback.error() call for TextToSpeech.ERROR
+4676: 11-09 07:19:22.201  1414  2051 I AiAiCaptions: Would enable com.google.android.apps.miphone.aiai.captions.CaptionsForegroundService but already enabled
+4677: 11-09 07:19:22.202  1414  2051 I AiAiCaptions: initialize(): bound to superpacks service.
+4678: 11-09 07:19:22.225  1414  2051 I AiAiCaptions: shouldEnableCaptionsForCalls: isCallCaptioningEnabled is true
+4679: 11-09 07:19:22.226  1414  2051 I AiAiCaptions: Would enable com.google.android.apps.miphone.aiai.captions.tulip.audiosource.impl.CIS but already enabled
+4680: 11-09 07:19:22.231  1546  1546 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.pay.service.BIND dat=chimera-action:/... cmp=com.google.android.gms/.chimera.GmsApiService }
+4681: 11-09 07:19:22.233  1414  2051 I AiAiCaptions: initialize(): bound to superpacks service.
+4901: 11-09 07:19:23.757  1546  4172 I GmsSyncPolicyEngine: Periodic sync 2 disabled by policy, cancelled.
+4902: 11-09 07:19:23.758  1546  4172 I GmsSyncPolicyEngine: Periodic sync 3 disabled by policy, cancelled.
+4903: 11-09 07:19:23.780  1546  4124 W PeoplePU: getServiceInfo failed.
+4904: 11-09 07:19:23.780  1546  4124 W PeoplePU: android.content.pm.PackageManager$NameNotFoundException: ComponentInfo{com.google.android.gms/com.google.android.gms.people.sync.focus.ContactsSyncAdapterService}
+4905: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at android.app.ApplicationPackageManager.getServiceInfo(ApplicationPackageManager.java:633)
+4906: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at android.app.ApplicationPackageManager.getServiceInfo(ApplicationPackageManager.java:616)
+4907: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at cywf.a(:com.google.android.gms@242335041@24.23.35 (190800-646585959):34)
+4908: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at cyoi.a(:com.google.android.gms@242335041@24.23

@@ -1,0 +1,211 @@
+name: Validate and publish global dialog appearance
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-global-dialog-appearance.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-global-dialog-appearance-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Inventory and normalize all supported application dialogs
+        run: |
+          python3 - <<'PY'
+          helper_source = 'package iecxiv.meshfabric.ui.components\n\nimport androidx.compose.foundation.BorderStroke\nimport androidx.compose.foundation.border\nimport androidx.compose.foundation.layout.ColumnScope\nimport androidx.compose.foundation.shape.RoundedCornerShape\nimport androidx.compose.material3.*\nimport androidx.compose.runtime.*\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.graphics.Shape\nimport androidx.compose.ui.unit.Dp\nimport androidx.compose.ui.unit.dp\nimport androidx.compose.ui.window.DialogProperties\n\ninternal fun appDialogBackground(scheme:ColorScheme):Color=scheme.surfaceColorAtElevation(6.dp)\ninternal object AppDialogAppearance {\n    val cornerRadius=16.dp\n    val borderWidth=1.dp\n    val shape:Shape=RoundedCornerShape(cornerRadius)\n    val tonalElevation=0.dp\n    @Composable fun containerColor():Color=appDialogBackground(MaterialTheme.colorScheme)\n    @Composable fun contentColor():Color=MaterialTheme.colorScheme.onSurface\n    @Composable fun border():BorderStroke=BorderStroke(borderWidth,MaterialTheme.colorScheme.outlineVariant)\n    @Composable fun cardColors():CardColors=CardDefaults.cardColors(\n        containerColor=containerColor(),contentColor=contentColor(),\n        disabledContainerColor=containerColor(),disabledContentColor=contentColor())\n}\n@Composable internal fun AppAlertDialog(\n    onDismissRequest:()->Unit,confirmButton:@Composable ()->Unit,modifier:Modifier=Modifier,\n    dismissButton:(@Composable ()->Unit)?=null,icon:(@Composable ()->Unit)?=null,\n    title:(@Composable ()->Unit)?=null,text:(@Composable ()->Unit)?=null,\n    shape:Shape=AppDialogAppearance.shape,containerColor:Color=AppDialogAppearance.containerColor(),\n    iconContentColor:Color=MaterialTheme.colorScheme.primary,titleContentColor:Color=MaterialTheme.colorScheme.onSurface,\n    textContentColor:Color=MaterialTheme.colorScheme.onSurfaceVariant,tonalElevation:Dp=AppDialogAppearance.tonalElevation,\n    properties:DialogProperties=DialogProperties()\n) {\n    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {\n        AlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,\n            modifier=modifier.border(AppDialogAppearance.border(),shape),dismissButton=dismissButton,icon=icon,\n            title=title,text=text,shape=shape,containerColor=containerColor,iconContentColor=iconContentColor,\n            titleContentColor=titleContentColor,textContentColor=textContentColor,tonalElevation=tonalElevation,properties=properties)\n    }\n}\n@Composable internal fun AppDialogSurface(\n    modifier:Modifier=Modifier,shape:Shape=AppDialogAppearance.shape,color:Color=AppDialogAppearance.containerColor(),\n    contentColor:Color=MaterialTheme.colorScheme.onSurface,tonalElevation:Dp=AppDialogAppearance.tonalElevation,\n    shadowElevation:Dp=0.dp,border:BorderStroke?=AppDialogAppearance.border(),content:@Composable ()->Unit\n) {\n    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {\n        Surface(modifier=modifier,shape=shape,color=color,contentColor=contentColor,tonalElevation=tonalElevation,\n            shadowElevation=shadowElevation,border=border,content=content)\n    }\n}\n@Composable internal fun AppDialogCard(\n    modifier:Modifier=Modifier,shape:Shape=AppDialogAppearance.shape,colors:CardColors=AppDialogAppearance.cardColors(),\n    elevation:CardElevation=CardDefaults.cardElevation(),border:BorderStroke?=AppDialogAppearance.border(),\n    content:@Composable ColumnScope.()->Unit\n) {\n    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {\n        Card(modifier=modifier,shape=shape,colors=colors,elevation=elevation,border=border,content=content)\n    }\n}\n'
+          test_source = 'package iecxiv.meshfabric.ui.components\n\nimport androidx.compose.material3.darkColorScheme\nimport androidx.compose.material3.lightColorScheme\nimport androidx.compose.material3.surfaceColorAtElevation\nimport androidx.compose.ui.unit.dp\nimport org.junit.Assert.*\nimport org.junit.Test\n\nclass DialogAppearancePolicyTest {\n    @Test fun outlineAndCornersAreShared() {\n        assertEquals(1.dp,AppDialogAppearance.borderWidth)\n        assertEquals(16.dp,AppDialogAppearance.cornerRadius)\n    }\n    @Test fun noAdditionalTonalOverlayIsApplied() { assertEquals(0.dp,AppDialogAppearance.tonalElevation) }\n    @Test fun lightThemeUsesSharedBackground() {\n        val scheme=lightColorScheme()\n        assertEquals(scheme.surfaceColorAtElevation(6.dp),appDialogBackground(scheme))\n    }\n    @Test fun darkThemeUsesSharedBackground() {\n        val scheme=darkColorScheme()\n        assertEquals(scheme.surfaceColorAtElevation(6.dp),appDialogBackground(scheme))\n    }\n}\n'
+          import re,json,subprocess
+          from pathlib import Path
+          BASE='535d3d76027fabecace696f9dc35f8fa49c06631'
+          PREFIX='iecxiv.meshfabric.ui.components.'
+          STYLE=PREFIX+'AppDialogAppearance'
+          MAPS={'alert':{'shape':STYLE+'.shape','containerColor':STYLE+'.containerColor()','tonalElevation':STYLE+'.tonalElevation'},'surface':{'shape':STYLE+'.shape','color':STYLE+'.containerColor()','contentColor':STYLE+'.contentColor()','tonalElevation':STYLE+'.tonalElevation','border':STYLE+'.border()'},'card':{'shape':STYLE+'.shape','colors':STYLE+'.cardColors()','border':STYLE+'.border()'}}
+          POSITIONS={'alert':{7:'shape',8:'containerColor',12:'tonalElevation'},'surface':{1:'shape',2:'color',3:'contentColor',4:'tonalElevation',6:'border'},'card':{1:'shape',2:'colors',4:'border'}}
+          def mask(text):
+              out=list(text); i=0; n=len(text)
+              def blank(a,b):
+                  for p in range(a,b):
+                      if out[p]!=chr(10): out[p]=' '
+              while i<n:
+                  if text.startswith('//',i):
+                      end=text.find(chr(10),i)
+                      if end<0: end=n
+                      blank(i,end); i=end
+                  elif text.startswith('/*',i):
+                      start=i; i+=2; depth=1
+                      while i<n and depth:
+                          if text.startswith('/*',i): depth+=1; i+=2
+                          elif text.startswith('*/',i): depth-=1; i+=2
+                          else: i+=1
+                      if depth: raise ValueError('Unclosed comment')
+                      blank(start,i)
+                  elif text.startswith(chr(34)*3,i):
+                      end=text.find(chr(34)*3,i+3)
+                      if end<0: raise ValueError('Unclosed raw string')
+                      end+=3; blank(i,end); i=end
+                  elif text[i] in (chr(34),chr(39)):
+                      start=i; quote=text[i]; i+=1
+                      while i<n:
+                          if text[i]==chr(92): i+=2
+                          elif text[i]==quote: i+=1; break
+                          else: i+=1
+                      else: raise ValueError('Unclosed quoted value')
+                      blank(start,min(i,n))
+                  else: i+=1
+              return ''.join(out)
+          def close(code,start):
+              pairs={'(':')','{':'}','[':']'}; stack=[pairs[code[start]]]
+              for i in range(start+1,len(code)):
+                  ch=code[i]
+                  if ch in pairs: stack.append(pairs[ch])
+                  elif ch in ')}]':
+                      if not stack or ch!=stack.pop(): raise ValueError('Mismatched delimiters')
+                      if not stack: return i
+              raise ValueError('Unclosed delimiter')
+          def parts(text):
+              code=mask(text); spans=[]; start=0; i=0
+              while i<len(code):
+                  if code[i] in '({[': i=close(code,i)+1; continue
+                  if code[i] in '<>': raise ValueError('Top-level generic/comparison requires review')
+                  if code[i]==',': spans.append((start,i)); start=i+1
+                  i+=1
+              return spans+[(start,len(text))]
+          def args(text,kind,bridge=False):
+              if bridge: return text
+              result=[]
+              for index,(a,b) in enumerate(parts(text)):
+                  part=text[a:b]; named=re.match(r'\s*(\w+)\s*=(?!=)',mask(part))
+                  name=named.group(1) if named else POSITIONS[kind].get(index)
+                  if named and name=='onClick': raise ValueError('Clickable root requires review')
+                  if name in MAPS[kind]: result.append((part[:named.start(1)]+name+' = ' if named else '')+MAPS[kind][name])
+                  else: result.append(part)
+              return ','.join(result)
+          def pattern(names):
+              return re.compile(r'(?<![\w.])(?P<name>'+'|'.join(re.escape(x) for x in sorted(set(names),key=len,reverse=True))+r')\s*\(')
+          def aliases(text,qualified,default):
+              names=[qualified,default]
+              names.extend(x.group(1) for x in re.finditer(r'^\s*import\s+'+re.escape(qualified)+r'\s+as\s+(\w+)\s*$',text,re.M))
+              return names
+          def rewrite(text,path):
+              report=[]; code=mask(text)
+              if re.search(r'\b(?:MaterialAlertDialogBuilder|DatePickerDialog|TimePickerDialog)\s*\(|\bAlertDialog\s*\.\s*Builder\s*\(',code): raise ValueError('Native/specialised dialog requires review')
+              if re.search(r'^\s*import\s+androidx\.compose\.material\.AlertDialog\b',text,re.M): raise ValueError('Material2 dialog requires review')
+              for imported in re.finditer(r'^\s*import\s+(?:android\.app|androidx\.appcompat\.app)\.AlertDialog(?:\s+as\s+(\w+))?',text,re.M):
+                  name=imported.group(1) or 'AlertDialog'
+                  if re.search(r'\b'+re.escape(name)+r'\s*\.\s*Builder\s*\(',code): raise ValueError('Native dialog alias requires review')
+              names=aliases(text,'androidx.compose.material3.AlertDialog','AlertDialog')
+              for match in reversed(list(pattern(names).finditer(code))):
+                  if re.search(r'\bfun\s*$',code[max(0,match.start()-20):match.start()]): raise ValueError('Local AlertDialog declaration')
+                  fresh=mask(text); opening=match.end()-1; ending=close(fresh,opening)
+                  values=args(text[opening+1:ending],'alert',path.endswith('/management/AccountUiComponents.kt'))
+                  text=text[:match.start()]+PREFIX+'AppAlertDialog('+values+')'+text[ending+1:]
+                  report.append({'kind':'alert','line':code.count(chr(10),0,match.start())+1})
+              names=aliases(text,'androidx.compose.ui.window.Dialog','Dialog')+aliases(text,'androidx.compose.material3.BasicAlertDialog','BasicAlertDialog')
+              for match in reversed(list(pattern(names).finditer(mask(text)))):
+                  fresh=mask(text); opening=match.end()-1; ending=close(fresh,opening); body=ending+1
+                  while body<len(fresh) and fresh[body].isspace(): body+=1
+                  if body>=len(fresh) or fresh[body]!='{':
+                      body=None; values=text[opening+1:ending]
+                      for a,b in parts(values):
+                          named=re.match(r'\s*content\s*=(?!=)',mask(values[a:b]))
+                          if named: body=fresh.find('{',opening+1+a+named.end(),opening+1+b); break
+                      if body is None or body<0: raise ValueError('Dialog content is not inline')
+                  first=body+1
+                  while first<len(fresh) and fresh[first].isspace(): first+=1
+                  root=re.match(r'(?P<name>(?:androidx\.compose\.material3\.)?(?:Surface|Card|OutlinedCard|ElevatedCard))\s*\(',fresh[first:])
+                  if root is None: raise ValueError('Custom root is not a supported Surface/Card')
+                  start=first+root.end()-1; end=close(fresh,start)
+                  kind='surface' if root.group('name').endswith('Surface') else 'card'
+                  values=args(text[start+1:end],kind)
+                  target='AppDialogSurface' if kind=='surface' else 'AppDialogCard'
+                  text=text[:first]+PREFIX+target+'('+values+')'+text[end+1:]
+                  report.append({'kind':kind,'line':fresh.count(chr(10),0,match.start())+1})
+              return text,report
+          def bridge_defaults(text):
+              changes={'shape:Shape=RoundedCornerShape(16.dp),containerColor:Color=MaterialTheme.colorScheme.surface,':'shape:Shape='+STYLE+'.shape,containerColor:Color='+STYLE+'.containerColor(),','tonalElevation:Dp=6.dp':'tonalElevation:Dp='+STYLE+'.tonalElevation','modifier=modifier.border(BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),shape)':'modifier=modifier'}
+              for old,new in changes.items():
+                  if text.count(old)!=1: raise ValueError('Management bridge changed: '+old)
+                  text=text.replace(old,new,1)
+              return text
+
+          if subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()!=BASE:
+              raise RuntimeError('Source base changed; review required')
+          helper_path=Path('app/src/main/java/iecxiv/meshfabric/ui/components/AppDialogAppearance.kt')
+          test_path=Path('app/src/test/java/iecxiv/meshfabric/ui/components/DialogAppearancePolicyTest.kt')
+          audit_path=Path('docs/ui/dialog-style-audit.json')
+          for path in [helper_path,test_path,audit_path]:
+              if path.exists(): raise RuntimeError('New file already exists: '+str(path))
+          updates={}; inventory=[]; unsupported=[]
+          for path in sorted(Path('app/src/main').rglob('*.kt')):
+              original=path.read_text(); text=original
+              try:
+                  if path.as_posix().endswith('/management/AccountUiComponents.kt'):text=bridge_defaults(text)
+                  text,entries=rewrite(text,path.as_posix())
+                  if entries:inventory.append({'file':path.as_posix(),'containers':entries})
+                  if text!=original:updates[path]=text
+              except ValueError as error:unsupported.append({'file':path.as_posix(),'reason':str(error)})
+          for path in sorted(Path('app/src/main').rglob('*.java')):
+              if re.search(r'\b(?:AlertDialog|DialogFragment|DatePickerDialog|TimePickerDialog)\b',mask(path.read_text())):
+                  unsupported.append({'file':path.as_posix(),'reason':'Java dialog requires review'})
+          report={'base_commit':BASE,'style':{'border_dp':1,'corners_dp':16,'background':'surfaceColorAtElevation(6.dp)','additional_tonal_elevation_dp':0},'inventory':inventory,'unsupported':unsupported,'changed_files':[p.as_posix() for p in updates]+[helper_path.as_posix(),test_path.as_posix(),audit_path.as_posix()]}
+          audit_path.parent.mkdir(parents=True,exist_ok=True)
+          audit_path.write_text(json.dumps(report,indent=2,ensure_ascii=False))
+          if unsupported:raise RuntimeError('Unsupported dialog sites found; no application sources written; see audit')
+          if not inventory:raise RuntimeError('No dialogs found; refusing to claim coverage')
+          updates[helper_path]=helper_source
+          updates[test_path]=test_source
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Upload audit, reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: global-dialog-appearance-${{ github.run_id }}
+          path: |
+            docs/ui/dialog-style-audit.json
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated appearance and audit
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          python3 - <<'PY'
+          import json,subprocess
+          allowed=json.load(open('docs/ui/dialog-style-audit.json'))['changed_files']
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          changed.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed-set(allowed):raise RuntimeError('Unexpected files changed; refusing to publish')
+          subprocess.check_call(['git','add','--',*allowed])
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): unify application dialog outlines and themed backgrounds'
+          git push origin HEAD:dev

@@ -1,0 +1,41 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 1443-1593 | part 3/3 (may continue a source line)
+
+                                    }
+1558:                                 }
+1559:                                 groups2.sort();
+1560: 
+1561:                                 // Set the user groups (Realms)
+1562:                                 if (chguser.groups != groups2) { chguser.groups = groups2; change = 1; }
+1563: 
+1564:                                 // Add any missing groups in the target list
+1565:                                 if (allTargetGroups == null) { allTargetGroups = []; }
+1566:                                 for (var i in groups2) { if (allTargetGroups.indexOf(i) == -1) { allTargetGroups.push(i); } }
+1567:                             }
+1568:                         }
+1569: 
+1570:                         if (change == 1) {
+1571:                             // Update the user
+1572:                             db.SetUser(chguser);
+1573:                             parent.parent.DispatchEvent([chguser._id], obj, 'resubscribe');
+1574: 
+1575:                             var targets = ['*', 'server-users', user._id, chguser._id];
+1576:                             if (allTargetGroups) { for (var i in allTargetGroups) { targets.push('server-users:' + i); } }
+1577:                             var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(chguser), action: 'accountchange', msgid: 66, msgArgs: [chguser.name], msg: 'Account changed: ' + chguser.name, domain: edituserdomain.id };
+1578:                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1579:                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1580:                             }
+1581:                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+1582:                             parent.parent.DispatchEvent(targets, obj, event);
+1583:                         }
+1584:                         if ((chguser.siteadmin) && (chguser.siteadmin !== SITERIGHT_ADMIN) && (chguser.siteadmin & 32)) {
+1585:                             // If the user is locked out of this account, disconnect now
+1586:                             parent.parent.DispatchEvent([chguser._id], obj, 'close'); // Disconnect all this user's sessions
+1587:                         }
+1588:                     }
+1589: 
+1590:                     // OK Response
+1591:                     if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'edituser', responseid: command.responseid, result: 'ok' })); } catch (ex) { } }
+1592:                     break;
+1593:                 }

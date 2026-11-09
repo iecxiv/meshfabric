@@ -1,0 +1,114 @@
+name: Validate management navigation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-management-navigation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: management-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate presentation changes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 3d5d5e8882633327b23ac73c8f493366eda86477
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/management/CompactBottomNavigation.kt')
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='129d7e4d6ce79d8c3d9591112a45ede482461dfd'
+          s=p.read_text()
+          for old,new in [('import androidx.compose.material.icons.filled.Person','import androidx.compose.material.icons.filled.ManageAccounts'),('if(es) "Perfil" else "Profile"','if(es) "Gestión" else "Management"'),('3->Icons.Default.Person','3->Icons.Default.ManageAccounts')]:
+              assert s.count(old)==1
+              s=s.replace(old,new,1)
+          p.write_text(s)
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ManagementNavigationLabelTest.kt')
+          assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.CompositionLocalProvider
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.junit.Assert.assertEquals
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class ManagementNavigationLabelTest {
+              @get:Rule val compose=createComposeRule()
+              private fun label(language:String,label:String,old:String) {
+                  var selected=-1
+                  compose.setContent {
+                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(language))}
+                      CompositionLocalProvider(LocalConfiguration provides config) {
+                          MaterialTheme {ProfileNavigationBar(3) {selected=it}}
+                      }
+                  }
+                  compose.onNodeWithText(old).assertDoesNotExist()
+                  compose.onNodeWithText(label).assertIsDisplayed().assertIsSelected().performClick()
+                  compose.runOnIdle {assertEquals(3,selected);assertEquals(listOf(3,2,0,1,4),bottomNavigationPageOrder)}
+              }
+              @Test fun spanishManagementKeepsDestination()=label("es","Gestión","Perfil")
+              @Test fun englishManagementKeepsDestination()=label("en","Management","Profile")
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build unit tests Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute Compose regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ManagementNavigationLabelTest,iecxiv.meshfabric.ui.management.ManagementConnectionStatusTest,iecxiv.meshfabric.ui.management.ProfilePolishPresentationTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: management-navigation-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}"
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/CompactBottomNavigation.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ManagementNavigationLabelTest.kt
+          test "$(git diff --cached --name-only | wc -l)" -eq 2
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): rename Profile navigation to Management with ManageAccounts icon'
+          git push origin HEAD:dev

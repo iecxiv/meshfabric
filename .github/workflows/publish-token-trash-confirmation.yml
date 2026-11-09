@@ -1,0 +1,127 @@
+name: Validate and publish token trash confirmation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-token-trash-confirmation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-token-trash-confirmation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Replace token selection with trash and confirmation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'NativeAccount.kt':'4df61bea6f5ceefc046b9c0f29148105266b56e1','AccountUiComponents.kt':'f83ecaf229f55e9bbf6e11b74f4fc533a19b7077'}
+          sources={}
+          for name,sha in expected.items():
+              path=base/name
+              if subprocess.check_output(['git','hash-object',str(path)],text=True).strip()!=sha:
+                  raise RuntimeError('Base changed: '+name)
+              sources[name]=path.read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:
+                  raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:100])
+              sources[name]=sources[name].replace(old,new,1)
+          row=r'''@Composable internal fun AccountTokenRow(token:JSONObject,enabled:Boolean,locale:String,hours24:Boolean,es:Boolean,onRevoke:()->Unit) {
+              val id=token.optString("tokenUser")
+              val name=token.optString("name").ifBlank { if(es) "Sin nombre" else "Unnamed" }
+              var confirm by remember(id) { mutableStateOf(false) }
+              Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceVariant,
+                  border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                  Row(Modifier.padding(start=12.dp,end=4.dp,top=8.dp,bottom=8.dp),verticalAlignment=Alignment.CenterVertically,
+                      horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                      Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                          Text(name,style=MaterialTheme.typography.titleSmall)
+                          Text(accountTokenExpiry(token,locale,hours24,es),style=MaterialTheme.typography.bodySmall)
+                          Text(id,style=MaterialTheme.typography.bodySmall,fontFamily=FontFamily.Monospace)
+                      }
+                      IconButton(onClick={ confirm=true },enabled=enabled && id.isNotBlank(),modifier=Modifier.sizeIn(minWidth=48.dp,minHeight=48.dp)) {
+                          Icon(Icons.Default.Delete,contentDescription=if(es) "Revocar token $name" else "Revoke token $name",tint=MaterialTheme.colorScheme.error)
+                      }
+                  }
+              }
+              if(confirm) ManagementDialog(
+                  onDismissRequest={ confirm=false },
+                  properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),
+                  icon={ Icon(Icons.Default.Delete,null,tint=MaterialTheme.colorScheme.error) },
+                  title={ Text(if(es) "Revocar token" else "Revoke token") },
+                  text={ Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                      Text(if(es) "Se solicitará al servidor revocar únicamente este token." else "The server will be asked to revoke only this token.")
+                      Text(name,style=MaterialTheme.typography.titleSmall)
+                      Text(id,style=MaterialTheme.typography.bodySmall,fontFamily=FontFamily.Monospace)
+                      Text(accountTokenExpiry(token,locale,hours24,es),style=MaterialTheme.typography.bodySmall)
+                  } },
+                  confirmButton={ Button(enabled=enabled && id.isNotBlank(),onClick={ confirm=false; onRevoke() },
+                      colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error,contentColor=MaterialTheme.colorScheme.onError)) {
+                      Text(if(es) "Revocar" else "Revoke")
+                  } },
+                  dismissButton={ TextButton(onClick={ confirm=false }) { Text(if(es) "Cancelar" else "Cancel") } })
+          }
+          '''
+          marker='@Composable internal fun AccountTokenChoice('
+          if sources['AccountUiComponents.kt'].count(marker)!=1:
+              raise RuntimeError('Token row changed; review required')
+          head,previous=sources['AccountUiComponents.kt'].split(marker,1)
+          if previous.count('RadioButton(')!=1 or not previous.rstrip().endswith('}'):
+              raise RuntimeError('Unexpected token component layout')
+          sources['AccountUiComponents.kt']=head+row
+          change('AccountUiComponents.kt','import androidx.compose.foundation.selection.selectable\n','')
+          change('AccountUiComponents.kt','import androidx.compose.ui.semantics.Role\n','')
+          change('AccountUiComponents.kt','import androidx.compose.ui.window.DialogProperties','import androidx.compose.ui.window.DialogProperties\nimport androidx.compose.ui.window.SecureFlagPolicy')
+          change('NativeAccount.kt','AccountTokenChoice(token,third==id,!state.busy,dateLocale,hours24,es,onSelect={ third=id; confirmation=false },onCopy={ copy(id) })','AccountTokenRow(token,!state.busy,dateLocale,hours24,es,onRevoke={ run("loginTokens",JSONObject().put("remove",JSONArray().put(id))) })')
+          change('NativeAccount.kt','Text(t("Selecciona el token exacto que quieres revocar. Actualiza para consultar de nuevo la lista del servidor.","Select the exact token to revoke. Refresh to query the server list again."),style=MaterialTheme.typography.bodySmall)','Text(t("Pulsa la papelera del token que quieras revocar y confirma en el diálogo. Actualiza para consultar de nuevo la lista del servidor.","Tap the trash icon of the token to revoke and confirm in the dialog. Refresh to query the server list again."),style=MaterialTheme.typography.bodySmall)')
+          change('NativeAccount.kt','if(third.isNotBlank()) ManagementCard { ManagementInfoRow(t("Token seleccionado","Selected token"),third) }','')
+          change('NativeAccount.kt','Row { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo revocar el token seleccionado.","I confirm revoking the selected token.")) }','')
+          change('NativeAccount.kt','action("Revocar token","Revoke token",confirmation && third.isNotBlank()) { run("loginTokens",JSONObject().put("remove",JSONArray().put(third))) }','')
+          if 'AccountTokenChoice(' in sources['NativeAccount.kt']:
+              raise RuntimeError('Old token selection remains')
+          for name,text in sources.items():
+              (base/name).write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-trash-confirmation-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated token UI
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/management/NativeAccount.kt app/src/main/java/iecxiv/meshfabric/ui/management/AccountUiComponents.kt
+          git commit -m 'fix(profile): revoke tokens with per-row trash confirmation'
+          git push origin HEAD:dev

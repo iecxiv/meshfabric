@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: meshes | lines 7136-7185 | window 2 part 2 | not necessarily a complete handler
+
+7136: 
+7137:     function serverCommandLoginCookie(command) {
+7138:         // If allowed, return a login cookie
+7139:         if (parent.parent.config.settings.allowlogintoken === true) {
+7140:             obj.send({ action: 'logincookie', cookie: parent.parent.encodeCookie({ u: user._id, a: 3 }, parent.parent.loginCookieEncryptionKey) });
+7141:         }
+7142:     }
+7143: 
+7144:     function serverCommandMeshes(command) {
+7145:         // Request a list of all meshes this user as rights to
+7146:         obj.send({ action: 'meshes', meshes: parent.GetAllMeshWithRights(user).map(parent.CloneSafeMesh), tag: command.tag });
+7147:     }
+7148: 
+7149:     function serverCommandPing(command) { try { ws.send('{"action":"pong"}'); } catch (ex) { } }
+7150:     function serverCommandPong(command) { } // NOP
+7151: 
+7152:     function serverCommandPowerTimeline(command) {
+7153:         // Get the node and the rights for this node
+7154:         parent.GetNodeWithRights(domain, user, command.nodeid, function (node, rights, visible) {
+7155:             if (visible == false) return;
+7156:             // Query the database for the power timeline for a given node
+7157:             // The result is a compacted array: [ startPowerState, startTimeUTC, powerState ] + many[ deltaTime, powerState ]
+7158:             db.getPowerTimeline(node._id, function (err, docs) {
+7159:                 if ((err == null) && (docs != null) && (docs.length > 0)) {
+7160:                     var timeline = [], time = null, previousPower;
+7161:                     for (i in docs) {
+7162:                         var doc = docs[i], j = parseInt(i);
+7163:                         doc.time = Date.parse(doc.time);
+7164:                         if (time == null) { // First element
+7165:                             // Skip all starting power 0 events.
+7166:                             if ((doc.power == 0) && ((doc.oldPower == null) || (doc.oldPower == 0))) continue;
+7167:                             time = doc.time;
+7168:                             if (doc.oldPower) { timeline.push(doc.oldPower, time / 1000, doc.power); } else { timeline.push(0, time / 1000, doc.power); }
+7169:                         } else if (previousPower != doc.power) { // Delta element
+7170:                             // If this event is of a short duration (2 minutes or less), skip it.
+7171:                             if ((docs.length > (j + 1)) && ((Date.parse(docs[j + 1].time) - doc.time) < 120000)) continue;
+7172:                             timeline.push((doc.time - time) / 1000, doc.power);
+7173:                             time = doc.time;
+7174:                         }
+7175:                         previousPower = doc.power;
+7176:                     }
+7177:                     obj.send({ action: 'powertimeline', nodeid: node._id, timeline: timeline, tag: command.tag });
+7178:                 } else {
+7179:                     // No records found, send current state if we have it
+7180:                     var state = parent.parent.GetConnectivityState(command.nodeid);
+7181:                     if (state != null) { obj.send({ action: 'powertimeline', nodeid: node._id, timeline: [state.powerState, Date.now(), state.powerState], tag: command.tag }); }
+7182:                 }
+7183:             });
+7184:         });
+7185:     }

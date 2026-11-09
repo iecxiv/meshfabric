@@ -1,0 +1,156 @@
+name: Validate and publish direct user mesh grant UI
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mesh-grant-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-user-mesh-grant-ui-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Add guarded direct grant UI and offline Compose tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          template=base/'GroupMeshGrantDialog.kt'
+          testTemplate=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReviewTest.kt')
+          guards={str(base/'ProfileSession.kt'):'9bbc6bb2033c5a68fa74a49036aa6fb4be5acf11',str(base/'UserMeshGrantPolicy.kt'):'f66fb6c36a54d479e2ea27d5de10775d14b6ade4',str(base/'UserAdministration.kt'):'107fd0748bb81aec7fdd3ba74b19d9e603267599',str(base/'ProfileScreen.kt'):'f45dfc4f28d5d22974537a363cdefb3848ac9bd8',str(template):'68313f03891309781d0b62ac0049ae529bff56c1',str(testTemplate):'7164857fccdd1ecaa12f47c83df0855634cb53db'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source changed: '+path)
+          def replace(text,old,new):
+              if text.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              return text.replace(old,new,1)
+          dialog=base/'UserMeshGrantDialog.kt';test=testTemplate.with_name('UserMeshGrantDialogTest.kt')
+          for path in (dialog,test):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          original=template.read_text()
+          header=original[:original.index('internal fun profileGroupMeshToggleGrantBit')].replace('import org.json.JSONArray\n','')
+          header=replace(header,'import androidx.compose.ui.platform.LocalConfiguration','import androidx.compose.ui.platform.LocalConfiguration\nimport androidx.compose.ui.platform.testTag')
+          helper='''internal fun profileUserMeshGrantDraft(s:ProfileState,uid:String,mid:String,rights:Long,actor:String,server:String):JSONObject?=runCatching {
+              val user=requireNotNull(s.users.singleOrNull {it.optString("_id")==uid})
+              val mesh=requireNotNull(s.groups.singleOrNull {it.optString("_id")==mid})
+              val packet=profileUserMeshGrantPacket(actor,server,user,mesh,rights,true)
+              require(profileUserMeshGrantAllowed(s,packet,server))
+              packet.put("_userGrantConfirmed",false)
+          }.getOrNull()
+          '''
+          body=original[original.index('@Composable internal fun GroupMeshGrantDialog'):]
+          for old,new in [('GroupMeshGrantDialog','UserMeshGrantDialog'),('profileGroupMeshGrantDraft','profileUserMeshGrantDraft'),('profileGroupMeshGrantAllowed','profileUserMeshGrantAllowed'),('_grantConfirmed','_userGrantConfirmed'),('groupMeshGrantedObserved','userMeshGrantedObserved'),('s.grantedGroup','s.grantedDirectUser'),('s.grantedDeviceGroup','s.grantedDirectMesh')]:body=body.replace(old,new)
+          import re
+          body=re.sub(r'\bgid\b','uid',body)
+          body=replace(body,'s.userGroupPhase=="loading"','s.detailsBusy')
+          body=replace(body,'session.submit(packet)','session.submitUserMeshGrant(packet)')
+          body=replace(body,'session.refresh();session.loadUserGroupDirectory()','session.refresh()')
+          body=replace(body,'TextButton(onClick={selected=mid;error=false})','TextButton(modifier=Modifier.testTag("direct-grant-candidate-"+mid),onClick={selected=mid;error=false})')
+          body=replace(body,'Button(enabled=if(review==null)','Button(modifier=Modifier.testTag(if(review==null) "direct-grant-prepare" else "direct-grant-send"),enabled=if(review==null)')
+          body=replace(body,'Checkbox(approved,{approved=it},enabled=current)','Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("direct-grant-consent"))')
+          body=replace(body,'isError=hex.isNotBlank() && rights==null,singleLine=true,modifier=Modifier.fillMaxWidth()','isError=hex.isNotBlank() && rights==null,singleLine=true,modifier=Modifier.fillMaxWidth().testTag("direct-grant-hex")')
+          body=replace(body,'t("Nueva asignación","New assignment")','t("Nuevo acceso directo","New direct access")')
+          body=replace(body,'Solo asignaciones nuevas. No se sobrescriben enlaces existentes. Se exige autoridad directa completa sobre el grupo de dispositivos.','Solo altas directas. Se bloquea el envío si los datos revisados contienen cualquiera de los dos enlaces. Se exige autoridad directa completa sobre el grupo de dispositivos.')
+          body=replace(body,'New assignments only. Existing links are not overwritten. Direct full authority over the device group is required.','Direct initial grants only. Sending is blocked if reviewed data contains either link. Direct full authority over the device group is required.')
+          body=replace(body,'Puede conceder acceso heredado a los miembros. Las consultas no son atómicas y no calculan todos los permisos efectivos. No hay reintentos automáticos; cerrar no cancela una solicitud enviada.','Crea acceso directo para este usuario. No calcula todos sus permisos efectivos ni modifica los accesos heredados. Las comprobaciones y el envío no son atómicos: el servidor puede sobrescribir una asignación creada concurrentemente. No hay reintentos automáticos; cerrar no cancela una solicitud enviada.')
+          body=replace(body,'May grant inherited access to members. Reads are not atomic and do not calculate all effective rights. No automatic retries; closing does not cancel a sent request.','Creates direct access for this user. Does not calculate all effective rights or modify inherited assignments. Checks and sending are not atomic: the server may overwrite an assignment created concurrently. No automatic retries; closing does not cancel a sent request.')
+          dialog.write_text(header+helper+body)
+          path=base/'UserAdministration.kt';s=path.read_text()
+          s=replace(s,'var directMesh by remember {mutableStateOf<String?>(null)}','var directMesh by remember {mutableStateOf<String?>(null)}\nvar directGrant by remember {mutableStateOf(false)}')
+          s=replace(s,'if(directMesh!=null) {','if(directGrant) { UserMeshGrantDialog(session,s,form.id) {directGrant=false} } else if(directMesh!=null) {')
+          anchor='ProfileDisclosure(t("Accesos directos a grupos de dispositivos","Direct device-group access")) {'
+          s=replace(s,anchor,anchor+'\nTextButton(enabled=contactReady && !s.detailsBusy,onClick={directGrant=true;session.refresh()}) {Text(t("Conceder acceso directo","Grant direct access"))}')
+          path.write_text(s)
+          path=base/'ProfileScreen.kt';s=path.read_text()
+          path.write_text(replace(s,'"ready"->""','"ready"->""\n"userMeshGrantedObserved"->t("Derechos solicitados observados en ambos enlaces directos. Usuario: ","Requested rights observed in both direct links. User: ")+state.grantedDirectUser+t("; grupo de dispositivos: ","; device group: ")+state.grantedDirectMesh'))
+          t=testTemplate.read_text().replace('UserMeshAssignmentReviewTest','UserMeshGrantDialogTest').replace('UserMeshAssignmentReview(session,current.value,uid,mid)','UserMeshGrantDialog(session,current.value,uid)').replace('direct-revoke-','direct-grant-').replace('changedBilateralRightsInvalidateFrozenConfirmation','newAssignmentInvalidatesFrozenConfirmation')
+          lines=[line for line in t.splitlines() if line.strip().startswith('private fun state(')]
+          if len(lines)!=1:raise RuntimeError('Missing fixture anchor')
+          fixture='''    private fun state(rights:Long=8):ProfileState {
+                  val user=JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject().apply {if(rights!=8L) put(mid,JSONObject().put("rights",rights))})
+                  val mesh=JSONObject().put("_id",mid).put("name","Group").put("links",JSONObject().put(actor,JSONObject().put("rights",0xffffffffL)).apply {if(rights!=8L) put(uid,JSONObject().put("rights",rights))})
+                  return ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(user),groups=listOf(mesh))
+              }'''
+          t=replace(t,lines[0],fixture)
+          t=replace(t,'compose.onNodeWithTag("direct-grant-prepare").assertIsEnabled().performClick()','prepare()')
+          t=replace(t,'compose.onNodeWithTag("direct-grant-prepare").performClick()','prepare()')
+          t=replace(t,'for(s in listOf(state().copy(loading=true)','selectDraft()\n        for(s in listOf(state().copy(loading=true)')
+          helpers='''    private fun openHex() {
+                  compose.onNode(hasText("Avanzado: máscara hexadecimal") or hasText("Advanced: hexadecimal mask")).performScrollTo().performClick()
+              }
+              private fun selectDraft() {
+                  compose.onNodeWithTag("direct-grant-candidate-"+mid).performScrollTo().performClick()
+                  openHex()
+                  compose.onNodeWithTag("direct-grant-hex").performScrollTo().performTextReplacement("8")
+                  compose.onNodeWithTag("direct-grant-prepare").assertIsEnabled()
+              }
+              private fun prepare() {selectDraft();compose.onNodeWithTag("direct-grant-prepare").performClick()}
+              @Test fun noDefaultRightsAndAdministrativeMasksCannotPrepare() {Fixture().use {
+                  compose.onNodeWithTag("direct-grant-candidate-"+mid).performScrollTo().performClick()
+                  compose.onNodeWithTag("direct-grant-prepare").assertIsNotEnabled()
+                  openHex()
+                  for(mask in listOf("0","FFFFFFFF","80000008")) {
+                      compose.onNodeWithTag("direct-grant-hex").performScrollTo().performTextReplacement(mask)
+                      compose.onNodeWithTag("direct-grant-prepare").assertIsNotEnabled()
+                  }
+              }}
+          '''
+          t=t.rstrip()
+          if not t.endswith('}'):raise RuntimeError('Unexpected test structure')
+          test.write_text(t[:-1]+helpers+'}\n')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute direct access UI, policy and session tests offline
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMeshGrantDialogTest,iecxiv.meshfabric.ui.management.UserMeshGrantRequestTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshAssignmentReviewTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mesh-grant-ui-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated grant UI only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshGrantDialog.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshGrantDialogTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add confirmed direct user mesh initial grant UI'
+          git push origin HEAD:dev

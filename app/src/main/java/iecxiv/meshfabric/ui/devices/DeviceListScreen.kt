@@ -73,7 +73,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    if(closeSessions) AlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
+    if(closeSessions) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
         text={ Text(stringResource(R.string.confirm_disconnect_all_msg)) },
         confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all),fontWeight=FontWeight.Bold) } },
         dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })

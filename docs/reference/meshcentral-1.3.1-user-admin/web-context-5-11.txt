@@ -1,0 +1,46 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18292-18905 | part 11/11 (may continue a source line)
+
+r-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col style=text-align:left;width:430px>' + "User Group Memberships" + '</th><th scope=col style=text-align:left></th></tr>';
+18865:                 if (currentUser.links) {
+18866:                     var ougroups = [];
+18867:                     for (var i in currentUser.links) { if (i.startsWith('ugrp/')) { if (usergroups[i] != null) { ougroups.push(usergroups[i]); } } }
+18868:                     ougroups = getOrderedList(ougroups, 'name');
+18869:                     for (var i in ougroups) {
+18870:                         var group = ougroups[i], r = currentUser.links[ougroups[i]._id].rights, trash = '';
+18871:                         var groupname = '<i>' + "Unknown User Group" + '</i>';
+18872:                         if (group != null) {
+18873:                             groupname = EscapeHtml(group.name);
+18874:                             if (usergroups != null) { groupname = '<a href=# onclick=\'gotoUserGroup("' + encodeURIComponentEx(ougroups[i]._id) + '");haltEvent(event);\'>' + groupname + '</a>'; }
+18875:                         }
+18876:                         if ((group.membershipType == null) && ((userinfo.siteadmin & 256) != 0)) { trash = '<a href=# onclick=\'return p30RemoveUserGroup(event,"' + encodeURIComponentEx(ougroups[i]._id) + '")\' title="' + "Remove user group membership" + '" style=cursor:pointer><img src=images/trash.png border=0 height=10 width=10></a>'; }
+18877:                         x += '<tr ' + (((++count % 2) == 0) ? 'style=background-color:#DDD' : '') + '><td><div title="' + "User Group" + '" class=m4></div><div>&nbsp;' + groupname + '<div></div></div></td><td><div style=float:right>' + trash + '</div></td></tr>';
+18878:                     }
+18879:                 }
+18880:                 if (count == 1) { x += '<tr><td><div style=padding:6px>&nbsp;<i>' + "No user group memberships" + '</i><div></div></div></td><td></td></tr>'; }
+18881:                 x += '</tbody></table>';
+18882:             }
+18883: 
+18884:             // Display common devices
+18885:             count = 1;
+18886:             x += '<br />';
+18887:             if (currentUser._id.split('/')[1] == userinfo._id.split('/')[1]) { x += '<a href=# onclick="return p20showAddMeshUserDialog(4)" style=cursor:pointer;margin-right:10px><img src=images/icon-addnew.png border=0 height=12 width=12> ' + "Add Device" + '</a>'; }
+18888:             x += '<table style="color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;border-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col style=text-align:left;width:430px>' + "Common Devices" + '</th><th scope=col style=text-align:left></th></tr>';
+18889:             if (currentUser.links) {
+18890:                 // Sort the list of devices to display
+18891:                 var nodelist = [];
+18892:                 for (var i in currentUser.links) { if (i.startsWith('node/')) { var node = getNodeFromId(i); if (node != null) { nodelist.push(node); } } }
+18893:                 nodelist.sort(nameSort);
+18894:                 for (var i in nodelist) {
+18895:                     var node = nodelist[i], r = currentUser.links[node._id].rights, trash = '', cr = GetNodeRights(node);
+18896:                     if ((userinfo.links) && (userinfo.links[i] != null) && (userinfo.links[i].rights != null)) { cr = userinfo.links[i].rights; }
+18897:                     var nodename = node?EscapeHtml(node.name):('<i>' + "Unknown Device" + '</i>');
+18898:                     if ((cr & 2) != 0) {
+18899:                         trash = '<a href=# onclick=\'return p30removeNodeFromUser(event,"' + encodeURIComponentEx(node._id) + '")\' title="' + "Remove user rights to this device group" + '" style=cursor:pointer><img src=images/trash.png border=0 height=10 width=10></a>';
+18900:                         rights = '<span style=cursor:pointer onclick=p20showAddMeshUserDialog(4,"' + encodeURIComponentEx(node._id) + '")>' + makeUserDeviceRightsString(r) + ' <img class=hoverButton style=cursor:pointer src=images/link5.png></span>';
+18901:                     }
+18902:                     nodename = '<a href=# onclick=\'gotoDevice("' + node._id + '",10);haltEvent(event);\'>' + nodename + '</a>';
+18903:                     x += '<tr ' + (((++count % 2) == 0) ? 'style=background-color:#DDD' : '') + '><td style=width:30%><div title="' + "Device" + '" class=si' + node.icon + '></div><div>&nbsp;' + nodename + '<div></div></div></td><td style=width:70%><div style=float:right>' + trash + '</div><div>' + rights + '</div></td></tr>';
+18904:                 }
+18905:             }

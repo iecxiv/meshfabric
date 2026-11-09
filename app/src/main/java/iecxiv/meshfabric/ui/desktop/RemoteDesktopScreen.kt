@@ -696,10 +696,10 @@ drawDiagnostics[0]++
                 ),
                 onDismissRequest = { showKeyboardDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier
                         .then(if (desktopDialogsLandscape) Modifier.width(desktopLandscapeDialogWidth) else Modifier.fillMaxWidth())
                         .padding(horizontal = 4.dp, vertical = 8.dp)
@@ -840,10 +840,10 @@ drawDiagnostics[0]++
             androidx.compose.ui.window.Dialog(
                 onDismissRequest = { showClipboardDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 4.dp, vertical = 8.dp)
@@ -994,10 +994,10 @@ drawDiagnostics[0]++
                 ),
                 onDismissRequest = { showSettingsDialog = false }
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
+                iecxiv.meshfabric.ui.components.AppDialogSurface(
+                    shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                    color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                    tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
                     modifier = Modifier
                         .then(if (desktopDialogsLandscape) Modifier.width(desktopLandscapeDialogWidth) else Modifier.fillMaxWidth())
                         .padding(horizontal = 4.dp, vertical = 8.dp)

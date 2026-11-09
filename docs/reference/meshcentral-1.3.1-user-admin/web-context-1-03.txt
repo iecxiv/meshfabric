@@ -1,0 +1,70 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 3369-3609 | part 3/4 (may continue a source line)
+
+          }
+3491:                                     if (webstate.deskStrings != null) {
+3492:                                         // Set the user's desktop strings
+3493:                                         var s = null;
+3494:                                         try { s = JSON.parse(webstate.deskStrings); } catch (ex) {}
+3495:                                         if (Array.isArray(s)) { deskKeyboardStrings = s; updateDesktopStrings(); }
+3496:                                     }
+3497:                                 }
+3498:                             } catch (ex) {}
+3499:                             break;
+3500:                         }
+3501:                         case 'servertimelinestats': { addServerTimelineStats(message.event.data); break; }
+3502:                         case 'accountcreate':
+3503:                         case 'accountchange': {
+3504:                             // An account was created or changed
+3505:                             if ((typeof message.event.account != 'object') || (message.event.account == null)) { console.log(message.event); return; }
+3506:                             if (userinfo._id == message.event.account._id) {
+3507:                                 var newsiteadmin = message.event.account.siteadmin?message.event.account.siteadmin:0;
+3508:                                 var oldsiteadmin = userinfo.siteadmin?userinfo.siteadmin:0;
+3509:                                 var newRemoveRights = message.event.account.removeRights?message.event.account.removeRights:0;
+3510:                                 var oldRemoveRights = userinfo.removeRights?userinfo.removeRights:0;
+3511:                                 if ((message.event.account.quota != userinfo.quota) || (((userinfo.siteadmin & 8) == 0) && ((message.event.account.siteadmin & 8) != 0))) { meshserver.send({ action: 'files' }); }
+3512:                                 var oldgroups = userinfo.groups;
+3513:                                 userinfo = message.event.account;
+3514:                                 if ((oldsiteadmin != newsiteadmin) || (oldRemoveRights != newRemoveRights) || (message.event.accountImageChange == 1)) { // If the site admin permission or user image has changed...
+3515:                                     if (message.event.accountImageChange == 1) { userinfo.accountImageRnd = Math.floor(Math.random() * 9999999999); }
+3516:                                     updateSiteAdmin();
+3517:                                 }
+3518:                                 updateSelf();
+3519: 
+3520:                                 if ((userinfo.siteadmin & 2) != 0) {
+3521:                                     // Compare our groups
+3522:                                     var og = oldgroups ? oldgroups : [];
+3523:                                     var ng = userinfo.groups ? userinfo.groups : [];
+3524:                                     if (og.join(',') != ng.join(',')) {
+3525:                                         // Our groups have changed, re-ask for a list of users.
+3526:                                         users = wssessions = null;
+3527:                                         meshserver.send({ action: 'users' });
+3528:                                         meshserver.send({ action: 'wssessioncount' });
+3529:                                     }
+3530:                                 }
+3531: 
+3532:                                 // If our list of nodes may have changes, request the new list now.
+3533:                                 if (message.event.nodeListChange == userinfo._id) { meshserver.send({ action: 'nodes', skip: (devicePagingState == null) ? 0 : devicePagingState.skip }); }
+3534:                             }
+3535:                             if (currentNode) { refreshDevice(currentNode._id); }
+3536:                             if (users == null) break;
+3537: 
+3538:                             // Check if the account is part of our user group
+3539:                             if ((userinfo.groups == null) || (userinfo.groups.length == 0) || (findOne(message.event.account.groups, userinfo.groups) == true)) {
+3540:                                 users[message.event.account._id] = message.event.account; // Part of our groups, update this user.
+3541:                             } else {
+3542:                                 delete users[message.event.account._id]; // No longer part of our groups, remove this user.
+3543:                             }
+3544: 
+3545:                             mainUpdate(4 | 16384);
+3546:                             break;
+3547:                         }
+3548:                         case 'accountremove': {
+3549:                             // An account was removed
+3550:                             if (users == null) break;
+3551:                             delete users[message.event.userid];
+3552:                             mainUpdate(16384);
+3553:                             break;
+3554:                         }
+3555:                 

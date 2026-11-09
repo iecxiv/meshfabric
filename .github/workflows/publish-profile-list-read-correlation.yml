@@ -1,0 +1,135 @@
+name: Validate and publish strict profile list readback correlation
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-list-read-correlation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-list-read-correlation-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply correlated list reads and regression tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          target=base/'ProfileSession.kt'
+          guards={str(target):'414aabe3055962cab2be05cf8b249b4f650d281f','docs/reference/meshcentral-1.3.1-readback/users-context-02-02.txt':'70ee1810d017bbba52e87e5ea97f2af3716cf9b2','docs/reference/meshcentral-1.3.1-readback/meshes-context-02-02.txt':'bcba1195dbd7ca4935965ca7beddbfe9b103e359'}
+          for path,sha in guards.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:raise RuntimeError('Source or reference changed: '+path)
+          s=target.read_text()
+          def change(old,new):
+              global s
+              if s.count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+old[:100])
+              s=s.replace(old,new,1)
+          change('private val reads=mutableSetOf<String>()','private val reads=mutableSetOf<String>()\nprivate val listTags=mutableMapOf<String,String>()')
+          change('reads.clear(); details.clear();','reads.clear(); listTags.clear(); details.clear();')
+          change('reads.clear(); reads.add("meshes")','reads.clear(); listTags.clear(); reads.add("meshes")')
+          change('if(reads.toList().any { !send(it) }) { stop(); return }','''for(action in reads.toList()) {
+          val tag="profile-list:"+UUID.randomUUID().toString()
+          listTags[action]=tag
+          if(!send(action,JSONObject().put("tag",tag).put("responseid",tag))) {stop();return}
+          }''')
+          change('reads.clear(); state.update { it.copy(loading=false,readError=true,notice="readFailed") }','reads.clear(); listTags.clear(); state.update { it.copy(loading=false,readError=true,notice="readFailed") }')
+          change('if(action !in reads) return','if(action !in reads || !profileListReadMatches(action,listTags[action],p.opt("tag"),p.opt("responseid"),p.has(action))) return')
+          change('val list=records(p.opt(action)); reads.remove(action)','''val replyError=p.has("error") || p.has("err") || (p.has("result") && !p.optString("result").equals("ok",true))
+          val list=if(replyError) null else records(p.opt(action)); reads.remove(action);listTags.remove(action)''')
+          policy=base/'ProfileListReadCorrelation.kt'
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/ProfileListReadCorrelationTest.kt')
+          for path in (policy,unit):
+              if path.exists():raise RuntimeError('New file already exists: '+str(path))
+          rules='''package iecxiv.meshfabric.ui.management
+          
+          internal fun profileListReadMatches(action:String,expected:String?,tag:Any?,responseid:Any?,hasData:Boolean):Boolean {
+              if(action !in setOf("users","meshes") || expected.isNullOrBlank()) return false
+              if(tag is String) return tag==expected
+              if(tag!=null) return false
+              return !hasData && responseid is String && responseid==expected
+          }
+          '''
+          tests='''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class ProfileListReadCorrelationTest {
+              @Test fun dataRequiresTheExactCurrentTag() {
+                  for(action in listOf("users","meshes")) {
+                      assertTrue(profileListReadMatches(action,"current","current",null,true))
+                      assertFalse(profileListReadMatches(action,"current","old",null,true))
+                      assertFalse(profileListReadMatches(action,"current",null,null,true))
+                      assertFalse(profileListReadMatches(action,"current",null,"current",true))
+                      assertFalse(profileListReadMatches(action,"current",12,"current",true))
+                  }
+              }
+              @Test fun permissionDenialCanMatchResponseidButNotData() {
+                  assertTrue(profileListReadMatches("users","current",null,"current",false))
+                  assertFalse(profileListReadMatches("users","current",null,"old",false))
+                  assertFalse(profileListReadMatches("users","current","old","current",false))
+                  assertFalse(profileListReadMatches("users","current",12,"current",false))
+                  assertFalse(profileListReadMatches("users","current",null,12,false))
+              }
+              @Test fun newRoundInvalidatesOldPacketsAndConsumptionInvalidatesDuplicates() {
+                  val pending=mutableMapOf("users" to "before-ack","meshes" to "before-ack-mesh")
+                  pending["users"]="after-ack";pending["meshes"]="after-ack-mesh"
+                  assertFalse(profileListReadMatches("users",pending["users"],"before-ack",null,true))
+                  assertFalse(profileListReadMatches("meshes",pending["meshes"],"before-ack-mesh",null,true))
+                  assertFalse(profileListReadMatches("users",pending["users"],"after-ack-mesh",null,true))
+                  assertTrue(profileListReadMatches("users",pending["users"],"after-ack",null,true))
+                  pending.remove("users")
+                  assertFalse(profileListReadMatches("users",pending["users"],"after-ack",null,true))
+                  assertTrue(profileListReadMatches("meshes",pending["meshes"],"after-ack-mesh",null,true))
+              }
+              @Test fun clearedOrUnknownRequestsNeverMatch() {
+                  assertFalse(profileListReadMatches("users",null,"current",null,true))
+                  assertFalse(profileListReadMatches("users","","",null,true))
+                  assertFalse(profileListReadMatches("users"," "," ",null,true))
+                  assertFalse(profileListReadMatches("nodes","current","current",null,true))
+                  assertFalse(profileListReadMatches("usergroups","current","current",null,true))
+              }
+          }
+          '''
+          for path,text in {target:s,policy:rules,unit:tests}.items():path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-list-read-correlation-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated correlation without adding revocation UI
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileListReadCorrelation.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileListReadCorrelationTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): correlate users and meshes reads and reject stale replies'
+          git push origin HEAD:dev

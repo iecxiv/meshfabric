@@ -1,0 +1,95 @@
+name: Validate and publish guarded user Broadcast
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-profile-broadcast.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-profile-broadcast-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply reviewed Broadcast policy and composer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          expected={'ProfileScreen.kt':'94853c32cb7f1108ab260dcd33adcdb08af9ab6c','ProfileSession.kt':'b76d68b9b4867005e43591134f7e1307165e7fb4'}
+          sources={}
+          for name,sha in expected.items():
+              if subprocess.check_output(['git','hash-object',str(base/name)],text=True).strip()!=sha:raise RuntimeError('Source changed: '+name)
+              sources[name]=(base/name).read_text()
+          def change(name,old,new):
+              if sources[name].count(old)!=1:raise RuntimeError('Missing/nonunique anchor: '+name+': '+old[:80])
+              sources[name]=sources[name].replace(old,new,1)
+          change('ProfileScreen.kt','var groupSearch by rememberSaveable { mutableStateOf("") }','var groupSearch by rememberSaveable { mutableStateOf("") }\nvar broadcast by remember { mutableStateOf(false) }')
+          change('ProfileScreen.kt','if(!state.ready) { form=null; groupDetails=null; returnUser=null }','if(!state.ready) { form=null; groupDetails=null; returnUser=null; broadcast=false }')
+          change('ProfileScreen.kt','section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null','section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; returnUser=null; broadcast=false')
+          change('ProfileScreen.kt','"confirmed"->','"broadcastAccepted"->t("El servidor aceptó la difusión. No confirma recepción ni lectura.","The server accepted the broadcast. Receipt and reading are not confirmed.")\n"confirmed"->')
+          anchor='ServerGeneralActions {\n'
+          change('ProfileScreen.kt',anchor,anchor+'if(users) TextButton(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={form=null;groupDetails=null;returnUser=null;broadcast=true}) {Text("Broadcast")}\n')
+          anchor='groupDetails?.takeIf { form==null }'
+          change('ProfileScreen.kt',anchor,'if(broadcast && form==null && groupDetails==null) ProfileBroadcastDialog(session,state) {broadcast=false}\n'+anchor)
+          anchor='@Synchronized fun start()'
+          method="""@Synchronized fun broadcastServerLabel():String=if(!valid()) "" else runCatching { profileBroadcastServerLabel(OkHttpHelper.toWebSocketUrl(binding.first,"/control.ashx")) }.getOrDefault("")
+          """
+          change('ProfileSession.kt',anchor,method+anchor)
+          change('ProfileSession.kt','setOf("adduser","edituser","deleteuser","changeuserpass","adddeviceuser")','setOf("adduser","edituser","deleteuser","changeuserpass","adddeviceuser","userbroadcast")')
+          change('ProfileSession.kt','else if(ok && action in setOf("edituser","adddeviceuser","changeuserpass"))','else if(ok && action=="userbroadcast") finish("broadcastAccepted",false)\nelse if(ok && action in setOf("edituser","adddeviceuser","changeuserpass"))')
+          change('ProfileSession.kt','"adduser"->s.canCreateUser','"userbroadcast"->profileBroadcastAllowed(s,p,broadcastServerLabel())\n"adduser"->s.canCreateUser')
+          change('ProfileSession.kt','"adduser"->listOf("username","email","pass","removeEvents","resetNextLogin")','"userbroadcast"->listOf("msg")\n"adduser"->listOf("username","email","pass","removeEvents","resetNextLogin")')
+          hashes={'.github/patches/profile-broadcast/ProfileBroadcastPolicy.kt.txt': '7257eecebc4b38a540e1d270c25839e1d81ace335478a48cd96cd286afee607e', '.github/patches/profile-broadcast/ProfileBroadcastDialog.kt.txt': '3f8271c8691637022af94b9402a6fd8789c7ffb3f2e6a0f722cac2cfb17db1b0', '.github/patches/profile-broadcast/ProfileBroadcastPolicyTest.kt.txt': 'b70b7e650a1f06f4b597059bf016c76cec58bab6a4837821710cc324525b708e', '.github/patches/profile-broadcast/ProfileBroadcastRequestTest.kt.txt': 'd47af7ca73cca0fb757cca346efaa189e13dfd6a105d29dc8ae651b84550de97'}
+          targets={'.github/patches/profile-broadcast/ProfileBroadcastPolicy.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileBroadcastPolicy.kt', '.github/patches/profile-broadcast/ProfileBroadcastDialog.kt.txt': 'app/src/main/java/iecxiv/meshfabric/ui/management/ProfileBroadcastDialog.kt', '.github/patches/profile-broadcast/ProfileBroadcastPolicyTest.kt.txt': 'app/src/test/java/iecxiv/meshfabric/ui/management/ProfileBroadcastPolicyTest.kt', '.github/patches/profile-broadcast/ProfileBroadcastRequestTest.kt.txt': 'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileBroadcastRequestTest.kt'}
+          updates={}
+          for name,dest in targets.items():
+              data=Path(name).read_bytes();path=Path(dest)
+              if hashlib.sha256(data).hexdigest()!=hashes[name]:raise RuntimeError('Template changed: '+name)
+              if path.exists():raise RuntimeError('New file already exists: '+dest)
+              updates[path]=data.decode()
+          for name,text in sources.items():updates[base/name]=text
+          for path,text in updates.items():
+              path.parent.mkdir(parents=True,exist_ok=True);path.write_text(text)
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-broadcast-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated Broadcast without sending messages
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileBroadcastPolicy.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileBroadcastDialog.kt app/src/test/java/iecxiv/meshfabric/ui/management/ProfileBroadcastPolicyTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileBroadcastRequestTest.kt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(users): add scoped confirmed Broadcast with honest acknowledgement'
+          git push origin HEAD:dev

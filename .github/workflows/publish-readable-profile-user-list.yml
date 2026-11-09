@@ -1,0 +1,205 @@
+name: Validate readable profile user list
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-profile-user-list.yml]
+permissions:
+  contents: write
+concurrency:
+  group: profile-readable-user-list-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate presentation and offline regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = a1755e7d7e8d58a328951ec579dfe6488cfc0533
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          p=main/'ProfileScreen.kt';component=main/'ProfileUserListIdentity.kt';test=tests/'ProfileUserListIdentityTest.kt'
+          assert not component.exists() and not test.exists()
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='05e10c61867f411bb9a0a38f5417214e4f065ed4'
+          original=p.read_text();s=original
+          replacements=[
+              ('val name=row.optString("name").ifBlank { if(users) id else t("Grupo sin nombre","Unnamed group") }','val name=row.optString("name").ifBlank { if(users) t("nombre no disponible","name unavailable") else t("Grupo sin nombre","Unnamed group") }'),
+              ('if(users) Text(name,style=MaterialTheme.typography.titleSmall) else Row(','if(users) ProfileUserListIdentity(row,state.users) else Row('),
+              ('if(users) Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)\n',''),
+              ('val detail=row.optString(if(users) "email" else "desc")','val detail=if(users) "" else row.optString("desc")')
+          ]
+          for old,new in replacements:
+              assert s.count(old)==1,'Missing or nonunique anchor: '+old
+              s=s.replace(old,new,1)
+          for old,new in reversed(replacements):
+              if new:
+                  assert s.count(new)==1
+          marker='Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {'
+          assert s[s.index(marker):]==original[original.index(marker):],'Actions and routes must remain unchanged'
+          p.write_text(s)
+          component.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Person
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.key
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.text.style.TextOverflow
+          import androidx.compose.ui.unit.dp
+          import org.json.JSONObject
+          @Composable internal fun ProfileUserListIdentity(account:JSONObject,all:List<JSONObject>) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              val identity=profileReviewIdentity(account,all,es)
+              key(account.optString("_id")) {
+                  Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically) {
+                      Icon(Icons.Default.Person,null,Modifier.size(20.dp).testTag("profile-user-list-icon"),tint=MaterialTheme.colorScheme.primary)
+                      Text(identity.label,Modifier.weight(1f),style=MaterialTheme.typography.titleSmall,maxLines=3,overflow=TextOverflow.Ellipsis)
+                  }
+                  ProfileDisclosure(if(es) "Identificador" else "Identifier") {Text(account.optString("_id"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+              }
+          }
+          ''')
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.CompositionLocalProvider
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.json.JSONObject
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class ProfileUserListIdentityTest {
+              @get:Rule val compose=createComposeRule()
+              private val uid="user//alice"
+              private fun person(id:String=uid)=JSONObject().put("_id",id).put("name","Alicia").put("realname","Alicia García").put("email","alice@example.invalid")
+              private fun show(accounts:List<JSONObject>,language:String="es") {
+                  compose.setContent {
+                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(language))}
+                      CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {Column {for(account in accounts) ProfileUserListIdentity(account,accounts)}}}
+                  }
+              }
+              @Test fun readableIdentityAndIconHideIdentifierByDefault() {
+                  show(listOf(person()))
+                  compose.onNodeWithText("Alicia · Alicia García · alice@example.invalid").assertExists()
+                  compose.onAllNodesWithTag("profile-user-list-icon",useUnmergedTree=true).assertCountEquals(1)
+                  compose.onAllNodesWithText(uid,substring=true).assertCountEquals(0)
+                  compose.onNodeWithText("Identificador").performClick()
+                  compose.onNodeWithText(uid).assertExists()
+              }
+              @Test fun missingNameNeverUsesIdentifierAsTitle() {
+                  show(listOf(person().put("name","")))
+                  compose.onNodeWithText("nombre no disponible").assertExists()
+                  compose.onAllNodesWithText(uid,substring=true).assertCountEquals(0)
+              }
+              @Test fun internalIdentifierCannotMasqueradeAsReadableName() {
+                  show(listOf(person().put("name",uid)))
+                  compose.onNodeWithText("nombre no disponible").assertExists()
+                  compose.onAllNodesWithText(uid,substring=true).assertCountEquals(0)
+              }
+              @Test fun duplicateNamesKeepDistinctReadableContextWithoutExposingIds() {
+                  val other=person("user//other").put("realname","Alicia López").put("email","other@example.invalid")
+                  show(listOf(person(),other))
+                  compose.onNodeWithText("Alicia · Alicia García · alice@example.invalid").assertExists()
+                  compose.onNodeWithText("Alicia · Alicia López · other@example.invalid").assertExists()
+                  for(id in listOf(uid,"user//other")) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)
+              }
+              @Test fun englishFallbackAndExplicitIdentifierRemainLocalized() {
+                  show(listOf(person().put("name","")),"en")
+                  compose.onNodeWithText("name unavailable").assertExists()
+                  compose.onAllNodesWithText(uid,substring=true).assertCountEquals(0)
+                  compose.onNodeWithText("Identifier").performClick()
+                  compose.onNodeWithText(uid).assertExists()
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute list presentation and existing profile regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ProfileUserListIdentityTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.ProfileDetailReadsRegressionTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.UserMessageDialogTest,iecxiv.meshfabric.ui.management.UserMfaResetDialogTest,iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show concrete test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for directory in [Path('app/build/outputs/androidTest-results'),Path('app/build/test-results')]:
+              for report in sorted(directory.rglob('*.xml')):
+                  try:
+                      root=ET.parse(report).getroot()
+                  except ET.ParseError:
+                      continue
+                  for case in root.iter('testcase'):
+                      for kind in ('failure','error'):
+                          failure=case.find(kind)
+                          if failure is not None:
+                              print(case.get('classname','')+'.'+case.get('name',''))
+                              print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-user-list-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileUserListIdentity.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileUserListIdentityTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'ProfileScreen.kt',main+'ProfileUserListIdentity.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/ProfileUserListIdentityTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): readable user list context and explicit identifiers'
+          git push origin HEAD:dev

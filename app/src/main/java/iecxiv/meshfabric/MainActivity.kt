@@ -89,6 +89,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        iecxiv.meshfabric.ui.management.NoticeNavigation.receive(intent)
         enableEdgeToEdge()
         installDesktopMouseWindowCallback()
 
@@ -182,8 +183,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        iecxiv.meshfabric.ui.management.NoticeNavigation.receive(intent)
+    }
+
     override fun onStart() {
         super.onStart()
+        iecxiv.meshfabric.ui.management.NoticeVisibility.visible = true
         KeepAliveService.stopService(applicationContext)
     }
 
@@ -203,6 +211,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         desktopMouseCapture?.reset()
+        iecxiv.meshfabric.ui.management.NoticeVisibility.visible = false
         super.onStop()
         terminalClient.checkpointHistory()
         val totalActiveSessions = terminalClient.getSessionCount() +

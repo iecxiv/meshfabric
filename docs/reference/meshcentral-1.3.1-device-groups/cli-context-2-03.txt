@@ -1,0 +1,68 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshctrl.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 680-906 | part 3/4 (may continue a source line)
+
+
+797:                         } else {
+798:                             console.log("  --id '[deviceid]'      - The device identifier.");
+799:                         }
+800:                         console.log("  --userid [userid]      - The user identifier.");
+801:                         console.log("\r\nOptional arguments:\r\n");
+802:                         console.log("  --fullrights           - Allow full rights over this device.");
+803:                         console.log("  --remotecontrol        - Allow device remote control operations.");
+804:                         console.log("  --agentconsole         - Allow agent console operations.");
+805:                         console.log("  --serverfiles          - Allow access to group server files.");
+806:                         console.log("  --wakedevices          - Allow device wake operation.");
+807:                         console.log("  --notes                - Allow editing of device notes.");
+808:                         console.log("  --desktopviewonly      - Restrict user to view-only remote desktop.");
+809:                         console.log("  --limiteddesktop       - Limit remote desktop keys.");
+810:                         console.log("  --noterminal           - Hide the terminal tab from this user.");
+811:                         console.log("  --nofiles              - Hide the files tab from this user.");
+812:                         console.log("  --noregistry           - Hide the registry tab from this user.");
+813:                         console.log("  --nosoftware           - Hide the software tab from this user.");
+814:                         console.log("  --noamt                - Hide the Intel AMT tab from this user.");
+815:                         console.log("  --limitedevents        - User can only see his own events.");
+816:                         console.log("  --chatnotify           - Allow chat and notification options.");
+817:                         console.log("  --uninstall            - Allow remote uninstall of the agent.");
+818:                         break;
+819:                     }
+820:                     case 'removeuserfromdevice': {
+821:                         console.log("Remove a user from a device, Example usages:\r\n");
+822:                         console.log(winRemoveSingleQuotes("  MeshCtrl RemoveuserFromDeviceGroup --id 'deviceid' --userid userid"));
+823:                         console.log("\r\nRequired arguments:\r\n");
+824:                         if (process.platform == 'win32') {
+825:                             console.log("  --id [deviceid]        - The device identifier.");
+826:                         } else {
+827:                             console.log("  --id '[deviceid]'      - The device identifier.");
+828:                         }
+829:                         console.log("  --userid [userid]      - The user identifier.");
+830:                         break;
+831:                     }
+832:                     case 'broadcast': {
+833:                         console.log("Display a message to one or all logged in users, Example usages:\r\n");
+834:                         console.log("  MeshCtrl Broadcast --msg \"This is a test\"");
+835:                         console.log("\r\nRequired arguments:\r\n");
+836:                         console.log("  --msg [message]        - Message to display.");
+837:                         console.log("\r\nOptional arguments:\r\n");
+838:                         console.log("  --user [userid]        - Send the message to the specified user.");
+839:                         break;
+840:                     }
+841:                     case 'deviceinfo': {
+842:                         console.log("Display information about a device, Example usages:\r\n");
+843:                         console.log(winRemoveSingleQuotes("  MeshCtrl DeviceInfo --id 'deviceid'"));
+844:                         console.log(winRemoveSingleQuotes("  MeshCtrl DeviceInfo --id 'deviceid' --json"));
+845:                         console.log("\r\nRequired arguments:\r\n");
+846:                         if (process.platform == 'win32') {
+847:                             console.log("  --id [deviceid]        - The device identifier.");
+848:                         } else {
+849:                             console.log("  --id '[deviceid]'      - The device identifier.");
+850:                         }
+851:                         console.log("\r\nOptional arguments:\r\n");
+852:                         console.log("  --raw                  - Output raw data in JSON format.");
+853:                         console.log("  --json                 - Give results in JSON format.");
+854:                         break;
+855:                     }
+856:                     case 'removedevice': {
+857:                         console.log("Delete a device, Example usages:\r\n");
+858:                         console.log(winRemoveSingleQuotes("  MeshCtrl RemoveDevice --id 'deviceid'"));
+859:                 

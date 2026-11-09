@@ -1,0 +1,18 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18059-18398 | part 6/6 (may continue a source line)
+
+f (shortuserid.startsWith('~jumpcloud:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/jumpcloud64.png'; }
+18386:             else if (shortuserid.startsWith('~intel:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/intel64.png'; }
+18387:             else if (shortuserid.startsWith('~:')) { QV('p30userAuthServiceLogo', true); Q('p30userAuthServiceLogo').src = 'images/login/generic64.png'; }
+18388:             else { QV('p30userAuthServiceLogo', false); }
+18389: 
+18390:             // Server permissions
+18391:             var msg = [], premsg = '';
+18392:             if ((user.siteadmin != null) && ((user.siteadmin & 32) != 0) && (user.siteadmin != 0xFFFFFFFF)) { premsg = '<img src="images/padlock12.png" height=12 width=8 title="' + "Account is locked" + '" style="margin-top:2px" /> '; msg.push("Locked account"); }
+18393:             if ((user.siteadmin == null) || ((user.siteadmin & (0xFFFFFFFF - 1248)) == 0)) { msg.push("No server rights"); } else if (user.siteadmin == 8) { msg.push("Access to server files"); } else if (user.siteadmin == 0xFFFFFFFF) { msg.push("Full administrator"); } else { msg.push("Partial rights"); }
+18394:             if ((user.siteadmin != null) && (user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & (64 + 128 + 1024)) != 0)) { msg.push("Restrictions"); }
+18395: 
+18396:             // Show user attributes
+18397:             var x = '<div style=min-height:80px><table style=width:100%>';
+18398:             if ((args.hide & 8) != 0) { x += '<br />' + addDeviceAttribute("Name", EscapeHtml(user.name)); } // If title bar is hidden, display the user name here

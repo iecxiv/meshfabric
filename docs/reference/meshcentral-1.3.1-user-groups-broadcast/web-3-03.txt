@@ -1,0 +1,77 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 17546-17775
+
+check) {
+17668:                 x += '<div><label><input id=p4verifiedEmail onchange=showCreateNewAccountDialogValidate() type=checkbox />' + "Email is verified." + '</label></div>';
+17669:                 x += '<div><label><input id=p4invitationEmail type=checkbox title=' + "Email verified and forced password reset required." + ' />' + "Send invitation email." + '</label></div>';
+17670:             }
+17671: 
+17672:             if (passRequirements) {
+17673:                 var r = [], rc = 0;
+17674:                 for (var i in passRequirements) { if ((i != 'reset') && (i != 'hint')) { r.push(i + ':' + passRequirements[i]); rc++; } }
+17675:                 if (rc > 0) { x += '<div style=font-size:x-small;padding:6px>' + format("Requirements: {0}.", r.join(', ')) + '</div>'; }
+17676:             }
+17677: 
+17678:             setDialogMode(2, "Create Account", 3, showCreateNewAccountDialogEx, x);
+17679:             showCreateNewAccountDialogValidate();
+17680:             if ((features & 0x200000) == 0) { Q('p4name').focus(); } else { Q('p4email').focus(); }
+17681:         }
+17682: 
+17683:         function showCreateNewAccountDialogValidate() {
+17684:             var emailok = validateEmail(Q('p4email').value);
+17685:             var nameok = true;
+17686:             var passok =  (Q('p4pass1').value.length > 0 && Q('p4pass1').value == Q('p4pass2').value && checkPasswordRequirements(Q('p4pass1').value, passRequirements));
+17687: 
+17688:             if ((features & 0x200000) == 0) {
+17689:                 nameok = (!Q('p4name') || ((Q('p4name').value.length > 0) && (Q('p4name').value.indexOf(' ') == -1)));
+17690:                 QS('p4hname').color = nameok?'black':'#7b241c';
+17691:             }
+17692:             QS('p4hemail').color = emailok?'black':'#7b241c';
+17693: 
+17694:             if (serverinfo.emailcheck) {
+17695:                 QE('p4verifiedEmail', emailok);
+17696:                 QE('p4invitationEmail', emailok && Q('p4resetNextLogin').checked && Q('p4verifiedEmail').checked);
+17697:                 if (emailok == false) { Q('p4verifiedEmail').checked = false; }
+17698:                 if ((Q('p4resetNextLogin').checked == false) || (Q('p4verifiedEmail').checked == false)) { Q('p4invitationEmail').checked = false; }
+17699:             }
+17700:             QE('p4pass1', !Q('p4randomPassword').checked);
+17701:             QE('p4pass2', !Q('p4randomPassword').checked);
+17702:             QS('p4hp1').color = (passok || Q('p4randomPassword').checked)?'black':'#7b241c';
+17703:             QS('p4hp2').color = (passok || Q('p4randomPassword').checked)?'black':'#7b241c';
+17704: 
+17705:             var ok = nameok & emailok;
+17706:             if (Q('p4randomPassword').checked == false) { ok &= passok; }
+17707:             QE('idx_dlgOkButton', ok);
+17708:         }
+17709: 
+17710:         function showCreateNewAccountDialogEx() {
+17711:             var username = ((features & 0x200000) == 0) ? Q('p4name').value : Q('p4email').value; // Username is email address
+17712:             var x = { action: 'adduser', username: username, email: Q('p4email').value, pass: Q('p4pass1').value, resetNextLogin: Q('p4resetNextLogin').checked, randomPassword: Q('p4randomPassword').checked, removeEvents: Q('p4removeEvents').checked };
+17713:             if (serverinfo.emailcheck) {
+17714:                 x.emailVerified = Q('p4verifiedEmail').checked;
+17715:                 x.emailInvitation = Q('p4invitationEmail').checked;
+17716:             }
+17717:             if (serverinfo.crossDomain) { x.domain = serverinfo.crossDomain[parseInt(Q('p4domain').value)]; }
+17718:             meshserver.send(x);
+17719:         }
+17720: 
+17721:         function showUserGroupDialog(e, userid) {
+17722:             if (xxdialogMode) return;
+17723:             haltEvent(e);
+17724:             userid = decodeURIComponent(userid);
+17725:             var user = users[userid.toLowerCase()], groups = "";
+17726:             if (user.groups != null) { groups = user.groups.join(', ') }
+17727:             var x = "Enter a comma seperate list of administrative realms names." + '<br /><br />';
+17728:             x += addHtmlValue("Realms", '<input id=dp4usergroups style=width:230px value="' + groups + '" placeholder="' + "Name1, Name2, Name3" + '" maxlength=256 onchange=p4validateUserGroups() onkeyup=p4validateUserGroups() />');
+17729:             setDialogMode(2, "Administrative Realms", 3, showUserGroupDialogEx, x, user);
+17730:             focusTextBox('dp4usergroups');
+17731:             p4validateUserGroups();
+17732:             return false;
+17733:         }
+17734: 
+17735:         function p4validateUserGroups() {
+17736:             var groups = Q('dp4usergroups').value;
+17737:             var k = 0, i = groups.indexOf('"') + groups.indexOf('/') + groups.indexOf('>') + groups.indexOf('<') + groups.indexOf('\'');
+17738:             var g = groups.split(',');
+17739:             for (var j in g) { if (g[j].trim().length == 0) k++; }
+17740:           

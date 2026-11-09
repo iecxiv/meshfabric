@@ -1,0 +1,49 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 8/17 (may continue a source line)
+
+left:12px>' + "Guest Sharing" + '</label><br>'; }
+15826:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20nodesktop style=margin-left:12px>' + "No Desktop Access" + '</label><br>';
+15827:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20noterminal style=margin-left:12px>' + "No Terminal Access" + '</label><br>';
+15828:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20nofiles style=margin-left:12px>' + "No File Access" + '</label><br>';
+15829:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20noregistry style=margin-left:12px>' + "No Registry Access" + '</label><br>';
+15830:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20nosoftware style=margin-left:12px>' + "No Software" + '</label><br>';
+15831:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20noamt style=margin-left:12px>' + "No Intel&reg; AMT" + '</label><br>';
+15832:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20meshagentconsole>' + "Mesh Agent Console" + '</label><br>';
+15833:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20meshserverfiles>' + "Server Files" + '</label><br>';
+15834:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20wakedevices>' + "Wake Devices" + '</label><br>';
+15835:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20editnotes>' + "Edit Device Notes" + '</label><br>';
+15836:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20limitevents>' + "Show Only Own Events" + '</label><br>';
+15837:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20chatnotify>' + "Chat & Notify" + '</label><br>';
+15838:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20uninstall>' + "Uninstall Agent / Delete Device" + '</label><br>';
+15839:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20commands>' + "Remote Commands" + '</label><br>';
+15840:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20resetoff>' + "Reset / Power Off" + '</label><br>';
+15841:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20details>' + "Device Details" + '</label><br>';
+15842:             x += '<label><input type=checkbox onchange=p20validateAddMeshUserDialog() id=p20relay>' + "Use as Relay" + '</label><br>';
+15843:             x += '</div>';
+15844: 
+15845:             if (userid == null) {
+15846:                 setDialogMode(2, "Add Users to Device Group", 3, p20showAddMeshUserDialogEx, x);
+15847:                 QE('p20fulladmin', GetMeshRights(currentMesh) == 0xFFFFFFFF);
+15848:                 Q('dp20username').focus();
+15849:             } else if (userid === 1) {
+15850:                 setDialogMode(2, (selected == null)?"Add Device Group Permissions":"Edit Device Group Permissions", selected?7:3, p20showAddMeshUserDialogEx, x, userid);
+15851:                 if (selected != null) { urights = meshes[decodeURIComponent(selected)].links[currentUser._id].rights; }
+15852:                 if (urights == 0xFFFFFFFF) { Q('p20fulladmin').checked = true; urights = -1; }
+15853:             } else if (userid === 2) {
+15854:                 setDialogMode(2, "Add User Group", 3, p20showAddMeshUserDialogEx, x, userid);
+15855:                 QE('p20fulladmin', GetMeshRights(currentMesh) == 0xFFFFFFFF);
+15856:             } else if (userid === 3) {
+15857:                 setDialogMode(2, (selected == null)?"Add Device Group":"Edit Device Group", selected?7:3, p20showAddMeshUserDialogEx, x, userid);
+15858:                 QE('dp2groupid', selected == null);
+15859:                 if (selected != null) { urights = currentUserGroup.links[decodeURIComponent(selected)].rights; }
+15860:                 if (urights == 0xFFFFFFFF) { Q('p20fulladmin').checked = true; urights = -1; }
+15861:             } else if (userid === 4) {
+15862:                 setDialogMode(2, (selected == null)?"Add Device Permissions":"Edit Device Permissions", selected?7:3, p20showAddMeshUserDialogEx, x, userid);
+15863:                 QE('dp2meshid', selected == null);
+15864:                 QE('dp2nodeid', selected == null);
+15865:             } else if (userid === 7) {
+15866:                 setDialogMode(2, (selected == null)?"Add Device Permissions":"Edit Device Permissions", selected?7:3, p20showAddMeshUserDialogEx, x, userid);
+15867:                 QE('dp2meshid', selected == null);
+15868:                 QE('dp2nodeid', selected == null);
+15869:                 if (selected != null) { urights = currentUserGroup.links[decodeURIComponent(selected)].r

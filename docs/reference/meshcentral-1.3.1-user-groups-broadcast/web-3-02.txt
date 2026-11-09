@@ -1,0 +1,61 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 17546-17775
+
+          multiFactor = true;
+17611:                     if (users[i].otpsecret > 0) { factors.push('AuthApp'); }
+17612:                     if (users[i].otphkeys > 0) { factors.push('SecurityKey'); }
+17613:                     if (users[i].otpkeys > 0) { factors.push('BackupCodes'); }
+17614:                 }
+17615:                 csv += '"' + users[i]._id + '","' + users[i].name + '","' + (users[i].email ? users[i].email : '') + '","' + (users[i].creation ? new Date(users[i].creation * 1000) : '') + '","' + (users[i].login ? new Date(users[i].login * 1000) : '') + '","' + (users[i].groups ? users[i].groups.join(',') : '') + '","' + ((multiFactor ? factors.join(',') : '') + '"');
+17616:                 csv += ',' + ((users[i].siteadmin == 0xFFFFFFFF) ? '1' : '0'); // site admin
+17617:                 csv += ',' + (((users[i].siteadmin & 2) != 0) ? '1' : '0'); // user admin
+17618:                 csv += ',' + (((users[i].siteadmin & 32) != 0) ? '1' : '0'); // locked
+17619:                 csv += '\r\n';
+17620:             }
+17621:             saveAs(stringToUtf8Blob(csv), 'userlist.csv');
+17622:             return false;
+17623:         }
+17624: 
+17625:         function p4downloadUserInfoJSON() {
+17626:             var r = []
+17627:             for (var i in users) { r.push(users[i]); }
+17628:             saveAs(new Blob([JSON.stringify(r, null, 2)], { type: 'application/octet-stream' }), 'userlist.json');
+17629:             return false;
+17630:         }
+17631: 
+17632:         function showUserBroadcastDialog(targetid) {
+17633:             if (xxdialogMode) return;
+17634:             var x = '<div style=margin-bottom:6px>' + "Broadcast a message to all connected users." + '</div><textarea id=broadcastMessage style="width:100%;height:184px;resize:none;background-color:#fcf3cf" value="" maxlength=2048 /></textarea>';
+17635:             x += '<select style=width:100% id=broadcastMessageMaxTime>';
+17636:             x += '<option value=0>' + "Show message until dismissed by user" + '</option>';
+17637:             x += '<option value=10>' + "Show for 10 seconds" + '</option>';
+17638:             x += '<option value=60>' + "Show for 1 minute" + '</option>';
+17639:             x += '<option value=300>' + "Show for 5 minutes" + '</option>';
+17640:             x += '</select>';
+17641:             setDialogMode(2, "Broadcast Message", 3, showUserBroadcastDialogEx, x, targetid?decodeURIComponent(targetid):null);
+17642:             Q('broadcastMessage').focus();
+17643:         }
+17644: 
+17645:         function showUserBroadcastDialogEx(b, targetid) {
+17646:             meshserver.send({ action: 'userbroadcast', msg: Q('broadcastMessage').value, target: targetid, maxtime: parseInt(Q('broadcastMessageMaxTime').value) });
+17647:         }
+17648: 
+17649:         function showCreateNewAccountDialog() {
+17650:             if (xxdialogMode) return;
+17651:             var x = '';
+17652: 
+17653:             if (serverinfo.crossDomain) {
+17654:                 var y = '<select style=width:240px id=p4domain>';
+17655:                 for (var i in serverinfo.crossDomain) { y += '<option value=' + i + '>' + ((serverinfo.crossDomain[i] == '')?"Default":EscapeHtml(serverinfo.crossDomain[i])) + '</option>'; }
+17656:                 y += '</select>';
+17657:                 x += addHtmlValue("Domain", y);
+17658:             }
+17659: 
+17660:             if ((features & 0x200000) == 0) { x += addHtmlValue('<span id=p4hname>' + "Username" + '</span>', '<input id=p4name maxlength=64 autocomplete=username onchange=showCreateNewAccountDialogValidate() onkeyup=showCreateNewAccountDialogValidate() />'); }
+17661:             x += addHtmlValue('<span id=p4hemail>' + "Email" + '</span>', '<input id=p4email type=email maxlength=256 autocomplete="email" inputmode="email" onchange=showCreateNewAccountDialogValidate() onkeyup=showCreateNewAccountDialogValidate() />');
+17662:             x += addHtmlValue('<span id=p4hp1>' + "Password" + '</span>', '<input id=p4pass1 type=password maxlength=256 autocomplete="new-password" onchange=showCreateNewAccountDialogValidate() onkeyup=showCreateNewAccountDialogValidate() />');
+17663:             x += addHtmlValue('<span id=p4hp2>' + "Password" + '</span>', '<input id=p4pass2 type=password maxlength=256 autocomplete="new-password" onchange=showCreateNewAccountDialogValidate() onkeyup=showCreateNewAccountDialogValidate() />');
+17664:             x += '<div><label><input id=p4randomPassword onchange=showCreateNewAccountDialogValidate() type=checkbox />' + "Randomize the password." + '</label></div>';
+17665:             x += '<div><label><input id=p4removeEvents onchange=showCreateNewAccountDialogValidate() type=checkbox />' + "Remove all previous events for this userid." + '</label></div>';
+17666:             x += '<div><label><input id=p4resetNextLogin onchange=showCreateNewAccountDialogValidate() type=checkbox />' + "Force password reset on next login." + '</label></div>';
+17667:             if (serverinfo.email

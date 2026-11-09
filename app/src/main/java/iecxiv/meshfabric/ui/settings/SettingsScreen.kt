@@ -87,7 +87,7 @@ fun SettingsScreen(
     val saveTerminalBuffers by viewModel.saveTerminalBuffers.collectAsState()
 
     var showLogout by remember { mutableStateOf(false) }
-    if (showLogout && onLogout != null) androidx.compose.material3.AlertDialog(
+    if (showLogout && onLogout != null) iecxiv.meshfabric.ui.components.AppAlertDialog(
         onDismissRequest = { showLogout = false },
         title = { Text(stringResource(R.string.confirm_logout_title), fontWeight = FontWeight.Bold, fontSize = 18.sp) },
         text = { Text(stringResource(R.string.confirm_logout_msg_custom, currentAppName)) },

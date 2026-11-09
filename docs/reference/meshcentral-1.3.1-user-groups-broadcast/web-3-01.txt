@@ -1,0 +1,68 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4 | lines 17546-17775
+
+17546:                         if (currentLine === "") continue; // Skip blank lines
+17547:                         const lineArray = currentLine.split(',');
+17548:                         // Check if any non-empty field exists
+17549:                         let hasNonEmptyField = false;
+17550:                         for (let j = 0; j < lineArray.length; j++) {
+17551:                             if (lineArray[j].trim() !== "") {
+17552:                                 hasNonEmptyField = true;
+17553:                                 break;
+17554:                             }
+17555:                         }
+17556:                         // If no non-empty field exists, skip adding this object
+17557:                         if (!hasNonEmptyField) continue;
+17558:                         const obj = {};
+17559:                         for (let j = 0; j < headers.length; j++) {
+17560:                             // Only include columns with non-empty headers and non-empty values
+17561:                             const value = lineArray[j].trim();
+17562:                             if (headers[j].trim() !== "" && value !== "") {
+17563:                                 // Convert values "true" to true
+17564:                                 obj[headers[j]] = value.toLowerCase() === 'true' ? true : value;
+17565:                             }
+17566:                         }
+17567:                         jsonArray.push(obj);
+17568:                     }
+17569:                     j = jsonArray;
+17570:                     if ((j != null) && (Array.isArray(j))) {
+17571:                         var ok = true;
+17572:                         for (var i in j) {
+17573:                             if ((typeof j[i].user != 'string') || (j[i].user.length < 1) || (j[i].user.length > 64)) { ok = false; }
+17574:                             if ((typeof j[i].pass != 'string') || (j[i].pass.length < 1) || (j[i].pass.length > 256)) { ok = false; }
+17575:                             if (checkPasswordRequirements(j[i].pass, passRequirements) == false) { ok = false; }
+17576:                             if ((j[i].email != null) && ((typeof j[i].email != 'string') || (j[i].email.length < 1) || (j[i].email.length > 128))) { ok = false; }
+17577:                         }
+17578:                         if (ok == false) { setDialogMode(2, "User Account Import", 1, null, "Invalid CSV file format."); } else { meshserver.send({ action: 'adduserbatch', users: j }); }
+17579:                     } else { setDialogMode(2, "User Account Import", 1, null, "Invalid CSV file format."); }
+17580:                 } else {
+17581:                     try { j = JSON.parse(r.target.result); } catch (ex) { setDialogMode(2, "User Account Import", 1, null, format("Invalid JSON file: {0}.", ex)); return; }
+17582:                     if ((j != null) && (Array.isArray(j))) {
+17583:                         var ok = true;
+17584:                         for (var i in j) {
+17585:                             if ((typeof j[i].user != 'string') || (j[i].user.length < 1) || (j[i].user.length > 64)) { ok = false; }
+17586:                             if ((typeof j[i].pass != 'string') || (j[i].pass.length < 1) || (j[i].pass.length > 256)) { ok = false; }
+17587:                             if (checkPasswordRequirements(j[i].pass, passRequirements) == false) { ok = false; }
+17588:                             if ((j[i].email != null) && ((typeof j[i].email != 'string') || (j[i].email.length < 1) || (j[i].email.length > 128))) { ok = false; }
+17589:                         }
+17590:                         if (ok == false) { setDialogMode(2, "User Account Import", 1, null, "Invalid JSON file format."); } else { meshserver.send({ action: 'adduserbatch', users: j }); }
+17591:                     } else { setDialogMode(2, "User Account Import", 1, null, "Invalid JSON file format."); }
+17592:                 }
+17593:             };
+17594:             fr.readAsText(Q('d4importFile').files[0]);
+17595:         }
+17596: 
+17597:         function p4downloadUserInfo() {
+17598:             if (xxdialogMode) return;
+17599:             var x = "Download the list of users with one of the file formats below." + '<br /><br />';
+17600:             x += addHtmlValue("CSV Format", '<a href=# style=cursor:pointer onclick=\'return p4downloadUserInfoCSV()\'>' + 'userlist.csv' + '</a>');
+17601:             x += addHtmlValue("JSON Format", '<a href=# style=cursor:pointer onclick=\'return p4downloadUserInfoJSON()\'>' + 'userlist.json' + '</a>');
+17602:             setDialogMode(2, "User List Export", 1, null, x);
+17603:         }
+17604: 
+17605:         function p4downloadUserInfoCSV() {
+17606:             var csv = "id,name,email,creation,lastlogin,groups,authfactors,siteadmin,useradmin,locked" + '\r\n';
+17607:             for (var i in users) {
+17608:                 var multiFactor = false, factors = [];
+17609:                 if ((users[i].otpsecret > 0) || (users[i].otphkeys > 0)) {
+17610:           

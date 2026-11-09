@@ -1,0 +1,35 @@
+eflect.Constructor.newInstance(Constructor.java:343)
+2499: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.core.BasePreferenceController.createInstance(BasePreferenceController.java:187)
+2500: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.core.PreferenceControllerListHelper.getPreferenceControllersFromXml(PreferenceControllerListHelper.java:86)
+2501: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.BaseSearchIndexProvider.getPreferenceControllers(BaseSearchIndexProvider.java:169)
+2502: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.BaseSearchIndexProvider.getDynamicRawDataToIndex(BaseSearchIndexProvider.java:100)
+2503: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.SettingsSearchIndexablesProvider.getDynamicSearchIndexableRawData(SettingsSearchIndexablesProvider.java:379)
+2504: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.SettingsSearchIndexablesProvider.queryDynamicRawData(SettingsSearchIndexablesProvider.java:180)
+2505: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at android.provider.SearchIndexablesProvider.query(SearchIndexablesProvider.java:133)
+2506: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at android.content.ContentProvider.query(ContentProvider.java:1620)
+2507: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at android.content.ContentProvider.query(ContentProvider.java:1716)
+2518: 11-09 07:19:14.497  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.VibrationPreferenceController
+2519: 11-09 07:19:14.497  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.LiveCaptionPreferenceController
+2520: 11-09 07:19:14.499  1095  3236 D SlotSimStatus: Number of active SIM: 1
+2521: 11-09 07:19:14.504  1095  3236 W BaseSearchIndex: Error initializing controller in fragment: com.android.settings.deviceinfo.aboutphone.MyDeviceInfoFragment$1@73eaf55, e: java.lang.IllegalStateException: Cannot invoke setValue on a background thread
+2522: 11-09 07:19:14.504  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.deviceinfo.DeviceNamePreferenceController
+2523: 11-09 07:19:14.504  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.deviceinfo.BrandedAccountPreferenceController
+2524: 11-09 07:19:14.508  1344  1783 I PhenotypeModule: PhenotypeModule.handlePhenotypeConfigurationUpdatesInternal():538 Latency of updating configurations from phenotype (experiment v4): 72
+2525: 11-09 07:19:14.511  1344  1783 I PhenotypeModule: PhenotypeModule.handlePhenotypeConfigurationUpdates():478 Latency of updating configurations from phenotype (ExperimentV4): 72
+2526: 11-09 07:19:14.513  1344  1783 I PhenotypeModule: PhenotypeModule.handleResult():319 fetchAndUpdate() : Success, hasFlags=true, fetchStatus=2026-11-09 07:19:14{reason=BROADCAST, isFullFetch=true, isEmpty=false, registeredFormFactor=phone, fetchedFormFactor=phone, success=true, failureMessage=null, isDelta=false, fetchedFlagsCount=1043, deletedFlagsCount=0, totalTime=200}
+2527: 11-09 07:19:14.514  3298  3399 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+2528: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.CaptioningPreferenceController
+2529: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.RTTSettingPreferenceController
+2530: 11-09 07:19:14.514  1095  1110 D RTTSettingsCtr: init controller
+2531: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.KeyboardStickyKeyPreferenceController
+2532: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.KeyboardBounceKeyPreferenceController
+2533: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.KeyboardSlowKeyPreferenceController
+2534: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.AudioDescriptionPreferenceController
+2535: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.FlashNotificationsPreferenceController
+2536: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.accessibility.AccessibilityHearingAidPreferenceController
+2537: 11-09 07:19:14.514  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.language.TtsPreferenceController
+2538: 11-09 07:19:14.515  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.dream.DreamMainSwitchPreferenceController
+2539: 11-09 07:19:14.515  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.dream.DreamComplicationPreferenceController
+2540: 11-09 07:19:14.515  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.DoubleTapScreenPreferenceController
+2541: 11-09 07:19:14.515  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.applications.specialaccess.premiumsms.PremiumSmsScreenPreferenceController
+2631: 11-09 07:19:14.541  1344  1344 I InputMet

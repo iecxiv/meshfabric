@@ -1,0 +1,77 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 15428-16444 | part 10/17 (may continue a source line)
+
+(); }
+15940:             xusers[xusers.length - 1] = name;
+15941:             Q('dp20username').value = xusers.join(', ');
+15942:             p20validateAddMeshUserDialog();
+15943:             return false;
+15944:         }
+15945: 
+15946:         function p20validateAddMeshUserDialog(updateId) {
+15947:             var ok = true;
+15948: 
+15949:             if (updateId === 4) {
+15950:                 // Update user device rights
+15951:                 var devrights = 0, nodeid = decodeURIComponent(Q('dp2nodeid').value);
+15952:                 if ((nodeid != '') && (currentUser.links != null) && (currentUser.links[nodeid] != null)) { devrights = currentUser.links[nodeid].rights; }
+15953:                 Q('p20remotecontrol').checked = ((devrights & 8) != 0);
+15954:                 Q('p20meshagentconsole').checked = ((devrights & 16) != 0);
+15955:                 Q('p20meshserverfiles').checked = ((devrights & 32) != 0);
+15956:                 Q('p20wakedevices').checked = ((devrights & 64) != 0);
+15957:                 Q('p20editnotes').checked = ((devrights & 128) != 0);
+15958:                 Q('p20remoteview').checked = ((devrights & 256) != 0);
+15959:                 Q('p20noterminal').checked = ((devrights & 512) != 0);
+15960:                 Q('p20nofiles').checked = ((devrights & 1024) != 0);
+15961:                 Q('p20noregistry').checked = ((devrights & 4194304) != 0);
+15962:                 Q('p20nosoftware').checked = ((devrights & 8388608) != 0);
+15963:                 Q('p20noamt').checked = ((devrights & 2048) != 0);
+15964:                 Q('p20remotelimitedinput').checked = ((devrights & 4096) != 0);
+15965:                 Q('p20limitevents').checked = ((devrights & 8192) != 0);
+15966:                 Q('p20chatnotify').checked = ((devrights & 16384) != 0);
+15967:                 Q('p20uninstall').checked = ((devrights & 32768) != 0);
+15968:                 Q('p20nodesktop').checked = ((devrights & 65536) != 0);
+15969:                 Q('p20commands').checked = ((devrights & 131072) != 0);
+15970:                 Q('p20resetoff').checked = ((devrights & 262144) != 0);
+15971:                 if (serverinfo.guestdevicesharing !== false) { Q('p20guestshare').checked = ((devrights & 524288) != 0); }
+15972:                 Q('p20details').checked = ((devrights & 1048576) != 0);
+15973:                 Q('p20relay').checked = ((devrights & 2097152) != 0);
+15974:                 ok = (nodeid != '');
+15975:             }
+15976: 
+15977:             /*
+15978:             var meshrights = null;
+15979:             if ((xxdialogTag === 1) || (xxdialogTag === 3)) {
+15980:                 meshrights = meshes[decodeURIComponent(Q('dp2groupid').value)].links[userinfo._id].rights;
+15981:                 //meshrights = GetMeshRights(decodeURIComponent(Q('dp2groupid').value));
+15982:             } else {
+15983:                 meshrights = currentMesh.links[userinfo._id].rights;
+15984:                 //meshrights = GetMeshRights(currentMesh);
+15985:             }
+15986:             */
+15987:             if (Q('dp20username')) {
+15988:                 var xusers = Q('dp20username').value.split(',');
+15989:                 for (var i in xusers) {
+15990:                     var xuser = xusers[i] = xusers[i].trim();
+15991:                     if (xuser.length == 0) { ok = false; } else if (xuser.indexOf('"') >= 0) { ok = false; }
+15992:                 }
+15993: 
+15994:                 // Fill the suggestion box
+15995:                 var showsuggestbox = false, exactMatch = false;
+15996:                 if (users != null) {
+15997:                     var lastuser = xusers[xusers.length - 1].trim(), lastuserl = lastuser.toLowerCase(), matchingUsers = [];
+15998:                     if (lastuser.length > 0) {
+15999:                         for (var i in users) {
+16000:                             var userSplit = users[i]._id.split('/');
+16001:                             if ((currentMesh != null) && (currentMesh.domain != userSplit[1])) continue;
+16002:                             if ((currentNode != null) && (currentNode.domain != userSplit[1])) continue;
+16003:                             if (userSplit[2] === lastuserl) { exactMatch = true; break; }
+16004:                             if (users[i].name.toLowerCase().indexOf(lastuserl) >= 0) { matchingUsers.push([users[i]._id, users[i].name]); if (matchingUsers.length >= 8) break; }
+16005:                         }
+16006:                         if ((exactMatch == false) && (matchingUsers.length > 0)) {
+16007:                             var x = '';
+16008:                             for (var i in matchingUsers) {
+16009:                                 var sid = matchingUsers[i][0], sname = matchingUsers[i][1];
+16010:                                 if (sid.split('/')[2] == sname.toLowerCase()) {
+16011:                                     x += '<div class=suggestionBoxItem onclick=\'p20setname("' + encodeURIComponentEx(sid.split('/')[2]) + '")\'>' + EscapeHtml(sname) +

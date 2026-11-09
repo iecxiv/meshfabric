@@ -1,0 +1,26 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source SHA-256: ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671
+Context: meshes | lines 7186-7206 | window 2 part 3 | not necessarily a complete handler
+
+7186: 
+7187:     function serverCommandPrint(command) { console.log(command.value); }
+7188: 
+7189:     function serverCommandRemovePhone(command) {
+7190:         // Do not allow this command when logged in using a login token
+7191:         if (req.session.loginToken != null) return;
+7192: 
+7193:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) return; // If this account is settings locked, return here.
+7194:         if (user.phone == null) return;
+7195: 
+7196:         // Clear the user's phone
+7197:         delete user.phone;
+7198:         db.SetUser(user);
+7199: 
+7200:         // Event the change
+7201:         var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(user), action: 'accountchange', msgid: 97, msgArgs: [user.name], msg: 'Removed phone number of user ' + EscapeHtml(user.name), domain: domain.id };
+7202:         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+7203:             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+7204:         }
+7205:         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+7206:         parent.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);

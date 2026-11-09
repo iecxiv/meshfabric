@@ -1,0 +1,103 @@
+name: Validate readable device grants on dev
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-device-grant-dev.yml]
+permissions:
+  contents: write
+concurrency:
+  group: profile-readable-device-grant-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate selector without non-local Compose return
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 3016d53206e2d2c8592026c124b6c25038bb521e
+          git fetch origin 37f396427fb2314adcf02a4d9a62aa0b0f3008b7
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          ref='37f396427fb2314adcf02a4d9a62aa0b0f3008b7:.github/workflows/publish-readable-device-grant.yml'
+          assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()=='6a9fd43385cce9061a42c1fb65aaffa6dd975d5d'
+          workflow=subprocess.check_output(['git','show',ref],text=True)
+          start=workflow.index("          python3 - <<'PY'\n")+len("          python3 - <<'PY'\n")
+          end=workflow.index('\n          PY',start)
+          generator=textwrap.dedent(workflow[start:end])
+          old='039ede1f0f875fa7dc2f88c0859d45864a7b418e'
+          assert generator.count(old)==1
+          generator=generator.replace(old,'01831d483ec0afe5ce3fc0c03b0e333732a0a084',1)
+          source=Path('app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt')
+          baseline=source.read_text()
+          exec(compile(generator,'pinned-readable-device-generator','exec'))
+          generated=source.read_text()
+          bad='if(mode=="device") { UserDeviceGrantDialog(session,s,form.id,onBack={mode="profile";approved=false},onSaved=onDismiss); return@key }\n'
+          good='if(mode=="device") { UserDeviceGrantDialog(session,s,form.id,onBack={mode="profile";approved=false},onSaved=onDismiss) } else '
+          assert generated.count(bad)==1
+          assert generated.replace(bad,'',1)==baseline
+          fixed=generated.replace(bad,good,1)
+          assert fixed.replace(good,'',1)==baseline
+          assert 'return@key' not in fixed
+          source.write_text(fixed)
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute selector and existing profile regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.UserMeshGrantDialogTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-device-grant-dev-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserDeviceGrantDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDeviceGrantDialogTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'UserAdministration.kt',main+'UserDeviceGrantDialog.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDeviceGrantDialogTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): readable device grants with frozen review on dev'
+          git push origin HEAD:dev

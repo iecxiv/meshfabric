@@ -1,0 +1,47 @@
+.35 (190800-646585959):27)
+4909: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at com.google.android.gms.people.service.SettingsChangedBroadcastIntentOperation.onHandleIntent(:com.google.android.gms@242335041@24.23.35 (190800-646585959):339)
+4910: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at com.google.android.chimera.IntentOperation.onHandleIntent(:com.google.android.gms@242335041@24.23.35 (190800-646585959):2)
+4911: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at ajom.onHandleIntent(:com.google.android.gms@242335041@24.23.35 (190800-646585959):8)
+4912: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at pkf.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):70)
+4913: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at pke.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):152)
+4914: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at emsz.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):21)
+4915: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+4916: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+4917: 11-09 07:19:23.780  1546  4124 W PeoplePU: 	at java.lang.Thread.run(Thread.java:1012)
+4918: 11-09 07:19:23.808  3300  3498 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+4919: 11-09 07:19:23.820  1546  4124 W PeoplePU: getComponentEnabledSetting failed.
+4920: 11-09 07:19:23.820  1546  4124 W PeoplePU: java.lang.IllegalArgumentException: Unknown component: ComponentInfo{com.google.android.syncadapters.contacts/com.google.android.syncadapters.contacts.ContactsSyncAdapterService}
+4921: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at android.os.Parcel.createExceptionOrNull(Parcel.java:3246)
+4922: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at android.os.Parcel.createException(Parcel.java:3226)
+4923: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at android.os.Parcel.readException(Parcel.java:3209)
+4924: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at android.os.Parcel.readException(Parcel.java:3151)
+4925: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at android.content.pm.IPackageManager$Stub$Proxy.getComponentEnabledSetting(IPackageManager.java:6361)
+4926: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at android.app.ApplicationPackageManager.getComponentEnabledSetting(ApplicationPackageManager.java:3191)
+4927: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at cywf.a(:com.google.android.gms@242335041@24.23.35 (190800-646585959):4)
+4928: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at cyoi.a(:com.google.android.gms@242335041@24.23.35 (190800-646585959):34)
+4929: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at com.google.android.gms.people.service.SettingsChangedBroadcastIntentOperation.onHandleIntent(:com.google.android.gms@242335041@24.23.35 (190800-646585959):339)
+4930: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at com.google.android.chimera.IntentOperation.onHandleIntent(:com.google.android.gms@242335041@24.23.35 (190800-646585959):2)
+4931: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at ajom.onHandleIntent(:com.google.android.gms@242335041@24.23.35 (190800-646585959):8)
+4932: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at pkf.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):70)
+4933: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at pke.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):152)
+4934: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at emsz.run(:com.google.android.gms@242335041@24.23.35 (190800-646585959):21)
+4935: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
+4936: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+4937: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at java.lang.Thread.run(Thread.java:1012)
+4938: 11-09 07:19:23.820  1546  4124 W PeoplePU: Caused by: android.os.RemoteException: Remote stack trace:
+4939: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at com.android.server.pm.ComputerEngine.getComponentEnabledSettingInternal(ComputerEngine.java:5265)
+4940: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at com.android.server.pm.ComputerEngine.getComponentEnabledSetting(ComputerEngine.java:5247)
+4941: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at com.android.server.pm.IPackageManagerBase.getComponentEnabledSetting(IPackageManagerBase.java:385)
+4942: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at android.content.pm.IPackageManager$Stub.onTransact(IPackageManager.java:3160)
+4943: 11-09 07:19:23.820  1546  4124 W PeoplePU: 	at com.android.server.pm.PackageManagerService$IPackageManagerImpl.onTransact(PackageManagerService.java:6545)
+4944: 11-09 07:19:23.820  1546  4124 W PeoplePU: 
+4945: 11-09 07:19:23.828  1546  4124 I FsaEntryPointSwitcher: setting component enabled=1 for com.google.android.gms.people.sync.focus.ContactsSyncAdapterService
+4946: 11-09 07:19:23.835  1531  2968 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+4947: 11-09 07:19:23.849  1546  4124 I FsaEntryPointSwitcher: Setting component enabled succeeds.
+4948: 11-09 07:19:23.857  1546  4124 W PeoplePU: getComponentEnabledSetting failed.
+4949: 11-09 07:19:23.857  1546  4124 W PeoplePU: java.lang.IllegalArgumentException: Unknown component: ComponentInfo{com.google.android.syncadapters.contacts/com.google.android.syncadapters.contacts.ContactsSyncAdapterService}
+4950: 11-09 07:19:23.857  1546  4124 W PeoplePU: 	at android.os.Parcel.createExceptionOrNull(Parcel.java:3246)
+4951: 11-09 07:19:23.857  1546  4124 W PeoplePU: 	at android.os.Parcel.createException(Parcel.java:3226)
+4952: 11-09 07:19:23.857  1546  4124 W PeoplePU: 	at android.os.Parcel.readException(Parcel.java:3209)
+4953: 11-09 07:19:23.857  1546  4124 W PeoplePU: 	at android.os.Parcel.readException(Parcel.java:3151)
+4954: 11-09 07:19:23.857  

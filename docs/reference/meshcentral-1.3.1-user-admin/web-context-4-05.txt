@@ -1,0 +1,78 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 17606-17961 | part 5/6 (may continue a source line)
+
+:                 if (Q('ua_serverupdate').checked == true) siteadmin += 16;
+17853:                 if (Q('ua_lockedaccount').checked == true) siteadmin += 32;
+17854:                 if (Q('ua_nonewgroups').checked == true) siteadmin += 64;
+17855:                 if (Q('ua_nomeshcmd').checked == true) siteadmin += 128;
+17856:                 if (Q('ua_manageusergroups').checked == true) siteadmin += 256;
+17857:                 if (Q('ua_managerecordings').checked == true) siteadmin += 512;
+17858:                 if (Q('ua_locksettings').checked == true) siteadmin += 1024;
+17859:                 if (Q('ua_allevents').checked == true) siteadmin += 2048;
+17860:                 if (Q('ua_nonewdevices').checked == true) siteadmin += 4096;
+17861:             }
+17862:             var x = { action: 'edituser', id: user._id, siteadmin: siteadmin };
+17863:             if (isNaN(quota) == false) { x.quota = (quota * 1024); }
+17864:             meshserver.send(x);
+17865:         }
+17866: 
+17867:         function onUserSearchInputChanged() { mainUpdate(16384); }
+17868: 
+17869: 
+17870:         //
+17871:         // MY USER GROUPS
+17872:         //
+17873: 
+17874:         function updateUserGroups() {
+17875:             // Display user group operations only if allowed for us
+17876:             QV('p50userGroupOps', (userinfo.siteadmin & 256) != 0); // SITERIGHT_USERGROUPS = 256
+17877: 
+17878:             // Sort the list of group names
+17879:             var sortedGroups = [], x = '';
+17880:             if (usergroups) { for (var i in usergroups) { sortedGroups.push(usergroups[i]); } }
+17881:             sortedGroups.sort(nameSort);
+17882: 
+17883:             // Save the list of currently checked users
+17884:             var checkedUserGroupids = [], elements = document.getElementsByClassName('UserGroupCheckbox');
+17885:             for (var i=0;i<elements.length;i++) { if (elements[i].checked) { checkedUserGroupids.push(elements[i].value); } }
+17886: 
+17887:             if (sortedGroups.length == 0) {
+17888:                 x += '<br />' + "No groups found." + '<br />';
+17889:                 QV('DuplicateUserGroupButton', false);
+17890:             } else {
+17891:                 // Display the groups using the sorted list
+17892:                 x += '<table class=p3usersTable cellpadding=0 cellspacing=0>';
+17893:                 x += '<th>' + "Name" + '<th style=width:80px>' + "Users" + '<th style=width:80px>' + "Device Groups" + '<th style=width:80px>' + "Devices";
+17894:                 for (var i in sortedGroups) { x += addUserGroupHtml(sortedGroups[i]); }
+17895:                 x += '</table>';
+17896:                 QV('DuplicateUserGroupButton', true);
+17897:             }
+17898:             QH('p50groups', x);
+17899: 
+17900:             // Re-check userid's
+17901:             elements = document.getElementsByClassName('UserGroupCheckbox');
+17902:             for (var i = 0; i < elements.length; i++) { elements[i].checked = ((checkedUserGroupids.indexOf(elements[i].value) >= 0)); }
+17903:             p50updateInfo();
+17904: 
+17905:             // Update current user panel if needed
+17906:             if ((currentUserGroup != null) && (xxcurrentView == 51)) { gotoUserGroup(encodeURIComponentEx(currentUserGroup._id), true); }
+17907:         }
+17908: 
+17909:         function addUserGroupHtml(group) {
+17910:             var usercount = 0, meshcount = 0, devicecount = 0;
+17911:             if (group.links) { for (var i in group.links) { if (i.startsWith('user/')) { usercount++; } if (i.startsWith('mesh/')) { meshcount++; } if (i.startsWith('node/')) { devicecount++; } } }
+17912: 
+17913:             // Group name, if we are a cross-domain administrator, add the domain.
+17914:             var name = EscapeHtml(group.name);
+17915:             if ((serverinfo.crossDomain != null)) {
+17916:                 var grpdomain = group._id.split('/')[1];
+17917:                 if (grpdomain != '') { name += ', <span style=color:#26F>' + EscapeHtml(grpdomain) + '</span>'; }
+17918:             }
+17919: 
+17920:             var x = '<tr tabindex=0 onmouseover=userMouseHover2(this,1) onmouseout=userMouseHover2(this,0) onkeypress="if (event.key==\'Enter\') gotoUserGroup(\'' + encodeURIComponentEx(group._id) + '\')"><td style=cursor:pointer>';
+17921:             x += '<div class=bar style=width:100%>';
+17922:             x += '<div class=baricon><input class=UserGroupCheckbox value=' + encodeURIComponentEx(group._id) + ' onclick=p50updateInfo() type=checkbox></div>';
+17923:             x += '<div class=baricon onclick=gotoUserGroup("' + encodeURIComponentEx(group._id) + '")><div class=m4></div></div>';
+17924:             x += '<div class=g1 onclick=gotoUserGroup("' + encodeURIComponentEx(group._id) + '")></div><div class=g2 onclick=gotoUserGroup("' + encodeURIComponentEx(group._id) + '")></div>';
+17925:             x += '<div style=line-height:24px onclick=gotoUserGroup("' + encodeURIComponentEx(group._id) + '")><span style=font-size:16px>

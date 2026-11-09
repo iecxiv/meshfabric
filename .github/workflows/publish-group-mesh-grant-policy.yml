@@ -1,0 +1,62 @@
+name: Validate integrated initial group assignment grant policy
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-group-mesh-grant-policy.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: publish-group-mesh-grant-policy-dev
+  cancel-in-progress: false
+jobs:
+  validate-integrated-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found or not executable: $SDKMANAGER"
+            exit 1
+          fi
+          echo "Using Android SDK: $SDK_ROOT"
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Verify integrated policy and tests exist without enabling writes
+        run: |
+          set -euo pipefail
+          for file in \
+            app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshGrantPolicy.kt \
+            app/src/test/java/iecxiv/meshfabric/ui/management/GroupMeshGrantPolicyTest.kt \
+            app/src/androidTest/java/iecxiv/meshfabric/ui/management/GroupMeshGrantRequestTest.kt
+          do
+            test -s "$file" || { echo "::error::Missing integrated file: $file"; exit 1; }
+          done
+          git diff --check
+      - name: Build, compile Android tests, run all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Verify validation did not modify tracked sources
+        run: git diff --exit-code -- app/src
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-mesh-grant-policy-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7

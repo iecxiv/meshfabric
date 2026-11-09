@@ -1,0 +1,55 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4 | lines 1610-1735
+
+               if (i.startsWith('user/')) {
+1677:                                         var xuser = parent.users[i];
+1678:                                         if ((xuser != null) && (xuser.links != null)) {
+1679:                                             ugrp.links[i] = { rights: cgroup.links[i].rights };
+1680:                                             xuser.links[ugrpid] = { rights: cgroup.links[i].rights };
+1681:                                             db.SetUser(xuser);
+1682:                                             parent.parent.DispatchEvent([xuser._id], obj, 'resubscribe');
+1683: 
+1684:                                             // Notify user change
+1685:                                             var targets = ['*', 'server-users', user._id, xuser._id];
+1686:                                             var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(xuser), action: 'accountchange', msgid: 67, msgArgs: [xuser.name], msg: 'User group membership changed: ' + xuser.name, domain: ugrpdomain.id };
+1687:                                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1688:                                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1689:                                             }
+1690:                                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+1691:                                             //parent.parent.DispatchEvent(targets, obj, event);
+1692:                                             pendingDispatchEvents.push([targets, obj, event]);
+1693:                                         }
+1694:                                     } else if (i.startsWith('mesh/')) {
+1695:                                         var xmesh = parent.meshes[i];
+1696:                                         if (xmesh && xmesh.links) {
+1697:                                             ugrp.links[i] = { rights: cgroup.links[i].rights };
+1698:                                             xmesh.links[ugrpid] = { rights: cgroup.links[i].rights };
+1699:                                             db.Set(xmesh);
+1700: 
+1701:                                             // Notify mesh change
+1702:                                             var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: xmesh._id, name: xmesh.name, mtype: xmesh.mtype, desc: xmesh.desc, action: 'meshchange', links: xmesh.links, msgid: 68, msgArgs: [ugrp.name, xmesh.name], msg: 'Added user group ' + ugrp.name + ' to device group ' + xmesh.name, domain: ugrpdomain.id, invite: xmesh.invite };
+1703:                                             if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1704:                                                 event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1705:                                             }
+1706:                                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+1707:                                             //parent.parent.DispatchEvent(['*', xmesh._id, user._id], obj, event);
+1708:                                             pendingDispatchEvents.push([parent.CreateMeshDispatchTargets(xmesh, [user._id]), obj, event]);
+1709:                                         }
+1710:                                     }
+1711:                                 }
+1712:                             }
+1713:                         }
+1714: 
+1715:                         // Save the new group
+1716:                         db.Set(ugrp);
+1717:                         if (db.changeStream == false) { parent.userGroups[ugrpid] = ugrp; }
+1718: 
+1719:                         // Event the user group creation
+1720:                         var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: ugrpid, name: ugrp.name, desc: ugrp.desc, action: 'createusergroup', links: ugrp.links, msgid: 69, msgArgv: [ugrp.name], msg: 'User group created: ' + ugrp.name, ugrpdomain: domain.id };
+1721:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+1722:                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+1723:                         }
+1724:                         parent.parent.DispatchEvent(['*', ugrpid, user._id], obj, event); // Even if DB change stream is active, this event must be acted upon.
+1725: 
+1726:                         // Event any pending events, these must be sent out after the group creation event is dispatched.
+17

@@ -1,0 +1,63 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18059-18398 | part 1/6 (may continue a source line)
+
+18059:             {
+18060:                 var consentOptionsStr = [], consent = 0;
+18061:                 if (group.consent) { consent = group.consent; }
+18062:                 if (serverinfo.consent) { consent |= serverinfo.consent; }
+18063:                 if ((consent & 0x0040) && (consent & 0x0008)) { consentOptionsStr.push("Desktop Prompt+Toolbar"); } else if (consent & 0x0040) { consentOptionsStr.push("Desktop Toolbar"); } else if (consent & 0x0008) { consentOptionsStr.push("Desktop Prompt"); } else { if (consent & 0x0001) { consentOptionsStr.push("Desktop Notify"); } }
+18064:                 if (consent & 0x0010) { consentOptionsStr.push("Terminal Prompt"); } else { if (consent & 0x0002) { consentOptionsStr.push("Terminal Notify"); } }
+18065:                 if (consent & 0x0020) { consentOptionsStr.push("Files Prompt"); } else { if (consent & 0x0004) { consentOptionsStr.push("Files Notify"); } }
+18066:                 if (consent & 0x0100) { consentOptionsStr.push("Registry Prompt"); } else { if (consent & 0x0080) { consentOptionsStr.push("Registry Notify"); } }
+18067:                 if (consent == 0x0087) { consentOptionsStr = ["Always Notify"]; }
+18068:                 if ((consent & 0x0138) == 0x0138) { consentOptionsStr = ["Always Prompt"]; }
+18069: 
+18070:                 consentOptionsStr = consentOptionsStr.join(', ');
+18071:                 if (consentOptionsStr == '') { consentOptionsStr = '<i>' + "None" + '</i>'; }
+18072:                 x += addDeviceAttribute("User Consent", addLinkConditional(consentOptionsStr, 'p20editmeshconsent(4)', true));
+18073:             }
+18074: 
+18075:             x += addDeviceAttribute("Users", usercount);
+18076:             x += addDeviceAttribute("Device Groups", meshcount);
+18077:             x += addDeviceAttribute("Devices", devicecount);
+18078: 
+18079:             x += '</table></div><br />';
+18080: 
+18081:             if ((userinfo.siteadmin & 256) != 0) {
+18082:                 x += '<input type=button value="' + "Broadcast" + '" title="' + "Send a notice to all users in this group." + '" onclick=showUserBroadcastDialog("' + encodeURIComponentEx(group._id) + '") />';
+18083:             }
+18084: 
+18085:             // Setup the panel
+18086:             QH('p51group', x);
+18087: 
+18088:             x = '<br />';
+18089:             if ((currentUserGroup.membershipType == null) && ((userinfo.siteadmin & 256) != 0)) {
+18090:                 x += '<a href=# onclick="return p51showAddUserDialog()" style=cursor:pointer;margin-right:10px><img src=images/icon-addnew.png border=0 height=12 width=12> ' + "Add Users" + '</a>';
+18091:             }
+18092:             x += '<table style="color:black;background-color:#EEE;border-color:#AAA;border-width:1px;border-style:solid;border-collapse:collapse" border=0 cellpadding=2 cellspacing=0 width=100%><tbody><tr style=background-color:#AAAAAA;font-weight:bold><th scope=col style=text-align:left;width:430px>' + "Group Members" + '</th><th scope=col style=text-align:left></th></tr>';
+18093: 
+18094:             // Sort the users for this mesh
+18095:             var count = 1, sortedusers = [];
+18096:             for (var i in currentUserGroup.links) {
+18097:                 if (i.startsWith('user/') == false) continue;
+18098:                 var uname = i.split('/')[2];
+18099:                 if (currentUserGroup.links[i].name) { uname = currentUserGroup.links[i].name; }
+18100:                 if (i == userinfo._id) { uname = userinfo.name; }
+18101:                 sortedusers.push({ id: i, name: uname, rights: currentUserGroup.links[i].rights });
+18102:             }
+18103:             sortedusers.sort(function(a, b) { if (a.name > b.name) return 1; if (a.name < b.name) return -1; return 0; });
+18104: 
+18105:             // Display all users for this user group
+18106:             for (var i in sortedusers) {
+18107:                 var trash = '';
+18108:                 if (currentUserGroup.membershipType == null) { trash = '<a href=# onclick=\'return p51deleteUser(event,"' + encodeURIComponentEx(sortedusers[i].id) + '")\' title="' + "Remove user rights to this device group" + '" style=cursor:pointer><img src=images/trash.png border=0 height=10 width=10></a>'; }
+18109:                 var username = EscapeHtml(decodeURIComponent(sortedusers[i].name));
+18110:                 if (users != null) { username = '<a href=# onclick=\'gotoUser("' + encodeURIComponentEx(sortedusers[i].id) + '");haltEvent(event);\'>' + username + '</a>'; }
+18111:                 x += '<tr ' + (((count % 2) == 0) ? 'style=background-color:#DDD' : '') + '><td><div title="' + "User" + '" class=m2></div><div>&nbsp;' + username + '<div></div></div></td><td><div style=float:right>' + trash + '</div></td></tr>';
+18112:                 ++count;
+18113:             }
+18114: 
+18115:             if (count == 1) { x += '<tr><td><div style=padding:6px>&nbsp;<i>' + "No Members" + '</i><div></div></div></td><td></td></tr>'; }
+18116: 
+18117:             x += '</tb

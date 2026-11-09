@@ -1,0 +1,73 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 18059-18398 | part 3/6 (may continue a source line)
+
+"' + "Remove user group rights to this device" + '" style=cursor:pointer><img src=images/trash.png border=0 height=10 width=10></a>';
+18159:                         rights = '<span style=cursor:pointer onclick=p20showAddMeshUserDialog(7,"' + encodeURIComponentEx(node._id) + '")>' + rights + ' <img class=hoverButton style=cursor:pointer src=images/link5.png></span>';
+18160:                     }
+18161:                     x += '<tr ' + (((++count % 2) == 0) ? 'style=background-color:#DDD' : '') + '><td style=width:30%><div title="' + "Device Group" + '" class=m99></div><div>&nbsp;' + nodename + '<div></div></div></td><td style=width:70%><div style=float:right>' + trash + '</div><div>' + rights + '</div></td></tr>';
+18162:                 }
+18163:             }
+18164:             if (count == 1) { x += '<tr><td><div style=padding:6px>&nbsp;<i>' + "No devices in common" + '</i><div></div></div></td><td></td></tr>'; }
+18165:             x += '</tbody></table>';
+18166: 
+18167:             if (((currentUserGroup.membershipType == null) || (usercount == 0)) && ((userinfo.siteadmin & 256) != 0)) {
+18168:                 x += '<div style=font-size:small;text-align:right><span><a href=# onclick=p51showDeleteUserGroupDialog() style=cursor:pointer>' + "Delete User Group" + '</a></span></div>';
+18169:             }
+18170: 
+18171:             QH('p51group2', x);
+18172:             go(51);
+18173: 
+18174:             // Change the URL
+18175:             var urlviewmode = '';
+18176:             if (((features & 0x10000000) == 0) && (xxcurrentView >= 51) && (xxcurrentView <= 59) && (currentUserGroup != null)) {
+18177:                 urlviewmode = '?viewmode=' + xxcurrentView + '&gotougrp=' + ((serverinfo.crossDomain)?currentUserGroup._id:currentUserGroup._id.split('/')[2]);
+18178:                 for (var i in urlargs) { urlviewmode += ('&' + i + '=' + urlargs[i]); }
+18179:                 try { window.history.replaceState({}, document.title, window.location.pathname + urlviewmode); } catch (ex) { }
+18180:             }
+18181:         }
+18182: 
+18183:         function p51edituserGroupFeatures() {
+18184:             if (xxdialogMode) return;
+18185:             var flags = (currentUserGroup.flags)?currentUserGroup.flags:0, x = ''; // Flags: 2 = Session Recording
+18186:             if (serverinfo.userGroupsSessionRecording == 1) {
+18187:                 x += '<div><label><input type=checkbox id=d51flag1 ' + ((flags & 2) ? 'checked' : '') + '>' + "Record sessions" + '</label><br></div>';
+18188:             }
+18189:             setDialogMode(2, "Edit User Group Features", 3, p51edituserGroupFeaturesEx, x);
+18190:         }
+18191: 
+18192:         // Send to the server the new user's real name
+18193:         function p51edituserGroupFeaturesEx() {
+18194:             // Setup user flags
+18195:             var flags = 0; // Flags: 2 = Session Recording
+18196:             if ((serverinfo.userGroupsSessionRecording == 1) && Q('d51flag1').checked) { flags += 2; }
+18197:             meshserver.send({ action: 'editusergroup', ugrpid: currentUserGroup._id, flags: flags });
+18198:         }
+18199: 
+18200:         function p51removeDeviceFromUserGroup(e, nodeid) {
+18201:             if (xxdialogMode) return;
+18202:             var node = getNodeFromId(decodeURIComponent(nodeid));
+18203:             if (node == null) return;
+18204:             setDialogMode(2, "Remove Device Permissions", 3, p51removeDeviceFromUserGroupEx, format("Confirm removal of access rights for device \"{0}\"?", EscapeHtml(node.name)), node._id);
+18205:         }
+18206: 
+18207:         function p51removeDeviceFromUserGroupEx(b, nodeid) {
+18208:             meshserver.send({ action: 'adddeviceuser', nodeid: nodeid, userids: [ currentUserGroup._id ], rights: 0, remove: true });
+18209:         }
+18210: 
+18211:         function p51removeMeshFromUserGroup(e, meshid) {
+18212:             if (xxdialogMode) return;
+18213:             var mesh = meshes[decodeURIComponent(meshid)];
+18214:             if (mesh == null) return;
+18215:             setDialogMode(2, "Remove Device Group Permissions", 3, p51removeMeshFromUserGroupEx, format("Confirm removal of access rights for device group \"{0}\"?", EscapeHtml(mesh.name)), mesh._id);
+18216:         }
+18217: 
+18218:         function p51removeMeshFromUserGroupEx(b, meshid) {
+18219:             meshserver.send({ action: 'removemeshuser', meshid: meshid, userid: currentUserGroup._id });
+18220:         }
+18221: 
+18222:         function p51editgroup(focus, nameReadOnly) {
+18223:             if (xxdialogMode) return;
+18224:             var x = addHtmlValue("Name", '<input id=dp51name style=width:230px maxlength=32 onchange=p51editgroupValidate() onkeyup=p51editgroupValidate(event) ' + (nameReadOnly ? 'readonly disabled' : '') + '/>');
+18225:             x += addHtmlValue("Description", '<div style=width:230px;margin:0;padding:0><textarea id=dp51desc maxlength=1024 style=width:100%;resize:none></textarea></div>');
+18226:             setDial

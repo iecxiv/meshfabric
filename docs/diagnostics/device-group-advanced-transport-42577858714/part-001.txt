@@ -1,0 +1,55 @@
+Diagnostic documentation only. The original transport tests remain failed.
+Publishing this report is not application-source publication or a passing test run.
+
+BEGIN ADVANCED TRANSPORT DIAGNOSTIC
+Source run: 42577858714; source commit: 6367d1b17fbea2b2a0a87190123bbfa99d6003f0
+Existing artifact only. No tests rerun, no app sources changed, no publication.
+FILES IN ARTIFACT: 252
+outputs/androidTest-results/connected/debug/TEST-test(AVD) - 15.xml | 2956 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/device-info.pb | 112 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-ackAndExactCorrelatedReadAreBothRequired.txt | 437 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-actualTimeoutLeavesAnUnknownOutcomeWithoutResending.txt | 928441 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-authorityOrServerPolicyLossLeavesOutcomeUnknownWithoutRetry.txt | 357 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-consentUsesItsOwnExactFieldsAndZeroExpiryMayBeAbsent.txt | 343 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-disconnectAndLateRepliesNeverConfirmOrRetry.txt | 325 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-duplicateAckAndIdentityRefreshInvalidateTheOldRound.txt | 341 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-explicitDenialAndFailedSendNeverRetry.txt | 313 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-extraUsersReadMayFinishInEitherOrder.txt | 503 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-frozenInputsBindingAndConfirmationAreRevalidated.txt | 335 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-immutableCorrelatedCopyCannotBeReplacedByMutableState.txt | 637 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-oldUntaggedWrongAckAndResponseidOnlyReadsCannotConfirm.txt | 347 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-requestIsCopiedAndConcurrentSubmitIsRejected.txt | 327 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-wrongValuesMissingTargetAndReadDenialCannotConfirm.txt | 932 bytes
+outputs/androidTest-results/connected/debug/test(AVD) - 15/test-result.pb | 6433 bytes
+outputs/androidTest-results/connected/debug/test-result-exit-code.txt | 1 bytes
+outputs/androidTest-results/connected/debug/test-result.pb | 6435 bytes
+reports/androidTests/connected/debug/css/base-style.css | 2428 bytes
+reports/androidTests/connected/debug/css/style.css | 1798 bytes
+reports/androidTests/connected/debug/iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest.html | 3838 bytes
+reports/androidTests/connected/debug/iecxiv.meshfabric.ui.management.html | 2485 bytes
+reports/androidTests/connected/debug/index.html | 2840 bytes
+reports/androidTests/connected/debug/js/report.js | 2933 bytes
+reports/lint-results-debug.html | 402897 bytes
+reports/lint-results-debug.sarif | 669553 bytes
+reports/lint-results-debug.txt | 71590 bytes
+reports/lint-results-debug.xml | 221059 bytes
+reports/tests/testDebugUnitTest/css/base-style.css | 2819 bytes
+reports/tests/testDebugUnitTest/css/style.css | 2166 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.ExampleUnitTest/index.html | 2490 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.model.DevicePlatformTest/index.html | 4061 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.ClipboardControlProtocolTest/index.html | 4475 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.ControlRetryTest/index.html | 4586 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DefaultNetworkTrackerTest/index.html | 5923 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DesktopRecoveryPolicyTest/index.html | 3305 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DeviceNetworkIpv4Test/index.html | 7213 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DownloadNetworkAttemptTest/index.html | 3902 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DownloadReconnectNoticeTest/index.html | 3114 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DownloadRecoveryTest/index.html | 8006 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DownloadStallWatchTest/index.html | 3298 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.DownloadToastDispatchTest/index.html | 3357 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.FileBrowserTransportTest/index.html | 3358 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.FileListingPathsTest/index.html | 3503 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.FileNavigationStateTest/index.html | 4383 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.FileSessionPolicyTest/index.html | 4565 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.SocketGenerationTest/index.html | 3874 bytes
+reports/tests/testDebugUnitTest/iecxiv.meshfabric.data.remote.TerminalHandshakePol

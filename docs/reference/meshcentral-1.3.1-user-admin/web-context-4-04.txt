@@ -1,0 +1,73 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 17606-17961 | part 4/6 (may continue a source line)
+
+& ((user.siteadmin & 1024) != 0));    // Lock account settings
+17785:                 Q('ua_nonewdevices').checked = ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 4096) != 0));    // No New Devices
+17786:             }
+17787:             if ((userinfo.siteadmin & 2) != 0) {
+17788:                 Q('ua_manageusers').checked = ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 2) != 0));        // Manage Users
+17789:                 QE('ua_manageusers', !uself && (userinfo.siteadmin & 2));
+17790:             }
+17791:             if ((userinfo.siteadmin & 256) != 0) {
+17792:                 Q('ua_manageusergroups').checked = ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 256) != 0)); // Manage User Groups
+17793:                 QE('ua_manageusergroups', !uself && (userinfo.siteadmin & 256));
+17794:             }
+17795:             if ((userinfo.siteadmin & 512) != 0) {
+17796:                 Q('ua_managerecordings').checked = ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 512) != 0)); // Manage Recordings
+17797:                 QE('ua_managerecordings', !uself && (userinfo.siteadmin & 512));
+17798:             }
+17799:             if ((userinfo.siteadmin & 2048) != 0) {
+17800:                 Q('ua_allevents').checked = ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 2048) != 0));       // View all events
+17801:                 QE('ua_allevents', !uself && (userinfo.siteadmin & 2048));
+17802:             }
+17803: 
+17804:             QE('ua_fulladmin', !uself && (userinfo.siteadmin == 0xFFFFFFFF));
+17805:             QE('ua_serverbackup', !uself && (userinfo.siteadmin == 0xFFFFFFFF));
+17806:             QE('ua_serverrestore', !uself && (userinfo.siteadmin == 0xFFFFFFFF));
+17807:             QE('ua_fileaccess', !uself && (userinfo.siteadmin == 0xFFFFFFFF));
+17808:             QE('ua_fileaccessquota', !uself && (userinfo.siteadmin == 0xFFFFFFFF));
+17809:             QE('ua_serverupdate', !uself && (userinfo.siteadmin == 0xFFFFFFFF));
+17810:             QV('d2AdminPermissions', userinfo.siteadmin == 0xFFFFFFFF)
+17811: 
+17812:             QV('d2MngUsr', (userinfo.siteadmin & 2) != 0);
+17813:             QV('d2MngGrp', (userinfo.siteadmin & 256) != 0);
+17814:             QV('d2MngRec', (userinfo.siteadmin & 512) != 0);
+17815: 
+17816:             QE('ua_lockedaccount', !uself && (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
+17817:             QE('ua_nonewgroups', !uself && (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
+17818:             QE('ua_nomeshcmd', !uself && (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
+17819:             QE('ua_nonewdevices', !uself && (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
+17820:             QE('ua_locksettings', !uself && (userinfo.siteadmin & 2) && (user.siteadmin != 0xFFFFFFFF) && (userinfo._id != user._id));
+17821:             Q('ua_fileaccessquota').value = (user.quota != null)?(user.quota / 1024):'';
+17822:             showUserAdminDialogValidate();
+17823:             return false;
+17824:         }
+17825: 
+17826:         function showUserAdminDialogValidate() {
+17827:             if (userinfo.siteadmin == 0xFFFFFFFF) {
+17828:                 QE('ua_serverbackup', !Q('ua_fulladmin').checked);
+17829:                 QE('ua_manageusers', !Q('ua_fulladmin').checked);
+17830:                 QE('ua_serverrestore', !Q('ua_fulladmin').checked);
+17831:                 QE('ua_fileaccess', !Q('ua_fulladmin').checked);
+17832:                 QE('ua_serverupdate', !Q('ua_fulladmin').checked);
+17833:                 QE('ua_lockedaccount', !Q('ua_fulladmin').checked);
+17834:                 QE('ua_nonewgroups', !Q('ua_fulladmin').checked);
+17835:                 QE('ua_nomeshcmd', !Q('ua_fulladmin').checked);
+17836:                 QE('ua_nonewdevices', !Q('ua_fulladmin').checked);
+17837:                 QE('ua_manageusergroups', !Q('ua_fulladmin').checked);
+17838:                 QE('ua_managerecordings', !Q('ua_fulladmin').checked);
+17839:                 QE('ua_allevents', !Q('ua_fulladmin').checked);
+17840:                 QE('ua_locksettings', !Q('ua_fulladmin').checked);
+17841:                 QE('ua_fileaccessquota', Q('ua_fileaccess').checked && !Q('ua_fulladmin').checked);
+17842:             }
+17843:         }
+17844: 
+17845:         function showUserAdminDialogEx(button, user) {
+17846:             var siteadmin = 0, quota = parseInt(Q('ua_fileaccessquota').value);
+17847:             if (Q('ua_fulladmin').checked == true) { siteadmin = 0xFFFFFFFF; } else {
+17848:                 if (Q('ua_serverbackup').checked == true) siteadmin += 1;
+17849:                 if (Q('ua_manageusers').checked == true) siteadmin += 2;
+17850:                 if (Q('ua_serverrestore').checked == true) siteadmin += 4;
+17851:                 if (Q('ua_fileaccess').checked == true) siteadmin += 8;
+17852

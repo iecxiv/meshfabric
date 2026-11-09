@@ -1,0 +1,222 @@
+name: Validate and publish readable received links
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-received-links.yml]
+permissions:
+  contents: write
+concurrency:
+  group: readable-received-links-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded received link presentation and tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          expected={'UserGroupsDirectoryPane.kt':'8d392f6193ff28693b25566b4c4ee0bb5fdc284b','ReceivedUserGroupDialog.kt':'f7a7db15ff88f01652ef8565c6f2a28af0785732'}
+          for name,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',str(main/name)],text=True).strip()==sha,'Source changed: '+name
+          helper=main/'ProfileReceivedLinkPresentation.kt'
+          regression=tests/'ReadableReceivedLinksTest.kt'
+          assert not helper.exists() and not regression.exists()
+          assert (main/'ProfileReviewIdentity.kt').exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          helper.write_text('''package iecxiv.meshfabric.ui.management
+          import org.json.JSONObject
+          internal data class ProfileReceivedLinkPresentation(val label:String,val usable:Boolean)
+          internal fun profileReceivedLinkPresentation(s:ProfileState,owner:JSONObject,id:String,es:Boolean):ProfileReceivedLinkPresentation {
+              val kind=id.substringBefore('/')
+              val records=when(kind) {
+                  "user"->s.users
+                  "mesh"->s.groups
+                  "ugrp"->s.listedUserGroups ?: s.userGroups.orEmpty()
+                  "node"->s.nodes.orEmpty()
+                  else->emptyList()
+              }
+              val current=records.singleOrNull {it.optString("_id")==id}
+              val reported=owner.optJSONObject("links")?.optJSONObject(id)?.let {JSONObject(it.toString()).put("_id",id)}
+              val identity=profileReviewIdentity(current ?: reported,if(current!=null) records else listOfNotNull(reported),es)
+              val type=when(kind) {
+                  "user"->if(es) "Usuario: " else "User: "
+                  "mesh"->if(es) "Grupo de dispositivos: " else "Device group: "
+                  "ugrp"->if(es) "Grupo de usuarios: " else "User group: "
+                  "node"->if(es) "Dispositivo: " else "Device: "
+                  else->if(es) "Enlace: " else "Link: "
+              }
+              return ProfileReceivedLinkPresentation(type+identity.label,current!=null && identity.usable)
+          }
+          ''')
+          p=main/'UserGroupsDirectoryPane.kt';s=p.read_text()
+          anchor='val matchingIds=ids.filter {linkQuery.isBlank() || it.contains(linkQuery,true) || links.optJSONObject(it)?.optString("name")?.contains(linkQuery,true)==true}'
+          s=replace(s,anchor,anchor.replace(' || links.optJSONObject',' || profileReceivedLinkPresentation(s,group,it,es).label.contains(linkQuery,true) || links.optJSONObject'))
+          begin=s.index('                        for(id in matchingIds.take(100)) {')
+          end=s.index('                        if(matchingIds.size>100)',begin)
+          block=s[begin:end]
+          block=replace(block,'for(id in matchingIds.take(100)) {','for(id in matchingIds.take(100)) {\nval presentation=profileReceivedLinkPresentation(s,group,id,es)')
+          assert block.count('TextButton(enabled=')==5
+          block=block.replace('TextButton(enabled=','TextButton(enabled=presentation.usable && ')
+          assert block.count('+id)')==3
+          block=block.replace('+id)','+presentation.label)')
+          block=replace(block,'Text(t("Usuario: ","User: ")+user.optString("name"))','Text(presentation.label)')
+          block=replace(block,'Text(t("Grupo de dispositivos: ","Device group: ")+mesh.optString("name"))','Text(presentation.label)')
+          block=replace(block,'Text(id,style=MaterialTheme.typography.bodySmall)','Text(presentation.label,style=MaterialTheme.typography.bodySmall)')
+          s=s[:begin]+block+s[end:]
+          p.write_text(s)
+          p=main/'ReceivedUserGroupDialog.kt';s=p.read_text()
+          s=replace(s,'            Text(id,style=MaterialTheme.typography.bodySmall)\n','')
+          old='                    val ids=remember(group,query) {links.keys().asSequence().filter {query.isBlank() || it.contains(query,true) || links.optJSONObject(it)?.optString("name")?.contains(query,true)==true}.sorted().toList()}'
+          new='                    val ids=links.keys().asSequence().filter {query.isBlank() || it.contains(query,true) || profileReceivedLinkPresentation(s,group,it,es).label.contains(query,true) || links.optJSONObject(it)?.optString("name")?.contains(query,true)==true}.sorted().toList()'
+          s=replace(s,old,new)
+          s=replace(s,'Text(linkId,style=MaterialTheme.typography.bodySmall)','Text(profileReceivedLinkPresentation(s,group,linkId,es).label,style=MaterialTheme.typography.bodySmall)')
+          p.write_text(s)
+          regression.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class ReadableReceivedLinksTest {
+              @get:Rule val compose=createComposeRule()
+              private val gid="ugrp//team";private val uid="user//alice";private val mid="mesh//office";private val unknown="user//missing"
+              private fun group()=JSONObject().put("_id",gid).put("name","Equipo").put("links",JSONObject().put(uid,JSONObject().put("rights",1)).put(mid,JSONObject().put("rights",8)).put(unknown,JSONObject().put("name","Invitado").put("rights",1)))
+              private fun state(g:JSONObject)=ProfileState(ready=true,user=JSONObject().put("_id","user//admin").put("siteadmin",258L),users=listOf(JSONObject().put("_id",uid).put("name","Alicia").put("email","alice@example.invalid").put("siteadmin",0).put("links",JSONObject().put(gid,JSONObject().put("rights",1)))),groups=listOf(JSONObject().put("_id",mid).put("name","Oficina").put("desc","Madrid").put("links",JSONObject().put(gid,JSONObject().put("rights",8)))),listedUserGroups=listOf(g),userGroupPhase="ready")
+              @Test fun namesHaveTypeAndContextWithoutChangingRecordIdentity() {
+                  val g=group();val s=state(g);val before=g.toString()
+                  val user=profileReceivedLinkPresentation(s,g,uid,true)
+                  assertEquals("Usuario: Alicia · alice@example.invalid",user.label);assertTrue(user.usable)
+                  assertEquals("Grupo de dispositivos: Oficina · Madrid",profileReceivedLinkPresentation(s,g,mid,true).label)
+                  assertEquals(before,g.toString())
+              }
+              @Test fun linkOnlyNameIsReadableButNeverAuthorizesAnAction() {
+                  val g=group();val value=profileReceivedLinkPresentation(state(g),g,unknown,true)
+                  assertEquals("Usuario: Invitado",value.label);assertFalse(value.usable)
+                  g.getJSONObject("links").getJSONObject(unknown).put("name",unknown)
+                  val missing=profileReceivedLinkPresentation(state(g),g,unknown,true)
+                  assertFalse(missing.label.contains("user/"));assertFalse(missing.usable)
+              }
+              @Test fun ambiguousNamesAreCheckedAgainstAllRecordsNotJustSearchMatches() {
+                  val g=group();val s=state(g)
+                  val duplicate=JSONObject(s.users.single().toString()).put("_id","user//other")
+                  val ambiguous=s.copy(users=s.users+duplicate)
+                  assertFalse(profileReceivedLinkPresentation(ambiguous,g,uid,true).usable)
+                  duplicate.put("email","other@example.invalid")
+                  assertTrue(profileReceivedLinkPresentation(ambiguous,g,uid,true).usable)
+              }
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private inner class Fixture(received:Boolean):AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val owner=group();val s=state(owner)
+                  var openedUser="";var openedMesh=""
+                  init {
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              if(received) ReceivedUserGroupDialog(session,s,gid) {} else UserGroupsDirectoryPane(session,s,Modifier.fillMaxSize(),onOpenUser={openedUser=it},onOpenDeviceGroup={openedMesh=it})
+                          }}
+                      }
+                  }
+                  fun assertNoIds() {for(id in listOf(gid,uid,mid,unknown)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)}
+                  override fun close() {
+                      assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
+                      session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()
+                  }
+              }
+              @Test fun directoryShowsNamesAndNavigationRetainsExactIds() {Fixture(false).use {f->
+                  compose.onNodeWithText("Miembros y accesos recibidos").performScrollTo().performClick()
+                  f.assertNoIds()
+                  compose.onNodeWithText("Retirar del grupo: Usuario: Invitado").performScrollTo().assertIsNotEnabled()
+                  compose.onNodeWithText("Usuario: Alicia · alice@example.invalid").performScrollTo().performClick()
+                  compose.runOnIdle {assertEquals(uid,f.openedUser)}
+                  compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").performScrollTo().performClick()
+                  compose.runOnIdle {assertEquals(mid,f.openedMesh)}
+                  f.assertNoIds()
+              }}
+              @Test fun receivedDetailsRemainReadOnlyAndUseReadableLinks() {Fixture(true).use {f->
+                  compose.onNodeWithText("Usuario: Alicia · alice@example.invalid").assertExists()
+                  compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").assertExists()
+                  f.assertNoIds()
+                  compose.onAllNodes(hasText("Retirar del grupo",substring=true)).assertCountEquals(0)
+                  compose.onAllNodes(hasText("Editar derechos",substring=true)).assertCountEquals(0)
+              }}
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline readable links, navigation and authority regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ReadableReceivedLinksTest,iecxiv.meshfabric.ui.management.ReadableMemberAddDialogTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.ReadableAssignmentReviewsTest,iecxiv.meshfabric.ui.management.ReceivedUserGroupNavigationTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.ProfileUserMembershipGroupLinksTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserGroupsActionsCardTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-received-links-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated sources if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileReceivedLinkPresentation.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupsDirectoryPane.kt app/src/main/java/iecxiv/meshfabric/ui/management/ReceivedUserGroupDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableReceivedLinksTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+n for n in ['ProfileReceivedLinkPresentation.kt','UserGroupsDirectoryPane.kt','ReceivedUserGroupDialog.kt']}|{'app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableReceivedLinksTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): readable received links with guarded navigation'
+          git push origin HEAD:dev

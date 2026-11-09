@@ -48,11 +48,10 @@ internal fun TerminalCopyDialog(snapshot: TerminalCopySnapshot?, loading: Boolea
         }
     }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(
+        iecxiv.meshfabric.ui.components.AppDialogSurface(
             modifier = Modifier.fillMaxWidth(0.96f).fillMaxHeight(0.85f),
-            shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp
-        ) {
+            shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape, color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+            tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.terminal_copy_title), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.terminal_copy_help), style = MaterialTheme.typography.bodySmall)

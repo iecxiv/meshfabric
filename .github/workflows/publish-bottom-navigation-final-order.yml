@@ -1,0 +1,82 @@
+name: Validate and publish preferred bottom navigation order
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-bottom-navigation-final-order.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-bottom-navigation-final-order-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Change only visual order and its assertion
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          paths={
+              'app/src/main/java/iecxiv/meshfabric/ui/management/CompactBottomNavigation.kt':'4e410c9dadcaaba83fd60fabf3a28b84f42d1c3c',
+              'app/src/test/java/iecxiv/meshfabric/ui/management/BottomNavigationOrderTest.kt':'e2e4d8b07ac3969666e32128f2c2575474cfedd6',
+              'app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricHome.kt':'da53546d6ddd2ee0f696a472a68e634a8362b1a6'
+          }
+          sources={}
+          for path,sha in paths.items():
+              if subprocess.check_output(['git','hash-object',path],text=True).strip()!=sha:
+                  raise RuntimeError('Base changed: '+path)
+              sources[path]=Path(path).read_text()
+          nav='app/src/main/java/iecxiv/meshfabric/ui/management/CompactBottomNavigation.kt'
+          test='app/src/test/java/iecxiv/meshfabric/ui/management/BottomNavigationOrderTest.kt'
+          home='app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricHome.kt'
+          if 'var page by rememberSaveable { mutableIntStateOf(0) }' not in sources[home]:
+              raise RuntimeError('Default equipment page changed')
+          changes={nav:('internal val bottomNavigationPageOrder=listOf(1,4,0,2,3)','internal val bottomNavigationPageOrder=listOf(3,2,0,1,4)'),test:('assertEquals(listOf(1,4,0,2,3),bottomNavigationPageOrder)','assertEquals(listOf(3,2,0,1,4),bottomNavigationPageOrder)')}
+          for path,(old,new) in changes.items():
+              if sources[path].count(old)!=1:
+                  raise RuntimeError('Missing/nonunique order anchor: '+path)
+              sources[path]=sources[path].replace(old,new,1)
+          for path in changes:
+              Path(path).write_text(sources[path])
+          PY
+          git diff --check
+          git diff --stat
+      - name: Build, compile Android tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bottom-navigation-final-order-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated order
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/iecxiv/meshfabric/ui/management/CompactBottomNavigation.kt app/src/test/java/iecxiv/meshfabric/ui/management/BottomNavigationOrderTest.kt
+          git commit -m 'fix(ui): order navigation as profile server devices activity notices'
+          git push origin HEAD:dev

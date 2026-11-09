@@ -1,0 +1,35 @@
+ unable to find any Phenotype resource metadata for com.google.android.apps.nexuslauncher
+3729: 11-09 07:19:18.495  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.policy#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3730: 11-09 07:19:18.552  1253  1260 I .gms.persistent: Background concurrent mark compact GC freed 22MB AllocSpace bytes, 4(200KB) LOS objects, 49% free, 19MB/39MB, paused 28.279ms,2.287ms total 662.222ms
+3731: 11-09 07:19:18.554  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.assistant.mobile.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3732: 11-09 07:19:18.557  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/priv-app/Velvet/Velvet.apk' with 1 weak references
+3733: 11-09 07:19:18.558  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/priv-app/PrebuiltBugle/PrebuiltBugle.apk' with 1 weak references
+3734: 11-09 07:19:18.558  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/SoundPickerPrebuilt/SoundPickerPrebuilt.apk' with 1 weak references
+3735: 11-09 07:19:18.558  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/priv-app/ConfigUpdater/ConfigUpdater.apk' with 1 weak references
+3736: 11-09 07:19:18.559  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/priv-app/SafetyHubPrebuilt/SafetyHubPrebuilt.apk' with 1 weak references
+3737: 11-09 07:19:18.560  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/talkback/talkback.apk' with 1 weak references
+3738: 11-09 07:19:18.560  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '/vendor/overlay/EmulatorTalkBackOverlay/EmulatorTalkBackOverlay.apk' with 1 weak references
+3739: 11-09 07:19:18.560  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/PrebuiltDeskClockGoogle/PrebuiltDeskClockGoogle.apk' with 1 weak references
+3740: 11-09 07:19:18.560  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/priv-app/DevicePersonalizationPrebuiltPixel2021-aiai_20240329.00_RC16/DevicePersonalizationPrebuiltPixel2021-aiai_20240329.00_RC16.apk' with 1 weak references
+3741: 11-09 07:19:18.560  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/PrebuiltGmail/PrebuiltGmail.apk' with 1 weak references
+3742: 11-09 07:19:18.562  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/priv-app/WellbeingPrebuilt/WellbeingPrebuilt.apk' with 1 weak references
+3743: 11-09 07:19:18.563  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/priv-app/GoogleDialer/GoogleDialer.apk' with 1 weak references
+3746: 11-09 07:19:18.565  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/GoogleContacts/GoogleContacts.apk' with 1 weak references
+3747: 11-09 07:19:18.565  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~ODvSCtmS-Zo_ik7BzFM8Jw==/com.android.chrome-U0ZpeNdvicdb6DysB-v9pQ==/Chrome.apk' with 1 weak references
+3748: 11-09 07:19:18.565  1253  1262 W .gms.persistent: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~oZqh-vB3_plO7BulHxhDhA==/com.google.android.trichromelibrary_636771938-aj2fg05-cg6vEyXTsNk5KA==/TrichromeLibrary.apk' with 1 weak references
+3749: 11-09 07:19:18.589  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.feedback
+3750: 11-09 07:19:18.612  2942  3504 I ConfigUpdater: Update downloaded, starting installation
+3751: 11-09 07:19:18.613  1531  3063 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+3752: 11-09 07:19:18.623  1344  1353 I putmethod.latin: Background concurrent mark compact GC freed 10MB AllocSpace bytes, 0(0B) LOS objects, 49% free, 11MB/22MB, paused 293us,822us total 106.866ms
+3753: 11-09 07:19:18.645  2942  3504 I ConfigUpdater: doneInstall
+3754: 11-09 07:19:18.670  1681  4057 V DownloadManager: Deleting /data/data/com.android.providers.downloads/cache/en.model.metadata via provider delete
+3755: 11-09 07:19:18.693  1445  1660 W ModernMediaScanner: Failed to visit /data/data/com.android.providers.downloads/cache/en.model.metadata: java.nio.file.NoSuchFileException: /data/data/com.android.providers.downloads/cache/en.model.metadata
+3756: 11-09 07:19:18.694  1344  1634 I SP      : Scheduling job with delay of 0s for {m:b:u:l, fg}, 1 candidates
+3757: 11-09 07:19:18.696  1531  2968 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.social.connections#com.google.android.googlequicksearchbox
+3758: 11-09 07:19:18.700  1445  1660 I MediaProvider: Scanned internal due to REASON_DEMAND, found 0 items in 9ms, 0 inserts 0 updates 0 deletes
+3759: 11-09 07:19:18.705  1344  1344 I SuperpacksForegroundTaskService: SuperpacksForegroundTaskService.onStartCommand():43 SuperpacksForegroundTaskService.onStartCommand(): 1
+3760: 11-09 07:19:18.715  1344  1344 I SP      : ====> Starting job {m:b:u:l, fg}
+3761: 11-09 07:19:18.721  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.gsa.pcp.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3762: 11-09 07:19:18.731  1681  4057 V DownloadManager: Deleting /data/data/com.android.providers.downloads/cache/en.model via provider delete
+3763: 11-09 07:19:18.739  1344  1835 I DownloadManager: DownloadManager$3.onProgress():503 Downloading __KLP_delight__en-840 with size 14040761
+3764: 11-09 07:19:18.740  1344  1634 I SP      : Scheduling: download registered, 0 started, 0 paused, 1 scheduled, 2 pending: manifests:emoticon_con

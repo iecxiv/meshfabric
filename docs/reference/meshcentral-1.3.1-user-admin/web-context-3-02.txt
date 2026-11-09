@@ -1,0 +1,63 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: views/default.handlebars @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 17216-17479 | part 2/4 (may continue a source line)
+
+apeHtml(user.email) + '</a>' + emailVerified;
+17279:                 } else {
+17280:                     // Username & email are the same
+17281:                     username += ' <a href="mailto:' + EscapeHtml(user.email) + '" \'><img src="images/mail12.png" height=9 width=12 title="' + "Send email to user" + '" style="margin-top:2px" /></a>' + emailVerified;
+17282:                 }
+17283:             }
+17284: 
+17285:             // If we are a cross-domain administrator, add the domain.
+17286:             if ((serverinfo.crossDomain != null)) {
+17287:                 var userdomain = user._id.split('/')[1];
+17288:                 if (userdomain != '') { username += ', <span style=color:#26F>' + userdomain + '</span>'; }
+17289:             }
+17290: 
+17291:             if ((user.otpsecret > 0) || (user.otphkeys > 0) || ((user.otpekey == 1) && (features & 0x00800000)) || (user.otpduo == 1) || ((user.phone != null) && (features & 0x04000000))) { username += ' <img src="images/key12.png" height=12 width=11 title="' + "2nd factor authentication enabled" + '" style="margin-top:2px" />'; }
+17292:             if (user.phone != null) { username += ' <img src="images/phone12.png" height=12 width=7 title="' + "Verified phone number" + '" style="margin-top:2px" />'; }
+17293:             if ((user.siteadmin != null) && ((user.siteadmin & 32) != 0) && (user.siteadmin != 0xFFFFFFFF)) { username += ' <img src="images/padlock12.png" height=12 width=8 title="' + "Account is locked" + '" style="margin-top:2px" />'; }
+17294:             if ((user.msghandle != null) && (features2 & 0x02000000)) { username += ' <img src="images/messaging12.png" height=12 width=12 title="' + "Verified messaging account" + '" style="margin-top:2px" />'; }
+17295:             x += '<tr tabindex=0 onmouseover=userMouseHover(this,1) onmouseout=userMouseHover(this,0) onkeypress="if (event.key==\'Enter\') gotoUser(\'' + encodeURIComponentEx(user._id) + '\')"><td>';
+17296:             x += '<div class=bar>';
+17297:             x += '<div class=baricon><input class=UserCheckbox value=' + encodeURIComponentEx(user._id) + ' onclick=p3updateInfo() type=checkbox' + ((user._id == userinfo._id)?' disabled':'') + '></div><div style=cursor:pointer onclick=gotoUser("' + encodeURIComponentEx(user._id) + '",false,event)>';
+17298:             if ((user.flags != null) && ((user.flags & 1) != 0)) {
+17299:                 if (user.accountImageRnd == null) { user.accountImageRnd = Math.floor(Math.random() * 9999999999); }
+17300:                 var userImageUrl = 'userimage.ashx?id=' + encodeURIComponent(user._id.split('/')[2]) + '&rnd=' + user.accountImageRnd;
+17301:                 x += '<div class=baricon>' +
+17302:                     '<img src="' + userImageUrl + '" alt="" class="' + gray.trim() + '"' +
+17303:                     ' width="24" height="24" loading="lazy"' +
+17304:                     ' onerror="this.onerror=null;this.style.display=\'none\';this.nextElementSibling.style.display=\'block\';"' +
+17305:                     ' style="width:24px;height:24px;border-radius:50%;object-fit:cover;vertical-align:middle"' +
+17306:                     ' />' +
+17307:                     '<div class="' + icon + gray + '" style="display:none"></div>' +
+17308:                     '</div>';
+17309:             } else {
+17310:                 x += '<div class=baricon><div class="' + icon + gray + '"></div></div>';
+17311:             }
+17312:             x += '<div class=g1></div><div class=g2></div><div>';
+17313:             x += '<div><span style=line-height:24px>' + username + '</span>' + msg + '</div></div><td style=text-align:center>' + groups + '<td style=text-align:center>' + lastAccess + '<td style=text-align:center>' + permissions;
+17314:             return x;
+17315:         }
+17316: 
+17317:         // Called when a user checkbox is clicked
+17318:         function p3updateInfo() {
+17319:             var elements = document.getElementsByClassName('UserCheckbox'), checkcount = 0;
+17320:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) checkcount++; }
+17321:             QE('UsersGroupActionButton', checkcount > 0);
+17322:             Q('UsersSelectAllButton').value = (checkcount > 0)?"Select None":"Select All";
+17323:         }
+17324: 
+17325:         // Called to select all or unselect all users
+17326:         function p3usersSelectallButtonFunction() {
+17327:             var eself = encodeURIComponentEx(userinfo._id);
+17328:             var elements = document.getElementsByClassName('UserCheckbox'), checkcount = 0;
+17329:             for (var i=0;i<elements.length;i++) { if (elements[i].checked === true) checkcount++; }
+17330:             for (var i=0;i<elements.length;i++) { elements[i].checked = (checkcount == 0) && (elements[i].value != eself); }
+17331:             p3updateInfo();
+17332:         }
+17333: 
+17334:         // Called to perform a group action on many users
+17335:         function p3usersGroupActionFunction() {
+17336:

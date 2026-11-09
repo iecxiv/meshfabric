@@ -1,0 +1,64 @@
+
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerConnectionHistoryTest.xml | 943 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerConsolePolicyTest.xml | 932 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerConsoleSubmissionGateTest.xml | 1095 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerCsvTest.xml | 1107 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerErrorsNoLogTest.xml | 1423 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerGeneralPresentationTest.xml | 1249 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerHistoryCsvSelectionTest.xml | 685 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerHistoryDirectionsTest.xml | 790 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerHistoryTest.xml | 1024 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerReadableOutputTest.xml | 929 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerRestorePolicyTest.xml | 1043 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.ServerVersionPolicyTest.xml | 1056 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserAdministrationPolicyTest.xml | 1022 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserAdvancedPolicyTest.xml | 1379 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserContactPolicyTest.xml | 1424 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserEditQuotaPolicyTest.xml | 873 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserGroupCreatePolicyTest.xml | 628 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserGroupDeletePolicyTest.xml | 621 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserGroupEditPolicyTest.xml | 865 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserGroupMemberAddPolicyTest.xml | 801 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserGroupMemberRemovePolicyTest.xml | 661 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserGroupsDirectoryTest.xml | 970 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserMeshEditPolicyTest.xml | 625 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserMeshGrantPolicyTest.xml | 623 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserMeshRevokeChannelTest.xml | 502 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.management.UserMeshRevokePolicyTest.xml | 625 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.RetainedTerminalStoreTest.xml | 2109 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalAckWatchdogTest.xml | 2150 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalFocusRequestsTest.xml | 1225 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalHistoryDeletionTest.xml | 1047 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalHistoryPanelPresentationTest.xml | 1243 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalHistoryPanelTest.xml | 1164 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalPasteEditTest.xml | 1442 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalPastePolicyTest.xml | 1759 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalPopupActionsTest.xml | 1202 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalReadyGateTest.xml | 1118 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalReconnectGateTest.xml | 893 bytes
+test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.terminal.TerminalViewModelFlowTest.xml | 785 bytes
+test-results/testDebugUnitTest/binary/output-events.bin | 0 bytes
+test-results/testDebugUnitTest/binary/results-generic.bin | 92498 bytes
+
+ANDROID XML: outputs/androidTest-results/connected/debug/TEST-test(AVD) - 15.xml
+SUITE iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest {'tests': '13', 'failures': '1', 'errors': '0', 'skipped': '0', 'time': '20.482'}
+
+FAILURE 1: iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest#actualTimeoutLeavesAnUnknownOutcomeWithoutResending
+Type: 
+Message: 
+org.junit.ComparisonFailure: expected:<[unknown]> but was:<[readFailed]>
+	at org.junit.Assert.assertEquals(Assert.java:117)
+	at org.junit.Assert.assertEquals(Assert.java:146)
+	at iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest.actualTimeoutLeavesAnUnknownOutcomeWithoutResending(DeviceGroupAdvancedSessionTest.kt:127)
+
+
+ANDROID XML: test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.devices.DeviceConnectedSessionPolicyTest.xml
+SUITE iecxiv.meshfabric.ui.devices.DeviceConnectedSessionPolicyTest {'tests': '1', 'failures': '0', 'errors': '0', 'skipped': '0', 'time': '0.001'}
+
+ANDROID XML: test-results/testDebugUnitTest/TEST-iecxiv.meshfabric.ui.files.AndroidFileMenuTest.xml
+SUITE iecxiv.meshfabric.ui.files.AndroidFileMenuTest {'tests': '2', 'failures': '0', 'errors': '0', 'skipped': '0', 'time': '0.036'}
+
+ADDITIONAL ANDROID DIAGNOSTICS: outputs/androidTest-results/connected/debug/test(AVD) - 15/logcat-iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest-actualTimeoutLeavesAnUnknownOutcomeWithoutResending.txt
+218: 11-09 07:19:10.439  1546  3814 D TrafficStats: tagSocket(137) with statsTag=0x3c010301, statsUid=-1
+219: 11-09 07:19:10.441  1546  3814 D TrafficStats: tagSocket(137) with statsTag=0x3c010301, statsUid=-1
+220: 11-09 07:19:10.445  1546  3814 D TrafficStats: tagSocket(137) wi

@@ -1,0 +1,80 @@
+name: Diagnose user groups publication
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/diagnose-user-groups-publication.yml]
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: diagnose-user-groups-publication-dev
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Inspect the target execution without changing application sources
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - <<'PY'
+          import json,re,subprocess
+          from pathlib import Path
+          REPO='iecxiv/meshfabric'
+          TARGET='efd2d47cb810ef24279d152774f0c498a8723f08'
+          def api(path):
+              result=subprocess.run(['gh','api','repos/'+REPO+'/'+path],capture_output=True,text=True,timeout=60)
+              if result.returncode: return None
+              return json.loads(result.stdout)
+          report={'repository':REPO,'branch':'dev','target_commit':TARGET,'inspected_workflows':[],'scope':'GitHub Actions metadata and allowlisted build errors only. No Android source changes, broadcast or MeshCentral server requests.'}
+          for filename in ['publish-user-groups-directory.yml','android-ci.yml']:
+              data=api('actions/workflows/'+filename+'/runs?per_page=30')
+              entry={'workflow':filename,'lookup_succeeded':data is not None}
+              if data is not None:
+                  runs=data.get('workflow_runs',[])
+                  selected=[r for r in runs if r.get('head_sha')==TARGET and r.get('head_branch')=='dev']
+                  entry['matching_runs']=[]
+                  for run in selected[:3]:
+                      item={k:run.get(k) for k in ['id','name','head_sha','head_branch','status','conclusion','run_attempt','created_at','updated_at','html_url']}
+                      jobs=api('actions/runs/'+str(run['id'])+'/jobs?per_page=100&filter=latest')
+                      item['jobs_lookup_succeeded']=jobs is not None
+                      item['jobs']=[{k:job.get(k) for k in ['id','name','status','conclusion','started_at','completed_at','html_url']} | {'steps':[{k:step.get(k) for k in ['name','number','status','conclusion','started_at','completed_at']} for step in job.get('steps',[])]} for job in (jobs or {}).get('jobs',[])]
+                      if run.get('conclusion')=='failure':
+                          logs=subprocess.run(['gh','run','view',str(run['id']),'--repo',REPO,'--log-failed'],capture_output=True,text=True,timeout=90)
+                          safe=[]
+                          for line in logs.stdout.splitlines():
+                              if re.search(r'RuntimeError: (?:Source changed:|Template changed:|Missing/nonunique anchor:|Broadcast handler not found|Upstream (?:blob|version|commit) changed|Reference (?:directory already exists|extraction too large))|Execution failed for task |Process completed with exit code|D8:|e: file:| > .* FAILED$',line):
+                                  line=re.sub(r'https?://\S+','[url omitted]',line)
+                                  line=re.sub(r'(?i)(?:authorization|password|token|secret|cookie)\s*[:=]\s*\S+','[sensitive field omitted]',line)
+                                  safe.append(line[:1000])
+                          item['allowlisted_error_lines']=safe[:60]
+                          item['error_log_lookup_succeeded']=logs.returncode==0
+                      entry['matching_runs'].append(item)
+                  if not selected:entry['recent_run_summaries']=[{k:r.get(k) for k in ['id','head_sha','head_branch','status','conclusion','html_url']} for r in runs[:5]]
+              report['inspected_workflows'].append(entry)
+          path=Path('docs/diagnostics/user-groups-publication.json')
+          if path.exists():raise RuntimeError('Diagnostic file already exists; review before overwriting')
+          path.parent.mkdir(parents=True,exist_ok=True)
+          path.write_text(json.dumps(report,indent=2,ensure_ascii=False)+'\n')
+          PY
+          git diff --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: user-groups-publication-diagnostic
+          path: docs/diagnostics/user-groups-publication.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish diagnostic only
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo "dev moved; refusing to publish"; exit 1; }
+          git add -- docs/diagnostics/user-groups-publication.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: diagnose user groups publication for approved preparation commit'
+          git push origin HEAD:dev

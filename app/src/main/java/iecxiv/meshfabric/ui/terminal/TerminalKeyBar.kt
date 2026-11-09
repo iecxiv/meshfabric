@@ -44,7 +44,7 @@ private fun BarButton(
     largeLabel: Boolean = false, arrowRotation: Float? = null,
     chevronRotation: Float? = null, onClick: () -> Unit
 ) {
-    val keyHeight = maxOf(36.dp, with(LocalDensity.current) { 24.sp.toDp() } + 8.dp)
+    val keyHeight = maxOf(48.dp, with(LocalDensity.current) { 24.sp.toDp() } + 24.dp)
     val labelStyle = if (largeLabel) MaterialTheme.typography.labelLarge.copy(
         fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold
     ) else MaterialTheme.typography.labelLarge
@@ -54,7 +54,7 @@ private fun BarButton(
         enabled = enabled,
         shape = MaterialTheme.shapes.small,
         modifier = Modifier.semantics { contentDescription = description }
-            .minimumInteractiveComponentSize().height(keyHeight).widthIn(min = 48.dp),
+            .minimumInteractiveComponentSize().heightIn(min = keyHeight).widthIn(min = 48.dp),
         label = {
             if (chevronRotation != null) Icon(
                 Icons.Default.KeyboardArrowDown, contentDescription = null,

@@ -1,0 +1,289 @@
+{
+  "repository": "Ylianst/MeshCentral",
+  "tag": "1.3.1",
+  "commit": "f436143527458d56da0336ea3047c006703fb4e4",
+  "source_blobs": {
+    "meshuser.js": "62d82550e2fa7ee66ffc55e4613cb57e8f9c2197",
+    "views/default.handlebars": "e0f9cfa2cf5bb5d9b760ec33903c8ab97db283d7",
+    "meshctrl.js": "e8b08ef66a251e03bece3bf40b12edf4474507dd"
+  },
+  "source_sha256": {
+    "meshuser.js": "ed6473b39a26bdd4686e71c9d34576dcbdcde54a1b28e0c8ffe8f77429a4e671",
+    "views/default.handlebars": "0ed2d483d3545e9bb1ffb2be143b6d644bf5c0d9d4c1a2a3a1ccd7e87e88848f",
+    "meshctrl.js": "38ba4cadc864f95c1601cfb221e577a58e2ae866f9c26a416167e364310887e3"
+  },
+  "matched_case_labels": [
+    "createmesh",
+    "deletemesh",
+    "editmesh",
+    "removemeshuser",
+    "usergroups"
+  ],
+  "case_labels_not_matched": [
+    "addmeshuser",
+    "addusertousergroup",
+    "removeuserfromusergroup"
+  ],
+  "server_fallback_anchor_lines": [
+    5968,
+    5971,
+    5997,
+    6259,
+    6368,
+    6611,
+    6674,
+    7248,
+    7299
+  ],
+  "web_anchor_lines": [
+    8574,
+    15588,
+    15603,
+    15612,
+    15655,
+    15666,
+    15672,
+    15702,
+    15722,
+    15733,
+    15736,
+    16060,
+    16109,
+    16113,
+    16117,
+    16140,
+    16142,
+    16204,
+    16263,
+    16265,
+    18219,
+    18964,
+    18971,
+    18972
+  ],
+  "cli_anchor_lines": [
+    169,
+    175,
+    198,
+    690,
+    738,
+    777,
+    1664,
+    1695,
+    1721
+  ],
+  "blocks": [
+    {
+      "label": "server-constants",
+      "source": "meshuser.js",
+      "first_line": 1,
+      "last_line": 130,
+      "parts": [
+        "server-constants-01.txt",
+        "server-constants-02.txt"
+      ]
+    },
+    {
+      "label": "server-usergroups-1594",
+      "source": "meshuser.js",
+      "first_line": 1594,
+      "last_line": 1609,
+      "parts": [
+        "server-usergroups-1594-01.txt"
+      ]
+    },
+    {
+      "label": "server-createmesh-2212",
+      "source": "meshuser.js",
+      "first_line": 2212,
+      "last_line": 2322,
+      "parts": [
+        "server-createmesh-2212-01.txt",
+        "server-createmesh-2212-02.txt",
+        "server-createmesh-2212-03.txt"
+      ]
+    },
+    {
+      "label": "server-deletemesh-2323",
+      "source": "meshuser.js",
+      "first_line": 2323,
+      "last_line": 2440,
+      "parts": [
+        "server-deletemesh-2323-01.txt",
+        "server-deletemesh-2323-02.txt"
+      ]
+    },
+    {
+      "label": "server-editmesh-2441",
+      "source": "meshuser.js",
+      "first_line": 2441,
+      "last_line": 2572,
+      "parts": [
+        "server-editmesh-2441-01.txt",
+        "server-editmesh-2441-02.txt",
+        "server-editmesh-2441-03.txt"
+      ]
+    },
+    {
+      "label": "server-removemeshuser-2573",
+      "source": "meshuser.js",
+      "first_line": 2573,
+      "last_line": 2679,
+      "parts": [
+        "server-removemeshuser-2573-01.txt",
+        "server-removemeshuser-2573-02.txt"
+      ]
+    },
+    {
+      "label": "server-context-1",
+      "source": "meshuser.js",
+      "first_line": 5898,
+      "last_line": 6116,
+      "parts": [
+        "server-context-1-01.txt",
+        "server-context-1-02.txt",
+        "server-context-1-03.txt",
+        "server-context-1-04.txt"
+      ]
+    },
+    {
+      "label": "server-context-2",
+      "source": "meshuser.js",
+      "first_line": 6189,
+      "last_line": 6487,
+      "parts": [
+        "server-context-2-01.txt",
+        "server-context-2-02.txt",
+        "server-context-2-03.txt",
+        "server-context-2-04.txt",
+        "server-context-2-05.txt"
+      ]
+    },
+    {
+      "label": "server-context-3",
+      "source": "meshuser.js",
+      "first_line": 6541,
+      "last_line": 6793,
+      "parts": [
+        "server-context-3-01.txt",
+        "server-context-3-02.txt",
+        "server-context-3-03.txt",
+        "server-context-3-04.txt"
+      ]
+    },
+    {
+      "label": "server-context-4",
+      "source": "meshuser.js",
+      "first_line": 7178,
+      "last_line": 7418,
+      "parts": [
+        "server-context-4-01.txt",
+        "server-context-4-02.txt",
+        "server-context-4-03.txt",
+        "server-context-4-04.txt"
+      ]
+    },
+    {
+      "label": "web-context-1",
+      "source": "views/default.handlebars",
+      "first_line": 8414,
+      "last_line": 8753,
+      "parts": [
+        "web-context-1-01.txt",
+        "web-context-1-02.txt",
+        "web-context-1-03.txt",
+        "web-context-1-04.txt",
+        "web-context-1-05.txt",
+        "web-context-1-06.txt"
+      ]
+    },
+    {
+      "label": "web-context-2",
+      "source": "views/default.handlebars",
+      "first_line": 15428,
+      "last_line": 16444,
+      "parts": [
+        "web-context-2-01.txt",
+        "web-context-2-02.txt",
+        "web-context-2-03.txt",
+        "web-context-2-04.txt",
+        "web-context-2-05.txt",
+        "web-context-2-06.txt",
+        "web-context-2-07.txt",
+        "web-context-2-08.txt",
+        "web-context-2-09.txt",
+        "web-context-2-10.txt",
+        "web-context-2-11.txt",
+        "web-context-2-12.txt",
+        "web-context-2-13.txt",
+        "web-context-2-14.txt",
+        "web-context-2-15.txt",
+        "web-context-2-16.txt",
+        "web-context-2-17.txt"
+      ]
+    },
+    {
+      "label": "web-context-3",
+      "source": "views/default.handlebars",
+      "first_line": 18059,
+      "last_line": 18398,
+      "parts": [
+        "web-context-3-01.txt",
+        "web-context-3-02.txt",
+        "web-context-3-03.txt",
+        "web-context-3-04.txt",
+        "web-context-3-05.txt",
+        "web-context-3-06.txt"
+      ]
+    },
+    {
+      "label": "web-context-4",
+      "source": "views/default.handlebars",
+      "first_line": 18804,
+      "last_line": 19151,
+      "parts": [
+        "web-context-4-01.txt",
+        "web-context-4-02.txt",
+        "web-context-4-03.txt",
+        "web-context-4-04.txt",
+        "web-context-4-05.txt",
+        "web-context-4-06.txt"
+      ]
+    },
+    {
+      "label": "cli-context-1",
+      "source": "meshctrl.js",
+      "first_line": 159,
+      "last_line": 327,
+      "parts": [
+        "cli-context-1-01.txt",
+        "cli-context-1-02.txt",
+        "cli-context-1-03.txt"
+      ]
+    },
+    {
+      "label": "cli-context-2",
+      "source": "meshctrl.js",
+      "first_line": 680,
+      "last_line": 906,
+      "parts": [
+        "cli-context-2-01.txt",
+        "cli-context-2-02.txt",
+        "cli-context-2-03.txt",
+        "cli-context-2-04.txt"
+      ]
+    },
+    {
+      "label": "cli-context-3",
+      "source": "meshctrl.js",
+      "first_line": 1654,
+      "last_line": 1850,
+      "parts": [
+        "cli-context-3-01.txt",
+        "cli-context-3-02.txt",
+        "cli-context-3-03.txt"
+      ]
+    }
+  ],
+  "scope": "Static source excerpts for pending manual review. Unmatched labels do not establish absence of an endpoint. Context ranges may not include complete functions. No upstream code execution, server requests, membership changes or Android changes."
+}

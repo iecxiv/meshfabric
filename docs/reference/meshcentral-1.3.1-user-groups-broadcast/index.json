@@ -1,0 +1,129 @@
+{
+  "commit": "f436143527458d56da0336ea3047c006703fb4e4",
+  "source_blobs": {
+    "meshuser.js": "62d82550e2fa7ee66ffc55e4613cb57e8f9c2197",
+    "views/default.handlebars": "e0f9cfa2cf5bb5d9b760ec33903c8ab97db283d7"
+  },
+  "matched_cases": [
+    "createusergroup",
+    "deleteusergroup",
+    "editusergroup",
+    "userbroadcast"
+  ],
+  "unmatched_cases": [],
+  "blocks": [
+    {
+      "label": "userbroadcast",
+      "source": "meshuser.js",
+      "first_line": 1398,
+      "last_line": 1442,
+      "parts": [
+        "userbroadcast-01.txt"
+      ]
+    },
+    {
+      "label": "createusergroup",
+      "source": "meshuser.js",
+      "first_line": 1610,
+      "last_line": 1735,
+      "parts": [
+        "createusergroup-01.txt",
+        "createusergroup-02.txt",
+        "createusergroup-03.txt"
+      ]
+    },
+    {
+      "label": "deleteusergroup",
+      "source": "meshuser.js",
+      "first_line": 1736,
+      "last_line": 1831,
+      "parts": [
+        "deleteusergroup-01.txt",
+        "deleteusergroup-02.txt"
+      ]
+    },
+    {
+      "label": "editusergroup",
+      "source": "meshuser.js",
+      "first_line": 1832,
+      "last_line": 1867,
+      "parts": [
+        "editusergroup-01.txt"
+      ]
+    },
+    {
+      "label": "serverCommandAddUserToUserGroup",
+      "source": "meshuser.js",
+      "first_line": 6592,
+      "last_line": 6676,
+      "parts": [
+        "serverCommandAddUserToUserGroup-01.txt",
+        "serverCommandAddUserToUserGroup-02.txt"
+      ]
+    },
+    {
+      "label": "serverCommandRemoveUserFromUserGroup",
+      "source": "meshuser.js",
+      "first_line": 7229,
+      "last_line": 7301,
+      "parts": [
+        "serverCommandRemoveUserFromUserGroup-01.txt"
+      ]
+    },
+    {
+      "label": "web-1",
+      "source": "views/default.handlebars",
+      "first_line": 3455,
+      "last_line": 3707,
+      "parts": [
+        "web-1-01.txt",
+        "web-1-02.txt",
+        "web-1-03.txt",
+        "web-1-04.txt",
+        "web-1-05.txt"
+      ]
+    },
+    {
+      "label": "web-2",
+      "source": "views/default.handlebars",
+      "first_line": 15569,
+      "last_line": 15798,
+      "parts": [
+        "web-2-01.txt",
+        "web-2-02.txt",
+        "web-2-03.txt",
+        "web-2-04.txt",
+        "web-2-05.txt"
+      ]
+    },
+    {
+      "label": "web-3",
+      "source": "views/default.handlebars",
+      "first_line": 17546,
+      "last_line": 17775,
+      "parts": [
+        "web-3-01.txt",
+        "web-3-02.txt",
+        "web-3-03.txt",
+        "web-3-04.txt"
+      ]
+    },
+    {
+      "label": "web-4",
+      "source": "views/default.handlebars",
+      "first_line": 17874,
+      "last_line": 18384,
+      "parts": [
+        "web-4-01.txt",
+        "web-4-02.txt",
+        "web-4-03.txt",
+        "web-4-04.txt",
+        "web-4-05.txt",
+        "web-4-06.txt",
+        "web-4-07.txt",
+        "web-4-08.txt"
+      ]
+    }
+  ],
+  "scope": "Static source excerpts only, pending manual review. No broadcast, membership writes or upstream code execution."
+}

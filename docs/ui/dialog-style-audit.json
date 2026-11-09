@@ -1,0 +1,251 @@
+{
+  "base_commit": "535d3d76027fabecace696f9dc35f8fa49c06631",
+  "style": {
+    "border_dp": 1,
+    "corners_dp": 16,
+    "background": "surfaceColorAtElevation(6.dp)",
+    "additional_tonal_elevation_dp": 0
+  },
+  "inventory": [
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt",
+      "containers": [
+        {
+          "kind": "surface",
+          "line": 991
+        },
+        {
+          "kind": "surface",
+          "line": 840
+        },
+        {
+          "kind": "surface",
+          "line": 693
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceDetailsDialog.kt",
+      "containers": [
+        {
+          "kind": "surface",
+          "line": 110
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 76
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 1858
+        },
+        {
+          "kind": "alert",
+          "line": 1820
+        },
+        {
+          "kind": "alert",
+          "line": 1772
+        },
+        {
+          "kind": "alert",
+          "line": 1735
+        },
+        {
+          "kind": "alert",
+          "line": 1690
+        },
+        {
+          "kind": "alert",
+          "line": 1646
+        },
+        {
+          "kind": "alert",
+          "line": 1602
+        },
+        {
+          "kind": "alert",
+          "line": 1562
+        },
+        {
+          "kind": "alert",
+          "line": 1483
+        },
+        {
+          "kind": "alert",
+          "line": 1439
+        },
+        {
+          "kind": "alert",
+          "line": 1390
+        },
+        {
+          "kind": "surface",
+          "line": 1326
+        },
+        {
+          "kind": "surface",
+          "line": 1238
+        },
+        {
+          "kind": "surface",
+          "line": 1185
+        },
+        {
+          "kind": "surface",
+          "line": 1122
+        },
+        {
+          "kind": "surface",
+          "line": 1070
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/management/AccountUiComponents.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 35
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricDialogs.kt",
+      "containers": [
+        {
+          "kind": "surface",
+          "line": 39
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/management/MyServerScreen.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 233
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/management/OperationFormDialog.kt",
+      "containers": [
+        {
+          "kind": "surface",
+          "line": 26
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/management/ServerBackupPanel.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 253
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/management/ServerRestorePanel.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 211
+        },
+        {
+          "kind": "alert",
+          "line": 191
+        },
+        {
+          "kind": "alert",
+          "line": 166
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/management/ServerVersionDialog.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 195
+        },
+        {
+          "kind": "alert",
+          "line": 168
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/settings/SettingsScreen.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 90
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalCopyDialog.kt",
+      "containers": [
+        {
+          "kind": "surface",
+          "line": 50
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalPasteDialog.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 33
+        }
+      ]
+    },
+    {
+      "file": "app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt",
+      "containers": [
+        {
+          "kind": "alert",
+          "line": 410
+        },
+        {
+          "kind": "surface",
+          "line": 451
+        }
+      ]
+    }
+  ],
+  "unsupported": [],
+  "changed_files": [
+    "app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceDetailsDialog.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/management/AccountUiComponents.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricDialogs.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/management/MyServerScreen.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/management/OperationFormDialog.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/management/ServerBackupPanel.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/management/ServerRestorePanel.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/management/ServerVersionDialog.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/settings/SettingsScreen.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalCopyDialog.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalPasteDialog.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt",
+    "app/src/main/java/iecxiv/meshfabric/ui/components/AppDialogAppearance.kt",
+    "app/src/test/java/iecxiv/meshfabric/ui/components/DialogAppearancePolicyTest.kt",
+    "docs/ui/dialog-style-audit.json"
+  ]
+}

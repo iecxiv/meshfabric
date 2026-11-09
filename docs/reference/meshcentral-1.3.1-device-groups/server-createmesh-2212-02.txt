@@ -1,0 +1,61 @@
+MeshCentral 1.3.1 | Apache-2.0 | Ylian Saint-Hilaire and contributors
+Source: meshuser.js @ f436143527458d56da0336ea3047c006703fb4e4
+Source lines: 2212-2322 | part 2/3 (may continue a source line)
+
+model: command.kvmmodel, host: command.kvmhost, user: command.kvmuser, pass: command.kvmpass }; }
+2266: 
+2267:                         // If this is device group that requires a relay device, store that now
+2268:                         if ((parent.args.lanonly != true) && ((command.meshtype == 3) || (command.meshtype == 4)) && (typeof command.relayid == 'string')) {
+2269:                             // Check the relay id
+2270:                             var relayIdSplit = command.relayid.split('/');
+2271:                             if ((relayIdSplit[0] == 'node') && (relayIdSplit[1] == domain.id)) { mesh.relayid = command.relayid; }
+2272:                         }
+2273: 
+2274:                         // Save the new device group
+2275:                         db.Set(mesh);
+2276:                         parent.meshes[meshid] = mesh;
+2277:                         parent.parent.AddEventDispatch([meshid], ws);
+2278: 
+2279:                         // Change the user to make him administration of the new device group
+2280:                         if (user.links == null) user.links = {};
+2281:                         user.links[meshid] = { rights: 4294967295 };
+2282:                         user.subscriptions = parent.subscribe(user._id, ws);
+2283:                         db.SetUser(user);
+2284: 
+2285:                         // Event the user change
+2286:                         var targets = ['*', 'server-users', user._id];
+2287:                         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+2288:                         var event = { etype: 'user', userid: user._id, username: user.name, account: parent.CloneSafeUser(user), action: 'accountchange', domain: domain.id, nolog: 1 };
+2289:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2290:                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2291:                         }
+2292:                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+2293:                         parent.parent.DispatchEvent(targets, obj, event);
+2294: 
+2295:                         // Event the device group creation
+2296:                         var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: meshid, mtype: command.meshtype, mesh: parent.CloneSafeMesh(mesh), action: 'createmesh', msgid: 76, msgArgs: [command.meshname], msg: 'Device group created: ' + command.meshname, domain: domain.id };
+2297:                         if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2298:                             event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2299:                         }
+2300:                         parent.parent.DispatchEvent(['*', 'server-createmesh', meshid, user._id], obj, event); // Even if DB change stream is active, this event must be acted upon.
+2301: 
+2302:                         // Log in the auth log
+2303:                         if (parent.parent.authlog) { parent.parent.authLog('https', 'User ' + user.name + ' created device group ' + mesh.name); }
+2304: 
+2305:                         try { ws.send(JSON.stringify({ action: 'createmesh', responseid: command.responseid, result: 'ok', meshid: meshid, links: links })); } catch (ex) { }
+2306: 
+2307:                         // If needed, event that a device is now a device group relay
+2308:                         if (mesh.relayid != null) {
+2309:                             // Get the node and the rights for this node
+2310:                             parent.GetNodeWithRights(domain, user, mesh.relayid, function (node, rights, visible) {
+2311:                                 if (node == null) return;
+2312:                                 var event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: domain.id, msg: 'Is a relay for ' + mesh.name + '.', msgid: 153, msgArgs: [mesh.name], node: parent.CloneSafeNode(node) };
+2313:                                 if(user._id === req.session.userid && req.session.tokenUser != null && req.session.tokenName != null) {
+2314:                                     event.tokenName = req.session.tokenName; event.tokenUser = req.session.tokenUser;
+2315:                                 }
+2316:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the node. Another event will come.
+2317:                                 parent.parent.DispatchEvent(parent.CreateNodeDispatchTargets(node.meshid, node._id, [user._id]), obj, event);
+2318:                             });
+2319:                         }
+2320:                     });
+2321:                     break;
