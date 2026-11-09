@@ -1,0 +1,240 @@
+name: Validate and publish readable assignment reviews
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-assignment-reviews.yml]
+permissions:
+  contents: write
+concurrency:
+  group: readable-assignment-reviews-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded presentation changes and regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          sources={main/'UserMeshAssignmentReview.kt':'402894f2211fad6e679e37fa3804188370b21dd0',main/'GroupMeshAssignmentReview.kt':'3707c0c75196c64827793391f77d18d8f44e8285',tests/'UserMeshAssignmentReviewTest.kt':'7164857fccdd1ecaa12f47c83df0855634cb53db'}
+          for p,sha in sources.items():
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,'Source changed: '+str(p)
+          helper=main/'ProfileReviewIdentity.kt'
+          regression=tests/'ReadableAssignmentReviewsTest.kt'
+          assert not helper.exists() and not regression.exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          helper.write_text('''package iecxiv.meshfabric.ui.management
+          import org.json.JSONObject
+          import java.util.Locale
+          internal data class ProfileReviewIdentity(val label:String,val usable:Boolean)
+          private fun reviewKey(value:String)=value.trim().lowercase(Locale.ROOT)
+          private fun reviewText(value:Any?):String {
+              val text=(value as? String)?.trim().orEmpty()
+              return text.takeUnless {it.any {c->c.isISOControl()} || listOf("user/","ugrp/","mesh/","node/").any {prefix->it.startsWith(prefix,true)}}.orEmpty()
+          }
+          internal fun profileReviewIdentity(record:JSONObject?,all:List<JSONObject>,es:Boolean):ProfileReviewIdentity {
+              val id=record?.optString("_id").orEmpty()
+              val kind=id.substringBefore('/')
+              val name=reviewText(record?.opt("name"))
+              val missing=if(es) "nombre no disponible" else "name unavailable"
+              if(name.isBlank() || kind !in listOf("user","ugrp","mesh","node")) return ProfileReviewIdentity(missing,false)
+              fun context(r:JSONObject):String {
+                  val keys=if(kind=="user") listOf("realname","email") else listOf("desc")
+                  return keys.map {reviewText(r.opt(it))}.filter {it.isNotBlank()}.distinct().joinToString(" · ")
+              }
+              val peers=all.filter {it.optString("_id").substringBefore('/')==kind && reviewKey(reviewText(it.opt("name")))==reviewKey(name)}.distinctBy {it.optString("_id")}
+              val detail=context(requireNotNull(record))
+              val current=peers.singleOrNull {it.optString("_id")==id}
+              val matchesCurrent=current!=null && reviewKey(context(current))==reviewKey(detail)
+              val unique=peers.size==1 || (detail.isNotBlank() && peers.count {reviewKey(context(it))==reviewKey(detail)}==1)
+              return ProfileReviewIdentity(name+if(detail.isNotBlank()) " · "+detail else "",matchesCurrent && unique)
+          }
+          ''')
+          for file,is_user in [('UserMeshAssignmentReview.kt',True),('GroupMeshAssignmentReview.kt',False)]:
+              p=main/file;s=p.read_text()
+              if not is_user:
+                  s=replace(s,'import androidx.compose.ui.platform.LocalConfiguration','import androidx.compose.ui.platform.LocalConfiguration\nimport androidx.compose.ui.platform.testTag')
+              anchor='    val user=frozenUser ?: currentUser;val mesh=frozenMesh ?: currentMesh' if is_user else '    val mesh=frozenMesh ?: currentMesh'
+              identity='user' if is_user else 'group'
+              collection='s.users' if is_user else 's.listedUserGroups.orEmpty()'
+              added='\n    val identityA=profileReviewIdentity('+identity+','+collection+',es)\n    val identityB=profileReviewIdentity(mesh,s.groups,es)\n    val identityReady=identityA.usable && identityB.usable\n    var identityInvalidated by remember {mutableStateOf(false)}\n    LaunchedEffect(review,identityReady) {if(review && !identityReady) {identityInvalidated=true;approved=false}}'
+              s=replace(s,anchor,anchor+added)
+              s=replace(s,'val canPrepare=!submitted &&','val canPrepare=identityReady && !submitted &&')
+              s=replace(s,'val reviewCurrent=packet!=null &&','val reviewCurrent=identityReady && !identityInvalidated && packet!=null &&')
+              s=replace(s,'val canSend=!submitted &&','val canSend=identityReady && !identityInvalidated && !submitted &&')
+              if is_user:
+                  s=replace(s,'user?.optString("name").orEmpty());Text(uid,style=MaterialTheme.typography.bodySmall)','identityA.label)')
+              else:
+                  s=replace(s,'group?.optString("name").orEmpty());Text(gid,style=MaterialTheme.typography.bodySmall)','identityA.label)')
+                  s=replace(s,'Checkbox(approved,{approved=it},enabled=reviewCurrent)','Checkbox(approved,{approved=it},enabled=reviewCurrent,modifier=Modifier.testTag("group-revoke-consent"))')
+                  s=replace(s,'Button(enabled=if(review) canSend else canPrepare,','Button(modifier=Modifier.testTag(if(review) "group-revoke-send" else "group-revoke-prepare"),enabled=if(review) canSend else canPrepare,')
+              s=replace(s,'mesh?.optString("name").orEmpty());Text(mid,style=MaterialTheme.typography.bodySmall)','identityB.label)')
+              anchor='            if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)'
+              warning='            if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)\n'
+              s=replace(s,anchor,warning+anchor)
+              p.write_text(s)
+          p=tests/'UserMeshAssignmentReviewTest.kt';s=p.read_text()
+          s=replace(s,'JSONObject().put("_id",uid)','JSONObject().put("_id",uid).put("name","Cuenta destino")')
+          s=replace(s,'JSONObject().put("_id",mid)','JSONObject().put("_id",mid).put("name","Grupo destino")')
+          p.write_text(s)
+          regression.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class ReadableAssignmentReviewsTest {
+              @get:Rule val compose=createComposeRule()
+              private val actor="user//admin"
+              private val mid="mesh//group"
+              private fun record(id:String,name:String,desc:String="")=JSONObject().put("_id",id).put("name",name).put("desc",desc)
+              @Test fun duplicateAndAbsentNamesNeverFallBackToIds() {
+                  for(kind in listOf("mesh","ugrp","user")) {
+                      val a=record(kind+"//a","Equipo")
+                      val b=record(kind+"//b","equipo")
+                      assertFalse(profileReviewIdentity(a,listOf(a,b),true).usable)
+                      assertFalse(profileReviewIdentity(record(kind+"//missing",""),emptyList(),true).usable)
+                      assertFalse(profileReviewIdentity(record(kind+"//raw",kind+"//raw"),emptyList(),true).label.contains(kind+"/"))
+                      val key=if(kind=="user") "email" else "desc"
+                      a.put(key,"Madrid");b.put(key,"Sevilla")
+                      val before=a.toString()
+                      assertTrue(profileReviewIdentity(a,listOf(a,b),true).usable)
+                      assertEquals("Equipo · Madrid",profileReviewIdentity(a,listOf(a,b),true).label)
+                      assertEquals(before,a.toString())
+                      b.put(key,"madrid")
+                      assertFalse(profileReviewIdentity(a,listOf(a,b),true).usable)
+                  }
+                  val a=record("ugrp//a","Equipo")
+                  assertTrue(profileReviewIdentity(a,listOf(a,record("mesh//a","Equipo")),true).usable)
+                  assertFalse(profileReviewIdentity(a,emptyList(),false).usable)
+                  assertEquals("name unavailable",profileReviewIdentity(null,emptyList(),false).label)
+              }
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private inner class Fixture(val groups:Boolean):AutoCloseable {
+                  val uid=if(groups) "ugrp//target" else "user//target"
+                  val prefix=if(groups) "group-revoke-" else "direct-revoke-"
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val target=record(uid,"Equipo").put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",8)))
+                  val mesh=record(mid,"Oficina").put("links",JSONObject().put(uid,JSONObject().put("rights",8)).put(actor,JSONObject().put("rights",if(groups) 2L else 0xffffffffL)))
+                  val baseline=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",if(groups) 256L else 2L),users=if(groups) emptyList() else listOf(target),groups=listOf(mesh),listedUserGroups=if(groups) listOf(target) else emptyList(),userGroupPhase="ready")
+                  val state=mutableStateOf(baseline)
+                  init {
+                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-review-test")
+                      @Suppress("UNCHECKED_CAST") val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>
+                      connected.value=true
+                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              if(groups) GroupMeshAssignmentReview(session,state.value,uid,mid) {} else UserMeshAssignmentReview(session,state.value,uid,mid) {}
+                          }}
+                      }
+                  }
+                  fun ambiguous():ProfileState {
+                      val duplicate=JSONObject(target.toString()).put("_id",if(groups) "ugrp//other" else "user//other")
+                      return if(groups) baseline.copy(listedUserGroups=listOf(target,duplicate)) else baseline.copy(users=listOf(target,duplicate))
+                  }
+                  override fun close() {
+                      assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
+                      session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()
+                  }
+              }
+              private fun verifyReview(groups:Boolean) {Fixture(groups).use {f->
+                  compose.onAllNodesWithText(f.uid).assertCountEquals(0)
+                  compose.onAllNodesWithText(mid).assertCountEquals(0)
+                  compose.onNodeWithText("Grupo de dispositivos: Oficina").assertExists()
+                  compose.onNodeWithTag(f.prefix+"prepare").assertIsEnabled()
+                  compose.runOnIdle {f.state.value=f.ambiguous()}
+                  compose.onNodeWithTag(f.prefix+"prepare").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline}
+                  compose.onNodeWithTag(f.prefix+"prepare").assertIsEnabled().performClick()
+                  compose.onNodeWithTag(f.prefix+"send").assertIsNotEnabled()
+                  compose.onNodeWithTag(f.prefix+"consent").performScrollTo().performClick()
+                  compose.onNodeWithTag(f.prefix+"send").assertIsEnabled()
+                  compose.runOnIdle {f.state.value=f.ambiguous()}
+                  compose.onNodeWithTag(f.prefix+"send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline}
+                  compose.onNodeWithTag(f.prefix+"send").assertIsNotEnabled()
+                  compose.onNodeWithTag(f.prefix+"consent").assertIsNotEnabled()
+              }}
+              @Test fun userReviewShowsNamesAndInvalidatesAmbiguousFrozenConfirmation()=verifyReview(false)
+              @Test fun groupReviewShowsNamesAndInvalidatesAmbiguousFrozenConfirmation()=verifyReview(true)
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline identity, review, authority and readback regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ReadableAssignmentReviewsTest,iecxiv.meshfabric.ui.management.UserMeshAssignmentReviewTest,iecxiv.meshfabric.ui.management.GroupMeshAssignmentReviewTest,iecxiv.meshfabric.ui.management.UserMeshRevokeRequestTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest,iecxiv.meshfabric.ui.management.GroupMeshRevokeRequestTest,iecxiv.meshfabric.ui.management.GroupMeshRevokeIntegrationTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-assignment-review-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated changes if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/ProfileReviewIdentity.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReview.kt app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshAssignmentReview.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableAssignmentReviewsTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMeshAssignmentReviewTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          tests='app/src/androidTest/java/iecxiv/meshfabric/ui/management/'
+          expected={main+n for n in ['ProfileReviewIdentity.kt','UserMeshAssignmentReview.kt','GroupMeshAssignmentReview.kt']}|{tests+n for n in ['ReadableAssignmentReviewsTest.kt','UserMeshAssignmentReviewTest.kt']}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): readable removal reviews with unambiguous identity guards'
+          git push origin HEAD:dev
