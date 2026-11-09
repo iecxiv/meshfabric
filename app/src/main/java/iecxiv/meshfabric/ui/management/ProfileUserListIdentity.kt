@@ -20,6 +20,6 @@ import org.json.JSONObject
             Icon(Icons.Default.Person,null,Modifier.size(20.dp).testTag("profile-user-list-icon"),tint=MaterialTheme.colorScheme.primary)
             Text(identity.label,Modifier.weight(1f),style=MaterialTheme.typography.titleSmall,maxLines=3,overflow=TextOverflow.Ellipsis)
         }
-        ProfileDisclosure(if(es) "Identificador" else "Identifier") {Text(account.optString("_id"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+        Box(Modifier.testTag("profile-user-identifier")) { ProfileDisclosure(if(es) "Identificador" else "Identifier") {Text(account.optString("_id"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)} }
     }
 }

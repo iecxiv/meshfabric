@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
@@ -117,7 +118,7 @@ else->original!=null && (email.isEmpty() || validUserEmail(email)) && realname.l
 if(userMessage) { UserMessageDialog(session,s,form.id) {userMessage=false} } else if(mfaReset) { UserMfaResetDialog(session,s,form.id) {mfaReset=false} } else if(deleting) { UserDeleteDialog(session,s,form.id,onDismiss) } else if(mode=="device") { UserDeviceGrantDialog(session,s,form.id,onBack={mode="profile";approved=false},onSaved=onDismiss) } else if(directEdit!=null) { key(form.id,directEdit) { UserMeshEditDialog(session,s,form.id,requireNotNull(directEdit)) {directEdit=null} } } else if(directGrant) { UserMeshGrantDialog(session,s,form.id) {directGrant=false} } else if(directMesh!=null) { key(form.id,directMesh) { UserMeshAssignmentReview(session,s,form.id,requireNotNull(directMesh)) {directMesh=null} } } else if(contact && user!=null) { UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss,initialField=contactField) } else if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {
 ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
 Column(Modifier.fillMaxWidth().heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.68f).dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-if(!creating) { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); if(deleting || locking) Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) else ProfileDisclosure(t("Identificador","Identifier")) { Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
+if(!creating) { if(locking && user!=null) ProfileUserListIdentity(user,s.users) else { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); if(deleting) Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) else ProfileDisclosure(t("Identificador","Identifier")) { Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } } }
 when {
 creating->{
 if(!s.emailIdentity) field(t("Nombre de usuario","Username"),name,{ name=it })
@@ -260,7 +261,7 @@ ProfileGroupActionButton(t("Inicios de sesión anteriores","Previous logins"),Ic
 }
 if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.error)
 }
-},confirmButton={ if(mode!="history") TextButton(enabled=allowed && valid,onClick={
+},confirmButton={ if(mode!="history") TextButton(modifier=Modifier.testTag("user-admin-confirm"),enabled=allowed && valid,onClick={
 when {
 creating->submit(JSONObject().put("action","adduser").put("username",newName).put("email",email.trim()).put("pass",password).put("removeEvents",removeEvents).put("resetNextLogin",reset))
 deleting->submit(JSONObject().put("action","deleteuser").put("userid",form.id).put("username",user?.optString("name")))
