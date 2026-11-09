@@ -88,6 +88,18 @@ if(!send("changeuserpass",packet.put("responseid",pendingId))) {stop();return fa
 timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingAction=="mfareset") finish("unknown",false)}}
 return true
 }
+@Synchronized fun sendUserMessage(before:JSONObject,actor:String,site:Long,server:String,actorBefore:JSONObject?,serverBefore:String,message:String,confirmed:Boolean):Boolean {
+val s=state.value
+if(!confirmed || !valid() || pendingId.isNotBlank() || !userMessageValid(message) || !userMessageContext(s,before,actor,site,server,broadcastServerLabel(),true,actorBefore,serverBefore)) return false
+val packet=userMessagePacket(before,message)
+pendingId=UUID.randomUUID().toString();pendingAction="usermessage";pendingTarget=before.getString("_id");pendingNode="";expected=JSONObject()
+state.update {it.copy(busy=true,notice="sending")}
+val epoch=generation
+timer?.cancel()
+if(!send("notifyuser",packet.put("responseid",pendingId))) {stop();return false}
+timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingAction=="usermessage") finish("unknown",false)}}
+return true
+}
 @Synchronized fun start() {
 if(closed || socket!=null || source.isUserLogout || !source.connectionState.value || source.authCookie.isBlank()) return
 binding=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
