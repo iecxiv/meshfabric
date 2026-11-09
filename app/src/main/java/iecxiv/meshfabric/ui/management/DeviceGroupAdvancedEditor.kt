@@ -27,6 +27,10 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
     fun t(a:String,b:String)=if(es) a else b
     val actor=remember {s.id};val server=remember {session.broadcastServerLabel()}
     val baseline=remember {s.groups.singleOrNull {it.optString("_id")==id}?.let {JSONObject(it.toString())}}
+    val actorRecord=remember {s.user?.let {JSONObject(it.toString())}}
+    val actorIdentity=profileReviewIdentity(actorRecord,listOfNotNull(s.user)+s.users.filter {it.optString("_id")!=s.id},es)
+    val groupIdentity=profileReviewIdentity(baseline,s.groups,es)
+    val identityReady=actorIdentity.usable && groupIdentity.usable
     val initial=remember {runCatching {JSONObject(deviceGroupAdvancedSnapshot(requireNotNull(baseline)))}.getOrNull()}
     val mandatory=remember {runCatching {userAdvancedMask(s.server?.opt("consent")) and 511L}.getOrDefault(0L)}
     val mask=remember {runCatching {deviceGroupAdvancedFlagMask(requireNotNull(initial).getInt("mtype"),(s.server?.opt("devGroupSessionRecording") as? Number)?.toDouble()==1.0)}.getOrDefault(0L)}
@@ -39,18 +43,18 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
     var submitted by remember {mutableStateOf(false)}
     var error by remember {mutableStateOf(false)}
     val bound=actor==s.id && server.isNotBlank() && server==session.broadcastServerLabel()
-    val draft=if(bound && initial!=null) deviceGroupAdvancedUiDraft(s,baseline,flags,consent,days,server) else null
+    val draft=if(bound && identityReady && initial!=null) deviceGroupAdvancedUiDraft(s,baseline,flags,consent,days,server) else null
     val review=frozen
-    val current=bound && !invalidated && deviceGroupAdvancedUiCurrent(s,review,server)
+    val current=bound && identityReady && !invalidated && deviceGroupAdvancedUiCurrent(s,review,server)
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {invalidated=true;approved=false}}
     val packet=review?.let {JSONObject(it.toString()).put("_advancedConfirmed",approved)}
     val observed=submitted && s.notice=="deviceGroupAdvancedObserved" && s.advancedEditedDeviceGroup==id
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Ajustes avanzados del grupo","Advanced group settings"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(server,style=MaterialTheme.typography.bodySmall)
-            Text(t("Actor: ","Actor: ")+actor,style=MaterialTheme.typography.bodySmall)
-            Text(baseline?.optString("name").orEmpty(),style=MaterialTheme.typography.titleSmall)
-            Text(id,style=MaterialTheme.typography.bodySmall)
+            Text(t("Actor: ","Actor: ")+actorIdentity.label,style=MaterialTheme.typography.bodySmall)
+            Text(groupIdentity.label,style=MaterialTheme.typography.titleSmall)
+            if(!identityReady && !submitted) Text(t("El actor o el grupo no se identifican inequívocamente. Cierra, actualiza y vuelve a abrir antes de revisar.","The actor or group cannot be uniquely identified. Close, refresh and reopen before reviewing."),color=MaterialTheme.colorScheme.error)
             if(initial==null) Text(t("Datos incompatibles. Cierra y actualiza.","Incompatible data. Close and refresh."),color=MaterialTheme.colorScheme.error)
             if(review==null && !submitted && initial!=null) {
                 Text(t("Características","Features"),style=MaterialTheme.typography.titleSmall)
@@ -61,16 +65,16 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
                             flags=if(checked) flags or bit else flags and bit.inv()
                             if(bit==2L && !checked && initial.getInt("mtype")==2) flags=flags and 24L.inv()
                             if(bit==1L && checked) days="0"
-                        },enabled=s.canWrite && !s.detailsBusy && bound && (i<3 || flags and 2L!=0L),modifier=Modifier.testTag("advanced-flag-"+bit))
+                        },enabled=identityReady && s.canWrite && !s.detailsBusy && bound && (i<3 || flags and 2L!=0L),modifier=Modifier.testTag("advanced-flag-"+bit))
                         Text(labels[i],Modifier.weight(1f))
                     }
                 }
                 Text(t("Desactivar la sincronización también desmarca sus opciones dependientes. Activar la retirada al desconectar fija la caducidad específica en cero. Revisa los valores antes de enviar.","Disabling name synchronization also clears its dependent options. Enabling removal on disconnect sets the group-specific expiry to zero. Review values before sending."),style=MaterialTheme.typography.bodySmall)
-                OutlinedTextField(days,{days=it.take(16)},label={Text(t("Caducidad por inactividad: días (0–2000)","Inactivity expiry: days (0–2000)"))},singleLine=true,enabled=s.canWrite && !s.detailsBusy && bound && flags and 1L==0L,isError=days.toLongOrNull()?.let {it !in 0L..2000L} ?: true,modifier=Modifier.fillMaxWidth().testTag("advanced-days"))
+                OutlinedTextField(days,{days=it.take(16)},label={Text(t("Caducidad por inactividad: días (0–2000)","Inactivity expiry: days (0–2000)"))},singleLine=true,enabled=identityReady && s.canWrite && !s.detailsBusy && bound && flags and 1L==0L,isError=days.toLongOrNull()?.let {it !in 0L..2000L} ?: true,modifier=Modifier.fillMaxWidth().testTag("advanced-days"))
                 Text(t("Consentimiento del grupo","Group consent"),style=MaterialTheme.typography.titleSmall)
                 val labelsConsent=if(es) listOf("Avisar: escritorio","Avisar: terminal","Avisar: archivos","Solicitar autorización: escritorio","Solicitar autorización: terminal","Solicitar autorización: archivos","Mostrar barra de conexión","Avisar: Registro","Solicitar autorización: Registro") else listOf("Notify: desktop","Notify: terminal","Notify: files","Prompt: desktop","Prompt: terminal","Prompt: files","Show connection toolbar","Notify: Registry","Prompt: Registry")
                 for(i in 0..8) {val bit=1L shl i
-                    Row {Checkbox(consent and bit!=0L,{checked->consent=if(checked) consent or bit else consent and bit.inv()},enabled=s.canWrite && !s.detailsBusy && bound && mandatory and bit==0L,modifier=Modifier.testTag("advanced-consent-"+bit));Text(labelsConsent[i]+if(mandatory and bit!=0L) t(" (obligatorio por servidor)"," (required by server)") else "",Modifier.weight(1f))}
+                    Row {Checkbox(consent and bit!=0L,{checked->consent=if(checked) consent or bit else consent and bit.inv()},enabled=identityReady && s.canWrite && !s.detailsBusy && bound && mandatory and bit==0L,modifier=Modifier.testTag("advanced-consent-"+bit));Text(labelsConsent[i]+if(mandatory and bit!=0L) t(" (obligatorio por servidor)"," (required by server)") else "",Modifier.weight(1f))}
                 }
                 if(draft==null) Text(t("No hay un cambio válido en esta copia. Si cambiaron los datos, cierra y actualiza.","No valid change in this copy. If data changed, close and refresh."))
             }
