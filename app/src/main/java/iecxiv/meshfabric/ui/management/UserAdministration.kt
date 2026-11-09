@@ -193,14 +193,16 @@ if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
 ProfileGroupActionButton(t("Permisos, características y consentimiento","Permissions, features and consent"),Icons.Default.Security,allowed,onClick={ advanced=true })
 ProfileGroupActionButton(t("Actualizar ficha","Refresh details"),Icons.Default.Refresh,!s.detailsBusy,onClick=session::loadDetails)
 ProfileDisclosure(t("Accesos directos a grupos de dispositivos","Direct device-group access")) {
-TextButton(enabled=contactReady && !s.detailsBusy,onClick={directGrant=true;session.refresh()}) {Text(t("Conceder acceso directo","Grant direct access"))}
+ProfileGroupActionButton(t("Conceder acceso directo","Grant direct access"),Icons.Default.Security,contactReady && !s.detailsBusy,onClick={directGrant=true;session.refresh()})
 Text(t("Solo enlaces directos recibidos. No representa todos los permisos efectivos ni los accesos heredados.","Received direct links only. This does not represent all effective rights or inherited access."),style=MaterialTheme.typography.bodySmall)
 val directGroups=s.groups.filter {g->user.optJSONObject("links")?.has(g.optString("_id"))==true || g.optJSONObject("links")?.has(form.id)==true}
 if(directGroups.isEmpty()) Text(t("No se han recibido enlaces directos con los grupos visibles.","No direct links received for visible groups."))
 for(g in directGroups) ManagementCard {
-Text(g.optString("name").ifBlank {t("Grupo sin nombre","Unnamed group")},style=MaterialTheme.typography.titleSmall)
-TextButton(enabled=contactReady && !s.detailsBusy,onClick={directMesh=g.optString("_id");session.refresh()}) {Text(t("Revisar acceso directo","Review direct access"))}
-TextButton(enabled=contactReady && !s.detailsBusy,onClick={directEdit=g.optString("_id")}) {Text(t("Editar derechos directos","Edit direct rights"))}
+val presentation=profileReceivedLinkPresentation(s,user,g.optString("_id"),es)
+Text(presentation.label,style=MaterialTheme.typography.titleSmall)
+ProfileGroupActionButton(t("Revisar acceso directo","Review direct access"),Icons.Default.Security,presentation.usable && contactReady && !s.detailsBusy,onClick={directMesh=g.optString("_id");session.refresh()})
+ProfileGroupActionButton(t("Editar derechos directos","Edit direct rights"),Icons.Default.Edit,presentation.usable && contactReady && !s.detailsBusy,onClick={directEdit=g.optString("_id")})
+if(!presentation.usable) Text(t("Ficha incompleta o ambigua. Actualiza antes de abrir acciones para este grupo.","Incomplete or ambiguous entry. Refresh before opening actions for this group."),style=MaterialTheme.typography.bodySmall)
 }
 }
 ProfileDisclosure(t("Grupos de dispositivos en común","Device groups in common")) {
@@ -208,7 +210,12 @@ Text(t("Solo los datos visibles recibidos; los permisos heredados requieren el l
 if(s.userGroups==null) Text(missing) else {
 val common=s.groups.filter { group->s.user?.let { userAccess(s,it,group.optString("_id"))!=0L }==true && userAccess(s,user,group.optString("_id"))!=0L }
 if(common.isEmpty()) Text(t("No se observan grupos en común en los datos disponibles.","No common groups observed in available data."))
-for(group in common) ManagementCard { ManagementInfoRow(group.optString("name"),userRights(userAccess(s,user,group.optString("_id")),es,true)); TextButton(enabled=contactReady,onClick={onOpenGroup(group.optString("_id"))}) {Text(t("Abrir grupo","Open group"))} }
+for(group in common) ManagementCard {
+val presentation=profileReceivedLinkPresentation(s,user,group.optString("_id"),es)
+ManagementInfoRow(presentation.label,userRights(userAccess(s,user,group.optString("_id")),es,true))
+ProfileGroupActionButton(t("Abrir grupo","Open group"),Icons.Default.Computer,presentation.usable && contactReady,onClick={onOpenGroup(group.optString("_id"))})
+if(!presentation.usable) Text(t("Ficha incompleta o ambigua. Actualiza antes de abrir este grupo.","Incomplete or ambiguous entry. Refresh before opening this group."),style=MaterialTheme.typography.bodySmall)
+}
 }
 }
 ProfileDisclosure(t("Grupos de usuarios recibidos","Received user groups")) {

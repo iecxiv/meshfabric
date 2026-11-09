@@ -19,19 +19,20 @@ import java.util.Locale
     @get:Rule val compose=createComposeRule()
     private val uid="user//alice";private val gid="ugrp//team";private val missing="ugrp//missing";private val mid="mesh//office";private val nid="node//laptop"
     private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
-    private inner class Fixture:AutoCloseable {
+    private inner class Fixture(val groupMode:String=""):AutoCloseable {
+        var openedGroup:String?=null
         val client=MeshCentralClient();val session=ProfileSession(client)
         val actor=JSONObject().put("_id","user//admin").put("siteadmin",2L).put("links",JSONObject().put(mid,JSONObject().put("rights",8)))
         val user=JSONObject().put("_id",uid).put("name","Alicia").put("email","alice@example.invalid").put("siteadmin",0).put("links",JSONObject().put(gid,JSONObject().put("rights",1)).put(missing,JSONObject().put("rights",1)).put(mid,JSONObject().put("rights",8)).put(nid,JSONObject().put("rights",8)))
         val team=JSONObject().put("_id",gid).put("name","Equipo").put("desc","Madrid").put("links",JSONObject().put(uid,JSONObject().put("rights",1)))
-        val mesh=JSONObject().put("_id",mid).put("name","Oficina").put("desc","Madrid")
+        val mesh=JSONObject().put("_id",mid).put("name",if(groupMode=="missing") "" else "Oficina").put("desc","Madrid")
         val node=JSONObject().put("_id",nid).put("name","Portátil").put("desc","Personal").put("meshid",mid)
-        val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=listOf(mesh),nodes=listOf(node),userGroups=listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
+        val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=if(groupMode=="ambiguous") listOf(mesh,JSONObject(mesh.toString()).put("_id","mesh//other")) else listOf(mesh),nodes=listOf(node),userGroups=listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
         init {
             compose.setContent {
                 val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
-                    UserAdministrationDialog(session,state,ProfileForm(true,"edit",uid,"Alicia","alice@example.invalid"),onDismiss={})
+                    UserAdministrationDialog(session,state,ProfileForm(true,"edit",uid,"Alicia","alice@example.invalid"),onOpenGroup={openedGroup=it},onDismiss={})
                 }}
             }
         }
@@ -41,6 +42,42 @@ import java.util.Locale
             session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()
         }
     }
+    @Test fun directGroupsUseContextAndSharedActionIcons() {Fixture().use {f->
+        compose.onNodeWithText("Accesos directos a grupos de dispositivos").performScrollTo().performClick()
+        compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").assertExists()
+        compose.onNodeWithText("Revisar acceso directo").assertIsEnabled()
+        compose.onNodeWithText("Editar derechos directos").assertIsEnabled()
+        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(5)
+        f.assertNoIds()
+    }}
+    @Test fun commonGroupsKeepInternalNavigationAndReadableContext() {Fixture().use {f->
+        compose.onNodeWithText("Grupos de dispositivos en común").performScrollTo().performClick()
+        compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").assertExists()
+        compose.onNodeWithText("Abrir grupo").performScrollTo().performClick()
+        assertEquals(mid,f.openedGroup)
+        f.assertNoIds()
+    }}
+    @Test fun ambiguousDirectGroupBlocksBothActions()=assertDirectGroupBlocked("ambiguous")
+    @Test fun unnamedDirectGroupBlocksBothActions()=assertDirectGroupBlocked("missing")
+    private fun assertDirectGroupBlocked(mode:String) {Fixture(mode).use {f->
+        compose.onNodeWithText("Accesos directos a grupos de dispositivos").performScrollTo().performClick()
+        if(mode=="missing") compose.onNodeWithText("Grupo de dispositivos: nombre no disponible").assertExists()
+        else compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").assertExists()
+        compose.onNodeWithText("Revisar acceso directo").assertIsNotEnabled()
+        compose.onNodeWithText("Editar derechos directos").assertIsNotEnabled()
+        compose.onNodeWithText("Ficha incompleta o ambigua.",substring=true).assertExists()
+        f.assertNoIds()
+    }}
+    @Test fun ambiguousCommonGroupBlocksNavigation()=assertCommonGroupBlocked("ambiguous")
+    @Test fun unnamedCommonGroupBlocksNavigation()=assertCommonGroupBlocked("missing")
+    private fun assertCommonGroupBlocked(mode:String) {Fixture(mode).use {f->
+        compose.onNodeWithText("Grupos de dispositivos en común").performScrollTo().performClick()
+        if(mode=="missing") compose.onNodeWithText("Grupo de dispositivos: nombre no disponible").assertExists()
+        else compose.onNodeWithText("Grupo de dispositivos: Oficina · Madrid").assertExists()
+        compose.onNodeWithText("Abrir grupo").assertIsNotEnabled()
+        assertNull(f.openedGroup)
+        f.assertNoIds()
+    }}
     @Test fun mainAndSecurityActionsHaveIconsWithoutChangingTheirText() {Fixture().use {f->
         compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(2)
         compose.onNodeWithText("Acciones y seguridad").performScrollTo().performClick()
