@@ -49,6 +49,8 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
     fun t(a:String,b:String)=if(es) a else b
     var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
     var query by remember(id) { mutableStateOf("") }
+    var advanced by remember(id) { mutableStateOf(false) }
+    if(advanced) { DeviceGroupAdvancedEditor(session,s,id) {advanced=false}; return }
     val group=s.groups.firstOrNull { it.optString("_id")==id }
     LaunchedEffect(session,id,s.ready,s.busy) { if(group!=null && s.ready && !s.busy) session.loadGroupDetails() }
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(group?.optString("name")?.ifBlank { t("Grupo sin nombre","Unnamed group") } ?: t("Grupo no disponible","Group unavailable"))},text={
@@ -61,6 +63,7 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
                         Text(group.optString("desc").ifBlank { t("Sin descripción","No description") },style=MaterialTheme.typography.bodyMedium)
                         ProfileDisclosure(t("Identificador del grupo","Group identifier")) { SelectionContainer { Text(id,style=MaterialTheme.typography.bodySmall) } }
                         TextButton(enabled=s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit) {Text(t("Editar nombre y descripción","Edit name and description"))}
+                        TextButton(enabled=s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true}) {Text(t("Ajustes avanzados","Advanced settings"))}
                         TextButton(enabled=s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),onClick=onDelete,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)) {Text(t("Eliminar grupo","Delete group"))}
                     }
                     1->{
