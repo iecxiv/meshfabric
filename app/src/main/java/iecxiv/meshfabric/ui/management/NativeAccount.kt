@@ -312,7 +312,7 @@ if(connected) { wire.start(); try { awaitCancellation() } finally { wire.pause()
 LaunchedEffect(state.ready) { if(!state.ready) mode=null }
 val labels=listOf(t("Administrar la aplicación de autenticación","Manage authenticator app"),t("Administrar claves de seguridad","Manage security keys"),t("Administrar códigos de respaldo","Manage backup codes"),t("Ver inicios de sesión anteriores","View previous logins"),t("Habilitar notificaciones en la app","Enable in-app notifications"),t("Opciones de hora e idioma","Time and language options"),t("Opciones de notificación","Notification options"),t("Cambiar contraseña","Change password"),t("Eliminar cuenta","Delete account"),t("Crear token de inicio de sesión","Create login token"))
 val status=when(state.status) {
-"ready","received"->""
+"ready","received","offline","connecting"->""
 "confirmed"->t("El servidor confirmó el cambio o se observó el estado solicitado.","The server acknowledged the change or the requested state was observed.")
 "notRevoked"->t("El servidor sigue incluyendo el token en la lista. La revocación no se considera completada.","The server still includes the token in its list. Revocation is not considered completed.")
 "sent"->t("Solicitud enviada; resultado pendiente.","Request sent; outcome pending.")
@@ -333,9 +333,9 @@ when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"
 }
 val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
 Column(modifier.verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",onReconnect=wire::start)
 if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https","notRevoked") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 AccountNoticeBanner(state.notice,options,alerts,es,dateLocale,hours24)
-if(!state.ready) TextButton(enabled=state.status!="deleteUnknown",onClick=wire::start) { Text(t("Reconectar cuenta","Reconnect account")) }
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 Text(t("Detalles de la cuenta","Account details"),style=MaterialTheme.typography.titleMedium)
 ManagementCard {

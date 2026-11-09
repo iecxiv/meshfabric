@@ -206,8 +206,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     Column(modifier) {
         ServerSectionTabs(tab) { tab=it }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            Text(stringResource(when { state.failed->R.string.my_server_failure; state.ready->R.string.my_server_connected; else->R.string.my_server_connecting }),color=if(state.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            if(state.failed) TextButton(onClick={ retry++ }) { Text(stringResource(R.string.my_server_retry)) }
+            ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,onReconnect={retry++})
             when(tab) {
                 0->{
                     ServerGeneralActions {
