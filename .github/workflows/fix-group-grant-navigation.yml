@@ -1,0 +1,208 @@
+name: Validate grant loading and device navigation fixes
+on:
+  push:
+    branches: [work/fix-group-grant-navigation]
+    paths: [.github/workflows/fix-group-grant-navigation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: fix-group-grant-navigation-work
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded fixes and regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          expected={main/'GroupMeshGrantDialog.kt':'052e570c29aff2085cd8ec5ea2b6937a36b76ee1',main/'UserAdministration.kt':'039ede1f0f875fa7dc2f88c0859d45864a7b418e',tests/'ReadableGrantDialogsTest.kt':'3956769d5979810959d01d10ffe3a36a8e039e3b',tests/'UserDetailPresentationTest.kt':'cb7779001f3becf75cbf4a7e5598e5c02263d294'}
+          for path,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()==sha,'Source changed: '+str(path)
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          p=main/'GroupMeshGrantDialog.kt';original=p.read_text();s=original
+          old='    val subject=remember {s.listedUserGroups.orEmpty().singleOrNull {it.optString("_id")==gid}?.let {JSONObject(it.toString())}}'
+          new='''    val querying=s.loading || s.userGroupPhase in setOf("idle","loading")
+              var subject by remember(gid) {mutableStateOf<JSONObject?>(s.listedUserGroups?.takeIf {s.userGroupPhase=="ready"}?.singleOrNull {it.optString("_id")==gid}?.let {JSONObject(it.toString())})}
+              LaunchedEffect(gid,s.userGroupPhase,s.listedUserGroups) {
+                  if(subject==null && frozen==null && !submitted && s.userGroupPhase=="ready") {
+                      subject=s.listedUserGroups?.singleOrNull {it.optString("_id")==gid}?.let {JSONObject(it.toString())}
+                  }
+              }'''
+          s=replace(s,old,new)
+          s=replace(s,'val draft=if(bound && identityReady','val draft=if(bound && !querying && identityReady')
+          s=replace(s,'val current=bound && identityReady','val current=bound && !querying && identityReady')
+          s=replace(s,'Text(t("Grupo de usuarios: ","User group: ")+subjectIdentity.label','Text(t("Grupo de usuarios: ","User group: ")+(if(subject==null && querying) t("Pendiente de consulta","Awaiting read") else subjectIdentity.label)')
+          s=replace(s,'if(!subjectIdentity.usable || (selected.isNotBlank() && !meshIdentity.usable))','if(!querying && s.userGroupPhase=="ready" && (!subjectIdentity.usable || (selected.isNotBlank() && !meshIdentity.usable)))')
+          anchor='            Text(t("Solo asignaciones nuevas.'
+          status='''            if(querying) Text(t("Consultando datos del grupo...","Loading group details..."),Modifier.testTag("group-grant-loading"))
+                      if(s.userGroupPhase=="failed") Text(t("No se pudo consultar el directorio. Cierra y actualiza.","Could not read the directory. Close and refresh."),color=MaterialTheme.colorScheme.error)
+          '''
+          s=replace(s,anchor,status+anchor)
+          s=replace(s,'if(candidates.isEmpty()) Text(','if(candidates.isEmpty() && !querying) Text(')
+          marker='@Composable internal fun GroupMeshGrantDialog('
+          assert s.split(marker)[0]==original.split(marker)[0],'Request helpers must remain unchanged'
+          marker='},confirmButton='
+          assert s.split(marker)[1]==original.split(marker)[1],'Submission must remain unchanged'
+          p.write_text(s)
+          p=main/'UserAdministration.kt';original=p.read_text();s=original
+          old='if(nodePresentation.usable && onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}'
+          new='''val deviceCanOpen=nodePresentation.usable && onOpenDevice!=null && canOpenDevice(node.optString("_id"))
+          TextButton(enabled=deviceCanOpen,onClick={onOpenDevice?.invoke(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}
+          if(!deviceCanOpen) Text(if(!nodePresentation.usable) t("Ficha no disponible: identificación incompleta o ambigua.","Entry unavailable: incomplete or ambiguous identity.") else t("Ficha no disponible con los datos y la conexión actuales.","Entry unavailable with current data and connection."),style=MaterialTheme.typography.bodySmall)'''
+          s=replace(s,old,new)
+          marker='},confirmButton={ if(mode!="history")'
+          assert s.split(marker)[1]==original.split(marker)[1],'User submission must remain unchanged'
+          p.write_text(s)
+          p=tests/'ReadableGrantDialogsTest.kt';s=p.read_text()
+          s=replace(s,'Fixture(val groups:Boolean,missingName:Boolean=false)','Fixture(val groups:Boolean,missingName:Boolean=false,startLoading:Boolean=false)')
+          s=replace(s,'val state=mutableStateOf(baseline)','val state=mutableStateOf(if(startLoading) baseline.copy(listedUserGroups=null,userGroupPhase="loading") else baseline)')
+          marker='    @Test fun userGrantUsesNamesAndPermanentlyInvalidatesAmbiguousReview()'
+          extra='''    @Test fun initialDirectoryReloadDoesNotFreezeNullSubject() {Fixture(true,startLoading=true).use {f->
+                  compose.onNodeWithTag("group-grant-loading").assertExists()
+                  compose.onAllNodesWithText("No se puede confirmar:",substring=true).assertCountEquals(0)
+                  compose.onNodeWithTag("group-grant-prepare").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+                  compose.onNodeWithTag("group-grant-loading").assertDoesNotExist()
+                  compose.onNodeWithText("Grupo de usuarios: Equipo · Madrid").assertExists()
+                  compose.onNodeWithTag("group-grant-candidate-"+mid).performScrollTo().assertIsEnabled().performClick()
+                  compose.onNodeWithText("Avanzado: máscara hexadecimal").performScrollTo().performClick()
+                  compose.onNodeWithTag("group-grant-hex").performScrollTo().performTextReplacement("8")
+                  compose.onNodeWithTag("group-grant-prepare").assertIsEnabled()
+                  f.assertNoIds()
+              }}
+              @Test fun directoryReloadAfterReviewCannotReactivateConfirmation() {Fixture(true).use {f->
+                  compose.onNodeWithTag("group-grant-candidate-"+mid).performScrollTo().performClick()
+                  compose.onNodeWithText("Avanzado: máscara hexadecimal").performScrollTo().performClick()
+                  compose.onNodeWithTag("group-grant-hex").performScrollTo().performTextReplacement("8")
+                  compose.onNodeWithTag("group-grant-prepare").performClick()
+                  compose.onNodeWithTag("group-grant-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("group-grant-send").assertIsEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline.copy(listedUserGroups=null,userGroupPhase="loading")};compose.waitForIdle()
+                  compose.onNodeWithTag("group-grant-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+                  compose.onNodeWithTag("group-grant-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("group-grant-consent").assertIsNotEnabled()
+              }}
+              @Test fun genuinelyMissingNameStaysBlockedAfterInitialLoad() {Fixture(true,missingName=true,startLoading=true).use {f->
+                  compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+                  compose.onNodeWithText("No se puede confirmar:",substring=true).assertExists()
+                  compose.onNodeWithTag("group-grant-candidate-"+mid).assertIsNotEnabled()
+                  compose.onNodeWithTag("group-grant-prepare").assertIsNotEnabled()
+                  f.assertNoIds()
+              }}
+          '''
+          s=replace(s,marker,extra+marker);p.write_text(s)
+          p=tests/'UserDetailPresentationTest.kt';s=p.read_text()
+          s=replace(s,'Fixture(val groupMode:String="")','Fixture(val groupMode:String="",val deviceCanOpen:Boolean=false,val ambiguousDevice:Boolean=false)')
+          s=replace(s,'var openedGroup:String?=null','var openedGroup:String?=null\n        var openedDevice:String?=null')
+          s=replace(s,'nodes=listOf(node),userGroups=','nodes=if(ambiguousDevice) listOf(node,JSONObject(node.toString()).put("_id","node//other")) else listOf(node),userGroups=')
+          s=replace(s,'onOpenGroup={openedGroup=it},onDismiss={})','onOpenGroup={openedGroup=it},onOpenDevice={openedDevice=it},canOpenDevice={deviceCanOpen && it==nid},onDismiss={})')
+          s=replace(s,'listOf(uid,gid,missing,mid,nid))','listOf(uid,gid,missing,mid,nid,"node//other"))')
+          marker='    @Test fun commonDevicesUseNamesAndParentGroupContext()'
+          extra='''    @Test fun commonDeviceUnavailableShowsDisabledButtonAndReason() {Fixture().use {f->
+                  compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+                  compose.onNodeWithText("Abrir ficha").assertIsNotEnabled()
+                  compose.onNodeWithText("Ficha no disponible con los datos y la conexión actuales.").assertExists()
+                  assertNull(f.openedDevice);f.assertNoIds()
+              }}
+              @Test fun commonDeviceAvailableStillNavigatesByInternalId() {Fixture(deviceCanOpen=true).use {f->
+                  compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+                  compose.onNodeWithText("Abrir ficha").performScrollTo().assertIsEnabled().performClick()
+                  assertEquals(nid,f.openedDevice);f.assertNoIds()
+              }}
+              @Test fun ambiguousCommonDevicesCannotBypassIdentityGuard() {Fixture(deviceCanOpen=true,ambiguousDevice=true).use {f->
+                  compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+                  val buttons=compose.onAllNodesWithText("Abrir ficha")
+                  buttons.assertCountEquals(2)
+                  buttons[0].assertIsNotEnabled();buttons[1].assertIsNotEnabled()
+                  compose.onAllNodesWithText("Ficha no disponible: identificación incompleta o ambigua.").assertCountEquals(2)
+                  assertNull(f.openedDevice);f.assertNoIds()
+              }}
+          '''
+          s=replace(s,marker,extra+marker);p.write_text(s)
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute loading, identity, navigation and grant regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.GroupMeshGrantRequestTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.UserMeshGrantDialogTest,iecxiv.meshfabric.ui.management.DeviceGroupDetailPresentationTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show Android test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for path in Path('app/build/outputs/androidTest-results').rglob('*.xml'):
+              try:
+                  root=ET.parse(path).getroot()
+              except ET.ParseError:
+                  continue
+              for case in root.iter('testcase'):
+                  for kind in ['failure','error']:
+                      failure=case.find(kind)
+                      if failure is not None:
+                          print(case.get('classname','')+'.'+case.get('name',''))
+                          print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-grant-navigation-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Commit validated fixes only to isolated branch
+        run: |
+          set -euo pipefail
+          BRANCH=work/fix-group-grant-navigation
+          test "${{ github.ref_name }}" = "$BRANCH"
+          git fetch origin "$BRANCH"
+          test "$(git rev-parse "origin/$BRANCH")" = "${{ github.sha }}" || { echo 'Work branch moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/GroupMeshGrantDialog.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableGrantDialogsTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          tests='app/src/androidTest/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'GroupMeshGrantDialog.kt',main+'UserAdministration.kt',tests+'ReadableGrantDialogsTest.kt',tests+'UserDetailPresentationTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): recover grant subject after loading and explain unavailable devices'
+          git push origin "HEAD:$BRANCH"
