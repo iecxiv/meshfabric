@@ -1,0 +1,113 @@
+name: Publish readable advanced transport diagnostic report
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/diagnose-device-group-advanced-report.yml]
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: diagnose-device-group-advanced-report-dev
+  cancel-in-progress: false
+jobs:
+  publish-diagnostic-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Verify exact failed run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$GH_REPO" = 'iecxiv/meshfabric'
+          mkdir -p _diagnostic
+          gh api repos/iecxiv/meshfabric/actions/runs/42577858714 > _diagnostic/run.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('_diagnostic/run.json').read_text())
+          assert r['id']==42577858714
+          assert r['repository']['full_name']=='iecxiv/meshfabric'
+          assert r['head_branch']=='dev'
+          assert r['head_sha']=='6367d1b17fbea2b2a0a87190123bbfa99d6003f0'
+          assert r['path'].split('@')[0]=='.github/workflows/publish-device-group-advanced-transport.yml'
+          assert r['status']=='completed' and r['conclusion']=='failure'
+          print('Verified failed run:',r['id'],'attempt:',r['run_attempt'])
+          PY
+      - name: Download existing reports without rerunning tests
+        uses: actions/download-artifact@v4
+        with:
+          name: device-group-advanced-transport-42577858714
+          path: _diagnostic/reports
+          github-token: ${{ github.token }}
+          repository: iecxiv/meshfabric
+          run-id: 42577858714
+      - name: Extract filtered diagnostic into bounded readable files
+        env:
+          DIAGNOSTIC_RUN_ID: ${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast,hashlib,json,os,subprocess,textwrap
+          original=Path('.github/workflows/diagnose-device-group-advanced-transport.yml')
+          expected='802ff04ab88d67377d8bbd42bd875e86bd1424e9'
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()==expected,'Diagnostic extractor changed; refusing execution'
+          anchor='      - name: Print Android test failures and available instrumentation diagnostics\n        run: |\n'
+          source=original.read_text()
+          assert source.count(anchor)==1,'Missing/nonunique extractor anchor'
+          block=textwrap.dedent(source.split(anchor,1)[1]).strip().splitlines()
+          assert block[0]=="python3 - <<'PY'" and block[-1]=='PY','Unexpected extractor block'
+          script='\n'.join(block[1:-1])+'\n'
+          ast.parse(script)
+          namespace={'__name__':'__main__'}
+          exec(compile(script,str(original)+'::approved-extractor','exec'),namespace)
+          report=namespace.get('report')
+          assert isinstance(report,list) and report,'No diagnostic report generated'
+          text='Diagnostic documentation only. The original transport tests remain failed.\nPublishing this report is not application-source publication or a passing test run.\n\n'+'\n'.join(report)+'\n'
+          target=Path('docs/diagnostics/device-group-advanced-transport-42577858714')
+          assert not target.exists(),'Report directory already exists; refusing overwrite'
+          target.mkdir(parents=True)
+          parts=[]
+          for offset in range(0,len(text),6000):
+              name='part-'+str(len(parts)+1).zfill(3)+'.txt'
+              data=text[offset:offset+6000]
+              (target/name).write_text(data)
+              parts.append({'file':name,'characters':len(data),'sha256':hashlib.sha256(data.encode()).hexdigest()})
+          metadata={
+              'scope':'Filtered diagnostic documentation only; not a test rerun, fix, or transport validation',
+              'repository':'iecxiv/meshfabric',
+              'source_run':42577858714,
+              'source_commit':'6367d1b17fbea2b2a0a87190123bbfa99d6003f0',
+              'source_artifact':'device-group-advanced-transport-42577858714',
+              'diagnostic_run':os.environ['DIAGNOSTIC_RUN_ID'],
+              'extractor_blob':expected,
+              'android_xml_parsed':namespace.get('android_xml',0),
+              'xml_failure_error_entries':namespace.get('failures',0),
+              'output_incomplete':not any('END ADVANCED TRANSPORT DIAGNOSTIC' in str(item) for item in report),
+              'parts':parts
+          }
+          (target/'index.json').write_text(json.dumps(metadata,indent=2,ensure_ascii=True)+'\n')
+          print('Prepared diagnostic documentation:',len(parts),'parts; XML failure/error entries:',metadata['xml_failure_error_entries'])
+          PY
+          git diff --check
+      - name: Publish only diagnostic documentation if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing diagnostic publication'; exit 1; }
+          git add -- docs/diagnostics/device-group-advanced-transport-42577858714/
+          python3 - <<'PY'
+          import subprocess
+          paths=subprocess.check_output(['git','diff','--cached','--name-only','-z']).decode().strip('\0').split('\0')
+          prefix='docs/diagnostics/device-group-advanced-transport-42577858714/'
+          assert paths and all(path.startswith(prefix) and path.endswith(('.txt','.json')) for path in paths),'Unexpected staged files'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: record filtered advanced transport failure diagnostics'
+          git push origin HEAD:dev
