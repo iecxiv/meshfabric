@@ -16,6 +16,7 @@ internal fun profileUserGroupDomainAllowed(actor:String,group:String)=actor.star
 @Composable internal fun UserGroupsDirectoryPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,onOpenUser:(String)->Unit,onOpenDeviceGroup:(String)->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
+    val displayNames=rememberProfileDisplayNames(s,session.broadcastServerLabel())
     var query by rememberSaveable(s.id) { mutableStateOf("") }
 var editing by remember(s.id) { mutableStateOf<JSONObject?>(null) }
 var creating by remember(s.id) {mutableStateOf(false)}
@@ -38,13 +39,13 @@ Text(t("Acciones del servidor","Server actions"),style=MaterialTheme.typography.
 TextButton(enabled=refreshAction!=UserGroupsRefreshAction.NONE,onClick={when(refreshAction) {UserGroupsRefreshAction.RECONNECT->session.start();UserGroupsRefreshAction.REFRESH->{session.refresh();session.loadUserGroupDirectory()};UserGroupsRefreshAction.NONE->Unit}}) {Text(if(s.ready) t("Actualizar","Refresh") else t("Reconectar","Reconnect"))}
 TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;deleting=null;removing=null;creating=true}) {Text(t("Crear grupo de usuarios","Create user group"))}
 }
-if(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El servidor confirmó la creación: ","The server confirmed creation: ")+s.createdUserGroup,style=MaterialTheme.typography.bodySmall)
-            if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El servidor confirmó la eliminación: ","The server confirmed deletion: ")+s.deletedUserGroup,style=MaterialTheme.typography.bodySmall)
-if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta del grupo. Usuario: ","Link absent in the group read. User: ")+s.removedMember+t("; grupo: ","; group: ")+s.removedMemberGroup,style=MaterialTheme.typography.bodySmall)
-if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en el grupo. Usuario: ","Added link observed in the group. User: ")+s.addedMember+t("; grupo: ","; group: ")+s.addedMemberGroup,style=MaterialTheme.typography.bodySmall)
-if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+s.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+s.revokedDeviceGroup,style=MaterialTheme.typography.bodySmall)
-if(s.notice=="groupMeshGrantedObserved") Text(t("Derechos solicitados observados en ambos enlaces. Grupo de usuarios: ","Requested rights observed in both links. User group: ")+s.grantedGroup+t("; grupo de dispositivos: ","; device group: ")+s.grantedDeviceGroup,style=MaterialTheme.typography.bodySmall)
-if(s.notice=="groupMeshEditedObserved") Text(t("Máscara exacta editada y observada en ambos enlaces. Grupo de usuarios: ","Edited exact mask observed in both links. User group: ")+s.editedGroup+t("; grupo de dispositivos: ","; device group: ")+s.editedDeviceGroup,style=MaterialTheme.typography.bodySmall)
+if(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El servidor confirmó la creación: ","The server confirmed creation: ")+displayNames.label(s.createdUserGroup,es),style=MaterialTheme.typography.bodySmall)
+            if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El grupo ","Group ")+displayNames.label(s.deletedUserGroup,es)+t(" ha sido eliminado. Borrado confirmado por el servidor."," has been deleted. Deletion confirmed by the server."),style=MaterialTheme.typography.bodySmall)
+if(s.notice=="userGroupMemberObserved") Text(t("Enlace ausente en la consulta del grupo. Usuario: ","Link absent in the group read. User: ")+displayNames.label(s.removedMember,es)+t("; grupo: ","; group: ")+displayNames.label(s.removedMemberGroup,es),style=MaterialTheme.typography.bodySmall)
+if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en el grupo. Usuario: ","Added link observed in the group. User: ")+displayNames.label(s.addedMember,es)+t("; grupo: ","; group: ")+displayNames.label(s.addedMemberGroup,es),style=MaterialTheme.typography.bodySmall)
+if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+displayNames.label(s.revokedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.revokedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
+if(s.notice=="groupMeshGrantedObserved") Text(t("Derechos solicitados observados en ambos enlaces. Grupo de usuarios: ","Requested rights observed in both links. User group: ")+displayNames.label(s.grantedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.grantedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
+if(s.notice=="groupMeshEditedObserved") Text(t("Máscara exacta editada y observada en ambos enlaces. Grupo de usuarios: ","Edited exact mask observed in both links. User group: ")+displayNames.label(s.editedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.editedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
             if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)

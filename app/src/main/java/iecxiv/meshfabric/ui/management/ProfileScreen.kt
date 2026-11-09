@@ -28,6 +28,7 @@ fun t(s:String,e:String)=if(es) s else e
 val lifecycle=LocalLifecycleOwner.current.lifecycle
 val session=remember(source) { ProfileSession(source) }
 val state by session.state.collectAsState()
+val displayNames=rememberProfileDisplayNames(state,session.broadcastServerLabel())
 val connected by source.connectionState.collectAsState()
 val profileDeviceGroups by source.groupedDevices.collectAsState()
 var section by rememberSaveable { mutableStateOf("account") }
@@ -59,10 +60,10 @@ ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositiv
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth()) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
-"userMeshEditedObserved"->t("Derechos directos editados y máscara exacta observada en ambos enlaces. Usuario: ","Direct rights edited and exact mask observed in both links. User: ")+state.editedDirectUser+t("; grupo de dispositivos: ","; device group: ")+state.editedDirectMesh
-"userMeshGrantedObserved"->t("Derechos solicitados observados en ambos enlaces directos. Usuario: ","Requested rights observed in both direct links. User: ")+state.grantedDirectUser+t("; grupo de dispositivos: ","; device group: ")+state.grantedDirectMesh
-"userMeshRevokedObserved"->t("Ambos enlaces directos observados ausentes. Usuario: ","Both direct links observed absent. User: ")+state.revokedDirectUser+t("; grupo de dispositivos: ","; device group: ")+state.revokedDirectMesh
-"groupMeshRevokedObserved"->t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+state.revokedGroup+t("; grupo de dispositivos: ","; device group: ")+state.revokedDeviceGroup
+"userMeshEditedObserved"->t("Derechos directos editados y máscara exacta observada en ambos enlaces. Usuario: ","Direct rights edited and exact mask observed in both links. User: ")+displayNames.label(state.editedDirectUser,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(state.editedDirectMesh,es)
+"userMeshGrantedObserved"->t("Derechos solicitados observados en ambos enlaces directos. Usuario: ","Requested rights observed in both direct links. User: ")+displayNames.label(state.grantedDirectUser,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(state.grantedDirectMesh,es)
+"userMeshRevokedObserved"->t("Ambos enlaces directos observados ausentes. Usuario: ","Both direct links observed absent. User: ")+displayNames.label(state.revokedDirectUser,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(state.revokedDirectMesh,es)
+"groupMeshRevokedObserved"->t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+displayNames.label(state.revokedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(state.revokedDeviceGroup,es)
 "broadcastAccepted"->t("El servidor aceptó la difusión. No confirma recepción ni lectura.","The server accepted the broadcast. Receipt and reading are not confirmed.")
 "confirmed"->t("Solicitud confirmada por el servidor; actualizando.","Server acknowledged the request; refreshing.")
 "observed"->t("Se observó el cambio solicitado en el servidor.","The requested change was observed on the server.")
