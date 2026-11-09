@@ -1,0 +1,297 @@
+name: Validate explicitly warned MFA reset
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-mfa-reset.yml]
+permissions:
+  contents: write
+concurrency:
+  group: profile-mfa-reset-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded MFA reset and offline regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = e4ded2448c467bbffb325ad784e3f5644a6bd9e2
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          dialog=main/'UserMfaResetDialog.kt';test=tests/'UserMfaResetDialogTest.kt'
+          assert not dialog.exists() and not test.exists()
+          assert subprocess.check_output(['git','hash-object',str(main/'UserDeleteDialog.kt')],text=True).strip()=='97c10f7f1d07cff439d34e1848b7613f670d1207'
+          assert subprocess.check_output(['git','hash-object',str(main/'ProfileSession.kt')],text=True).strip()=='461f841ea637fd38bef90704a01f4f6a5ed2d13b'
+          def change(s,old,new):
+              assert s.count(old)==1,'Missing or nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          original=(main/'UserDeleteDialog.kt').read_text()
+          imports=original[:original.index('internal fun userDeletePacket')]
+          policy='''internal fun userMfaResetPacket(before:JSONObject)=JSONObject().put("action","changeuserpass").put("userid",before.getString("_id")).put("pass","").put("removeMultiFactor",true).put("resetNextLogin",before.opt("passchange")==-1L || before.opt("passchange")==-1)
+          internal fun userMfaResetContext(s:ProfileState,before:JSONObject?,actor:String,site:Long,beforeServer:String,server:String,es:Boolean,actorBefore:JSONObject?,serverBefore:String):Boolean {
+              if(before==null || actorBefore==null || s.user==null || !s.canWrite || s.detailsBusy || s.server==null || s.server.toString()!=serverBefore || serverBefore.isBlank()) return false
+              if(s.server.has("lock2factor") && s.server.opt("lock2factor")!=false) return false
+              if(s.id!=actor || ProfilePermissions.normalized(s.site)!=ProfilePermissions.normalized(site) || beforeServer.isBlank() || server!=beforeServer) return false
+              fun validId(id:String)=id.startsWith("user/") && id.split('/').size==3 && id.split('/')[2].isNotBlank() && id.length<=256 && id.none {it.isISOControl()}
+              val id=before.optString("_id")
+              if(!validId(actor) || !validId(id) || id==actor || userDomain(id)!=userDomain(actor)) return false
+              val current=s.users.singleOrNull {it.optString("_id")==id} ?: return false
+              if(!canAdministerUser(s,current) || !profileReviewIdentity(before,s.users,es).usable) return false
+              if(!listOf("_id","name","siteadmin","groups").all {actorBefore.opt(it)?.toString()==s.user.opt(it)?.toString()}) return false
+              val realms=userRealmValues(s.user.opt("groups"))
+              if(realms.isNotEmpty() && userRealmValues(current.opt("groups")).none {it in realms}) return false
+              if(before.has("passchange")) {
+                  val value=before.opt("passchange") as? Number ?: return false
+                  if(!value.toDouble().isFinite() || value.toDouble()%1.0!=0.0) return false
+              }
+              return listOf("_id","name","realname","email","siteadmin","links","groups","phone","passchange","passtype","otpkeys","otpsecret","otphkeys","otpekey","otpdev","otpduo","msghandle").all {before.opt(it)?.toString()==current.opt(it)?.toString()}
+          }
+          '''
+          s=original[original.index('@Composable internal fun UserDeleteDialog'):]
+          s=s.replace('UserDeleteDialog','UserMfaResetDialog').replace('userDeleteContext','userMfaResetContext').replace('user-delete-','mfa-reset-')
+          s=change(s,'    val identity=','    val actorSnapshot=remember(id) {s.user?.let {JSONObject(it.toString())}}\n    val serverSnapshot=remember(id) {s.server?.toString().orEmpty()}\n    val identity=')
+          s=change(s,'    var approved by remember(id) {mutableStateOf(false)}','    var approved by remember(id) {mutableStateOf(false)}\n    var effectsApproved by remember(id) {mutableStateOf(false)}')
+          s=change(s,'session.broadcastServerLabel(),es)','session.broadcastServerLabel(),es,actorSnapshot,serverSnapshot)')
+          s=change(s,'{invalidated=true;approved=false}','{invalidated=true;approved=false;effectsApproved=false}')
+          s=s.replace('t("Eliminar usuario","Delete user")','t("Restablecer MFA","Reset MFA")')
+          s=change(s,'Eliminar esta cuenta es irreversible desde la app.','Se retirarán códigos de respaldo, autenticador, llaves FIDO, MFA por correo, push y Duo. También se borrará el teléfono guardado para SMS. No se garantiza retirar métodos adicionales que el servidor no elimina.')
+          s=change(s,'Deleting this account cannot be undone from the app.','Backup codes, authenticator, FIDO keys, email MFA, push and Duo will be removed. The stored SMS phone number will also be deleted. Additional methods not removed by the server are not guaranteed to be reset.')
+          s=change(s,'Entiendo que se eliminará esta cuenta.','Confirmo restablecer MFA para la cuenta revisada.')
+          s=change(s,'I understand this account will be deleted.','I confirm resetting MFA for the reviewed account.')
+          anchor='            Text(t("La revisión usa'
+          start=s.index(anchor);end=s.index('\n',start)
+          s=s[:start]+'''            Text(t("La contraseña no se sustituye, pero el servidor actualiza passchange y elimina passtype. Se conserva la obligación de cambio en el próximo inicio si ya estaba marcada; en otro caso se actualiza la fecha. No se restauran metadatos ni teléfono. La revisión no es atómica y no hay reintentos automáticos.","The password is not replaced, but the server updates passchange and deletes passtype. An existing next-login password-change requirement is retained; otherwise the timestamp is updated. Metadata and phone are not restored. Review is not atomic and there are no automatic retries."),style=MaterialTheme.typography.bodySmall)
+                      if(review && !submitted) Row {Checkbox(effectsApproved,{effectsApproved=it},enabled=active,modifier=Modifier.testTag("mfa-reset-effects"));Text(t("Acepto el borrado del teléfono y los cambios en los metadatos de contraseña.","I accept phone deletion and password metadata changes."),Modifier.weight(1f))}
+                      if(submitted) Text(t("Resultado no confirmado. Un envío aceptado o un evento de credenciales modificadas no demuestra la retirada de MFA. Comprueba la cuenta antes de repetir.","Outcome unconfirmed. Accepted submission or a credentials-change event does not prove MFA removal. Check the account before repeating."),Modifier.testTag("mfa-reset-unconfirmed"))'''+s[end:]
+          s=change(s,'No se pudo iniciar el borrado de forma segura. Cierra y comprueba el estado antes de repetir.','No se pudo iniciar el restablecimiento de forma segura. Cierra y comprueba el estado antes de repetir.')
+          s=change(s,'Deletion could not be safely initiated. Close and check state before repeating.','Reset could not be safely initiated. Close and check state before repeating.')
+          s=change(s,'(!review || approved)','(!review || (approved && effectsApproved))')
+          s=change(s,'if(!review) {review=true;approved=false}','if(!review) {review=true;approved=false;effectsApproved=false}')
+          s=change(s,'else if(active && exact && approved)','else if(active && exact && approved && effectsApproved)')
+          s=change(s,'if(session.submit(userDeletePacket(requireNotNull(baseline)))) onDismiss() else {error=true;invalidated=true}','if(!session.resetUserMfa(requireNotNull(baseline),actor,site,beforeServer,actorSnapshot,serverSnapshot,true)) {error=true;invalidated=true}')
+          s=change(s,'review=false;approved=false;invalidated=false;error=false','review=false;approved=false;effectsApproved=false;invalidated=false;error=false')
+          dialog.write_text(imports+policy+s)
+          p=main/'ProfileSession.kt';original=p.read_text()
+          addition='''@Synchronized fun resetUserMfa(before:JSONObject,actor:String,site:Long,server:String,actorBefore:JSONObject?,serverBefore:String,confirmed:Boolean):Boolean {
+          val s=state.value
+          if(!confirmed || !valid() || !userMfaResetContext(s,before,actor,site,server,broadcastServerLabel(),true,actorBefore,serverBefore)) return false
+          val packet=userMfaResetPacket(before)
+          pendingId=UUID.randomUUID().toString();pendingAction="mfareset";pendingTarget=before.getString("_id");pendingNode="";expected=JSONObject()
+          state.update {it.copy(busy=true,notice="sending")}
+          val epoch=generation
+          timer?.cancel()
+          if(!send("changeuserpass",packet.put("responseid",pendingId))) {stop();return false}
+          timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingAction=="mfareset") finish("unknown",false)}}
+          return true
+          }
+          '''
+          anchor='@Synchronized fun start() {'
+          changed=change(original,anchor,addition+anchor)
+          assert changed.replace(addition,'',1)==original
+          p.write_text(changed)
+          p=main/'UserAdministration.kt';original=p.read_text();s=original
+          declaration='var mode by remember { mutableStateOf("profile") }'
+          s=change(s,declaration,declaration+'\nvar mfaReset by remember {mutableStateOf(false)}')
+          route='if(mfaReset) { UserMfaResetDialog(session,s,form.id) {mfaReset=false} } else '
+          s=change(s,'if(deleting) { UserDeleteDialog(',route+'if(deleting) { UserDeleteDialog(')
+          anchor='ProfileGroupActionButton(t("Inicios de sesión anteriores"'
+          action='ProfileGroupActionButton(t("Restablecer MFA","Reset MFA"),Icons.Default.Security,contactReady && !s.detailsBusy && s.server!=null && s.server.opt("lock2factor")!=true && form.id!=s.id,onClick={mfaReset=true})\n'
+          s=change(s,anchor,action+anchor)
+          assert s.replace(declaration+'\nvar mfaReset by remember {mutableStateOf(false)}',declaration,1).replace(route,'',1).replace(action,'',1)==original
+          p.write_text(s)
+          p=tests/'UserDetailPresentationTest.kt';s=p.read_text()
+          anchor='compose.onNodeWithText("Acciones y seguridad").performScrollTo().performClick()\n        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(5)'
+          s=change(s,anchor,anchor.replace('assertCountEquals(5)','assertCountEquals(6)'))
+          s=change(s,'listOf("Agregar dispositivo","Cambiar contraseña","Inicios de sesión anteriores")','listOf("Agregar dispositivo","Cambiar contraseña","Restablecer MFA","Inicios de sesión anteriores")')
+          p.write_text(s)
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import okhttp3.WebSocket
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.lang.reflect.Proxy
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class UserMfaResetDialogTest {
+              @get:Rule val compose=createComposeRule()
+              private val uid="user//alice"
+              private fun field(o:Any,n:String)=o.javaClass.getDeclaredField(n).apply {isAccessible=true}
+              private inner class Fixture:AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val user=JSONObject().put("_id",uid).put("name","Alicia").put("email","alice@example.invalid").put("siteadmin",0).put("phone","+34600000000").put("passchange",-1).put("otpsecret",1)
+                  val actor=JSONObject().put("_id","user//admin").put("name","Administración").put("siteadmin",2L)
+                  val baseline=ProfileState(ready=true,user=actor,users=listOf(user),server=JSONObject())
+                  val state=mutableStateOf(baseline)
+                  val packets=mutableListOf<JSONObject>()
+                  val server:String
+                  init {
+                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-mfa-test")
+                      @Suppress("UNCHECKED_CAST") val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>;connected.value=true
+                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
+                      server=session.broadcastServerLabel();session.state.value=baseline
+                      val socket=Proxy.newProxyInstance(WebSocket::class.java.classLoader,arrayOf(WebSocket::class.java)) {_,method,args->when(method.name) {
+                          "send"->{val text=args?.firstOrNull() as? String;if(text==null) false else {packets.add(JSONObject(text));true}}
+                          "close"->true
+                          "queueSize"->0L
+                          "toString"->"OfflineMfaSocket"
+                          else->null
+                      }} as WebSocket
+                      field(session,"socket").set(session,socket)
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {UserMfaResetDialog(session,state.value,uid,{})}}
+                      }
+                  }
+                  fun prepare() {compose.onNodeWithTag("mfa-reset-name").performScrollTo().performTextReplacement("Alicia");compose.onNodeWithTag("mfa-reset-prepare").performClick()}
+                  fun approve() {compose.onNodeWithTag("mfa-reset-consent").performScrollTo().performClick();compose.onNodeWithTag("mfa-reset-effects").performScrollTo().performClick()}
+                  fun allowed(s:ProfileState=baseline)=userMfaResetContext(s,user,actor.getString("_id"),2L,server,server,true,actor,baseline.server.toString())
+                  fun noIds() {for(id in listOf(uid,"user//admin")) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)}
+                  override fun close() {assertNull(field(client,"webSocket").get(client));session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()}
+              }
+              @Test fun explicitEffectsExactNameAndTwoConsentsAreRequired() {Fixture().use {f->
+                  compose.onNodeWithText("También se borrará el teléfono",substring=true).assertExists()
+                  compose.onNodeWithText("actualiza passchange y elimina passtype",substring=true).assertExists()
+                  compose.onNodeWithTag("mfa-reset-name").performScrollTo().performTextReplacement(uid)
+                  compose.onNodeWithTag("mfa-reset-prepare").assertIsNotEnabled()
+                  f.prepare();compose.onNodeWithTag("mfa-reset-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("mfa-reset-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("mfa-reset-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("mfa-reset-effects").performScrollTo().performClick()
+                  compose.onNodeWithTag("mfa-reset-send").assertIsEnabled();assertTrue(f.packets.isEmpty());f.noIds()
+              }}
+              @Test fun phoneChangeInvalidatesReviewWithoutAutomaticRestoration() {Fixture().use {f->
+                  f.prepare();f.approve()
+                  compose.runOnIdle {f.state.value=f.baseline.copy(users=listOf(JSONObject(f.user.toString()).put("phone","changed")))};compose.waitForIdle()
+                  compose.onNodeWithTag("mfa-reset-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+                  compose.onNodeWithTag("mfa-reset-send").assertIsNotEnabled();assertTrue(f.packets.isEmpty())
+              }}
+              @Test fun transportSendsOnlyOnceAndNeverTreatsCredentialsEventAsMfaSuccess() {Fixture().use {f->
+                  f.prepare();f.approve();compose.onNodeWithTag("mfa-reset-send").performClick()
+                  compose.onNodeWithTag("mfa-reset-unconfirmed").assertExists()
+                  compose.onNodeWithTag("mfa-reset-send").assertIsNotEnabled()
+                  assertEquals(1,f.packets.size)
+                  val p=f.packets.single()
+                  assertEquals(setOf("action","userid","pass","removeMultiFactor","resetNextLogin","responseid"),p.keys().asSequence().toSet())
+                  assertEquals("changeuserpass",p.getString("action"));assertEquals(uid,p.getString("userid"));assertEquals("",p.getString("pass"));assertTrue(p.getBoolean("removeMultiFactor"));assertTrue(p.getBoolean("resetNextLogin"))
+                  assertFalse(f.session.resetUserMfa(f.user,f.actor.getString("_id"),2L,f.server,f.actor,f.baseline.server.toString(),true))
+                  val receive=f.session.javaClass.getDeclaredMethod("receive",JSONObject::class.java).apply {isAccessible=true}
+                  receive.invoke(f.session,JSONObject().put("action","event").put("event",JSONObject().put("action","accountchange").put("msgid",75).put("account",JSONObject(f.user.toString()).put("phone",JSONObject.NULL))))
+                  assertTrue(f.session.state.value.busy);assertEquals("sending",f.session.state.value.notice)
+                  f.session.stop();assertEquals("unknown",f.session.state.value.notice);assertEquals(1,f.packets.size)
+              }}
+              @Test fun policyRejectsLocksMissingAuthorityAmbiguityAndChangedMetadata() {Fixture().use {f->
+                  assertTrue(f.allowed())
+                  assertFalse(f.allowed(f.baseline.copy(server=JSONObject().put("lock2factor",true))))
+                  assertFalse(f.allowed(f.baseline.copy(server=null)))
+                  assertFalse(f.allowed(f.baseline.copy(ready=false)))
+                  assertFalse(f.allowed(f.baseline.copy(detailsBusy=true)))
+                  assertFalse(f.allowed(f.baseline.copy(user=JSONObject(f.actor.toString()).put("siteadmin",0))))
+                  assertFalse(f.allowed(f.baseline.copy(users=listOf(f.user,JSONObject(f.user.toString())))))
+                  assertFalse(f.allowed(f.baseline.copy(users=listOf(JSONObject(f.user.toString()).put("passchange",10)))))
+                  assertFalse(f.session.resetUserMfa(f.user,f.actor.getString("_id"),2L,f.server,f.actor,f.baseline.server.toString(),false))
+                  assertTrue(f.packets.isEmpty())
+              }}
+              @Test fun packetPreservesExistingForcedChangeChoiceWithoutPretendingToPreserveTimestamp() {
+                  val u=JSONObject().put("_id",uid).put("passchange",-1L)
+                  assertTrue(userMfaResetPacket(u).getBoolean("resetNextLogin"))
+                  u.put("passchange",1234L);val p=userMfaResetPacket(u)
+                  assertFalse(p.getBoolean("resetNextLogin"));assertEquals("",p.getString("pass"));assertFalse(p.has("hint"));assertFalse(p.has("passchange"));assertFalse(p.has("passtype"));assertFalse(p.has("phone"))
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute MFA and existing profile regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMfaResetDialogTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest,iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show concrete test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for directory in [Path('app/build/outputs/androidTest-results'),Path('app/build/test-results')]:
+              for report in sorted(directory.rglob('*.xml')):
+                  try:
+                      root=ET.parse(report).getroot()
+                  except ET.ParseError:
+                      continue
+                  for case in root.iter('testcase'):
+                      for kind in ('failure','error'):
+                          failure=case.find(kind)
+                          if failure is not None:
+                              print(case.get('classname','')+'.'+case.get('name',''))
+                              print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-mfa-reset-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserMfaResetDialog.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMfaResetDialogTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          tests='app/src/androidTest/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'UserMfaResetDialog.kt',main+'ProfileSession.kt',main+'UserAdministration.kt',tests+'UserMfaResetDialogTest.kt',tests+'UserDetailPresentationTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): explicit MFA reset with server-effects consent'
+          git push origin HEAD:dev
