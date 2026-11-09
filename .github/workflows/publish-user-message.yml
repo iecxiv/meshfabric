@@ -1,0 +1,264 @@
+name: Validate individual user notifications
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-user-message.yml]
+permissions:
+  contents: write
+concurrency:
+  group: profile-user-message-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate isolated user notification and offline regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = f531aab866e499566326b834ac0924021c50e33c
+          python3 - <<'PY'
+          from pathlib import Path
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          dialog=main/'UserMessageDialog.kt';test=tests/'UserMessageDialogTest.kt'
+          assert not dialog.exists() and not test.exists()
+          def change(s,old,new):
+              assert s.count(old)==1,'Missing or nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          template=(main/'UserMfaResetDialog.kt').read_text()
+          imports=template[:template.index('internal fun userMfaResetPacket')]
+          context=template[template.index('internal fun userMfaResetContext'):template.index('@Composable internal fun')]
+          context=change(context,'userMfaResetContext','userMessageContext')
+          context=change(context,'    if(s.server.has("lock2factor") && s.server.opt("lock2factor")!=false) return false\n','')
+          start=context.index('    if(before.has("passchange"))')
+          end=context.index('    return listOf(',start)
+          context=context[:start]+context[end:]
+          start=context.index('    return listOf(');end=context.index('\n',start)
+          context=context[:start]+'    return listOf("_id","name","realname","email","siteadmin","links","groups").all {before.opt(it)?.toString()==current.opt(it)?.toString()}'+context[end:]
+          packet='''internal fun userMessageValid(value:String)=value.isNotBlank() && value.length<=512 && !value.contains('\\u0000')
+          internal fun userMessagePacket(before:JSONObject,message:String):JSONObject {
+              require(userMessageValid(message))
+              return JSONObject().put("action","notifyuser").put("userid",before.getString("_id")).put("msg",message)
+          }
+          '''
+          ui='''@Composable internal fun UserMessageDialog(session:ProfileSession,s:ProfileState,id:String,onDismiss:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              fun t(a:String,b:String)=if(es) a else b
+              val baseline=remember(id) {s.users.singleOrNull {it.optString("_id")==id}?.let {JSONObject(it.toString())}}
+              val actor=remember(id) {s.id};val site=remember(id) {s.site}
+              val beforeServer=remember(id) {session.broadcastServerLabel()}
+              val actorSnapshot=remember(id) {s.user?.let {JSONObject(it.toString())}}
+              val serverSnapshot=remember(id) {s.server?.toString().orEmpty()}
+              var message by remember(id) {mutableStateOf("")}
+              var frozen by remember(id) {mutableStateOf<String?>(null)}
+              var approved by remember(id) {mutableStateOf(false)}
+              var invalidated by remember(id) {mutableStateOf(false)}
+              var submitted by remember(id) {mutableStateOf(false)}
+              var error by remember(id) {mutableStateOf(false)}
+              val context=userMessageContext(s,baseline,actor,site,beforeServer,session.broadcastServerLabel(),es,actorSnapshot,serverSnapshot)
+              LaunchedEffect(frozen,context) {if(frozen!=null && !context && !submitted) {invalidated=true;approved=false}}
+              val active=context && !invalidated && !submitted
+              val identity=profileReviewIdentity(baseline,s.users,es)
+              ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(if(frozen==null) t("Enviar mensaje","Send message") else t("Revisar mensaje","Review message"))},text={
+                  Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                      Text(t("Destinatario: ","Recipient: ")+identity.label,style=MaterialTheme.typography.titleSmall)
+                      Text(beforeServer,style=MaterialTheme.typography.bodySmall)
+                      Text(t("Notificación individual, no Broadcast ni chat. Se dirige a las sesiones del destinatario en el nodo que procese la solicitud. No hay propagación garantizada a otros nodos. Si está desconectado, el servidor puede intentar web push cuando esté disponible.","Individual notification, not Broadcast or chat. Targets recipient sessions on the node processing the request. Propagation to other nodes is not guaranteed. If offline, the server may attempt web push when available."),style=MaterialTheme.typography.bodySmall)
+                      if(frozen==null && !submitted) OutlinedTextField(message,{if(it.length<=4096) {message=it;approved=false}},label={Text(t("Mensaje","Message"))},supportingText={Text("${message.length}/512")},isError=message.isNotEmpty() && !userMessageValid(message),enabled=active,modifier=Modifier.fillMaxWidth().testTag("user-message-input"),minLines=3,maxLines=6)
+                      else {
+                          Text(frozen.orEmpty(),Modifier.testTag("user-message-preview"))
+                          if(!submitted) Row {Checkbox(approved,{approved=it},enabled=active,modifier=Modifier.testTag("user-message-consent"));Text(t("Confirmo enviar este mensaje al destinatario revisado.","I confirm sending this message to the reviewed recipient."),Modifier.weight(1f))}
+                      }
+                      if(invalidated || !context) Text(t("Revisión no disponible o invalidada por cambios de identidad, datos, ámbito, autoridad o conexión. No se reactiva automáticamente.","Review unavailable or invalidated by identity, data, scope, authority or connection changes. It does not reactivate automatically."),color=MaterialTheme.colorScheme.error)
+                      Text(t("No hay confirmación de entrega ni lectura. Cerrar no cancela un envío iniciado. No se reenvía automáticamente.","There is no delivery or read confirmation. Closing does not cancel an initiated submission. No automatic resend."),style=MaterialTheme.typography.bodySmall)
+                      if(submitted) Text(t("Resultado no confirmado. Comprueba con el destinatario antes de repetir.","Outcome unconfirmed. Check with the recipient before repeating."),Modifier.testTag("user-message-unconfirmed"))
+                      if(error) Text(t("No se pudo iniciar el envío de forma segura. Comprueba el estado antes de repetir.","Submission could not be safely initiated. Check state before repeating."),color=MaterialTheme.colorScheme.error)
+                  }
+              },confirmButton={Button(enabled=active && userMessageValid(frozen ?: message) && (frozen==null || approved),modifier=Modifier.testTag(if(frozen==null) "user-message-prepare" else "user-message-send"),onClick={
+                  if(frozen==null) {frozen=message;approved=false}
+                  else if(active && approved) {
+                      val reviewed=requireNotNull(frozen)
+                      submitted=true;approved=false
+                      if(!session.sendUserMessage(requireNotNull(baseline),actor,site,beforeServer,actorSnapshot,serverSnapshot,reviewed,true)) {error=true;invalidated=true}
+                  }
+              }) {Text(if(frozen==null) t("Revisar","Review") else t("Enviar mensaje","Send message"))}},dismissButton={Row {
+                  if(frozen!=null && !submitted) TextButton(onClick={frozen=null;approved=false;invalidated=false;error=false}) {Text(t("Volver a redactar","Edit message"))}
+                  TextButton(onClick=onDismiss) {Text(t("Cerrar","Close"))}
+              }})
+          }
+          '''
+          dialog.write_text(imports+packet+context+ui)
+          p=main/'ProfileSession.kt';original=p.read_text()
+          addition='''@Synchronized fun sendUserMessage(before:JSONObject,actor:String,site:Long,server:String,actorBefore:JSONObject?,serverBefore:String,message:String,confirmed:Boolean):Boolean {
+          val s=state.value
+          if(!confirmed || !valid() || pendingId.isNotBlank() || !userMessageValid(message) || !userMessageContext(s,before,actor,site,server,broadcastServerLabel(),true,actorBefore,serverBefore)) return false
+          val packet=userMessagePacket(before,message)
+          pendingId=UUID.randomUUID().toString();pendingAction="usermessage";pendingTarget=before.getString("_id");pendingNode="";expected=JSONObject()
+          state.update {it.copy(busy=true,notice="sending")}
+          val epoch=generation
+          timer?.cancel()
+          if(!send("notifyuser",packet.put("responseid",pendingId))) {stop();return false}
+          timer=scope.launch {delay(20_000);synchronized(this@ProfileSession) {if(epoch==generation && pendingAction=="usermessage") finish("unknown",false)}}
+          return true
+          }
+          '''
+          changed=change(original,'@Synchronized fun start() {',addition+'@Synchronized fun start() {')
+          assert changed.replace(addition,'',1)==original
+          p.write_text(changed)
+          p=main/'UserAdministration.kt';original=p.read_text();s=original
+          declaration='var mode by remember { mutableStateOf("profile") }'
+          s=change(s,declaration,declaration+'\nvar userMessage by remember {mutableStateOf(false)}')
+          route='if(userMessage) { UserMessageDialog(session,s,form.id) {userMessage=false} } else '
+          s=change(s,'if(mfaReset) { UserMfaResetDialog(',route+'if(mfaReset) { UserMfaResetDialog(')
+          anchor='ProfileGroupActionButton(t("Inicios de sesión anteriores"'
+          action='ProfileGroupActionButton(t("Enviar mensaje","Send message"),Icons.Default.Email,contactReady && !s.detailsBusy && form.id!=s.id,onClick={userMessage=true})\n'
+          s=change(s,anchor,action+anchor)
+          assert s.replace(declaration+'\nvar userMessage by remember {mutableStateOf(false)}',declaration,1).replace(route,'',1).replace(action,'',1)==original
+          p.write_text(s)
+          p=tests/'UserDetailPresentationTest.kt';s=p.read_text()
+          anchor='compose.onNodeWithText("Acciones y seguridad").performScrollTo().performClick()\n        compose.onAllNodesWithTag("profile-group-action-icon",useUnmergedTree=true).assertCountEquals(6)'
+          s=change(s,anchor,anchor.replace('assertCountEquals(6)','assertCountEquals(7)'))
+          s=change(s,'listOf("Agregar dispositivo","Cambiar contraseña","Restablecer MFA","Inicios de sesión anteriores")','listOf("Agregar dispositivo","Cambiar contraseña","Restablecer MFA","Enviar mensaje","Inicios de sesión anteriores")')
+          p.write_text(s)
+          fixture=(tests/'UserMfaResetDialogTest.kt').read_text().split('    @Test fun ',1)[0]
+          fixture=fixture.replace('UserMfaResetDialogTest','UserMessageDialogTest').replace('UserMfaResetDialog(','UserMessageDialog(').replace('userMfaResetContext','userMessageContext')
+          start=fixture.index('        fun prepare()');end=fixture.index('        fun allowed(',start)
+          fixture=fixture[:start]+'''        fun prepare() {compose.onNodeWithTag("user-message-input").performScrollTo().performTextReplacement("Aviso de prueba");compose.onNodeWithTag("user-message-prepare").performClick()}
+                  fun approve() {compose.onNodeWithTag("user-message-consent").performScrollTo().performClick()}
+          '''+fixture[end:]
+          checks='''    @Test fun recipientAndMessageAreReviewedBeforeSeparateConsent() {Fixture().use {f->
+                  compose.onNodeWithText("Destinatario: Alicia · alice@example.invalid").assertExists()
+                  compose.onNodeWithTag("user-message-prepare").assertIsNotEnabled()
+                  f.prepare();compose.onNodeWithTag("user-message-input").assertDoesNotExist()
+                  compose.onNodeWithTag("user-message-preview").assertTextEquals("Aviso de prueba")
+                  compose.onNodeWithTag("user-message-send").assertIsNotEnabled()
+                  f.approve();compose.onNodeWithTag("user-message-send").assertIsEnabled()
+                  assertTrue(f.packets.isEmpty());f.noIds()
+                  compose.onNodeWithText("Volver a redactar").performClick()
+                  compose.onNodeWithTag("user-message-prepare").performClick()
+                  compose.onNodeWithTag("user-message-send").assertIsNotEnabled()
+              }}
+              @Test fun targetChangeInvalidatesPermanently()=invalidates {s->s.copy(users=listOf(JSONObject(s.users.single().toString()).put("name","Otra cuenta")))}
+              @Test fun authorityLossInvalidatesPermanently()=invalidates {s->s.copy(user=JSONObject(requireNotNull(s.user).toString()).put("siteadmin",0))}
+              @Test fun disconnectInvalidatesPermanently()=invalidates {s->s.copy(ready=false)}
+              @Test fun ambiguousIdentityInvalidatesPermanently()=invalidates {s->s.copy(users=s.users+JSONObject(s.users.single().toString()).put("_id","user//other"))}
+              private fun invalidates(replace:(ProfileState)->ProfileState) {Fixture().use {f->
+                  f.prepare();f.approve();compose.onNodeWithTag("user-message-send").assertIsEnabled()
+                  compose.runOnIdle {f.state.value=replace(f.baseline)};compose.waitForIdle()
+                  compose.onNodeWithTag("user-message-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+                  compose.onNodeWithTag("user-message-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-message-consent").assertIsNotEnabled();assertTrue(f.packets.isEmpty())
+              }}
+              @Test fun notifyUserNeverFallsBackToBroadcastOrClaimsDelivery() {Fixture().use {f->
+                  f.prepare();f.approve();compose.onNodeWithTag("user-message-send").performClick()
+                  compose.onNodeWithTag("user-message-unconfirmed").assertExists()
+                  compose.onNodeWithTag("user-message-send").assertIsNotEnabled()
+                  assertEquals(1,f.packets.size);val p=f.packets.single()
+                  assertEquals(setOf("action","userid","msg","responseid"),p.keys().asSequence().toSet())
+                  assertEquals("notifyuser",p.getString("action"));assertEquals(uid,p.getString("userid"));assertEquals("Aviso de prueba",p.getString("msg"))
+                  assertFalse(f.session.sendUserMessage(f.user,f.actor.getString("_id"),2L,f.server,f.actor,f.baseline.server.toString(),"Aviso de prueba",true))
+                  f.session.stop();assertEquals("unknown",f.session.state.value.notice);assertEquals(1,f.packets.size)
+              }}
+              @Test fun policyDoesNotInheritMfaLockAndRejectsMissingTargetsOrScopeChanges() {Fixture().use {f->
+                  assertTrue(f.allowed())
+                  assertFalse(f.allowed(f.baseline.copy(users=emptyList())))
+                  assertFalse(f.allowed(f.baseline.copy(detailsBusy=true)))
+                  val locked=f.baseline.copy(server=JSONObject().put("lock2factor",true))
+                  assertTrue(userMessageContext(locked,f.user,f.actor.getString("_id"),2L,f.server,f.server,true,f.actor,locked.server.toString()))
+                  val restricted=JSONObject(f.actor.toString()).put("groups",org.json.JSONArray().put("realm-one"))
+                  val scoped=f.baseline.copy(user=restricted)
+                  assertFalse(userMessageContext(scoped,f.user,restricted.getString("_id"),2L,f.server,f.server,true,restricted,scoped.server.toString()))
+                  val target=JSONObject(f.user.toString()).put("groups",org.json.JSONArray().put("realm-one"))
+                  assertTrue(userMessageContext(scoped.copy(users=listOf(target)),target,restricted.getString("_id"),2L,f.server,f.server,true,restricted,scoped.server.toString()))
+                  assertFalse(f.session.sendUserMessage(f.user,f.actor.getString("_id"),2L,f.server,f.actor,f.baseline.server.toString(),"Aviso",false));assertTrue(f.packets.isEmpty())
+              }}
+              @Test fun invalidMessagesCannotBecomePackets() {
+                  val u=JSONObject().put("_id",uid)
+                  for(text in listOf("","   ","x".repeat(513),"a"+0.toChar()+"b")) {assertFalse(userMessageValid(text));assertTrue(runCatching {userMessagePacket(u,text)}.isFailure)}
+                  val p=userMessagePacket(u,"x".repeat(512))
+                  assertEquals(512,p.getString("msg").length);assertEquals(setOf("action","userid","msg"),p.keys().asSequence().toSet())
+              }
+          }
+          '''
+          test.write_text(fixture+checks)
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute notification and existing profile regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserMessageDialogTest,iecxiv.meshfabric.ui.management.UserMfaResetDialogTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest,iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show concrete test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for directory in [Path('app/build/outputs/androidTest-results'),Path('app/build/test-results')]:
+              for report in sorted(directory.rglob('*.xml')):
+                  try:
+                      root=ET.parse(report).getroot()
+                  except ET.ParseError:
+                      continue
+                  for case in root.iter('testcase'):
+                      for kind in ('failure','error'):
+                          failure=case.find(kind)
+                          if failure is not None:
+                              print(case.get('classname','')+'.'+case.get('name',''))
+                              print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-message-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserMessageDialog.kt app/src/main/java/iecxiv/meshfabric/ui/management/ProfileSession.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserMessageDialogTest.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDetailPresentationTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          tests='app/src/androidTest/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'UserMessageDialog.kt',main+'ProfileSession.kt',main+'UserAdministration.kt',tests+'UserMessageDialogTest.kt',tests+'UserDetailPresentationTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): reviewed individual notifications without delivery claims'
+          git push origin HEAD:dev
