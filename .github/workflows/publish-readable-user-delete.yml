@@ -1,0 +1,279 @@
+name: Validate and publish readable user deletion
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-user-delete.yml]
+permissions:
+  contents: write
+concurrency:
+  group: readable-user-delete-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded deletion dialog and offline regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          p=main/'UserAdministration.kt';dialog=main/'UserDeleteDialog.kt';test=tests/'UserDeleteDialogTest.kt'
+          for path,sha in [(p,'039ede1f0f875fa7dc2f88c0859d45864a7b418e'),(main/'ProfileSession.kt','461f841ea637fd38bef90704a01f4f6a5ed2d13b'),(main/'ProfileReviewIdentity.kt','11e45797363c7b51e7b488882a5a60639b4dfa1e')]:
+              assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()==sha,'Source changed: '+str(path)
+          assert not dialog.exists() and not test.exists()
+          original=p.read_text();anchor='val user=s.users.firstOrNull { it.optString("_id")==form.id }'
+          assert original.count(anchor)==1
+          route='if(deleting) { UserDeleteDialog(session,s,form.id,onDismiss); return@key }\n'
+          changed=original.replace(anchor,route+anchor,1)
+          assert changed.replace(route,'',1)==original,'Existing operations must remain unchanged'
+          p.write_text(changed)
+          dialog.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.window.DialogProperties
+          import androidx.compose.ui.window.SecureFlagPolicy
+          import org.json.JSONObject
+          internal fun userDeletePacket(before:JSONObject)=JSONObject().put("action","deleteuser").put("userid",before.getString("_id")).put("username",before.getString("name"))
+          internal fun userDeleteContext(s:ProfileState,before:JSONObject?,actor:String,site:Long,beforeServer:String,server:String,es:Boolean):Boolean {
+              if(before==null || !s.canWrite || actor.isBlank() || s.id!=actor || ProfilePermissions.normalized(s.site)!=ProfilePermissions.normalized(site) || beforeServer.isBlank() || server!=beforeServer) return false
+              val id=before.optString("_id")
+              val current=s.users.singleOrNull {it.optString("_id")==id} ?: return false
+              if(id==s.id || !canAdministerUser(s,current) || !profileReviewIdentity(before,s.users,es).usable) return false
+              return listOf("name","realname","email","siteadmin","links","groups").all {before.opt(it)?.toString()==current.opt(it)?.toString()}
+          }
+          @Composable internal fun UserDeleteDialog(session:ProfileSession,s:ProfileState,id:String,onDismiss:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              fun t(a:String,b:String)=if(es) a else b
+              val baseline=remember(id) {s.users.singleOrNull {it.optString("_id")==id}?.let {JSONObject(it.toString())}}
+              val actor=remember(id) {s.id};val site=remember(id) {s.site};val beforeServer=remember(id) {session.broadcastServerLabel()}
+              val identity=profileReviewIdentity(baseline,s.users,es)
+              var typed by remember(id) {mutableStateOf("")}
+              var review by remember(id) {mutableStateOf(false)}
+              var approved by remember(id) {mutableStateOf(false)}
+              var invalidated by remember(id) {mutableStateOf(false)}
+              var submitted by remember(id) {mutableStateOf(false)}
+              var error by remember(id) {mutableStateOf(false)}
+              val context=userDeleteContext(s,baseline,actor,site,beforeServer,session.broadcastServerLabel(),es)
+              LaunchedEffect(review,context) {if(review && !context && !submitted) {invalidated=true;approved=false}}
+              val active=context && !invalidated && !submitted
+              val exact=typed.isNotBlank() && typed==baseline?.optString("name")
+              ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Eliminar usuario","Delete user"))},text={
+                  Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                      Text(identity.label,style=MaterialTheme.typography.titleSmall)
+                      Text(beforeServer,style=MaterialTheme.typography.bodySmall)
+                      Text(t("Eliminar esta cuenta es irreversible desde la app.","Deleting this account cannot be undone from the app."),color=MaterialTheme.colorScheme.error)
+                      if(!review) OutlinedTextField(typed,{if(it.length<=4096) {typed=it;approved=false}},label={Text(t("Escribe el nombre exacto","Type the exact name"))},enabled=active,singleLine=true,modifier=Modifier.fillMaxWidth().testTag("user-delete-name"))
+                      else {
+                          Text(t("Nombre confirmado: ","Confirmed name: ")+typed)
+                          Row {Checkbox(approved,{approved=it},enabled=active,modifier=Modifier.testTag("user-delete-consent"));Text(t("Entiendo que se eliminará esta cuenta.","I understand this account will be deleted."),Modifier.weight(1f))}
+                      }
+                      Text(t("La revisión usa los datos recibidos y no es atómica con el borrado del servidor. Si cambian el destino, los datos revisados, los permisos o la conexión, vuelve atrás y revisa de nuevo; si persiste el cambio, cierra y actualiza. No hay reintentos automáticos. Un envío aceptado por la app no demuestra que el servidor haya borrado la cuenta.","Review uses received data and is not atomic with server deletion. If the target, reviewed data, rights or connection change, go back and review again; if the change persists, close and refresh. There are no automatic retries. App acceptance does not prove the server deleted the account."),style=MaterialTheme.typography.bodySmall)
+                      if(!context || invalidated) Text(t("Destino no identificable, datos modificados o autoridad no disponible. Esta revisión no se reactiva automáticamente.","Target not identifiable, data changed or authority unavailable. This review does not reactivate automatically."),color=MaterialTheme.colorScheme.error)
+                      if(error) Text(t("No se pudo iniciar el borrado de forma segura. Cierra y comprueba el estado antes de repetir.","Deletion could not be safely initiated. Close and check state before repeating."),color=MaterialTheme.colorScheme.error)
+                  }
+              },confirmButton={Button(enabled=active && exact && (!review || approved),modifier=Modifier.testTag(if(review) "user-delete-send" else "user-delete-prepare"),colors=ButtonDefaults.buttonColors(containerColor=MaterialTheme.colorScheme.error,contentColor=MaterialTheme.colorScheme.onError),onClick={
+                  if(!review) {review=true;approved=false}
+                  else if(active && exact && approved) {
+                      submitted=true;approved=false
+                      if(session.submit(userDeletePacket(requireNotNull(baseline)))) onDismiss() else {error=true;invalidated=true}
+                  }
+              }) {Text(if(review) t("Eliminar usuario","Delete user") else t("Revisar","Review"))}},dismissButton={Row {
+                  if(review && !submitted) TextButton(onClick={review=false;approved=false;invalidated=false;error=false}) {Text(t("Volver","Back"))}
+                  TextButton(onClick=onDismiss) {Text(t("Cancelar","Cancel"))}
+              }})
+          }
+          ''')
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class UserDeleteDialogTest {
+              @get:Rule val compose=createComposeRule()
+              private val uid="user//alice"
+              private fun person()=JSONObject().put("_id",uid).put("name","Alicia").put("realname","Alicia García").put("email","alice@example.invalid").put("siteadmin",0)
+              private fun base(u:JSONObject=person())=ProfileState(ready=true,user=JSONObject().put("_id","user//admin").put("name","Administración").put("siteadmin",2L),users=listOf(u))
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private inner class Fixture(missing:Boolean=false):AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val baseline=base(if(missing) person().put("name","") else person())
+                  val state=mutableStateOf(baseline)
+                  init {
+                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-test")
+                      @Suppress("UNCHECKED_CAST")
+                      val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>;connected.value=true
+                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              UserAdministrationDialog(session,state.value,ProfileForm(true,"delete",uid,"Alicia","alice@example.invalid"),onDismiss={})
+                          }}
+                      }
+                  }
+                  fun assertNoIds() {for(id in listOf(uid,"user//admin","user//other")) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)}
+                  override fun close() {
+                      assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
+                      session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()
+                  }
+              }
+              private fun prepare() {
+                  compose.onNodeWithTag("user-delete-name").performScrollTo().performTextReplacement("Alicia")
+                  compose.onNodeWithTag("user-delete-prepare").performClick()
+              }
+              @Test fun exactNameReviewAndFinalConsentAreSeparate() {Fixture().use {f->
+                  compose.onNodeWithText("Alicia · Alicia García · alice@example.invalid").assertExists()
+                  compose.onNodeWithTag("user-delete-name").performScrollTo().performTextReplacement(uid)
+                  compose.onNodeWithTag("user-delete-prepare").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-delete-name").performTextReplacement("alicia")
+                  compose.onNodeWithTag("user-delete-prepare").assertIsNotEnabled()
+                  prepare()
+                  compose.onNodeWithTag("user-delete-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-delete-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("user-delete-send").assertIsEnabled()
+                  compose.onNodeWithText("Volver").performClick()
+                  compose.onNodeWithTag("user-delete-name").assertExists()
+                  prepare()
+                  compose.onNodeWithTag("user-delete-send").assertIsNotEnabled()
+                  f.assertNoIds()
+              }}
+              @Test fun missingNameNeverFallsBackToId() {Fixture(true).use {f->
+                  compose.onNodeWithText("nombre no disponible").assertExists()
+                  compose.onNodeWithTag("user-delete-name").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-delete-prepare").assertIsNotEnabled()
+                  f.assertNoIds()
+              }}
+              @Test fun ambiguityPermanentlyInvalidatesFrozenReview()=assertInvalidation {s->s.copy(users=s.users+JSONObject(s.users.single().toString()).put("_id","user//other"))}
+              @Test fun renamedTargetPermanentlyInvalidatesFrozenReview()=assertInvalidation {s->s.copy(users=listOf(JSONObject(s.users.single().toString()).put("name","Otra cuenta")))}
+              @Test fun changedLinksPermanentlyInvalidateFrozenReview()=assertInvalidation {s->s.copy(users=listOf(JSONObject(s.users.single().toString()).put("links",JSONObject().put("mesh//one",JSONObject().put("rights",8)))))}
+              @Test fun authorityLossPermanentlyInvalidatesFrozenReview()=assertInvalidation {s->s.copy(user=JSONObject(requireNotNull(s.user).toString()).put("siteadmin",0))}
+              @Test fun disconnectPermanentlyInvalidatesFrozenReview()=assertInvalidation {s->s.copy(ready=false)}
+              private fun assertInvalidation(replace:(ProfileState)->ProfileState) {Fixture().use {f->
+                  prepare();compose.onNodeWithTag("user-delete-consent").performScrollTo().performClick()
+                  compose.onNodeWithTag("user-delete-send").assertIsEnabled()
+                  compose.runOnIdle {f.state.value=replace(f.baseline)};compose.waitForIdle()
+                  compose.onNodeWithTag("user-delete-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+                  compose.onNodeWithTag("user-delete-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("user-delete-consent").assertIsNotEnabled()
+                  f.assertNoIds()
+              }}
+              @Test fun packetRetainsExistingContractAndOperationName() {
+                  val before=person();val packet=userDeletePacket(before)
+                  assertEquals(setOf("action","userid","username"),packet.keys().asSequence().toSet())
+                  assertEquals("deleteuser",packet.getString("action"));assertEquals(uid,packet.getString("userid"));assertEquals("Alicia",packet.getString("username"))
+                  before.put("name","Otro nombre");assertEquals("Alicia",packet.getString("username"))
+              }
+              @Test fun contextRejectsMissingDuplicateForeignAndPrivilegedTargetsAndChangedServer() {
+                  val before=person();val s=base(before)
+                  fun allowed(state:ProfileState,target:JSONObject?=before,server:String="host")=userDeleteContext(state,target,"user//admin",2L,"host",server,true)
+                  assertTrue(allowed(s));assertFalse(allowed(s.copy(users=emptyList())));assertFalse(allowed(s.copy(users=listOf(before,JSONObject(before.toString())))))
+                  val foreign=person().put("_id","user/other/alice");assertFalse(allowed(base(foreign),foreign))
+                  val admin=person().put("siteadmin",0xffffffffL);assertFalse(allowed(base(admin),admin))
+                  assertFalse(allowed(s,server="other"));assertFalse(allowed(s.copy(loading=true)))
+                  val self=JSONObject(requireNotNull(s.user).toString())
+                  assertFalse(userDeleteContext(s.copy(users=listOf(self)),self,"user//admin",2L,"host","host",true))
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline deletion, identity, navigation and editor regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.ReadableUserEditorsTest,iecxiv.meshfabric.ui.management.UserAdvancedRequestTest,iecxiv.meshfabric.ui.management.UserContactRequestTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedUiTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest --no-daemon --stacktrace
+      - name: Show concrete Android test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for report in sorted(Path('app/build/outputs/androidTest-results').rglob('*.xml')):
+              try:
+                  root=ET.parse(report).getroot()
+              except ET.ParseError as error:
+                  print(str(report)+': '+str(error))
+                  continue
+              for case in root.iter('testcase'):
+                  failure=case.find('failure')
+                  if failure is None:
+                      failure=case.find('error')
+                  if failure is not None:
+                      print('\nFAILED: '+case.get('classname','')+'.'+case.get('name',''))
+                      print(failure.get('message','')[:2000])
+                      print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-user-delete-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated sources if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserAdministration.kt app/src/main/java/iecxiv/meshfabric/ui/management/UserDeleteDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDeleteDialogTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'UserAdministration.kt',main+'UserDeleteDialog.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UserDeleteDialogTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): exact-name user deletion with frozen review and confirmation'
+          git push origin HEAD:dev
