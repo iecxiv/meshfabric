@@ -119,7 +119,7 @@ jobs:
                       compose.onNodeWithText("Grupo de usuarios: Equipo · Madrid").assertExists()
                       compose.onNodeWithText("Usuario: nombre no disponible").assertExists()
                       for(id in listOf(mid,uid,gid,unknown)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)
-                      compose.onNodeWithText("Control remoto").assertExists()
+                      compose.onAllNodesWithText("Control remoto").assertCountEquals(2)
                       compose.onNodeWithText("Consola").assertExists()
                       assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
                   } finally {session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()}
@@ -147,6 +147,32 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.DeviceGroupDetailPresentationTest,iecxiv.meshfabric.ui.management.ReadableReceivedLinksTest,iecxiv.meshfabric.ui.management.ProfilePolishPresentationTest,iecxiv.meshfabric.ui.management.ProfileAccessUserNavigationTest,iecxiv.meshfabric.ui.management.ProfileAccessAssignmentNavigationTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.ReceivedUserGroupNavigationTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ReadableMemberAddDialogTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - name: Show concrete Android test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          reports=sorted(Path('app/build/outputs/androidTest-results').rglob('*.xml'))
+          failures=0
+          for report in reports:
+              try:
+                  root=ET.parse(report).getroot()
+              except ET.ParseError as error:
+                  print(str(report)+': '+str(error))
+                  continue
+              for case in root.iter('testcase'):
+                  failure=case.find('failure')
+                  if failure is None:
+                      failure=case.find('error')
+                  if failure is not None:
+                      failures+=1
+                      print('\nFAILED: '+case.get('classname','')+'.'+case.get('name',''))
+                      print('Report: '+str(report))
+                      print(failure.get('message','')[:2000])
+                      print((failure.text or '')[:10000])
+          print('XML reports: '+str(len(reports))+'; failing test cases: '+str(failures))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
