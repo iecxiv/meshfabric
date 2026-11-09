@@ -1,0 +1,244 @@
+name: Validate shared stable management connection status
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-management-connection-status.yml]
+permissions:
+  contents: write
+concurrency:
+  group: management-connection-status-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate shared status row and layout regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 576b37b353ae47b417ca5c5b875204a0dcd8a136
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          component=main/'ManagementConnectionStatus.kt';test=tests/'ManagementConnectionStatusTest.kt'
+          assert not component.exists() and not test.exists()
+          for p,sha in [(main/'NativeAccount.kt','801ea3b6ba8202fc73bfdf371a4c6f8a56aee2a3'),(main/'MyServerScreen.kt','8424a8edc90a75af6bbaa05ecc1dafb3591a6ab9')]:
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,'Source changed: '+str(p)
+          def change(s,a,b):
+              assert s.count(a)==1,'Missing or nonunique anchor: '+a[:100]
+              return s.replace(a,b,1)
+          p=main/'NativeAccount.kt';original=p.read_text();s=original
+          s=change(s,'"ready","received"->""','"ready","received","offline","connecting"->""')
+          anchor='if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,'
+          row='ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",onReconnect=wire::start)\n'
+          s=change(s,anchor,row+anchor)
+          s=change(s,'if(!state.ready) TextButton(enabled=state.status!="deleteUnknown",onClick=wire::start) { Text(t("Reconectar cuenta","Reconnect account")) }\n','')
+          marker='@Composable internal fun NativeAccountPane('
+          assert s.split(marker)[0]==original.split(marker)[0],'Account transport and operation handling must stay unchanged'
+          p.write_text(s)
+          p=main/'MyServerScreen.kt';original=p.read_text();s=original
+          old='''            Text(stringResource(when { state.failed->R.string.my_server_failure; state.ready->R.string.my_server_connected; else->R.string.my_server_connecting }),color=if(state.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                      if(state.failed) TextButton(onClick={ retry++ }) { Text(stringResource(R.string.my_server_retry)) }'''
+          old=old.replace('\n                      if(state.failed)','\n            if(state.failed)')
+          new='            ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,onReconnect={retry++})'
+          s=change(s,old,new)
+          assert s.replace(new,old,1)==original,'Server reader and actions must stay unchanged'
+          p.write_text(s)
+          component.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.alpha
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.semantics.LiveRegionMode
+          import androidx.compose.ui.semantics.clearAndSetSemantics
+          import androidx.compose.ui.semantics.liveRegion
+          import androidx.compose.ui.semantics.semantics
+          import androidx.compose.ui.unit.dp
+          @Composable internal fun ManagementConnectionStatus(ready:Boolean,connecting:Boolean,reconnectEnabled:Boolean=true,modifier:Modifier=Modifier,onReconnect:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              val labels=if(es) listOf("Conectando con el canal de gestión...","Canal de gestión conectado. El servidor valida los permisos.","Canal de gestión desconectado.") else listOf("Connecting to the management channel...","Management channel connected. The server validates permissions.","Management channel disconnected.")
+              val active=if(ready) 1 else if(connecting) 0 else 2
+              val showReconnect=!ready && !connecting
+              Row(modifier.fillMaxWidth().testTag("management-connection-row"),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                  Box(Modifier.weight(1f).testTag("management-connection-label").semantics {liveRegion=LiveRegionMode.Polite},contentAlignment=Alignment.CenterStart) {
+                      labels.forEachIndexed {index,label->
+                          val visibility=if(index==active) Modifier else Modifier.alpha(0f).clearAndSetSemantics {}
+                          Text(label,visibility,style=MaterialTheme.typography.bodySmall,color=if(active==2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                      }
+                  }
+                  Box(Modifier.testTag("management-reconnect-slot")) {
+                      val visibility=if(showReconnect) Modifier.testTag("management-reconnect") else Modifier.alpha(0f).clearAndSetSemantics {}
+                      TextButton(onClick=onReconnect,enabled=showReconnect && reconnectEnabled,modifier=visibility.heightIn(min=48.dp)) {Text(if(es) "Reconectar" else "Reconnect")}
+                  }
+              }
+          }
+          ''')
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalDensity
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.compose.ui.unit.Density
+          import androidx.compose.ui.unit.dp
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class ManagementConnectionStatusTest {
+              @get:Rule val compose=createComposeRule()
+              private val connectedText="Canal de gestión conectado. El servidor valida los permisos."
+              private fun stableTransitions(width:Int,fontScale:Float) {
+                  val ready=mutableStateOf(false);val connecting=mutableStateOf(true);var retries=0
+                  compose.setContent {
+                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                      val density=Density(LocalDensity.current.density,fontScale)
+                      CompositionLocalProvider(LocalConfiguration provides config,LocalDensity provides density) {MaterialTheme {
+                          Column(Modifier.width(width.dp)) {
+                              ManagementConnectionStatus(ready.value,connecting.value,onReconnect={retries++})
+                              Box(Modifier.fillMaxWidth().height(24.dp).testTag("account-cards"))
+                          }
+                      }}
+                  }
+                  compose.onNodeWithText("Conectando con el canal de gestión...").assertIsDisplayed()
+                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+                  compose.onAllNodesWithText(connectedText).assertCountEquals(0)
+                  val top=compose.onNodeWithTag("account-cards").fetchSemanticsNode().boundsInRoot.top
+                  val slot=compose.onNodeWithTag("management-reconnect-slot").fetchSemanticsNode().boundsInRoot
+                  compose.runOnIdle {connecting.value=false};compose.waitForIdle()
+                  compose.onNodeWithText("Canal de gestión desconectado.").assertIsDisplayed()
+                  compose.onNodeWithTag("management-reconnect").assertIsEnabled().performClick()
+                  assertEquals(1,retries)
+                  assertEquals(top,compose.onNodeWithTag("account-cards").fetchSemanticsNode().boundsInRoot.top,0.5f)
+                  compose.runOnIdle {ready.value=true};compose.waitForIdle()
+                  compose.onNodeWithText(connectedText).assertIsDisplayed()
+                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+                  compose.onAllNodesWithText("Reconectar").assertCountEquals(0)
+                  assertEquals(top,compose.onNodeWithTag("account-cards").fetchSemanticsNode().boundsInRoot.top,0.5f)
+                  val after=compose.onNodeWithTag("management-reconnect-slot").fetchSemanticsNode().boundsInRoot
+                  assertEquals(slot.width,after.width,0.5f);assertEquals(slot.height,after.height,0.5f)
+                  assertEquals(1,retries)
+              }
+              @Test fun cardsDoNotJumpAcrossConnectingDisconnectedAndConnected()=stableTransitions(320,1f)
+              @Test fun narrowLayoutAndLargeTextKeepTheSameCardPosition()=stableTransitions(240,1.8f)
+              @Test fun reconnectCanRemainDisabledForAnUncertainAccountDeletion() {
+                  var retries=0
+                  compose.setContent {MaterialTheme {ManagementConnectionStatus(false,false,reconnectEnabled=false,onReconnect={retries++})}}
+                  compose.onNodeWithTag("management-reconnect").assertExists().assertIsNotEnabled();assertEquals(0,retries)
+              }
+              @Test fun channelsStayIndependentAndOperationalWarningIsNotHidden() {
+                  compose.setContent {
+                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                      CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {Column {
+                          ManagementConnectionStatus(true,false,onReconnect={})
+                          ManagementConnectionStatus(false,false,onReconnect={})
+                          Text("Resultado sin confirmar",Modifier.testTag("operation-warning"))
+                      }}}
+                  }
+                  compose.onNodeWithText(connectedText).assertIsDisplayed()
+                  compose.onNodeWithText("Canal de gestión desconectado.").assertIsDisplayed()
+                  compose.onAllNodesWithTag("management-reconnect").assertCountEquals(1)
+                  compose.onNodeWithTag("operation-warning").assertIsDisplayed()
+              }
+              @Test fun englishStatusUsesTheSameComponentAndReadyTakesPrecedence() {
+                  compose.setContent {
+                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("en"))}
+                      CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {ManagementConnectionStatus(true,true,onReconnect={})}}
+                  }
+                  compose.onNodeWithText("Management channel connected. The server validates permissions.").assertIsDisplayed()
+                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute status layout and existing profile regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ManagementConnectionStatusTest,iecxiv.meshfabric.ui.management.AccountPresentationPolicyTest,iecxiv.meshfabric.ui.management.AccountWebStateBootstrapTest,iecxiv.meshfabric.ui.management.ProfilePolishPresentationTest,iecxiv.meshfabric.ui.management.UserLockPresentationTest,iecxiv.meshfabric.ui.management.ProfileUserListIdentityTest,iecxiv.meshfabric.ui.management.UserDetailPresentationTest,iecxiv.meshfabric.ui.management.ProfileDetailReadsRegressionTest,iecxiv.meshfabric.ui.management.ProfileReceivedDeviceNavigationTest,iecxiv.meshfabric.ui.management.UserMessageDialogTest,iecxiv.meshfabric.ui.management.UserMfaResetDialogTest,iecxiv.meshfabric.ui.management.UserDeleteDialogTest,iecxiv.meshfabric.ui.management.UserDeviceGrantDialogTest --no-daemon --stacktrace
+      - name: Show concrete test failures
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for directory in [Path('app/build/outputs/androidTest-results'),Path('app/build/test-results')]:
+              for report in sorted(directory.rglob('*.xml')):
+                  try:
+                      root=ET.parse(report).getroot()
+                  except ET.ParseError:
+                      continue
+                  for case in root.iter('testcase'):
+                      for kind in ('failure','error'):
+                          failure=case.find(kind)
+                          if failure is not None:
+                              print(case.get('classname','')+'.'+case.get('name',''))
+                              print(failure.get('message',''));print((failure.text or '')[:10000])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: management-connection-status-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish validated sources to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/NativeAccount.kt app/src/main/java/iecxiv/meshfabric/ui/management/MyServerScreen.kt app/src/main/java/iecxiv/meshfabric/ui/management/ManagementConnectionStatus.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ManagementConnectionStatusTest.kt
+          python3 - <<'PY'
+          import subprocess
+          main='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={main+'NativeAccount.kt',main+'MyServerScreen.kt',main+'ManagementConnectionStatus.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/ManagementConnectionStatusTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): shared stable connection row for account and server'
+          git push origin HEAD:dev
