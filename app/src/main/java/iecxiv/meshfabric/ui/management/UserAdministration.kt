@@ -238,7 +238,10 @@ for(node in common.take(100)) ManagementCard {
 val nodePresentation=profileReceivedLinkPresentation(s,user,node.optString("_id"),es)
 val groupLabel=if(node.optString("meshid").isNotBlank()) profileReceivedLinkPresentation(s,user,node.optString("meshid"),es).label else t("Grupo no disponible","Group unavailable")
 ManagementInfoRow(nodePresentation.label,groupLabel)
-if(nodePresentation.usable && onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}
+val deviceIdentityReady=s.nodes.count {it.optString("_id")==node.optString("_id")}==1 && profileDeviceIdsMatch(s.id,node.optString("_id"),node.optString("meshid"),node.optString("meshid"))
+val deviceCanOpen=deviceIdentityReady && onOpenDevice!=null && canOpenDevice(node.optString("_id"))
+TextButton(enabled=deviceCanOpen,onClick={onOpenDevice?.invoke(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}
+if(!deviceCanOpen) Text(if(!deviceIdentityReady) t("Ficha no disponible: identificación incompleta o ambigua.","Entry unavailable: incomplete or ambiguous identity.") else t("Ficha no disponible con los datos y la conexión actuales.","Entry unavailable with current data and connection."),style=MaterialTheme.typography.bodySmall)
 }
 if(common.size>100) Text(t("Se muestran los primeros 100 dispositivos.","Showing the first 100 devices."))
 }
