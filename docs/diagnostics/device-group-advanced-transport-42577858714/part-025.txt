@@ -1,0 +1,37 @@
+rlListHelper: Could not find Context-only controller for pref: com.google.android.settings.fuelgauge.reversecharging.ReverseChargingPreferenceController
+3424: 11-09 07:19:16.192  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.display.BatteryPercentagePreferenceController
+3425: 11-09 07:19:16.205  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.deviceinfo.hardwareinfo.DeviceModelPreferenceController
+3426: 11-09 07:19:16.205  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.deviceinfo.hardwareinfo.SerialNumberPreferenceController
+3427: 11-09 07:19:16.205  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.deviceinfo.hardwareinfo.HardwareRevisionPreferenceController
+3428: 11-09 07:19:16.205  1095  3599 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.deviceinfo.hardwareinfo.ManufacturedYearPreferenceController
+3429: 11-09 07:19:16.211  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.podcasts_android.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3430: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: Could not parse manufactured year from serial.
+3431: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: java.lang.NumberFormatException: For input string: "E"
+3432: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at java.lang.Integer.parseInt(Integer.java:790)
+3433: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at java.lang.Integer.valueOf(Integer.java:1121)
+3434: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.google.android.settings.hardwareinfo.HardwareInfoFeatureProviderGoogleImpl.getManufacturedYear(HardwareInfoFeatureProviderGoogleImpl.kt:24)
+3435: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.deviceinfo.hardwareinfo.ManufacturedYearPreferenceController.<init>(ManufacturedYearPreferenceController.kt:26)
+3436: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at java.lang.reflect.Constructor.newInstance0(Native Method)
+3437: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at java.lang.reflect.Constructor.newInstance(Constructor.java:343)
+3438: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.core.BasePreferenceController.createInstance(BasePreferenceController.java:187)
+3439: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.core.PreferenceControllerListHelper.getPreferenceControllersFromXml(PreferenceControllerListHelper.java:86)
+3440: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.BaseSearchIndexProvider.getPreferenceControllers(BaseSearchIndexProvider.java:169)
+3441: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.BaseSearchIndexProvider.getNonIndexableKeys(BaseSearchIndexProvider.java:134)
+3442: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.SettingsSearchIndexablesProvider.getNonIndexableKeysFromProvider(SettingsSearchIndexablesProvider.java:284)
+3443: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.SettingsSearchIndexablesProvider.queryNonIndexableKeys(SettingsSearchIndexablesProvider.java:157)
+3444: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at android.provider.SearchIndexablesProvider.query(SearchIndexablesProvider.java:127)
+3445: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at android.content.ContentProvider.query(ContentProvider.java:1620)
+3446: 11-09 07:19:16.214  1095  3599 E HardwareInfoFeatureProviderImpl: 	at android.content.ContentProvider.query(ContentProvider.java:1716)
+3469: 11-09 07:19:16.237  1445  1660 I MediaProvider: Scanned internal due to REASON_DEMAND, found 0 items in 84ms, 0 inserts 0 updates 0 deletes
+3470: 11-09 07:19:16.238  1344  1634 I SP      : Scheduling job with delay of 0s for {W:b:u:l, bg}, 1 candidates
+3471: 11-09 07:19:16.239  1095  3599 E Settings: Error while retrieving application info for package com.google.android.apps.accessibility.magnifier
+3472: 11-09 07:19:16.239  1095  3599 E Settings: android.content.pm.PackageManager$NameNotFoundException: com.google.android.apps.accessibility.magnifier
+3473: 11-09 07:19:16.239  1095  3599 E Settings: 	at android.app.ApplicationPackageManager.getApplicationInfoAsUser(ApplicationPackageManager.java:524)
+3474: 11-09 07:19:16.239  1095  3599 E Settings: 	at android.app.ApplicationPackageManager.getApplicationInfo(ApplicationPackageManager.java:507)
+3475: 11-09 07:19:16.239  1095  3599 E Settings: 	at android.app.ApplicationPackageManager.getApplicationInfo(ApplicationPackageManager.java:501)
+3476: 11-09 07:19:16.239  1095  3599 E Settings: 	at com.android.settings.Utils.isPackageEnabled(Utils.java:1166)
+3477: 11-09 07:19:16.239  1095  3599 E Settings: 	at com.google.android.settings.accessibility.MagnifierPreferenceController.magnifierAlreadyInstalled(MagnifierPreferenceController.kt:37)
+3478: 11-09 07:19:16.239  1095  3599 E Settings: 	at com.google.android.settings.accessibility.MagnifierPreferenceController.getAvailabilityStatus(MagnifierPreferenceController.kt:19)
+3479: 11-09 07:19:16.239  1095  3599 E Settings: 	at com.android.settings.core.BasePreferenceController.isAvailable(BasePreferenceController.java:260)
+3480: 11-09 07:19:16.239  1095  3599 E Settings: 	at com.android.settings.core.BasePreferenceController.updateNonIndexableKeys(BasePreferenceController.java:306)
+3481: 11-09 07:19:16.239  1095  3599 E Settings: 	at com.android.settings.search.BaseSearchIndexProvider.getNonIndexabl

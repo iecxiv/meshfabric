@@ -1,0 +1,43 @@
+ACK_DEFAULT id=126, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VCN_MANAGED&NOT_BANDWIDTH_CONSTRAINED Uid: 10129 RequestorUid: 10129 RequestorPkg: com.google.android.apps.messaging UnderlyingNetworks: Null] ], NetworkRequest [ REQUEST id=127, [ Transports: SATELLITE Capabilities: INTERNET&TRUSTED&NOT_VCN_MANAGED Uid: 10129 RequestorUid: 10129 RequestorPkg: com.google.android.apps.messaging UnderlyingNetworks: Null] ]] callback flags: 0 order: 2147483647 isUidTracked: false
+612: 11-09 07:19:12.023   561   835 D ConnectivityService: NetReassign [126 : null → 100] [c 0] [a 1] [i 0]
+613: 11-09 07:19:12.026  3708  3778 I CarrierServices: SystemBindingService: Starting JibeService
+614: 11-09 07:19:12.027  3708  3764 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=46 ]
+615: 11-09 07:19:12.031   364   364 I netd    : tetherGetStats() -> {[]} <0.32ms>
+616: 11-09 07:19:12.032   561   561 W IPCThreadState: Sending oneway calls to frozen process.
+617: 11-09 07:19:12.032   561   561 W IPCThreadState: Sending oneway calls to frozen process.
+618: 11-09 07:19:12.032   561   593 I AppBindingService: Connected: com.google.android.apps.messaging/com.google.android.ims.binding.SystemBindingService u0
+619: 11-09 07:19:12.035  3708  3778 I BugleRcsEngine: Broadcasting provisioning intent rcs.intent.action.rcsSystemBinding to Bugle with extras redacted-pii:[null] from source SYSTEM_BINDING_SERVICE [CONTEXT log_prefix="EngineBroadcaster" thread_id=59 ]
+620: 11-09 07:19:12.037  3300  3467 I Bugle   : BroadcastReceiverAsyncWorkTracker: Acknowledging broadcast of buoi@bc847d2
+621: 11-09 07:19:12.040  3300  3452 I BugleTransport: onSystemBound: kicking off updateActiveTransport
+622: 11-09 07:19:12.043  3300  3452 I BugleRcsProvisioning: RcsProvisioningTrigger: System bound to :rcs process. Schedule provisioning.
+623: 11-09 07:19:12.045  3300  3687 W BugleAction: Failed to get msisdn from Bugle
+624: 11-09 07:19:12.047  3300  3687 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+625: 11-09 07:19:12.047   364   364 I netd    : tetherGetStats() -> {[]} <0.30ms>
+626: 11-09 07:19:12.048  3300  3687 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+627: 11-09 07:19:12.048  3300  3464 I BugleTransport: isChatAvailable: RcsAvailability is DISABLED_VIA_GSERVICES (RCS is disabled for this carrier by Google)
+628: 11-09 07:19:12.048  3300  3452 I BugleRcsProvisioning: scheduleProvisioning using legacy code path
+629: 11-09 07:19:12.048  3300  3452 I BugleRcsEngine: [SR]: Single Registration is disabled. Skipping Single Registration capability check for subId: 1, OS.isAtLeastS:[true], enableSingleRegistrationProvisioning:[false] [CONTEXT thread_id=49 ]
+630: 11-09 07:19:12.049  3300  3452 I BugleRcsProvisioning: RcsProvisioningTrigger: DR is active, initializing DR provisioning. DUAL_REG
+631: 11-09 07:19:12.049  3300  3467 I Bugle   : BroadcastReceiverAsyncWorkTracker: Acknowledging broadcast of com.google.android.apps.messaging.rcsprovisioning.RcsProvisioningBroadcastReceiver@9d8f422
+632: 11-09 07:19:12.050  3300  3464 I BugleRcsEngine: [SR]: Single Registration is disabled. Skipping Single Registration capability check for subId: 1, OS.isAtLeastS:[true], enableSingleRegistrationProvisioning:[false] [CONTEXT thread_id=54 ]
+633: 11-09 07:19:12.051  3300  3464 I BugleRcsEngine: Skipping provisioning scheduling since RCS is disabled [CONTEXT thread_id=54 ]
+634: 11-09 07:19:12.064   364   364 I netd    : bandwidthRemoveInterfaceQuota(eth0) <4.79ms>
+635: 11-09 07:19:12.065   364   401 I netd    : bandwidthSetGlobalAlert(2097152) <1.72ms>
+636: 11-09 07:19:12.066   364   364 I netd    : bandwidthSetInterfaceQuota(eth0, 9223372036854775807) <0.46ms>
+637: 11-09 07:19:12.066  3300  3687 I Bugle   : getRawTelephonyPhoneNumber redacted-pii[0-chars] [CONTEXT sub_id=-1 ]
+638: 11-09 07:19:12.070  3300  3687 W BugleAction: No default number, returning empty msisdn
+865: 11-09 07:19:12.874  1445  1947 W MediaProvider: isAppCloneUserPair for user 0: false
+866: 11-09 07:19:12.889  3300  3492 I Bugle   : BroadcastReceiverAsyncWorkTracker: Acknowledging broadcast of com.google.android.apps.messaging.shared.experiments.receiver.BuglePhenotypeBroadcastReceiver@c2fcdf7
+867: 11-09 07:19:12.904  1531  3051 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+868: 11-09 07:19:12.906  1445  1586 E StorageManager: Failed to set extended attributes for /storage/emulated/0/Android to set project id.: Operation not permitted
+869: 11-09 07:19:12.910  1445  1586 W MediaProvider: Failed to update quota type for /storage/emulated/0/Android
+870: 11-09 07:19:12.910  1445  1586 W MediaProvider: java.io.IOException: Failed to update quota type for /storage/emulated/0/Android
+871: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at android.os.storage.StorageManager.updateExternalStorageFileQuotaType(StorageManager.java:2598)
+872: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider.updateQuotaTypeForFileInternal(MediaProvider.java:976)
+873: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider.updateQuotaTypeForUri(MediaProvider.java:951)
+874: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider$5.lambda$onInsert$0(MediaProvider.java:1010)
+875: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider$5.$r8$lambda$4KU7YPdO1inr9tOLVzprJ5YcfCE(MediaProvider.java:0)
+876: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at com.android.providers.media.MediaProvider$5$$ExternalSyntheticLambda2.run(R8$$SyntheticClass:0)
+877: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at android.os.Handler.handleCallback(Handler.java:959)
+878: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at android.os.Handler.dispatchMessage(Handler.java:100)
+879: 11-09 07:19:12.910  1445  1586 W MediaProvider: 	at 

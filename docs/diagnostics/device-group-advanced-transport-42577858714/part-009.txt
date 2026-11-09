@@ -1,0 +1,39 @@
+  3665 I NetworkScheduler.Stats: Task com.google.android.gms/com.google.android.gms.pay.gcmtask.PayGcmTaskService started execution. cause:5 exec_start_elapsed_seconds: 96 [CONTEXT service_id=218 ]
+427: 11-09 07:19:11.074  3300  3464 W BugleAction: No default number, returning empty msisdn
+428: 11-09 07:19:11.074  3300  3464 I BugleRcsEngine: isRcsAvailableForSubId called with an invalid sub id: -2 [CONTEXT log_prefix="RcsProvisioningManager" thread_id=54 ]
+429: 11-09 07:19:11.074  3300  3498 I BugleTransport: updateActiveTransport: refreshing chat transport
+430: 11-09 07:19:11.079  1253  1675 I NetworkScheduler.Stats: Task com.google.android.gms/com.google.android.gms.pay.gcmtask.PayGcmTaskService finished executing. cause:5 result: 1 elapsed_millis: 77 uptime_millis: 77 exec_start_elapsed_seconds: 96 [CONTEXT service_id=218 ]
+431: 11-09 07:19:11.085  1531  3051 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+432: 11-09 07:19:11.093  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.libraries.search.googleapp.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+433: 11-09 07:19:11.096  3300  3498 I BugleTransport: refreshChatTransport: isChatAvailable: false, enabledTransport: 1, configuration: <empty>
+434: 11-09 07:19:11.100  3300  3444 I Bugle   : RcsAvailabilityUtilForProvisioningEngineV2: onCsLibPhenotypeUpdated
+435: 11-09 07:19:11.102  3300  3687 I RcsClientLib: Connecting RcsEngineLifecycleService
+436: 11-09 07:19:11.102  3300  3687 W RcsClientLib: No CS.apk RCS service found. Is RCS running in Bugle?
+437: 11-09 07:19:11.103  3300  3444 I BugleRcsProvisioning: RcsProvisioningTrigger: onCsLibPhenotypeUpdated, enableProvisioningTaskInBugle = true
+438: 11-09 07:19:11.103  3300  3444 I BugleRcsProvisioning: RcsProvisioningTrigger: updateAvailabilityForAllSimsAsync : hint = CSLIB_PHENOTYPE_UPDATE logTriggerEvent = true
+439: 11-09 07:19:11.104  3300  3444 I Bugle   : RcsAvailabilityUtilForProvisioningEngineV2: updateAvailabilityForAllSimsAsync, hint: CSLIB_PHENOTYPE_UPDATE
+440: 11-09 07:19:11.104  3300  3444 I RcsAvailabilityUpdaterL: updateAvailabilityForAllSimsAsync: scheduling updateAvailabilityForRcsProvisioningId call. Hint: CSLIB_PHENOTYPE_UPDATE, enableWelcomePopupWithoutGoogleTos: false, reshowSuccessPopup: false
+441: 11-09 07:19:11.106  3300  3499 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=67 ]
+442: 11-09 07:19:11.106  3300  3450 I BugleRcsEngine: SystemBinding enabled: true [CONTEXT log_prefix="SystemBindingManager" thread_id=47 ]
+443: 11-09 07:19:11.107  3300  3463 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=53 ]
+444: 11-09 07:19:11.108  3300  3687 I RcsClientLib: shouldUseCarrierServicesJibeService: false, CarrierServices rcs service found: false
+445: 11-09 07:19:11.109  3300  3498 I RcsAvailabilityUpdaterL: updateRcsAvailabilityForDefaultCallSim: hint: CSLIB_PHENOTYPE_UPDATE, canReshowWelcomeMessage: false
+446: 11-09 07:19:11.109  3300  3499 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=67 ]
+447: 11-09 07:19:11.110  3300  3450 I BugleRcsEngine: System Binding updated [CONTEXT thread_id=47 ]
+448: 11-09 07:19:11.111  3300  3444 I BugleRcsEngine: SystemBinding enabled: true [CONTEXT log_prefix="SystemBindingManager" thread_id=44 ]
+449: 11-09 07:19:11.111  3300  3444 I BugleRcsEngine: System Binding updated [CONTEXT thread_id=44 ]
+450: 11-09 07:19:11.111  3300  3463 W BugleRcsEngine: Unable to send diagnostic log [CONTEXT thread_id=53 ]
+451: 11-09 07:19:11.113  3300  3482 I BugleTransport: onBuglePhenotypeFlagChanged: kicking off updateActiveTransport
+452: 11-09 07:19:11.116  3300  3498 I BugleRcsEngine: [SR]: Single Registration is disabled. Skipping Single Registration capability check for subId: 1, OS.isAtLeastS:[true], enableSingleRegistrationProvisioning:[false] [CONTEXT thread_id=66 ]
+453: 11-09 07:19:11.117  3300  3689 I BugleTransport: isChatAvailable: RcsAvailability is DISABLED_VIA_GSERVICES (RCS is disabled for this carrier by Google)
+454: 11-09 07:19:11.118  3300  3498 I RcsAvailabilityUpdaterL: RcsAvailability configuration availability and enabled status: simId: redacted-pii:sim_id[chars:20,last3:897], SipConnectionType: DUAL_REG, isConfigurationAvailableAndEnabled: false
+455: 11-09 07:19:11.120  3300  3463 I RcsClientLib: com.google.android.rcs.client.lifecycle.RcsEngineLifecycleService connected
+456: 11-09 07:19:11.122  3300  3498 I RcsAvailabilityUpdaterL: updateAvailabilityForRcsProvisioningId. SimId: redacted-pii:sim_id[chars:20,last3:897], currentAvailability: 2, newAvailability: 2, hint: CSLIB_PHENOTYPE_UPDATE
+457: 11-09 07:19:11.123  3300  3463 I BugleRcsProvisioning: RcsProvisioningTrigger: onRcsAvailabilityUpdate : availability is updated to RCS is disabled for this carrier by Google, lastAvailabilityLocal is RCS is disabled for this carrier by Google, simId hash = 3274998237261002138, simId = redacted-pii:sim_id[chars:20,last3:897], isPev3Enabled = true
+458: 11-09 07:19:11.123  3300  3463 I BugleRcsProvisioning: scheduleProvisioningForEligibleSims
+459: 11-09 07:19:11.124  3300  3463 I BugleRcsProvisioning: scheduleProvisioning using legacy code path
+460: 11-09 07:19:11.124  3300  3463 I BugleRcsEngine: [SR]: Single Registration is disabled. Skipping Single Registration capability check for subId: 1, OS.isAtLeastS:[true], enableSingleRegistrationProvisioning:[false] [CONTEXT thread_id=53 ]
+461: 11-09 07:19:11.124  3300  3463 I BugleRcsProvisioning: RcsProvisioningTrigger: DR is active, initializing DR provisioning. DUAL_REG
+462: 11-09 07:19:11.125  3300  3689 I BugleRcsEngine: [SR]: Single Registration is disabled. Skipping Single Registration capability check for subId: 1, OS.isAtLeastS:[true], enableSingleRegistrationProvisioning:[false] [CONTEXT thread_id=78 ]
+463: 11-09 07:19:11.125  3300  3687 W BugleAction: Failed to get msisdn from Bugle
+464: 11-09 07:19:11.126  3300  3687 W Bugle   : Bugle: Subscription

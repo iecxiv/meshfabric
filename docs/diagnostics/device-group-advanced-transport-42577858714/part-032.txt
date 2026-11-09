@@ -1,0 +1,40 @@
+om/handwriting/models/transformer.latin.conf.tflite.20231010.zip to transformer_latin_conf_tflite_20231010_zip.zip.fetched (constraints: m:b:u:l)
+3807: 11-09 07:19:19.087  1344  1634 I SP      : Requesting download of URL https://dl.google.com/handwriting/models/transformer.latin.seg.tflite.20231010.zip to transformer_latin_seg_tflite_20231010_zip.zip.fetched (constraints: m:b:u:l)
+3808: 11-09 07:19:19.087  1344  1634 I SP      : Requesting download of URL https://dl.google.com/handwriting/models/en_us.20230613.compact.fst.zip to en_us_20230613_compact_fst_zip.zip.fetched (constraints: m:b:u:l)
+3809: 11-09 07:19:19.087  1344  1634 I SP      : Requesting download of URL https://dl.google.com/handwriting/models/scribe.latin.20231123.tflite.zip to scribe_latin_20231123_tflite_zip.zip.fetched (constraints: m:b:u:l)
+3810: 11-09 07:19:19.088  1344  4101 D TrafficStats: tagSocket(160) with statsTag=0xffffffff, statsUid=-1
+3811: 11-09 07:19:19.089  1344  1634 I SP      : Requesting download of URL https://dl.google.com/handwriting/models/scribe.latin.20231123.recospec.zip to scribe_latin_20231123_recospec_zip.zip.fetched (constraints: m:b:u:l)
+3812: 11-09 07:19:19.108  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.android.settings
+3813: 11-09 07:19:19.135  1531  3051 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.performance.primes#com.google.android.googlequicksearchbox
+3814: 11-09 07:19:19.156   561   835 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+3815: 11-09 07:19:19.157   561   835 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+3816: 11-09 07:19:19.157   561   835 D InetDiagMessage: Destroyed live tcp sockets for uids={10165} in 1ms
+3817: 11-09 07:19:19.157   561   835 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+3818: 11-09 07:19:19.157   561   835 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+3819: 11-09 07:19:19.157   561   835 D InetDiagMessage: Destroyed live tcp sockets for uids={20165} in 1ms
+3820: 11-09 07:19:19.178  1531  3051 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+3821: 11-09 07:19:19.255  1531  3051 I PhenotypeBackgroundRecv: Successfully updated snapshot for profile_primitives_android#com.google.android.googlequicksearchbox
+3822: 11-09 07:19:19.269   561   835 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET, states=14
+3823: 11-09 07:19:19.270   561   835 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+3824: 11-09 07:19:19.270   561   835 D InetDiagMessage: Destroyed live tcp sockets for uids={10189} in 2ms
+3825: 11-09 07:19:19.335  1414  1683 I AiAiTextClassifier: [KnowledgeGraphCollectionsTableDownloaderImpl] Config changed, triggering a sync of KnowledgeGraphCollectionsTable
+3826: 11-09 07:19:19.337  1414  1683 I AiAiTextClassifier: Updating text classifier flags in CutoffProvider.
+3827: 11-09 07:19:19.375  1414  2051 I AiAiCaptions: TtsLangFetcherImpl::fetch(). Fetching locales en_US
+3854: 11-09 07:19:19.517  2162  2162 I PipelineReaderImpl: Initializing en-us-x-iog-lstm-embedded from disk
+3855: 11-09 07:19:19.528   365   365 W Zygote  : forkRepeatedly terminated due to non-simple command
+3856: 11-09 07:19:19.528   365   365 D Zygote  : mbuffer starts with 1 , nice name is , mEnd = 35, mNext = 35, mLinesLeft = 0, mFd = 6
+3857: 11-09 07:19:19.591  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.apps.wallpaper
+3858: 11-09 07:19:19.647  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.pronunciationlearning#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3859: 11-09 07:19:19.695  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.android.systemui
+3860: 11-09 07:19:19.743  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.libraries.search.user#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3861: 11-09 07:19:19.773  1531  3051 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+3862: 11-09 07:19:19.775  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.ar.sceneviewer.android.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3863: 11-09 07:19:19.775  1344  1835 I DownloadManager: DownloadManager$3.onProgress():503 Downloading __KLP_delight__en-840 with size 18005689
+3864: 11-09 07:19:19.825  1414  1683 I AiAiNowPlaying: Now Playing config changed. Refreshing FA controller
+3865: 11-09 07:19:19.837  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.fedora.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3866: 11-09 07:19:19.846  1414  1683 I AiAiNowPlaying: Now Playing config changed. Refreshing FA controller.
+3867: 11-09 07:19:19.846  1414  1683 I AiAiNowPlaying: Registering Now Playing population: NOW_PLAYING_USAGE
+3868: 11-09 07:19:19.859  1414  1683 I AiAiNowPlaying: Registering Now Playing population: NOW_PLAYING_USAGE_WEEKLY
+3869: 11-09 07:19:19.885  1445  1631 D PickerSyncLockManager: Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3870: 11-09 07:19:19.885  1445  1631 D CloseableReentrantLock: Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread fg]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3871: 11-09 07:19:19.885  1445  1631 D CloseableReentrantLock: Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentr

@@ -1,0 +1,37 @@
+bility.TextReadingFragmentForDisplaySettingsController
+2299: 11-09 07:19:14.342  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.gestures.SystemNavigationPreferenceController
+2300: 11-09 07:19:14.342  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.display.DisplayWhiteBalancePreferenceController
+2301: 11-09 07:19:14.342  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.display.NightDisplayPreferenceController
+2302: 11-09 07:19:14.342  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.display.ColorModePreferenceController
+2303: 11-09 07:19:14.342  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.display.ContrastPreferenceController
+2304: 11-09 07:19:14.342  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.google.android.settings.touch.TouchSensitivitySettingsPreferenceController
+2305: 11-09 07:19:14.342  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.display.SmartAutoRotatePreferenceController
+2369: 11-09 07:19:14.380  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.development.DevelopmentMemtagPreferenceController
+2370: 11-09 07:19:14.380  1095  1110 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.development.DevelopmentMemtagFooterPreferenceController
+2371: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: Could not parse manufactured year from serial.
+2372: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: java.lang.NumberFormatException: For input string: "E"
+2373: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at java.lang.Integer.parseInt(Integer.java:790)
+2374: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at java.lang.Integer.valueOf(Integer.java:1121)
+2375: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.google.android.settings.hardwareinfo.HardwareInfoFeatureProviderGoogleImpl.getManufacturedYear(HardwareInfoFeatureProviderGoogleImpl.kt:24)
+2376: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.deviceinfo.hardwareinfo.ManufacturedYearPreferenceController.<init>(ManufacturedYearPreferenceController.kt:26)
+2377: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at java.lang.reflect.Constructor.newInstance0(Native Method)
+2378: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at java.lang.reflect.Constructor.newInstance(Constructor.java:343)
+2379: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.core.BasePreferenceController.createInstance(BasePreferenceController.java:187)
+2380: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.core.PreferenceControllerListHelper.getPreferenceControllersFromXml(PreferenceControllerListHelper.java:86)
+2381: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.BaseSearchIndexProvider.getPreferenceControllers(BaseSearchIndexProvider.java:169)
+2382: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.BaseSearchIndexProvider.getRawDataToIndex(BaseSearchIndexProvider.java:78)
+2383: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.SettingsSearchIndexablesProvider.getSearchIndexableRawFromProvider(SettingsSearchIndexablesProvider.java:357)
+2384: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.search.SettingsSearchIndexablesProvider.queryRawData(SettingsSearchIndexablesProvider.java:141)
+2385: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at android.provider.SearchIndexablesProvider.query(SearchIndexablesProvider.java:125)
+2386: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at android.content.ContentProvider.query(ContentProvider.java:1620)
+2387: 11-09 07:19:14.384  1095  3236 E HardwareInfoFeatureProviderImpl: 	at android.content.ContentProvider.query(ContentProvider.java:1716)
+2489: 11-09 07:19:14.490  1095  3236 D PrefCtrlListHelper: Could not find Context-only controller for pref: com.android.settings.location.LocationServicesBluetoothScanningPreferenceController
+2490: 11-09 07:19:14.492  1344  1634 I SP      : Registering emoji.2024051320, url: https://www.gstatic.com/android/keyboard/modelpack/emoji/20240513200046/superpacks_manifest.zip, constraints: m:*:*:*, flags: fg, requested: 2024051320, current: -1
+2491: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: Could not parse manufactured year from serial.
+2492: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: java.lang.NumberFormatException: For input string: "E"
+2493: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at java.lang.Integer.parseInt(Integer.java:790)
+2494: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at java.lang.Integer.valueOf(Integer.java:1121)
+2495: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.google.android.settings.hardwareinfo.HardwareInfoFeatureProviderGoogleImpl.getManufacturedYear(HardwareInfoFeatureProviderGoogleImpl.kt:24)
+2496: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at com.android.settings.deviceinfo.hardwareinfo.ManufacturedYearPreferenceController.<init>(ManufacturedYearPreferenceController.kt:26)
+2497: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at java.lang.reflect.Constructor.newInstance0(Native Method)
+2498: 11-09 07:19:14.492  1095  1110 E HardwareInfoFeatureProviderImpl: 	at java.lang.r

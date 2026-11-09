@@ -1,0 +1,199 @@
+{
+  "scope": "Filtered diagnostic documentation only; not a test rerun, fix, or transport validation",
+  "repository": "iecxiv/meshfabric",
+  "source_run": 42577858714,
+  "source_commit": "6367d1b17fbea2b2a0a87190123bbfa99d6003f0",
+  "source_artifact": "device-group-advanced-transport-42577858714",
+  "diagnostic_run": "42582191115",
+  "extractor_blob": "802ff04ab88d67377d8bbd42bd875e86bd1424e9",
+  "android_xml_parsed": 3,
+  "xml_failure_error_entries": 1,
+  "output_incomplete": true,
+  "parts": [
+    {
+      "file": "part-001.txt",
+      "characters": 6000,
+      "sha256": "be8370ae021fdb4974fe673da111af92c30dd452d015458721ad6783adca141b"
+    },
+    {
+      "file": "part-002.txt",
+      "characters": 6000,
+      "sha256": "765a52af61cf3cc38774568ce888b565dac546dd3fe25672bc518727b1fa6199"
+    },
+    {
+      "file": "part-003.txt",
+      "characters": 6000,
+      "sha256": "992cae4d01d0d1fbe0c8359fb0c406a62a5bacaddad8037980150395077895bb"
+    },
+    {
+      "file": "part-004.txt",
+      "characters": 6000,
+      "sha256": "6d4b88d4a5142f778169db7a726ea80ceeb55b0a25de726348da468232d9ae5f"
+    },
+    {
+      "file": "part-005.txt",
+      "characters": 6000,
+      "sha256": "bcc92c892137310153276b7767999800bdddab52f6b8557bebc6ddab5143a7d6"
+    },
+    {
+      "file": "part-006.txt",
+      "characters": 6000,
+      "sha256": "c4625072bf3fb138ff33b36d7387769f0c64fd65b2a8277690023477cec8597e"
+    },
+    {
+      "file": "part-007.txt",
+      "characters": 6000,
+      "sha256": "7bba6f872dc521dd25ff2198ca0ca2e973f0506367d4a7d831ba8392f0b74499"
+    },
+    {
+      "file": "part-008.txt",
+      "characters": 6000,
+      "sha256": "bcff74eb48cb652ff0cb9f89b3d12abc5cc22f119434b9dca8e5ba58edeef8f5"
+    },
+    {
+      "file": "part-009.txt",
+      "characters": 6000,
+      "sha256": "7bfd13df23f061baaf48e8852cc9248a305efc7c188537439a489218bd5539de"
+    },
+    {
+      "file": "part-010.txt",
+      "characters": 6000,
+      "sha256": "b813416189a49acd445cb9f778fa815c2440adf3ceaea4a1450b8c61c330e478"
+    },
+    {
+      "file": "part-011.txt",
+      "characters": 6000,
+      "sha256": "f1bf590b6f4cde07aab188302d38dafc78837fd6c68fafd1f85cef97c031b823"
+    },
+    {
+      "file": "part-012.txt",
+      "characters": 6000,
+      "sha256": "9b305c2c6a4e9c5536b90635c837f2eb7013ddf9c5b4bb802dc23338776d48a6"
+    },
+    {
+      "file": "part-013.txt",
+      "characters": 6000,
+      "sha256": "27cc71330cd8b56b3f8842e50120f191f0e7e5ab0b18fb58ef542bed496fd3a3"
+    },
+    {
+      "file": "part-014.txt",
+      "characters": 6000,
+      "sha256": "62f1938bb4966e57567a9982f938d58bd12d13af3bd339d19d5693ec918bc841"
+    },
+    {
+      "file": "part-015.txt",
+      "characters": 6000,
+      "sha256": "7ed171ee4af667fc77301c211d7840511f0002ef64d72c4bb40a0553295abfac"
+    },
+    {
+      "file": "part-016.txt",
+      "characters": 6000,
+      "sha256": "c71af256383af5be51d7a9f0103e573c7d676e3c797934c15574ff70e6a2c530"
+    },
+    {
+      "file": "part-017.txt",
+      "characters": 6000,
+      "sha256": "8396e29da7fe6fc533747abfadb0511750a35d43dd73649b69f69392c8f26627"
+    },
+    {
+      "file": "part-018.txt",
+      "characters": 6000,
+      "sha256": "d0cee5d0ba785c7ba6c229a4ad31277ee1827d99807c7cc1ebeef17b8ca3783f"
+    },
+    {
+      "file": "part-019.txt",
+      "characters": 6000,
+      "sha256": "7cc4b10e1a18405bed51e240646f1af51103cc6eecd4898d1b62d7ef031f5b23"
+    },
+    {
+      "file": "part-020.txt",
+      "characters": 6000,
+      "sha256": "9e7f67788884e3a65e685f42b324b9f5993dd02564375f5b0bc1dc0c36f6a0a8"
+    },
+    {
+      "file": "part-021.txt",
+      "characters": 6000,
+      "sha256": "865d8a21f56bb55453838bf7fae425ae7a707a8203400afcd0d346da9df24cb6"
+    },
+    {
+      "file": "part-022.txt",
+      "characters": 6000,
+      "sha256": "239789a7eb02bb6cbc4d3ec8a203adffd25a8f878c5b48dd0d7af50b56df9a2f"
+    },
+    {
+      "file": "part-023.txt",
+      "characters": 6000,
+      "sha256": "5036719e975d55a82d226d441f49bab541d3ebecdface74985973b6d7a0474a3"
+    },
+    {
+      "file": "part-024.txt",
+      "characters": 6000,
+      "sha256": "48423de838419018e07e0f9accd2e2b588e88ff96cf57ee6cf3a022b2c52ca26"
+    },
+    {
+      "file": "part-025.txt",
+      "characters": 6000,
+      "sha256": "48f7aeb5dc1aaa270b55acec0043b5d975d3d63a5fc139175a4011d04e334a00"
+    },
+    {
+      "file": "part-026.txt",
+      "characters": 6000,
+      "sha256": "6dcacfd8f82a6505ddc53a03865465c3a4ac77a45cf9bc39060203ee092d4906"
+    },
+    {
+      "file": "part-027.txt",
+      "characters": 6000,
+      "sha256": "d86b1823f78758e8052229ef81e11db0a44a8c3bc3d490a6bdc62ebf53b8ec22"
+    },
+    {
+      "file": "part-028.txt",
+      "characters": 6000,
+      "sha256": "f11c2f820dc3595856c3b4acf6ae3e824f5279b1d6caf81ba6bafc347eadad63"
+    },
+    {
+      "file": "part-029.txt",
+      "characters": 6000,
+      "sha256": "a7d651ae39b469e4f1dc158f7b6054f17c7031bd776c1ca95093d9967e4c836a"
+    },
+    {
+      "file": "part-030.txt",
+      "characters": 6000,
+      "sha256": "d31af24bcf09836472a2d4dcbe1ecfb7f1e932ec85c4e83f4283a8fa06075bd6"
+    },
+    {
+      "file": "part-031.txt",
+      "characters": 6000,
+      "sha256": "7a5aa0f3f1e3af92f6ded3c3ee949dcc3e18f33805bf25c83326b73525630183"
+    },
+    {
+      "file": "part-032.txt",
+      "characters": 6000,
+      "sha256": "9fe50b4b040b077c4e4bdcca8e4c809b070d37fbd30bb60ad9eee4a360a96343"
+    },
+    {
+      "file": "part-033.txt",
+      "characters": 6000,
+      "sha256": "8126ab218747f56daf0c3bac7ec3e86f25fdafb3cad2e7723438d504f88c6322"
+    },
+    {
+      "file": "part-034.txt",
+      "characters": 6000,
+      "sha256": "ba936500a7c10052411b6c7a0910ceb057758d992aabec90beb43174ec6d8690"
+    },
+    {
+      "file": "part-035.txt",
+      "characters": 6000,
+      "sha256": "50fc5ed1933fdc4331764ad2d290a5fbd6a2d5c783dbf8dc32fd89e988e58437"
+    },
+    {
+      "file": "part-036.txt",
+      "characters": 6000,
+      "sha256": "e8736b5c87ab83e547067db3b654679a4419115ca8bcd56c07e7eac5745c71bb"
+    },
+    {
+      "file": "part-037.txt",
+      "characters": 5648,
+      "sha256": "8f80c3bfe0274bc064094f2a53331024937fb800b6f3e880b8c98eb7df1229fd"
+    }
+  ]
+}

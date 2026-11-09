@@ -1,0 +1,39 @@
+0.41ms>
+3616: 11-09 07:19:16.559  1344  1634 I SP      : Download stopped: transformer_concept:2023011913_en, succeeded, size: 1493590
+3617: 11-09 07:19:16.570   364   364 I netd    : bandwidthRemoveInterfaceQuota(eth0) <4.20ms>
+3618: 11-09 07:19:16.578   364   364 I netd    : bandwidthSetInterfaceQuota(eth0, 9223372036854775807) <6.19ms>
+3619: 11-09 07:19:16.589  1344  1634 I SP      : Scheduling job with delay of 0s for {W:b:u:l, bg}, 1 candidates
+3620: 11-09 07:19:16.620  1344  1634 I SP      : Scheduling: download stopped, 0 started, 0 paused, 1 scheduled, 3 pending: manifests:emoticon_content_description-2022081613 * {W:b:u:l, bg}, dynamic_art:b1f6f47a53f7820be91b9fe247728980 @ {m:b:u:l, bg}, dynamic_art:305f81355a729e382ea9f374dd286d9f @ {m:b:u:l, bg}
+3621: 11-09 07:19:16.639  1531  1531 I PhenotypeBackgroundRecv: Skipping googledata.experiments.mobile.assistant.client_packages.component.assistant_suw.user#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3622: 11-09 07:19:16.739  1344  1810 I DownloadManager: DownloadManager$3.onProgress():503 Downloading __KLP_delight__en-840 with size 3415931
+3623: 11-09 07:19:16.790  1531  2968 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.notifications.platform#com.google.android.googlequicksearchbox
+3637: 11-09 07:19:17.047  1344  1634 I SP      : <==== Finishing job {m:b:u:l, bg}, 1615 ms. elapsed since start
+3638: 11-09 07:19:17.049  1344  1634 I SP      : Download stopped: dynamic_art:305f81355a729e382ea9f374dd286d9f, succeeded, size: 30514
+3639: 11-09 07:19:17.059  1344  1634 I SP      : Scheduling job with delay of 0s for {W:b:u:l, bg}, 1 candidates
+3640: 11-09 07:19:17.074  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.devicelockcontroller
+3641: 11-09 07:19:17.105  1344  1634 I SP      : Scheduling: download stopped, 0 started, 0 paused, 1 scheduled, 1 pending: manifests:emoticon_content_description-2022081613 * {W:b:u:l, bg}
+3642: 11-09 07:19:17.144   561  1050 W JobInfo : Job 'com.google.android.settings.intelligence/.modules.routines.impl.RoutinesJobIntentService#1728' has a deadline with no functional constraints. The deadline won't improve job execution latency. Consider removing the deadline.
+3643: 11-09 07:19:17.176  1344  1634 I SP      : Successfully got manifest for handwriting_recognition-manifest: manifests:handwriting_recognition-86
+3644: 11-09 07:19:17.244  3552  3555 I ocessService0:0: Background concurrent mark compact GC freed 340KB AllocSpace bytes, 0(0B) LOS objects, 49% free, 1975KB/3951KB, paused 223us,534us total 141.265ms
+3645: 11-09 07:19:17.250  1344  1783 I HandwritingOnlineSuperpacks: HandwritingOnlineSuperpacks$2.apply():184 syncPackMapping()
+3646: 11-09 07:19:17.250  1546  1546 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.credential.manager.service.zeroparty.checkup.START dat=chimera-action:/... cmp=com.google.android.gms/.chimera.GmsApiService }
+3647: 11-09 07:19:17.302  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.omnient.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3648: 11-09 07:19:17.320  1531  3063 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+3649: 11-09 07:19:17.323  1344  1634 I SP      : Sync for emoji succeeded in 2022 ms: {added: [2ada3c9a4a17d6bb81b1fe8d51502d60], metadata: false
+3650: 11-09 07:19:17.396  1344  1634 I SP      : GC for 'emoji' (10) with ttl of 0 ms took 0 ms (0/0/0)
+3651: 11-09 07:19:17.397  1344  1634 I SP      : Sync for transformer_concept succeeded in 1777 ms: {added: [2023011913_en], metadata: false
+3652: 11-09 07:19:17.476  1681  4077 D DownloadManager: [9] Finished with status SUCCESS
+3653: 11-09 07:19:17.489  1253  3756 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.modulemetadata
+3654: 11-09 07:19:17.510  1344  1634 I HandwritingSlicingStrategy: HandwritingSlicingStrategy.getSlices():44 getSlices(): handwriting_recognition.86 useForeground=true
+3655: 11-09 07:19:17.514  1344  1634 E HandwritingSlicingStrategy: HandwritingSlicingStrategy.getSlices():85 getSlices(): packMapping unavailable for en-US
+3656: 11-09 07:19:17.519  1344  1634 E HandwritingSlicingStrategy: HandwritingSlicingStrategy.getSlices():85 getSlices(): packMapping unavailable for en-US-x-gesture
+3657: 11-09 07:19:17.519  1344  1634 I HandwritingSlicingStrategy: HandwritingSlicingStrategy.getSlices():103 getSlices(): result {slices=[{handwriting_recognition:pack_mapping_v1_lstm_20231127, m:*:*:*, fg}], last batch=true, sync metadata=false}
+3658: 11-09 07:19:17.519  1344  1634 I SP      : Syncing handwriting_recognition (86) with slices: [{pack_mapping_v1_lstm_20231127, m:*:*:*, fg}], metadata: false
+3659: 11-09 07:19:17.520  1344  1634 I SP      : GC for 'transformer_concept' (10) with ttl of 0 ms took 0 ms (0/0/0)
+3660: 11-09 07:19:17.521  1531  3063 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.subscriptions#com.google.android.googlequicksearchbox
+3661: 11-09 07:19:17.523  1344  1810 I EmojiSuperpacksManager: EmojiSuperpacksManager.processPackSet():504 processPackSet() : isBundled = false
+3662: 11-09 07:19:17.525  1344  1793 I EmojiShortcutsLoader: EmojiShortcutsLoader.call():71 0 emoji shortcut maps loaded.
+3663: 11-09 07:19:17.526  1344  1793 I EmojiShortcutsLoader: EmojiShortcutsLoader.call():82 Finished loading emoji shortcuts
+3664: 11-09 07:19:17.532  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.transcription.device#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3665: 11-09 07:19:17.595  1531  3051 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+3666: 11-09 07:19:17.602  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.assistant.devi

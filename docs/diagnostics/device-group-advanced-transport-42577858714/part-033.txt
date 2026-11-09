@@ -1,0 +1,36 @@
+antLock@1e228a2[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3872: 11-09 07:19:19.885  1445  1631 D PickerDataLayer: Cloud provider allowlist was changed, and the current cloud provider is no longer on the allowlist. Allowlist: [com.google.android.apps.photos] Current Provider: null
+3873: 11-09 07:19:19.885  1445  1631 D PickerSyncLockManager: Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Unlocked]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3874: 11-09 07:19:19.885  1445  1631 D CloseableReentrantLock: Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread fg]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3931: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:644)
+3932: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	at hqv.run(PG:221)
+3933: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	at java.lang.Thread.run(Thread.java:1012)
+3934: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: Caused by: java.lang.reflect.InvocationTargetException
+3935: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	at java.lang.reflect.Method.invoke(Native Method)
+3936: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	at xrw.c(PG:50)
+3937: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	... 23 more
+3938: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: Caused by: java.lang.IllegalStateException: No underlying SoundTriggerModule available
+3939: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	at android.media.soundtrigger.SoundTriggerManager.deleteModel(SoundTriggerManager.java:264)
+3940: 11-09 07:19:20.066  1414  1683 E AmbientMusicServiceMana: 	... 25 more
+3941: 11-09 07:19:20.079  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.apps.search.assistant.mobile.user#com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+3942: 11-09 07:19:20.082  1445  1586 D CloudProviderUtils: Available CloudMediaProvider-s: [CloudProviderInfo{authority='com.google.android.apps.photos.cloudpicker', pkg='com.google.android.apps.photos', uid=10168}]
+3943: 11-09 07:19:20.082  1445  1586 I PickerSyncController: Only 1 cloud provider found, hence com.google.android.apps.photos.cloudpicker is the default
+3944: 11-09 07:19:20.082  1445  1586 D PickerSyncLockManager: Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3945: 11-09 07:19:20.082  1445  1586 D CloseableReentrantLock: Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3946: 11-09 07:19:20.082  1445  1586 D PickerSyncLockManager: Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3947: 11-09 07:19:20.082  1445  1586 D CloseableReentrantLock: Successfully acquired lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3948: 11-09 07:19:20.082  1445  1586 D CloseableReentrantLock: Successfully released lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = []
+3949: 11-09 07:19:20.085  1414  1775 I AiAiEcho: Settings changed for uri: content://settings/secure/now_playing_enabled
+3950: 11-09 07:19:20.089   561   835 D InetDiagMessage: Destroyed 0 sockets, proto=IPPROTO_TCP, family=AF_INET6, states=14
+3951: 11-09 07:19:20.089   561   835 D InetDiagMessage: Destroyed live tcp sockets for uids={10134} in 28ms
+3952: 11-09 07:19:20.090  1445  1586 D PickerSyncController: Updated cloud provider to: com.google.android.apps.photos.cloudpicker
+3953: 11-09 07:19:20.090  1445  1586 D PickerSyncLockManager: Trying to acquire lock com.android.providers.media.photopicker.sync.CloseableReentrantLock@1e228a2[Locked by thread com.android.providers.media.internal.modules.utils.BackgroundThread]. Lock Name = CLOUD_PROVIDER_LOCK. Threads that may be waiting to acquire this lock = [] with timeout.
+4618: 11-09 07:19:21.814  1414  2091 I AiAiCaptions: TtsSynthesizerImpl::handleRequestSuccess(): requestId: requestId: 2
+4619: 11-09 07:19:21.815  2162  4111 I GoogleTTSServiceImpl: Synthesis request for locale eng-USA and name en-us-x-tpf-local
+4620: 11-09 07:19:21.816  2162  4111 I GoogleTTSServiceImpl: TTS dispatch: en-us-x-tpf-lstm-embedded
+4621: 11-09 07:19:21.817  1414  2380 I AiAiCaptions: TtsLangFetcherImpl::fetch(). Fetching 1 lang packs is finished. Failures count: 0
+4622: 11-09 07:19:21.818  2162  4111 I SynthesisCache: callback.start() returned error code: -1
+4623: 11-09 07:19:21.830  1414  2138 I TextToSpeech: Disconnected from TTS engine
+4624: 11-09 07:19:21.831   561   561 W ServiceConnector.Impl: mayInterruptIfRunning not supported - ignoring
+4625: 11-09 07:19:21.855   364   364 I netd    : tetherGetStats() -> {[]} <2.31ms>
+4626: 11-09 07:19:21.914  1531  2968 I NetworkRecognitionRnr: Us

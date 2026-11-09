@@ -1,0 +1,35 @@
+MetadataUtils get: unexpected subId = -2, replacing with -1
+465: 11-09 07:19:11.127  3300  3689 I BugleRcsEngine: Skipping provisioning scheduling since RCS is disabled [CONTEXT thread_id=78 ]
+466: 11-09 07:19:11.128  3708  3788 I BugleRcsEngine: triggerStopRcsStack for msisdn:redacted-pii:phone_number[chars:0,last2:] [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=63 ]
+467: 11-09 07:19:11.129  3300  3492 I RcsClientLib: Disconnecting RcsEngineLifecycleService
+468: 11-09 07:19:11.131  3708  3801 I BugleRcsEngine: handleMessage processing message:[STOP_RCS_STACK] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+469: 11-09 07:19:11.132  3708  3801 I BugleRcsEngine: RCS engine STOP RCS stack [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+470: 11-09 07:19:11.135  3300  3687 W Bugle   : Bugle: SubscriptionMetadataUtils get: unexpected subId = -2, replacing with -1
+471: 11-09 07:19:11.137  3708  3801 I BugleRcsEngine: imsModule is null, shutdown not required [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=65 ]
+472: 11-09 07:19:11.138  3300  3687 I Bugle   : getRawTelephonyPhoneNumber redacted-pii[0-chars] [CONTEXT sub_id=-1 ]
+473: 11-09 07:19:11.140  3708  3801 I BugleRcsEngine: skipping imsModule.stop [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=65 ]
+474: 11-09 07:19:11.140  3708  3801 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+475: 11-09 07:19:11.140  3300  3687 W BugleAction: No default number, returning empty msisdn
+476: 11-09 07:19:11.141  3300  3687 I BugleRcsEngine: isRcsAvailableForSubId called with an invalid sub id: -2 [CONTEXT log_prefix="RcsProvisioningManager" thread_id=76 ]
+477: 11-09 07:19:11.142  1378  1465 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+478: 11-09 07:19:11.143  3708  3801 I BugleRcsEngine: RCS Configuration storage in Bugle is disabled by p/h flag, using ProvisioningEngineStateCacheUtil.getProvisioningConfigurationForGivenSimIfExist() [CONTEXT log_prefix="ProvisioningEngineDataRetriever" thread_id=65 ]
+490: 11-09 07:19:11.210  1378  1422 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.consentverifier#com.google.android.apps.wellbeing
+491: 11-09 07:19:11.212  2162  2282 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.consentverifier#com.google.android.tts
+492: 11-09 07:19:11.218  3708  3723 I BugleRcsEngine: triggerStopRcsStack for msisdn:redacted-pii:phone_number[chars:0,last2:] [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=39 ]
+493: 11-09 07:19:11.221  1546  2684 I ebvk$a  : Unable to retrieve flag snapshot for com.google.android.gms.westworldfeatures#com.google.android.gms, using defaults.
+494: 11-09 07:19:11.229  3300  3492 I RcsClientLib: Disconnecting RcsEngineLifecycleService
+495: 11-09 07:19:11.231  1531  3063 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+496: 11-09 07:19:11.232  3708  3801 I BugleRcsEngine: handleMessage processing message:[STOP_RCS_STACK] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+497: 11-09 07:19:11.232  3708  3801 I BugleRcsEngine: RCS engine STOP RCS stack [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+498: 11-09 07:19:11.233  1531  1531 I PhenotypeBackgroundRecv: Skipping com.google.android.googlequicksearchbox which doesn't use ProcessStable flags.
+499: 11-09 07:19:11.234  3708  3801 I BugleRcsEngine: imsModule is null, shutdown not required [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=65 ]
+500: 11-09 07:19:11.235  3708  3801 I BugleRcsEngine: skipping imsModule.stop [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]" thread_id=65 ]
+501: 11-09 07:19:11.236  3708  3801 I BugleRcsEngine: handleMessage processing message:[NOTIFY_UPTIME_IGNORE_STATE_CHANGED] with [non-null]:RcsEngineImpl reference [CONTEXT log_prefix="RcsEngineImpl[DUAL_REG]:[c2279aca-2cc8]>Handler" thread_id=65 ]
+502: 11-09 07:19:11.236  1531  1531 W JobInfo : Job 'com.google.android.googlequicksearchbox/com.google.android.apps.gsa.tasks.BackgroundTasksJobService#-43' has a deadline with no functional constraints. The deadline won't improve job execution latency. Consider removing the deadline.
+503: 11-09 07:19:11.237   561  1937 W JobInfo : Job 'com.google.android.googlequicksearchbox/com.google.android.apps.gsa.tasks.BackgroundTasksJobService#-43' has a deadline with no functional constraints. The deadline won't improve job execution latency. Consider removing the deadline.
+504: 11-09 07:19:11.239  3708  3801 I BugleRcsEngine: RCS Configuration storage in Bugle is disabled by p/h flag, using ProvisioningEngineStateCacheUtil.getProvisioningConfigurationForGivenSimIfExist() [CONTEXT log_prefix="ProvisioningEngineDataRetriever" thread_id=65 ]
+505: 11-09 07:19:11.243  1531  1531 I BgTaskExecutorImpl: (REDACTED) Starting %s background task %s.
+506: 11-09 07:19:11.264  1531  3063 W TimedProcessReaper: Scheduling killing of process to refresh configuration
+507: 11-09 07:19:11.266  1253  1948 I HeterodyneSyncScheduler: Scheduling Phenotype for a PhenotypeSyncImmediately(16, com.google.android.westworld) one off with window [1, 2] in seconds [CONTEXT service_id=51 ]
+508: 11-09 07:19:11.285  1531  3051 I PhenotypeBackgroundRecv: Successfully updated snapshot for com.google.android.libraries.consentverifier#com.google.android.googlequicksearchbox
+611: 11-09 07:19:12.019   561  2333 D ConnectivityService: requestNetwork for uid/pid:10129/3708 activeRequest: null callbackRequest: 125 [NetworkRequest [ TR
