@@ -1,0 +1,248 @@
+name: Validate and publish device group advanced UI
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-device-group-advanced-ui.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-device-group-advanced-ui-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded editor and offline UI regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          pane=base/'CompactProfileGroups.kt'
+          editor=base/'DeviceGroupAdvancedEditor.kt'
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedUiTest.kt')
+          for path in [pane,base/'DeviceGroupAdvancedPolicy.kt',base/'ProfileSession.kt',base/'ProfilePermissions.kt']:
+              expected=subprocess.check_output(['git','rev-parse','525c27cf2ff6fc75d903041ff1601e2d16c7393e:'+str(path)],text=True).strip()
+              assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()==expected,'Changed source: '+str(path)
+          assert not editor.exists() and not test.exists()
+          def replace(text,old,new):
+              assert text.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return text.replace(old,new,1)
+          s=pane.read_text()
+          s=replace(s,'    val group=s.groups.firstOrNull { it.optString("_id")==id }','    var advanced by remember(id) { mutableStateOf(false) }\n    if(advanced) { DeviceGroupAdvancedEditor(session,s,id) {advanced=false}; return }\n    val group=s.groups.firstOrNull { it.optString("_id")==id }')
+          anchor='                        TextButton(enabled=s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),onClick=onDelete'
+          s=replace(s,anchor,'                        TextButton(enabled=s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true}) {Text(t("Ajustes avanzados","Advanced settings"))}\n'+anchor)
+          pane.write_text(s)
+          editor.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.window.DialogProperties
+          import androidx.compose.ui.window.SecureFlagPolicy
+          import org.json.JSONObject
+
+          internal fun deviceGroupAdvancedUiDraft(s:ProfileState,baseline:JSONObject?,flags:Long,consent:Long,days:String,server:String):JSONObject?=runCatching {
+              require(baseline!=null && days.matches(Regex("[0-9]{1,4}")))
+              val expiry=requireNotNull(days.toLongOrNull());require(expiry in 0L..2000L)
+              val changes=JSONObject().put("flags",flags).put("consent",consent).put("expireDevs",expiry)
+              val packet=deviceGroupAdvancedPacket(s,baseline,changes,server,true)
+              require(deviceGroupAdvancedAllowed(s,packet,server))
+              packet.put("_advancedConfirmed",false)
+          }.getOrNull()
+          internal fun deviceGroupAdvancedUiCurrent(s:ProfileState,review:JSONObject?,server:String)=review!=null && deviceGroupAdvancedAllowed(s,JSONObject(review.toString()).put("_advancedConfirmed",true),server)
+          private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padStart(8,'0')
+          @Composable internal fun DeviceGroupAdvancedEditor(session:ProfileSession,s:ProfileState,id:String,onDismiss:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              fun t(a:String,b:String)=if(es) a else b
+              val actor=remember {s.id};val server=remember {session.broadcastServerLabel()}
+              val baseline=remember {s.groups.singleOrNull {it.optString("_id")==id}?.let {JSONObject(it.toString())}}
+              val initial=remember {runCatching {JSONObject(deviceGroupAdvancedSnapshot(requireNotNull(baseline)))}.getOrNull()}
+              val mandatory=remember {runCatching {userAdvancedMask(s.server?.opt("consent")) and 511L}.getOrDefault(0L)}
+              val mask=remember {runCatching {deviceGroupAdvancedFlagMask(requireNotNull(initial).getInt("mtype"),(s.server?.opt("devGroupSessionRecording") as? Number)?.toDouble()==1.0)}.getOrDefault(0L)}
+              var flags by remember {mutableStateOf(initial?.optLong("flags") ?: 0L)}
+              var consent by remember {mutableStateOf((initial?.optLong("consent") ?: 0L) or mandatory)}
+              var days by remember {mutableStateOf(initial?.optLong("expireDevs")?.toString().orEmpty())}
+              var frozen by remember {mutableStateOf<JSONObject?>(null)}
+              var approved by remember {mutableStateOf(false)}
+              var invalidated by remember {mutableStateOf(false)}
+              var submitted by remember {mutableStateOf(false)}
+              var error by remember {mutableStateOf(false)}
+              val bound=actor==s.id && server.isNotBlank() && server==session.broadcastServerLabel()
+              val draft=if(bound && initial!=null) deviceGroupAdvancedUiDraft(s,baseline,flags,consent,days,server) else null
+              val review=frozen
+              val current=bound && !invalidated && deviceGroupAdvancedUiCurrent(s,review,server)
+              LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {invalidated=true;approved=false}}
+              val packet=review?.let {JSONObject(it.toString()).put("_advancedConfirmed",approved)}
+              val observed=submitted && s.notice=="deviceGroupAdvancedObserved" && s.advancedEditedDeviceGroup==id
+              ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Ajustes avanzados del grupo","Advanced group settings"))},text={
+                  Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                      Text(server,style=MaterialTheme.typography.bodySmall)
+                      Text(t("Actor: ","Actor: ")+actor,style=MaterialTheme.typography.bodySmall)
+                      Text(baseline?.optString("name").orEmpty(),style=MaterialTheme.typography.titleSmall)
+                      Text(id,style=MaterialTheme.typography.bodySmall)
+                      if(initial==null) Text(t("Datos incompatibles. Cierra y actualiza.","Incompatible data. Close and refresh."),color=MaterialTheme.colorScheme.error)
+                      if(review==null && !submitted && initial!=null) {
+                          Text(t("Características","Features"),style=MaterialTheme.typography.titleSmall)
+                          val labels=if(es) listOf("Eliminar dispositivos al desconectarse","Sincronizar nombre del equipo","Grabar sesiones","Preferir el nombre del agente","Permitir nombre manual hasta reconexión") else listOf("Remove devices on disconnect","Synchronize host name","Record sessions","Prefer agent name","Allow manual name until reconnect")
+                          for(i in 0..4) {val bit=1L shl i
+                              if(mask and bit!=0L) Row {
+                                  Checkbox(flags and bit!=0L,{checked->
+                                      flags=if(checked) flags or bit else flags and bit.inv()
+                                      if(bit==2L && !checked && initial.getInt("mtype")==2) flags=flags and 24L.inv()
+                                      if(bit==1L && checked) days="0"
+                                  },enabled=s.canWrite && !s.detailsBusy && bound && (i<3 || flags and 2L!=0L),modifier=Modifier.testTag("advanced-flag-"+bit))
+                                  Text(labels[i],Modifier.weight(1f))
+                              }
+                          }
+                          Text(t("Desactivar la sincronización también desmarca sus opciones dependientes. Activar la retirada al desconectar fija la caducidad específica en cero. Revisa los valores antes de enviar.","Disabling name synchronization also clears its dependent options. Enabling removal on disconnect sets the group-specific expiry to zero. Review values before sending."),style=MaterialTheme.typography.bodySmall)
+                          OutlinedTextField(days,{days=it.take(16)},label={Text(t("Caducidad por inactividad: días (0–2000)","Inactivity expiry: days (0–2000)"))},singleLine=true,enabled=s.canWrite && !s.detailsBusy && bound && flags and 1L==0L,isError=days.toLongOrNull()?.let {it !in 0L..2000L} ?: true,modifier=Modifier.fillMaxWidth().testTag("advanced-days"))
+                          Text(t("Consentimiento del grupo","Group consent"),style=MaterialTheme.typography.titleSmall)
+                          val labelsConsent=if(es) listOf("Avisar: escritorio","Avisar: terminal","Avisar: archivos","Solicitar autorización: escritorio","Solicitar autorización: terminal","Solicitar autorización: archivos","Mostrar barra de conexión","Avisar: Registro","Solicitar autorización: Registro") else listOf("Notify: desktop","Notify: terminal","Notify: files","Prompt: desktop","Prompt: terminal","Prompt: files","Show connection toolbar","Notify: Registry","Prompt: Registry")
+                          for(i in 0..8) {val bit=1L shl i
+                              Row {Checkbox(consent and bit!=0L,{checked->consent=if(checked) consent or bit else consent and bit.inv()},enabled=s.canWrite && !s.detailsBusy && bound && mandatory and bit==0L,modifier=Modifier.testTag("advanced-consent-"+bit));Text(labelsConsent[i]+if(mandatory and bit!=0L) t(" (obligatorio por servidor)"," (required by server)") else "",Modifier.weight(1f))}
+                          }
+                          if(draft==null) Text(t("No hay un cambio válido en esta copia. Si cambiaron los datos, cierra y actualiza.","No valid change in this copy. If data changed, close and refresh."))
+                      }
+                      if(review!=null && initial!=null) {
+                          Text(t("Revisión congelada: antes → después","Frozen review: before → after"),Modifier.testTag("advanced-review"))
+                          for(key in listOf("flags","consent","expireDevs")) Text(key+": "+(if(key=="expireDevs") initial.getLong(key).toString()+" → "+review.getLong(key) else advancedHex(initial.getLong(key))+" → "+advancedHex(review.getLong(key))),style=MaterialTheme.typography.bodySmall)
+                          if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("advanced-confirm"));Text(t("Confirmo aplicar estos valores al grupo y servidor indicados.","I confirm applying these values to this group and server."),Modifier.weight(1f))}
+                      }
+                      Text(t("Cero elimina la caducidad específica del grupo; NO garantiza desactivar la eliminación automática global. La retirada al desconectar y la caducidad pueden eliminar dispositivos y sus datos asociados. Comprueba la política del servidor antes de confirmar.","Zero removes the group-specific expiry; it does NOT guarantee disabling global automatic removal. Removal on disconnect and inactivity expiry may delete devices and associated data. Check server policy before confirming."),style=MaterialTheme.typography.bodySmall)
+                      Text(t("Se conservan los bits desconocidos. El consentimiento se combina con las obligaciones del servidor y otras capas; desmarcarlo no elimina las heredadas. Las comprobaciones y el envío no son atómicos: un cambio concurrente puede ser sobrescrito. No hay reintentos automáticos y cerrar no cancela un envío.","Unknown bits are preserved. Consent combines with server requirements and other layers; clearing it does not remove inherited requirements. Checks and sending are not atomic: concurrent changes may be overwritten. No automatic retries; closing does not cancel a sent request."),style=MaterialTheme.typography.bodySmall)
+                      if(submitted && s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                      if(observed) Text(t("Acuse confirmado y valores exactos observados.","Acknowledgement confirmed and exact values observed."),Modifier.testTag("advanced-observed"))
+                      else if(submitted) Text(if(s.notice=="rejected") t("Solicitud rechazada.","Request rejected.") else t("Enviada; resultado aún no verificado. Consulta el estado antes de repetir.","Sent; outcome not yet verified. Check state before repeating."))
+                      else if(error || (review!=null && !current)) Text(t("Revisión invalidada. Cierra, actualiza y vuelve a abrir.","Review invalidated. Close, refresh and reopen."),color=MaterialTheme.colorScheme.error)
+                  }
+              },confirmButton={if(!submitted) Button(enabled=if(review==null) draft!=null else current && approved,modifier=Modifier.testTag(if(review==null) "advanced-prepare" else "advanced-send"),onClick={
+                  if(review==null) {frozen=draft?.let {JSONObject(it.toString())};approved=false}
+                  else if(current && packet!=null && session.submitDeviceGroupAdvanced(packet)) {submitted=true;approved=false} else {error=true;invalidated=true;approved=false}
+              }) {Text(if(review==null) t("Revisar cambios","Review changes") else t("Aplicar ajustes","Apply settings"))}},dismissButton={Row {
+                  if(!submitted) TextButton(onClick={session.refresh();onDismiss()}) {Text(t("Cerrar y actualizar","Close and refresh"))}
+                  TextButton(onClick=onDismiss) {Text(t("Cerrar","Close"))}
+              }})
+          }
+          ''')
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class)
+          class DeviceGroupAdvancedUiTest {
+              @get:Rule val compose=createComposeRule()
+              private val actor="user//admin";private val mid="mesh//one";private val label="offline-server"
+              private fun mesh(days:Int=0)=JSONObject().put("_id",mid).put("mtype",2).put("flags",0x80000000L).put("consent",0x80000000L).put("expireDevs",days).put("links",JSONObject().put(actor,JSONObject().put("rights",1)))
+              private fun state(days:Int=0)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",0),server=JSONObject().put("consent",0),groups=listOf(mesh(days)))
+              private fun field(o:Any,n:String)=o.javaClass.getDeclaredField(n).apply {isAccessible=true}
+              @Test fun draftPreservesUnknownBitsAndZeroIsARealChange() {
+                  val s=state(30);val p=requireNotNull(deviceGroupAdvancedUiDraft(s,mesh(30),0x80000000L,0x80000000L,"0",label))
+                  assertEquals(0x80000000L,p.getLong("flags"));assertEquals(0x80000000L,p.getLong("consent"));assertEquals(0,p.getInt("expireDevs"));assertFalse(p.getBoolean("_advancedConfirmed"))
+                  assertTrue(deviceGroupAdvancedUiCurrent(s,p,label));assertFalse(deviceGroupAdvancedUiCurrent(state(29),p,label));assertFalse(deviceGroupAdvancedUiCurrent(s,p,"other"))
+              }
+              @Test fun invalidExpiryUnknownBitsAndMandatoryConsentAreRejected() {
+                  val s=state()
+                  for(days in listOf("","-1","2001","1.5"," 30","30 ")) assertNull(deviceGroupAdvancedUiDraft(s,mesh(),0x80000000L,0x80000000L,days,label))
+                  assertNull(deviceGroupAdvancedUiDraft(s,mesh(),0L,0x80000000L,"30",label))
+                  assertNull(deviceGroupAdvancedUiDraft(s.copy(server=JSONObject().put("consent",8)),mesh(),0x80000000L,0x80000000L,"30",label))
+              }
+              @Test fun reviewRequiresSeparateConfirmationAndStaysInvalidAfterRestoration() {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  try {
+                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-test")
+                      @Suppress("UNCHECKED_CAST")
+                      val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>;connected.value=true
+                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
+                      val current=mutableStateOf(state())
+                      compose.setContent {MaterialTheme {DeviceGroupAdvancedEditor(session,current.value,mid) {}}}
+                      compose.onNodeWithTag("advanced-days").performScrollTo().performTextReplacement("30")
+                      compose.onNodeWithTag("advanced-prepare").assertIsEnabled().performClick()
+                      compose.onNodeWithTag("advanced-send").assertIsNotEnabled()
+                      compose.onNodeWithTag("advanced-confirm").performScrollTo().performClick()
+                      compose.onNodeWithTag("advanced-send").assertIsEnabled()
+                      compose.runOnIdle {current.value=state(5)}
+                      compose.waitForIdle()
+                      compose.onNodeWithTag("advanced-send").assertIsNotEnabled()
+                      compose.runOnIdle {current.value=state()}
+                      compose.waitForIdle()
+                      compose.onNodeWithTag("advanced-send").assertIsNotEnabled()
+                      assertNull(field(session,"socket").get(session));assertNull(field(client,"webSocket").get(client))
+                  } finally {session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()}
+              }
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, compile Android tests, execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute advanced UI, transport and access regressions offline
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.DeviceGroupAdvancedUiTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedSessionTest,iecxiv.meshfabric.ui.management.DeviceGroupAdvancedRequestTest,iecxiv.meshfabric.ui.management.GroupMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshEditSessionTest,iecxiv.meshfabric.ui.management.UserMeshGrantSessionTest,iecxiv.meshfabric.ui.management.UserMeshRevokeSessionTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-group-advanced-ui-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish UI only if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt app/src/main/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedEditor.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedUiTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt','app/src/main/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedEditor.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupAdvancedUiTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged sources'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(profile): add reviewed and confirmed advanced device group editor'
+          git push origin HEAD:dev
