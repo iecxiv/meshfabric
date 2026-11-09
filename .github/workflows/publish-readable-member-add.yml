@@ -1,0 +1,211 @@
+name: Validate and publish readable member addition
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-readable-member-add.yml]
+permissions:
+  contents: write
+concurrency:
+  group: readable-member-add-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate guarded member selector and review regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          main=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          tests=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          p=main/'UserGroupMemberAddDialog.kt'
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='84f34320b3aec7e116ef3d91be5bcb8abd9b10ed','Member addition source changed'
+          assert (main/'ProfileReviewIdentity.kt').exists()
+          regression=tests/'ReadableMemberAddDialogTest.kt'
+          assert not regression.exists()
+          def replace(s,old,new):
+              assert s.count(old)==1,'Missing/nonunique anchor: '+old[:100]
+              return s.replace(old,new,1)
+          s=p.read_text()
+          s=replace(s,'import androidx.compose.ui.platform.LocalConfiguration','import androidx.compose.ui.platform.LocalConfiguration\nimport androidx.compose.ui.platform.testTag')
+          setup='    val groupIdentity=profileReviewIdentity(group,s.listedUserGroups.orEmpty(),es)\n    val selectedIdentity=profileReviewIdentity(selected,s.users,es)\n    val identityReady=groupIdentity.usable && selectedIdentity.usable\n    var invalidated by remember {mutableStateOf(false)}\n'
+          s=replace(s,'    val context=',setup+'    val context=groupIdentity.usable && !invalidated && ')
+          s=replace(s,'val canReview=packet!=null &&','val canReview=context && identityReady && packet!=null &&')
+          s=replace(s,'    val rows=','    LaunchedEffect(review,canReview) {if(review && !canReview) {approved=false;invalidated=true}}\n    val rows=')
+          s=replace(s,'it.optString("name").contains(query,true)))','it.optString("name").contains(query,true) || it.optString("realname").contains(query,true) || it.optString("email").contains(query,true)))')
+          s=replace(s,'Text(group.optString("name"),style=MaterialTheme.typography.titleSmall)','Text(groupIdentity.label,style=MaterialTheme.typography.titleSmall)')
+          s=replace(s,'            Text(group.getString("_id"),style=MaterialTheme.typography.bodySmall)','            if(!groupIdentity.usable || (selected!=null && !selectedIdentity.usable)) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente la cuenta y el grupo. Cierra y actualiza o selecciona una cuenta identificable.","Cannot confirm: a name is missing or visible information does not uniquely identify the account and group. Close and refresh or select an identifiable account."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)')
+          s=replace(s,'Text(t("Usuario: ","User: ")+selected?.optString("_id").orEmpty())','Text(t("Usuario: ","User: ")+selectedIdentity.label)')
+          s=replace(s,'Checkbox(approved,{approved=it},enabled=canReview)','Checkbox(approved,{approved=it},enabled=canReview,modifier=Modifier.testTag("member-add-consent"))')
+          s=replace(s,'enabled=context,singleLine=true,modifier=Modifier.fillMaxWidth())','enabled=context,singleLine=true,modifier=Modifier.fillMaxWidth().testTag("member-add-search"))')
+          s=replace(s,'TextButton(enabled=context,onClick={val copy=','TextButton(modifier=Modifier.testTag("member-add-candidate-"+account.optString("_id")),enabled=context && profileReviewIdentity(account,s.users,es).usable,onClick={val copy=')
+          s=replace(s,'{Text(account.optString("_id"))}','{Text(profileReviewIdentity(account,s.users,es).label)}')
+          s=replace(s,'selected?.let {Text(t("Seleccionado: ","Selected: ")+it.optString("_id"),style=MaterialTheme.typography.bodySmall)}','selected?.let {Text(t("Seleccionado: ","Selected: ")+selectedIdentity.label,style=MaterialTheme.typography.bodySmall)}\n                if(rows.any {!profileReviewIdentity(it,s.users,es).usable}) Text(t("Hay cuentas sin nombre o sin contexto suficiente para distinguirlas. No se pueden seleccionar hasta recibir datos inequívocos.","Some accounts have no name or insufficient distinguishing information. They cannot be selected until unambiguous data is received."),style=MaterialTheme.typography.bodySmall)')
+          s=replace(s,'Button(enabled=if(review) packet!=null && profileUserGroupMemberAddAllowed(s,packet,server) else canReview,','Button(modifier=Modifier.testTag(if(review) "member-add-send" else "member-add-prepare"),enabled=if(review) context && identityReady && packet!=null && profileUserGroupMemberAddAllowed(s,packet,server) else canReview,')
+          s=replace(s,'else if(packet!=null && session.submit(packet))','else if(canReview && packet!=null && session.submit(packet))')
+          s=replace(s,'{review=false;approved=false}','{review=false;approved=false;invalidated=false}')
+          p.write_text(s)
+          regression.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          import java.util.Locale
+          @RunWith(AndroidJUnit4::class) class ReadableMemberAddDialogTest {
+              @get:Rule val compose=createComposeRule()
+              private val gid="ugrp//group";private val uid="user//alice"
+              private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
+              private inner class Fixture(missingName:Boolean=false):AutoCloseable {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val group=JSONObject().put("_id",gid).put("name","Equipo").put("desc","Madrid").put("links",JSONObject())
+                  val account=JSONObject().put("_id",uid).put("name",if(missingName) "" else "Alicia").put("email","alice@example.invalid").put("links",JSONObject())
+                  val baseline=ProfileState(ready=true,user=JSONObject().put("_id","user//admin").put("siteadmin",258L),users=listOf(account),listedUserGroups=listOf(group),userGroupPhase="ready")
+                  val state=mutableStateOf(baseline)
+                  init {
+                      field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-member-add-test")
+                      @Suppress("UNCHECKED_CAST") val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>
+                      connected.value=true
+                      field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {UserGroupMemberAddDialog(session,state.value,group) {}}}
+                      }
+                  }
+                  fun assertNoIds() {for(id in listOf(gid,uid)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)}
+                  fun prepare() {
+                      compose.onNodeWithTag("member-add-candidate-"+uid).assertIsEnabled().performClick()
+                      compose.onNodeWithTag("member-add-prepare").assertIsEnabled().performClick()
+                      compose.onNodeWithTag("member-add-send").assertIsNotEnabled()
+                      compose.onNodeWithTag("member-add-consent").performScrollTo().performClick()
+                      compose.onNodeWithTag("member-add-send").assertIsEnabled()
+                  }
+                  override fun close() {
+                      assertNull(field(client,"webSocket").get(client));assertNull(field(session,"socket").get(session))
+                      session.close();(field(client,"scope").get(client) as CoroutineScope).cancel()
+                  }
+              }
+              @Test fun selectionAndReviewUseReadableNamesButKeepOriginalInternalToken() {Fixture().use {f->
+                  f.assertNoIds()
+                  compose.onNodeWithText("Alicia · alice@example.invalid").assertExists()
+                  f.prepare();f.assertNoIds()
+                  compose.onNodeWithText("Usuario: Alicia · alice@example.invalid").assertExists()
+                  val packet=profileMemberAddPacket("user//admin","https://example.invalid/",f.group,f.account,true)
+                  assertEquals("alice",profileUserGroupMemberAddWire(packet).getJSONArray("usernames").getString(0))
+                  assertEquals(gid,profileUserGroupMemberAddWire(packet).getString("ugrpid"))
+              }}
+              @Test fun equalNamesRequireDistinctContextAndEmailIsSearchable() {Fixture().use {f->
+                  val other=JSONObject(f.account.toString()).put("_id","user//other")
+                  compose.runOnIdle {f.state.value=f.baseline.copy(users=listOf(f.account,other))}
+                  compose.onNodeWithTag("member-add-candidate-"+uid).assertIsNotEnabled()
+                  val distinct=JSONObject(other.toString()).put("email","other@example.invalid")
+                  compose.runOnIdle {f.state.value=f.baseline.copy(users=listOf(f.account,distinct))}
+                  compose.onNodeWithTag("member-add-candidate-"+uid).assertIsEnabled()
+                  compose.onNodeWithTag("member-add-candidate-user//other").assertIsEnabled()
+                  compose.onNodeWithTag("member-add-search").performScrollTo().performTextInput("alice@example.invalid")
+                  compose.onNodeWithTag("member-add-candidate-"+uid).assertExists()
+                  compose.onNodeWithTag("member-add-candidate-user//other").assertDoesNotExist()
+                  f.assertNoIds()
+              }}
+              @Test fun missingNameCannotBeSelectedAndNeverFallsBackToId() {Fixture(true).use {f->
+                  f.assertNoIds()
+                  compose.onNodeWithTag("member-add-candidate-"+uid).assertIsNotEnabled()
+                  compose.onNodeWithTag("member-add-prepare").assertIsNotEnabled()
+                  compose.onNodeWithText("nombre no disponible").assertExists()
+              }}
+              @Test fun ambiguousGroupPermanentlyInvalidatesReviewedAddition() {Fixture().use {f->
+                  f.prepare()
+                  val other=JSONObject(f.group.toString()).put("_id","ugrp//other")
+                  compose.runOnIdle {f.state.value=f.baseline.copy(listedUserGroups=listOf(f.group,other))}
+                  compose.onNodeWithTag("member-add-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline}
+                  compose.onNodeWithTag("member-add-send").assertIsNotEnabled()
+                  compose.onNodeWithTag("member-add-consent").assertIsNotEnabled()
+              }}
+              @Test fun ambiguousAccountPermanentlyInvalidatesReviewedAddition() {Fixture().use {f->
+                  f.prepare()
+                  val other=JSONObject(f.account.toString()).put("_id","user//other")
+                  compose.runOnIdle {f.state.value=f.baseline.copy(users=listOf(f.account,other))}
+                  compose.onNodeWithTag("member-add-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline}
+                  compose.onNodeWithTag("member-add-send").assertIsNotEnabled()
+              }}
+              @Test fun lostAuthorityPermanentlyInvalidatesReviewedAddition() {Fixture().use {f->
+                  f.prepare()
+                  compose.runOnIdle {f.state.value=f.baseline.copy(user=JSONObject().put("_id","user//admin").put("siteadmin",0))}
+                  compose.onNodeWithTag("member-add-send").assertIsNotEnabled()
+                  compose.runOnIdle {f.state.value=f.baseline}
+                  compose.onNodeWithTag("member-add-send").assertIsNotEnabled()
+              }}
+          }
+          ''')
+          PY
+          git diff --check
+      - name: Install compile SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute unit tests, compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute offline membership, identity, authority and navigation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.ReadableMemberAddDialogTest,iecxiv.meshfabric.ui.management.UserGroupMemberAddRequestTest,iecxiv.meshfabric.ui.management.UserGroupMemberAddIntegrationPolicyTest,iecxiv.meshfabric.ui.management.ReadableGrantDialogsTest,iecxiv.meshfabric.ui.management.ReadableUserGroupDialogsTest,iecxiv.meshfabric.ui.management.ReadableAssignmentReviewsTest,iecxiv.meshfabric.ui.management.UserMeshEditDialogTest,iecxiv.meshfabric.ui.management.GroupMeshEditDialogTest,iecxiv.meshfabric.ui.management.ProfileDisplayNamesTest,iecxiv.meshfabric.ui.management.ReceivedUserGroupNavigationTest,iecxiv.meshfabric.ui.management.UserGroupsSectionSpacingTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: readable-member-add-validation-${{ github.run_id }}
+          path: |
+            app/build/reports/androidTests/
+            app/build/outputs/androidTest-results/
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Publish only validated sources if dev is unchanged
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberAddDialog.kt app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableMemberAddDialogTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/UserGroupMemberAddDialog.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/ReadableMemberAddDialogTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected,'Unexpected staged changes'
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(profile): readable membership additions with unambiguous confirmations'
+          git push origin HEAD:dev
