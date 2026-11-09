@@ -27,17 +27,23 @@ import org.json.JSONObject
     var error by remember {mutableStateOf(false)}
     val review=frozenUser!=null && frozenMesh!=null
     val user=frozenUser ?: currentUser;val mesh=frozenMesh ?: currentMesh
+    val identityA=profileReviewIdentity(user,s.users,es)
+    val identityB=profileReviewIdentity(mesh,s.groups,es)
+    val identityReady=identityA.usable && identityB.usable
+    var identityInvalidated by remember {mutableStateOf(false)}
+    LaunchedEffect(review,identityReady) {if(review && !identityReady) {identityInvalidated=true;approved=false}}
     val packet=if(review) runCatching {profileUserMeshRevokePacket(actor,beforeServer,requireNotNull(frozenUser),requireNotNull(frozenMesh),approved)}.getOrNull() else null
     val candidate=if(currentUser!=null && currentMesh!=null) profileUserMeshRevokePacket(actor,beforeServer,currentUser,currentMesh,true) else null
-    val canPrepare=!submitted && candidate!=null && profileUserMeshRevokeAllowed(s,candidate,server)
-    val reviewCurrent=packet!=null && profileUserMeshRevokeAllowed(s,JSONObject(packet.toString()).put("_directConfirmed",true),server)
-    val canSend=!submitted && packet!=null && profileUserMeshRevokeAllowed(s,packet,server)
+    val canPrepare=identityReady && !submitted && candidate!=null && profileUserMeshRevokeAllowed(s,candidate,server)
+    val reviewCurrent=identityReady && !identityInvalidated && packet!=null && profileUserMeshRevokeAllowed(s,JSONObject(packet.toString()).put("_directConfirmed",true),server)
+    val canSend=identityReady && !identityInvalidated && !submitted && packet!=null && profileUserMeshRevokeAllowed(s,packet,server)
     val observed=submitted && s.notice=="userMeshRevokedObserved" && s.revokedDirectUser==uid && s.revokedDirectMesh==mid
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar acceso directo","Review direct access"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(beforeServer,style=MaterialTheme.typography.bodySmall)
-            Text(t("Usuario: ","User: ")+user?.optString("name").orEmpty());Text(uid,style=MaterialTheme.typography.bodySmall)
-            Text(t("Grupo de dispositivos: ","Device group: ")+mesh?.optString("name").orEmpty());Text(mid,style=MaterialTheme.typography.bodySmall)
+            Text(t("Usuario: ","User: ")+identityA.label)
+            Text(t("Grupo de dispositivos: ","Device group: ")+identityB.label)
+            if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
             if(s.loading || s.detailsBusy || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
             Text(t("Enlace recibido en el usuario: ","Link received in the user: ")+mask(profileGroupMeshReportedRights(user,mid)))

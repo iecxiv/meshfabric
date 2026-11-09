@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 class UserMeshAssignmentReviewTest {
     @get:Rule val compose=createComposeRule()
     private val actor="user//admin";private val uid="user//target";private val mid="mesh//group"
-    private fun state(rights:Long=8)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("links",JSONObject().put(uid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))))
+    private fun state(rights:Long=8)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(JSONObject().put("_id",uid).put("name","Cuenta destino").put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("name","Grupo destino").put("links",JSONObject().put(uid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))))
     private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
     private inner class Fixture:AutoCloseable {
         val client=MeshCentralClient();val session=ProfileSession(client)
