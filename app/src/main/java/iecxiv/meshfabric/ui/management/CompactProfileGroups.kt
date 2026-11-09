@@ -12,6 +12,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -57,6 +58,13 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
         if(expanded) Column(Modifier.fillMaxWidth().padding(bottom=8.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) { content() }
     }
 }
+@Composable internal fun ProfileGroupActionButton(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,enabled:Boolean,dangerous:Boolean=false,onClick:()->Unit) {
+    TextButton(onClick=onClick,enabled=enabled,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("profile-group-action"),colors=ButtonDefaults.textButtonColors(contentColor=if(dangerous) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)) {
+        Icon(icon,null,Modifier.size(18.dp).testTag("profile-group-action-icon"))
+        Spacer(Modifier.width(10.dp))
+        Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+    }
+}
 @Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onReviewUserGroupAssignment:((String)->Unit)?=null) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
@@ -75,9 +83,9 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
                     0->{
                         Text(group.optString("desc").ifBlank { t("Sin descripción","No description") },style=MaterialTheme.typography.bodyMedium)
                         ProfileDisclosure(t("Identificador del grupo","Group identifier")) { SelectionContainer { Text(id,style=MaterialTheme.typography.bodySmall) } }
-                        TextButton(enabled=s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit) {Text(t("Editar nombre y descripción","Edit name and description"))}
-                        TextButton(enabled=s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true}) {Text(t("Ajustes avanzados","Advanced settings"))}
-                        TextButton(enabled=s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),onClick=onDelete,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)) {Text(t("Eliminar grupo","Delete group"))}
+                        ProfileGroupActionButton(t("Editar nombre y descripción","Edit name and description"),Icons.Default.Edit,s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit)
+                        ProfileGroupActionButton(t("Ajustes avanzados","Advanced settings"),Icons.Default.Tune,s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true})
+                        ProfileGroupActionButton(t("Eliminar grupo","Delete group"),Icons.Default.Delete,s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),dangerous=true,onClick=onDelete)
                     }
                     1->{
                         OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar dispositivo","Search device"))},singleLine=true,modifier=Modifier.fillMaxWidth())
@@ -94,12 +102,13 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
                         val members=links?.keys()?.asSequence()?.filter { it.startsWith("user/") || it.startsWith("ugrp/") }?.sorted()?.toList()
                         if(members==null) Text(t("Información de accesos no disponible.","Access information unavailable.")) else if(members.isEmpty()) Text(t("No se han recibido asignaciones directas.","No direct assignments received.")) else {
                             for(member in members.take(100)) {
-                                val name=s.users.firstOrNull { it.optString("_id")==member }?.optString("name") ?: s.userGroups?.firstOrNull { it.optString("_id")==member }?.optString("name") ?: member
+                                val presentation=profileReceivedLinkPresentation(s,group,member,es)
                                 val rights=runCatching { val raw=requireNotNull(links).getJSONObject(member).get("rights"); require(raw is Number); userAdvancedMask(raw) }.getOrNull()
-                                ListItem(headlineContent={Text(name,maxLines=2,overflow=TextOverflow.Ellipsis)},supportingContent={Text(rights?.let { deviceGroupRightsLabel(it,es) } ?: t("Permisos no informados","Rights not reported"))},leadingContent={Icon(Icons.Default.Group,null)})
-if(onOpenUser!=null && profileAccessUserTarget(s,member)!=null) TextButton(enabled=s.canWrite,onClick={onOpenUser(member)}) {Text(t("Abrir usuario","Open user"))}
-if(onOpenUserGroup!=null && profileReceivedUserGroup(s,member)!=null) TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy,onClick={onOpenUserGroup(member)}) {Text(t("Abrir grupo de usuarios","Open user group"))}
-if(onReviewUserGroupAssignment!=null && profileAccessAssignmentPair(s,member,id)!=null) TextButton(onClick={onReviewUserGroupAssignment(member)}) {Text(t("Revisar asignación","Review assignment"))}
+                                ListItem(headlineContent={Text(presentation.label,maxLines=2,overflow=TextOverflow.Ellipsis)},supportingContent={Text(rights?.let { deviceGroupRightsLabel(it,es) } ?: t("Permisos no informados","Rights not reported"))},leadingContent={Icon(Icons.Default.Group,null)})
+if(!presentation.usable) Text(t("Acciones no disponibles: falta una ficha con nombre inequívoco.","Actions unavailable: an entry with an unambiguous name is missing."),style=MaterialTheme.typography.bodySmall)
+if(presentation.usable && onOpenUser!=null && profileAccessUserTarget(s,member)!=null) TextButton(enabled=s.canWrite,onClick={onOpenUser(member)}) {Text(t("Abrir usuario","Open user"))}
+if(presentation.usable && onOpenUserGroup!=null && profileReceivedUserGroup(s,member)!=null) TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy,onClick={onOpenUserGroup(member)}) {Text(t("Abrir grupo de usuarios","Open user group"))}
+if(presentation.usable && onReviewUserGroupAssignment!=null && profileAccessAssignmentPair(s,member,id)!=null) TextButton(onClick={onReviewUserGroupAssignment(member)}) {Text(t("Revisar asignación","Review assignment"))}
                             }
                             if(members.size>100) Text(t("Se muestran los primeros 100 accesos recibidos.","Showing the first 100 received assignments."),style=MaterialTheme.typography.bodySmall)
                         }
