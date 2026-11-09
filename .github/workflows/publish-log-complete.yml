@@ -1,0 +1,417 @@
+name: Validate complete Log integration
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths: [.github/workflows/publish-log-complete.yml]
+permissions:
+  contents: write
+concurrency:
+  group: log-complete
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate complete integration on guarded base
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 1209be13c9a14d23e4bd67e28d91fb06e706eb67
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,xml.etree.ElementTree as ET
+          root=Path('app/src/main/java/iecxiv/meshfabric')
+          changed=[]
+          def patch(name,sha,edits):
+              p=root/name
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,name
+              text=p.read_text()
+              for old,new in edits:
+                  assert text.count(old)==1,(name,old)
+                  text=text.replace(old,new,1)
+              p.write_text(text);changed.append(str(p))
+          patch('ui/management/CompactBottomNavigation.kt','6f97b411b7c5307d213e17a80ea7a470be4b62d0',[('stringResource(R.string.my_server_activity)','stringResource(R.string.registro_title)')])
+          patch('ui/management/MeshFabricHome.kt','da53546d6ddd2ee0f696a472a68e634a8362b1a6',[('import iecxiv.meshfabric.ui.components.MeshFabricActivityScreen\n',''),('else MeshFabricActivityScreen(viewModel=','else LogScreen(viewModel=')])
+          patch('ui/components/MeshFabricAppBar.kt','2d1473bfab1a9b84c981b9aaa09c621e64b3ead2',[('import androidx.compose.runtime.*','import androidx.compose.runtime.*\nimport androidx.compose.runtime.saveable.rememberSaveable'),('onReconnect:()->Unit,onOpenSettings:()->Unit) {','onReconnect:()->Unit,onOpenSettings:()->Unit,header:@Composable ()->Unit={}) {'),('var showSearch by remember {','var showSearch by rememberSaveable {'),('var search by remember {','var search by rememberSaveable {'),('        AnimatedVisibility(showSearch) {','        header()\n        AnimatedVisibility(showSearch) {')])
+          patch('ui/management/ActivityTimeline.kt','17e27e9eb174fc4da160d6687f2b8722059b1926',[('import androidx.compose.runtime.*','import androidx.compose.runtime.*\nimport androidx.compose.runtime.saveable.rememberSaveable'),('var filter by remember {','var filter by rememberSaveable {'),('var device by remember {','var device by rememberSaveable {')])
+          translations={
+          'log_loading':('Loading server events…','Consultando eventos del servidor…'),
+          'log_idle':('Load server events.','Consulta los eventos del servidor.'),
+          'log_empty':('No visible events were returned.','No se han devuelto eventos visibles.'),
+          'log_denied':('The server explicitly denied the request.','El servidor ha denegado explícitamente la consulta.'),
+          'log_error':('The query failed. No empty history is assumed.','La consulta ha fallado. No se interpreta como un historial vacío.'),
+          'log_invalid':('Invalid or oversized server response.','Respuesta del servidor no válida o demasiado grande.'),
+          'log_timeout':('No response within the time limit. Check connection and permissions.','Sin respuesta dentro del plazo. Comprueba conexión y permisos.'),
+          'log_invalidated':('Data cleared after a connection, account or access change. Refresh to query again.','Datos retirados tras un cambio de conexión, cuenta o acceso. Actualiza para consultar de nuevo.'),
+          'log_scope':('Up to 200 recent events visible to this account; not a complete server audit log.','Hasta 200 eventos recientes visibles para esta cuenta; no es una auditoría completa del servidor.'),
+          'log_refresh':('Refresh','Actualizar'),
+          'log_search':('Search received events','Buscar en los eventos recibidos'),
+          'log_no_match':('No received events match the search.','Ningún evento recibido coincide con la búsqueda.'),
+          'log_event':('Server event','Evento del servidor'),
+          'log_time_unknown':('Time not available','Hora no disponible'),
+          'log_limit':('The query limit was reached; older events may exist.','Se ha alcanzado el límite de consulta; puede haber eventos anteriores.')
+          }
+          for directory,index in [('values',0),('values-en',0),('values-es',1)]:
+              old=Path('app/src/main/res')/directory/'registro.xml';new=old.with_name('log.xml')
+              assert old.exists() and not new.exists()
+              tree=ET.parse(old);resources=tree.getroot()
+              assert {e.attrib['name'] for e in resources}=={'registro_title','registro_activity','registro_events'}
+              for name,labels in translations.items():ET.SubElement(resources,'string',{'name':name}).text=labels[index]
+              ET.indent(tree,space='    ');tree.write(new,encoding='utf-8',xml_declaration=True)
+              new.write_text(new.read_text()+'\n');old.unlink();changed += [str(old),str(new)]
+          files={
+          'app/src/main/java/iecxiv/meshfabric/ui/management/LogEventsReader.kt':'''package iecxiv.meshfabric.ui.management
+          import com.google.gson.JsonObject
+          import com.google.gson.JsonParser
+          import iecxiv.meshfabric.data.remote.OkHttpHelper
+          import kotlinx.coroutines.*
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.asStateFlow
+          import okhttp3.*
+          import java.util.UUID
+          internal data class LogEventsBinding(val server:String,val actor:String,val cookie:String,val ignoreSsl:Boolean,val site:Int,val auth:String)
+          internal class LogEventsReader(private val current:()->LogEventsBinding?,private val open:(LogEventsBinding,WebSocketListener)->WebSocket={b,l->
+              OkHttpHelper.createClient(b.ignoreSsl).newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(b.server,"/control.ashx?moreargs=1")).header("Cookie",b.cookie).build(),l)
+          }) {
+              private val jobs=CoroutineScope(SupervisorJob()+Dispatchers.IO)
+              private val mutable=MutableStateFlow(ServerEventsSnapshot())
+              val state=mutable.asStateFlow()
+              private val gate=ServerEventsReadGate()
+              private var socket:WebSocket?=null
+              private var binding:LogEventsBinding?=null
+              private var epoch=0L
+              private var attempt=0L
+              private var queryScope:ServerEventsScope?=null
+              private var timer:Job?=null
+              init {jobs.launch {while(isActive) {delay(500);synchronized(this@LogEventsReader) {if(binding!=null && current()!=binding) stop(ServerEventsPhase.INVALIDATED)}}}}
+              @Synchronized fun load() {
+                  stop(ServerEventsPhase.IDLE)
+                  val b=current() ?: run {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED);return}
+                  if(b.server.isBlank() || b.actor.isBlank() || b.cookie.isBlank()) {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED);return}
+                  binding=b;val generation=epoch
+                  mutable.value=ServerEventsSnapshot(ServerEventsPhase.LOADING)
+                  runCatching {socket=open(b,object:WebSocketListener() {
+                      override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@LogEventsReader) {
+                          if(generation!=epoch || current()!=binding) {webSocket.cancel();return}
+                          val args=JsonObject().apply {addProperty("action","urlargs");add("args",JsonObject().apply {addProperty("auth",b.auth)})}
+                          if(!webSocket.send(args.toString()) || !webSocket.send("{\"action\":\"userinfo\"}")) stop(ServerEventsPhase.ERROR)
+                      }}
+                      override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@LogEventsReader) {
+                          if(generation!=epoch) return
+                          if(current()!=binding) {stop(ServerEventsPhase.INVALIDATED);return}
+                          if(text.length>2_000_000) {stop(ServerEventsPhase.INVALID);return}
+                          runCatching {receive(webSocket,JsonParser.parseString(text).asJsonObject)}.onFailure {stop(ServerEventsPhase.INVALID)}
+                      }}
+                      override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {webSocket.close(code,"");failed(generation)}
+                      override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {failed(generation)}
+                      override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {failed(generation)}
+                  })}.onFailure {stop(ServerEventsPhase.ERROR)}
+                  if(binding!=null) timer=jobs.launch {delay(20_000);synchronized(this@LogEventsReader) {if(generation==epoch) timeout()}}
+              }
+              private fun receive(ws:WebSocket,p:JsonObject) {
+                  val b=binding ?: return
+                  fun str(o:JsonObject,k:String)=o.get(k)?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString.orEmpty()
+                  when(str(p,"action")) {
+                      "ping"->if(!ws.send("{\"action\":\"pong\"}")) stop(ServerEventsPhase.ERROR)
+                      "userinfo"->{
+                          val user=p.getAsJsonObject("userinfo") ?: error("Missing identity")
+                          val site=user.get("siteadmin")?.asLong?.toInt() ?: 0
+                          if(str(user,"_id")!=b.actor || site!=b.site) {stop(ServerEventsPhase.INVALIDATED);return}
+                          val authority=site.toString()+":"+(user.get("links")?.toString() ?: "unavailable")
+                          val previous=queryScope
+                          if(previous!=null) {if(previous.authority!=authority) stop(ServerEventsPhase.INVALIDATED);return}
+                          val scope=ServerEventsScope(b.server,b.actor,epoch,authority);queryScope=scope
+                          val tag=UUID.randomUUID().toString();attempt=gate.begin(scope,tag)
+                          if(!ws.send(serverEventsRequest(tag).toString())) stop(ServerEventsPhase.ERROR)
+                      }
+                      "events"->{
+                          val scope=queryScope ?: return
+                          if(gate.receive(attempt,scope,p)) {timer?.cancel();mutable.value=gate.state}
+                      }
+                      "event"->{
+                          val event=p.get("event")?.takeIf {it.isJsonObject}?.asJsonObject
+                          if(event!=null && str(event,"action") in setOf("accountchange","accountremove","usergroupchange","usergroupdelete","meshchange","deletemesh")) stop(ServerEventsPhase.INVALIDATED)
+                      }
+                      "close","stopped"->stop(ServerEventsPhase.ERROR)
+                  }
+              }
+              @Synchronized fun timeout() {if(mutable.value.phase==ServerEventsPhase.LOADING) stop(ServerEventsPhase.TIMEOUT)}
+              @Synchronized private fun failed(generation:Long) {if(generation==epoch) stop(ServerEventsPhase.ERROR)}
+              @Synchronized private fun stop(phase:ServerEventsPhase) {
+                  epoch++;timer?.cancel();timer=null;binding=null;queryScope=null;gate.invalidate()
+                  val previous=socket;socket=null;mutable.value=ServerEventsSnapshot(phase);previous?.cancel()
+              }
+              @Synchronized fun pause()=stop(ServerEventsPhase.INVALIDATED)
+              @Synchronized fun close() {pause();jobs.cancel()}
+          }
+          ''',
+          'app/src/main/java/iecxiv/meshfabric/ui/management/LogScreen.kt':'''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.itemsIndexed
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.runtime.saveable.rememberSaveable
+          import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.res.stringResource
+          import androidx.compose.ui.unit.dp
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.compose.LocalLifecycleOwner
+          import androidx.lifecycle.repeatOnLifecycle
+          import iecxiv.meshfabric.R
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import iecxiv.meshfabric.ui.components.MeshFabricActivityScreen
+          import iecxiv.meshfabric.ui.components.MeshFabricAppBar
+          import iecxiv.meshfabric.ui.devices.DeviceListViewModel
+          import kotlinx.coroutines.awaitCancellation
+          import java.text.DateFormat
+          import java.util.Date
+          @Composable internal fun LogSectionContent(selected:Int,content:@Composable (Int)->Unit) {
+              val holder=rememberSaveableStateHolder()
+              holder.SaveableStateProvider(selected) {content(selected)}
+          }
+          @Composable internal fun LogScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit) {
+              val actor by viewModel.userInfo.collectAsState()
+              var tab by rememberSaveable {mutableIntStateOf(0)}
+              key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,actor?.id) {
+                  LogSectionContent(tab) {selected->
+                      if(selected==0) MeshFabricActivityScreen(viewModel,journal,feedback,actionsReady,actionsStatus,onReconnect,onOpenSettings,header={RegistroSectionTabs(tab) {tab=it}})
+                      else ServerEventsLogScreen(viewModel,onOpenSettings,header={RegistroSectionTabs(tab) {tab=it}})
+                  }
+              }
+          }
+          @Composable private fun ServerEventsLogScreen(viewModel:DeviceListViewModel,onOpenSettings:()->Unit,header:@Composable ()->Unit) {
+              val source=viewModel.meshClient
+              val actor by source.userInfo.collectAsState()
+              val connected by source.connectionState.collectAsState()
+              val reader=remember(source,source.serverUrl,source.authCookie,actor?.id,actor?.siteadmin,connected) {LogEventsReader(current={
+                  val user=source.userInfo.value
+                  if(source.isUserLogout || !source.connectionState.value || user==null || user.id.isBlank() || source.authCookie.isBlank()) null
+                  else LogEventsBinding(source.serverUrl,user.id,source.authCookie,source.ignoreSsl,user.siteadmin,source.extractRawToken(source.authCookie))
+              })}
+              val state by reader.state.collectAsState()
+              val lifecycle=LocalLifecycleOwner.current.lifecycle
+              var query by rememberSaveable {mutableStateOf("")}
+              LaunchedEffect(reader,lifecycle) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {try {reader.load();awaitCancellation()} finally {reader.pause()}}}
+              DisposableEffect(reader) {onDispose {reader.close()}}
+              Scaffold(topBar={Column {MeshFabricAppBar(viewModel,onOpenSettings);header()}}) {padding->
+                  ServerEventsPanel(state,query,{query=it},connected && !actor?.id.isNullOrBlank(),reader::load,Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding))
+              }
+          }
+          @Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier) {
+              val status=when(state.phase) {
+                  ServerEventsPhase.IDLE->R.string.log_idle
+                  ServerEventsPhase.LOADING->R.string.log_loading
+                  ServerEventsPhase.DENIED->R.string.log_denied
+                  ServerEventsPhase.ERROR->R.string.log_error
+                  ServerEventsPhase.INVALID->R.string.log_invalid
+                  ServerEventsPhase.TIMEOUT->R.string.log_timeout
+                  ServerEventsPhase.INVALIDATED->R.string.log_invalidated
+                  ServerEventsPhase.READY->null
+              }
+              Column(modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                  Text(stringResource(R.string.log_scope),style=MaterialTheme.typography.bodySmall)
+                  OutlinedTextField(query,onQuery,label={Text(stringResource(R.string.log_search))},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("log-events-search"))
+                  TextButton(onClick=onRefresh,enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("log-events-refresh")) {Text(stringResource(R.string.log_refresh))}
+                  if(status!=null) Text(stringResource(status),Modifier.testTag("log-events-state"),color=if(state.phase in setOf(ServerEventsPhase.DENIED,ServerEventsPhase.ERROR,ServerEventsPhase.INVALID,ServerEventsPhase.TIMEOUT)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                  if(state.phase==ServerEventsPhase.LOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
+                  if(state.phase==ServerEventsPhase.READY) {
+                      val rows=state.records.filter {row->listOf(row.message,row.actor,row.nodeName,row.action).any {it.contains(query.trim(),true)}}
+                      if(state.records.size==SERVER_EVENTS_LIMIT) Text(stringResource(R.string.log_limit),style=MaterialTheme.typography.bodySmall)
+                      if(state.records.isEmpty()) Text(stringResource(R.string.log_empty),Modifier.testTag("log-events-empty"))
+                      else if(rows.isEmpty()) Text(stringResource(R.string.log_no_match),Modifier.testTag("log-events-no-match"))
+                      LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {itemsIndexed(rows) {_,row->
+                          Card(Modifier.fillMaxWidth()) {Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                              Text(row.message.ifBlank {stringResource(R.string.log_event)},style=MaterialTheme.typography.bodyMedium)
+                              if(row.nodeName.isNotBlank()) Text(row.nodeName,style=MaterialTheme.typography.labelMedium)
+                              if(row.actor.isNotBlank()) Text(row.actor,style=MaterialTheme.typography.labelSmall)
+                              Text(row.time?.let {DateFormat.getDateTimeInstance().format(Date(it))} ?: stringResource(R.string.log_time_unknown),style=MaterialTheme.typography.labelSmall)
+                          }}
+                      }}
+                  }
+              }
+          }
+          ''',
+          'app/src/test/java/iecxiv/meshfabric/ui/management/LogEventsReaderTest.kt':'''package iecxiv.meshfabric.ui.management
+          import com.google.gson.JsonParser
+          import okhttp3.*
+          import okio.ByteString
+          import org.junit.Assert.*
+          import org.junit.Test
+          class LogEventsReaderTest {
+              private class Fake:WebSocket {
+                  val sent=mutableListOf<String>();var cancelled=false
+                  override fun request()=Request.Builder().url("https://server").build()
+                  override fun queueSize()=0L
+                  override fun send(text:String):Boolean {sent.add(text);return true}
+                  override fun send(bytes:ByteString)=false
+                  override fun close(code:Int,reason:String?):Boolean {cancelled=true;return true}
+                  override fun cancel() {cancelled=true}
+              }
+              private class Harness {
+                  var binding:LogEventsBinding?=LogEventsBinding("https://server","user/a/me","test-cookie",false,0,"test-token")
+                  val fake=Fake();lateinit var listener:WebSocketListener
+                  val reader=LogEventsReader({binding},{_,l->listener=l;fake})
+                  fun start() {reader.load();listener.onOpen(fake,Response.Builder().request(fake.request()).protocol(Protocol.HTTP_1_1).code(101).message("Switching").build());listener.onMessage(fake,"""{"action":"userinfo","userinfo":{"_id":"user/a/me","siteadmin":0,"links":{}}}""")}
+                  fun history() {val p=JsonParser.parseString(fake.sent.last()).asJsonObject;listener.onMessage(fake,"{\"action\":\"events\",\"tag\":\""+p.get("tag").asString+"\",\"events\":[] }")}
+              }
+              @Test fun authenticatedReadUsesBoundedTaggedRequestAndEmptyReply() {
+                  val h=Harness();try {h.start();val p=JsonParser.parseString(h.fake.sent.last()).asJsonObject
+                      assertEquals("events",p.get("action").asString);assertEquals(200,p.get("limit").asInt);h.history();assertEquals(ServerEventsPhase.READY,h.reader.state.value.phase)
+                  } finally {h.reader.close()}
+              }
+              @Test fun timeoutRetiresChannelAndRejectsLateHistory() {
+                  val h=Harness();try {h.start();h.reader.timeout();h.history();assertTrue(h.fake.cancelled);assertEquals(ServerEventsPhase.TIMEOUT,h.reader.state.value.phase)} finally {h.reader.close()}
+              }
+              @Test fun changedAccountCannotAcceptHistory() {
+                  val h=Harness();try {h.start();h.binding=h.binding?.copy(actor="user/a/other");h.history();assertEquals(ServerEventsPhase.INVALIDATED,h.reader.state.value.phase);assertTrue(h.reader.state.value.records.isEmpty())} finally {h.reader.close()}
+              }
+              @Test fun accessChangeClearsPreviouslyLoadedData() {
+                  val h=Harness();try {h.start();h.history();h.listener.onMessage(h.fake,"""{"action":"event","event":{"action":"meshchange"}}""");assertEquals(ServerEventsPhase.INVALIDATED,h.reader.state.value.phase)} finally {h.reader.close()}
+              }
+          }
+          ''',
+          'app/src/androidTest/java/iecxiv/meshfabric/ui/management/LogScreenTest.kt':'''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.runtime.saveable.rememberSaveable
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import org.junit.Rule
+          import org.junit.Test
+          class LogScreenTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun activityStateSurvivesEventsRoundTrip() {
+                  val tab=mutableIntStateOf(0)
+                  compose.setContent {MaterialTheme {Column {LogSectionContent(tab.intValue) {selected->
+                      if(selected==0) {var text by rememberSaveable {mutableStateOf("")};OutlinedTextField(text,{text=it},Modifier.testTag("activity-draft"))} else Text("events-content")
+                  }}}}
+                  compose.onNodeWithTag("activity-draft").performTextInput("saved-search")
+                  compose.runOnIdle {tab.intValue=1};compose.onNodeWithText("events-content").assertIsDisplayed()
+                  compose.runOnIdle {tab.intValue=0};compose.onNodeWithTag("activity-draft").assertTextContains("saved-search")
+              }
+              @Test fun loadingAndTimeoutAreNeverEmptyHistory() {
+                  val state=mutableStateOf(ServerEventsSnapshot(ServerEventsPhase.LOADING))
+                  compose.setContent {MaterialTheme {ServerEventsPanel(state.value,"",{},true,{})}}
+                  compose.onNodeWithTag("log-events-empty").assertDoesNotExist();compose.onNodeWithTag("log-events-refresh").assertIsNotEnabled()
+                  compose.runOnIdle {state.value=ServerEventsSnapshot(ServerEventsPhase.TIMEOUT)}
+                  compose.onNodeWithTag("log-events-state").assertIsDisplayed();compose.onNodeWithTag("log-events-empty").assertDoesNotExist()
+                  compose.runOnIdle {state.value=ServerEventsSnapshot(ServerEventsPhase.READY)}
+                  compose.onNodeWithTag("log-events-empty").assertIsDisplayed()
+              }
+              @Test fun receivedEventsCanBeSearchedWithoutShowingInternalIds() {
+                  val query=mutableStateOf("")
+                  val row=ServerEventRecord("runcommands","example event","Operator","node/a/private","",null)
+                  compose.setContent {MaterialTheme {ServerEventsPanel(ServerEventsSnapshot(ServerEventsPhase.READY,listOf(row)),query.value,{query.value=it},true,{})}}
+                  compose.onNodeWithText("example event").assertIsDisplayed();compose.onNodeWithText("node/a/private").assertDoesNotExist()
+                  compose.onNodeWithTag("log-events-search").performTextInput("not-present")
+                  compose.onNodeWithTag("log-events-no-match").assertIsDisplayed();compose.onNodeWithText("example event").assertDoesNotExist()
+              }
+              @Test fun invalidationRemovesOldRows() {
+                  val state=mutableStateOf(ServerEventsSnapshot(ServerEventsPhase.READY,listOf(ServerEventRecord("manual","old event","","","",null))))
+                  compose.setContent {MaterialTheme {ServerEventsPanel(state.value,"",{},true,{})}}
+                  compose.onNodeWithText("old event").assertIsDisplayed()
+                  compose.runOnIdle {state.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED)}
+                  compose.onNodeWithText("old event").assertDoesNotExist();compose.onNodeWithTag("log-events-empty").assertDoesNotExist()
+              }
+          }
+          ''',
+          'docs/log.md':'''# Registro / Log
+
+The former Activity destination is labelled Registro in Spanish and Log in English. It contains Activity and Events tabs using the Management/Server tab component. Resource files are named log.xml; resource identifiers remain compatible.
+
+Activity retains its journal, filters and command feedback. Search and filter state are saveable across switching between the two tabs.
+
+Events performs a read-only query on a separate authenticated control channel, after checking the exact actor. Requests use action=events, a unique tag and a fixed limit of 200. Only matching responses are accepted. No event deletion, unbounded query, automatic retry or claim of complete server audit coverage is provided. Search filters the received records locally. Reopening Events or resuming the screen requests a fresh bounded snapshot; Refresh is manual while the screen remains active.
+
+Timeout, malformed data, explicit denial and empty returned history are distinct states. Channel failure, lifecycle pause, observed access changes and account/connection changes clear the snapshot. Server-side authorization remains authoritative, and there is no transactional guarantee against concurrent access changes. Live events are not appended to the historical snapshot and do not confirm remote action execution.
+
+Validation: execute JVM tests, lint, debug and Android-test compilation, then the scoped RegistroSectionTabsTest, LogScreenTest and ManagementNavigationLabelTest classes. Run the complete suite before final integration into dev. Automated Compose checks do not replace a physical-device visual review or live-server compatibility verification.
+          '''}
+          for name,content in files.items():
+              p=Path(name);assert not p.exists(),name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content);changed.append(name)
+          assert len(changed)==15
+          assert not list(Path('app/src/main/res').glob('values*/registro.xml'))
+          Path('validation/expected.json').write_text(json.dumps(sorted(changed)))
+          Path('validation/scope.txt').write_text('Complete visible Log integration; scoped Android tests selected before execution. Full suite still required before final dev integration. No live-server or physical-device visual validation claimed.\n')
+          subprocess.run(['git','add','--',*changed],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(changed)
+          PY
+          git diff --cached --check
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute JVM tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute affected Compose and navigation regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.RegistroSectionTabsTest,iecxiv.meshfabric.ui.management.LogScreenTest,iecxiv.meshfabric.ui.management.ManagementNavigationLabelTest --no-daemon --stacktrace
+      - name: Verify execution evidence and exact change scope
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,xml.etree.ElementTree as ET
+          totals={}
+          for kind,folder,required in [('jvm','app/build/test-results/testDebugUnitTest',{'LogEventsReaderTest':4,'ServerEventsReadPolicyTest':9}),('android','app/build/outputs/androidTest-results/connected',{'LogScreenTest':4,'RegistroSectionTabsTest':2,'ManagementNavigationLabelTest':2})]:
+              cases=[]
+              for p in Path(folder).rglob('*.xml'):cases.extend(ET.parse(p).getroot().iter('testcase'))
+              assert cases,kind
+              assert all(all(c.find(tag) is None for tag in ('failure','error','skipped')) for c in cases),kind
+              for name,count in required.items():assert sum(c.get('classname','').split('.')[-1]==name for c in cases)==count,(kind,name)
+              totals[kind]=len(cases)
+          Path('validation/tests.json').write_text(json.dumps(totals,indent=2))
+          expected=json.loads(Path('validation/expected.json').read_text())
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git diff --cached > validation/log.diff
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: log-integration-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish all Log changes together only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(log): integrate Activity and server Events with scoped regressions'
+          git push origin HEAD:work/registro-server-events
