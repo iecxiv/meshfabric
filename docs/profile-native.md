@@ -1,16 +1,29 @@
-# Native My user: second delivery
+# My Account — MeshFabric 1.3.1
 
-This replaces browser shortcuts in My user. Users and device-group management remain native.
+[Español](es/profile-native.md) | [Management](profile.md)
 
-Implemented: TOTP manual-key enrollment and removal; backup-code listing, regeneration and clearing with confirmation; registered security-key listing/removal and readback; previous web-login history with local time formatting; password change acknowledged by server notification ids; token creation/list/revocation; server-account language with userinfo readback; account-scoped local 12/24-hour and foreground notice preferences; native HTTPS account-deletion request with full-ID and repeated-password confirmation.
+My Account uses native controls rather than the old browser shortcuts. A private authenticated account channel remains separate from other application channels.
 
-Explicit limitations:
-- New FIDO2/WebAuthn security-key registration is NOT implemented. Listing/removing existing keys is native. No browser is opened as a fallback.
-- Notification settings are LOCAL to My user while that view is open. They neither enable Android background push nor change MeshCentral account/device notification preferences.
-- Time-format preferences affect this view's history only. The language action changes the server account language, not Android/app-wide language or the saved browser state.
-- Account-deletion HTTP replies are ambiguous. The UI NEVER declares deletion confirmed from a redirect. After an attempt it closes the account channel, reports an unconfirmed result and instructs the user to sign out via Settings. It does not claim that other sessions were revoked or automatically clear all app credentials.
-- Backup-code object formats other than primitive string/number arrays are rejected rather than displayed as usable codes.
+## Security and account actions
 
-Transport: a private authenticated control channel, single-flight requests, action-specific validation, response-id checks when supplied, 20-second timeout closing the channel, no write retries, lifecycle cancellation, source identity/user-ID binding. Password changes accept only notification 20 as success and 17/18/19/21 as rejection. Userinfo readback confirms language; key-list readback checks removal. Secrets/drafts are memory-only; copying is explicit and marked sensitive; profile/account dialogs request SecureOn. No raw protocol logs are added. This is not a claim of transactional confirmation for legacy replies lacking request ids.
+- Change your password using the existing account dialog and current-password checks.
+- Enrol a TOTP authenticator using a manual key and six-digit code, or explicitly confirm its removal.
+- List and remove previously registered security keys. Native FIDO2 sign-in and registration of new keys are not implemented; there is no automatic browser fallback for registration.
+- View, regenerate or clear backup codes with the corresponding visibility and confirmation controls. Structured code replies preserve reported usage state.
+- View server-recorded web-login history; it may not contain app sign-ins.
+- Create/list login tokens and revoke an individual token with confirmation.
+- Change server-account language and local date/time presentation preferences.
 
-Three policy tests are included. Android compilation, tests, lint, physical-device behavior and live-server account mutations have NOT been run here. Real-server verification is required before treating this delivery as validated.
+Your own entry under Users has two shortcuts: Change password opens the password dialog directly after navigating to My Account; Manage MFA opens a selector for authenticator, existing keys and backup codes. Opening a shortcut does not change credentials or reset MFA. Navigation waits for readiness, consumes a request once and rejects a mismatched actor or server.
+
+## Notifications
+
+Notification options are synchronized with the account's server web state, preserving unrelated settings and unknown bits. Saving is blocked when the required state is unavailable. Server-account language is distinct from Android application language.
+
+The session inbox and optional Android alerts support received notices, including configured connectivity and AMT notifications. Reception, Android permission, channel settings and server policy remain separate. Delivery with a stopped process is not guaranteed; sound and group-name preferences affect presentation rather than defining additional notice types.
+
+## Operational limits
+
+Requests are single-flight and are not automatically retried. Confirmation depends on each action's acknowledgement or readback; legacy replies are not all transactionally correlated. Password changes distinguish known success and rejection notifications. Account deletion requires explicit confirmation over HTTPS; an HTTP redirect is not proof of deletion. An ambiguous deletion attempt requires checking the account and signing out as instructed.
+
+Secrets and drafts are not deliberately persisted or logged by these dialogs. Copying is explicit and marks clipboard data sensitive; this is not clipboard encryption. Security dialogs request secure-window handling. Lifecycle changes close or pause the channel. Test results do not establish that every account mutation has been verified on a live server.
