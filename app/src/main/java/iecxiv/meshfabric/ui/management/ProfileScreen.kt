@@ -80,7 +80,7 @@ else->t("Sin conexión o cargando.","Offline or loading.")
 val users=section=="users"
 val permitted=!users || ProfilePermissions.manageUsers(state.site)
 val rows=if(users) state.users else state.groups.filter { deviceGroupMatches(groupSearch,it.optString("name"),it.optString("desc")) }
-LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
 item { Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())

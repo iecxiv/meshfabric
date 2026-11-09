@@ -205,8 +205,8 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     DisposableEffect(reader) { onDispose { reader?.close() } }
     Column(modifier) {
         ServerSectionTabs(tab) { tab=it }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,onReconnect={retry++})
+        ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,modifier=Modifier.padding(horizontal=16.dp),onReconnect={retry++})
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             when(tab) {
                 0->{
                     ServerGeneralActions {
