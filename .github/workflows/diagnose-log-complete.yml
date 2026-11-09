@@ -1,0 +1,128 @@
+name: Diagnose failed Log integration
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths: [.github/workflows/diagnose-log-complete.yml]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: diagnose-log-complete
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: da751d3742c7e65a21ed672132e03a17c7322f6d
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Collect exact failed run and logs without running application code
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostic
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast,hashlib,json,os,subprocess,urllib.parse,urllib.request,zipfile,io
+          out=Path('diagnostic')
+          sha='da751d3742c7e65a21ed672132e03a17c7322f6d'
+          branch='work/registro-server-events'
+          workflow='.github/workflows/publish-log-complete.yml'
+          repo=os.environ['GITHUB_REPOSITORY']
+          api=os.environ['GITHUB_API_URL']+'/repos/'+repo
+          problems=[]
+          report=['# Log integration diagnostic','',f'Target commit: `{sha}`','No application builds, generator execution, emulator, commits or source publication.','']
+          def request(path,binary=False):
+              req=urllib.request.Request(api+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+              with urllib.request.urlopen(req,timeout=60) as response:
+                  data=response.read(100_000_001)
+              if len(data)>100_000_000: raise ValueError('Response exceeds 100 MB diagnostic limit')
+              return data if binary else json.loads(data)
+          def save(name,value):
+              (out/name).write_text(json.dumps(value,ensure_ascii=False,indent=2)+'\n')
+          try:
+              assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==sha
+              source=subprocess.check_output(['git','show',sha+':'+workflow],text=True)
+              (out/'publish-log-complete.yml').write_text(source)
+              (out/'workflow-numbered.txt').write_text(''.join(f'{i:04d} {line}\n' for i,line in enumerate(source.splitlines(),1)))
+              report.append('Workflow SHA256: `'+hashlib.sha256(source.encode()).hexdigest()+'`')
+              original=subprocess.check_output(['git','show','3eaac8d494f1a8780f27c364e9a15a8f60d2bebf:'+workflow],text=True)
+              (out/'original-workflow-numbered.txt').write_text(''.join(f'{i:04d} {line}\n' for i,line in enumerate(original.splitlines(),1)))
+              chunks=original.split("          python3 - <<'PY'\n")
+              assert len(chunks)==3
+              for name,chunk in [('generator',chunks[1]),('verifier',chunks[2])]:
+                  body=chunk.split('\n          PY\n',1)[0]
+                  code='\n'.join(line[10:] if line.startswith(' '*10) else line for line in body.splitlines())+'\n'
+                  if name=='generator': code=code.replace(":'''package iecxiv.meshfabric",":r'''package iecxiv.meshfabric")
+                  code=code.replace("['git','diff','--cached','--name-only']","['git','diff','--cached','--name-only','--no-renames']")
+                  (out/(name+'-not-executed.py')).write_text(code)
+                  try:
+                      ast.parse(code)
+                      report.append(name+': Python syntax parsed; NOT executed.')
+                  except SyntaxError as error:
+                      report.append(f'{name}: Python syntax error at line {error.lineno}: {error.msg}')
+              parents=subprocess.check_output(['git','rev-list','--parents','-n','1',sha],text=True).strip()
+              report.extend(['','Commit and parents: `'+parents+'`',''])
+          except Exception as error:
+              problems.append('Static evidence: '+type(error).__name__)
+          try:
+              query=urllib.parse.urlencode({'branch':branch,'head_sha':sha,'per_page':100})
+              listing=request('/actions/workflows/publish-log-complete.yml/runs?'+query)
+              runs=[r for r in listing['workflow_runs'] if r['head_sha']==sha and r['head_branch']==branch and r['path']==workflow]
+              save('matching-runs.json',runs)
+              failed=[r for r in runs if r['status']=='completed' and r['conclusion'] in ('failure','timed_out','startup_failure','action_required')]
+              if not failed: raise ValueError('No completed failed run for the exact commit and workflow')
+              run=max(failed,key=lambda r:r['id'])
+              save('selected-run.json',run)
+              report.extend(['## Failed execution',run['html_url'],f"Run {run['id']}; attempt {run['run_attempt']}; conclusion {run['conclusion']}",''])
+              attempt=f"/actions/runs/{run['id']}/attempts/{run['run_attempt']}"
+              jobs=[]
+              page=1
+              while True:
+                  batch=request(attempt+f'/jobs?per_page=100&page={page}')['jobs']
+                  jobs.extend(batch)
+                  if len(batch)<100: break
+                  page+=1
+              save('jobs.json',jobs)
+              for job in jobs:
+                  report.append(f"- Job: {job['name']} — {job['conclusion']}")
+                  for step in job.get('steps',[]):
+                      report.append(f"  - Step {step['number']}: {step['name']} — {step.get('conclusion')}")
+              artifacts=[]
+              page=1
+              while True:
+                  batch=request(f"/actions/runs/{run['id']}/artifacts?per_page=100&page={page}")['artifacts']
+                  artifacts.extend(batch)
+                  if len(batch)<100: break
+                  page+=1
+              save('artifacts.json',artifacts)
+              report.extend(['','Artifacts inventoried; not downloaded or executed.'])
+              try:
+                  logs=request(attempt+'/logs',binary=True)
+                  with zipfile.ZipFile(io.BytesIO(logs)) as archive:
+                      save('logs-index.json',[{'name':entry.filename,'bytes':entry.file_size} for entry in archive.infolist()])
+                  (out/'failed-run-logs.zip').write_bytes(logs)
+                  report.append('Original run-attempt logs collected as ZIP; not extracted or executed.')
+              except Exception as error:
+                  problems.append('Run logs unavailable: '+type(error).__name__)
+          except Exception as error:
+              problems.append('Actions evidence: '+type(error).__name__+': '+str(error))
+          report.extend(['','## Collection limitations']+(problems or ['None detected.']))
+          report.extend(['','Collection success is not an application test pass. No integration repair is applied.'])
+          text='\n'.join(report)+'\n'
+          (out/'README.md').write_text(text)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary: summary.write(text)
+          if problems: raise SystemExit(1)
+          PY
+      - name: Upload diagnostic evidence even if collection fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-complete-diagnostic-${{ github.run_id }}
+          path: diagnostic/
+          if-no-files-found: error
+          retention-days: 7
