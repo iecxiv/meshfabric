@@ -31,8 +31,9 @@ LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
 val refreshAction=userGroupsRefreshAction(s.ready,s.busy,s.loading,s.userGroupPhase,s.notice)
 val feedback=userGroupsNoticeText(s.notice,es)
-    LazyColumn(modifier,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    LazyColumn(modifier,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item {
+            Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=if(userGroupsNoticeIsError(s.notice)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 ServerGeneralActions {
 Column(Modifier.testTag("user-groups-server-actions")) {
@@ -53,7 +54,9 @@ if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una con
             if(s.userGroupPhase=="failed") Text(t("No se ha podido consultar el listado. Puedes volver a actualizar.","The list could not be retrieved. Refresh to try again."),color=MaterialTheme.colorScheme.error)
             if(s.ready && ProfilePermissions.normalized(s.site) and 256L==0L) Text(t("Vista limitada: el servidor proporciona solo nombres.","Limited view: the server provides names only."),style=MaterialTheme.typography.bodySmall)
             if(s.userGroupPhase=="ready" && rows.isEmpty()) Text(if(query.isBlank()) t("No se han recibido grupos del dominio actual.","No groups were received for the current domain.") else t("Sin coincidencias.","No matches."))
+            }
         }
+        if(rows.isNotEmpty()) item {Text(t("Grupos","Groups"),style=MaterialTheme.typography.titleMedium,modifier=Modifier.testTag("user-groups-list-heading"))}
         items(rows,key={it.optString("_id")}) { group->
             ManagementCard {
                 Text(group.optString("name").ifBlank { t("Grupo sin nombre","Unnamed group") },style=MaterialTheme.typography.titleSmall)
