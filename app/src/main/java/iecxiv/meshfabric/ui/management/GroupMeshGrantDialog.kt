@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
@@ -36,29 +37,36 @@ internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rig
     val actor=remember {s.id};val server=remember {session.broadcastServerLabel()}
     var query by remember {mutableStateOf("")}
     var selected by remember {mutableStateOf("")}
-    var selectedLabel by remember {mutableStateOf("")}
+    var selectedMesh by remember {mutableStateOf<JSONObject?>(null)}
     var hex by remember {mutableStateOf("")}
     var frozen by remember {mutableStateOf<JSONObject?>(null)}
     var approved by remember {mutableStateOf(false)}
     var submitted by remember {mutableStateOf(false)}
     var error by remember {mutableStateOf(false)}
     val bound=actor==s.id && server.isNotBlank() && server==session.broadcastServerLabel()
+    val subject=remember {s.listedUserGroups.orEmpty().singleOrNull {it.optString("_id")==gid}?.let {JSONObject(it.toString())}}
+    val subjectIdentity=profileReviewIdentity(subject,s.listedUserGroups.orEmpty(),es)
+    val meshIdentity=profileReviewIdentity(selectedMesh,s.groups,es)
+    val identityReady=subjectIdentity.usable && meshIdentity.usable
+    var invalidated by remember {mutableStateOf(false)}
     val rights=profileGroupMeshGrantHex(hex)
-    val draft=if(bound && rights!=null && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups)) profileGroupMeshGrantDraft(s,gid,selected,rights,actor,server) else null
+    val draft=if(bound && identityReady && rights!=null && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups)) profileGroupMeshGrantDraft(s,gid,selected,rights,actor,server) else null
     val review=frozen
     val packet=review?.let {JSONObject(it.toString()).put("_grantConfirmed",approved)}
-    val current=bound && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups) && review!=null && profileGroupMeshGrantAllowed(s,JSONObject(review.toString()).put("_grantConfirmed",true),server)
+    val current=bound && identityReady && !invalidated && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups) && review!=null && profileGroupMeshGrantAllowed(s,JSONObject(review.toString()).put("_grantConfirmed",true),server)
+    LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {approved=false;invalidated=true}}
     val observed=submitted && s.notice=="groupMeshGrantedObserved" && s.grantedGroup==gid && s.grantedDeviceGroup==selected
     val candidates=if(bound && !submitted && review==null) s.groups.filter {profileGroupMeshGrantDraft(s,gid,it.optString("_id"),8L,actor,server)!=null}.filter {deviceGroupMatches(query,it.optString("name"),it.optString("desc"))} else emptyList()
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Nueva asignación","New assignment"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text(server,style=MaterialTheme.typography.bodySmall);Text(gid,style=MaterialTheme.typography.bodySmall)
+            Text(server,style=MaterialTheme.typography.bodySmall);Text(t("Grupo de usuarios: ","User group: ")+subjectIdentity.label,style=MaterialTheme.typography.bodySmall)
+            if(!subjectIdentity.usable || (selected.isNotBlank() && !meshIdentity.usable)) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             Text(t("Solo asignaciones nuevas. No se sobrescriben enlaces existentes. Se exige autoridad directa completa sobre el grupo de dispositivos.","New assignments only. Existing links are not overwritten. Direct full authority over the device group is required."),style=MaterialTheme.typography.bodySmall)
             if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
             if(review==null && !submitted) {
                 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo de dispositivos","Search device groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
-                for(mesh in candidates.take(100)) {val mid=mesh.optString("_id");TextButton(enabled=profileGroupChoiceUsable(mesh,s.groups),onClick={selected=mid;selectedLabel=profileGroupChoiceLabel(mesh,s.groups,es);error=false}) {Text((if(selected==mid) "● " else "○ ")+profileGroupChoiceLabel(mesh,s.groups,es))}}
-                if(candidates.any {!profileGroupChoiceUsable(it,s.groups)}) Text(t("Hay grupos sin nombre o sin datos suficientes para distinguirlos. Actualiza o asigna un nombre o descripción inequívocos antes de seleccionarlos.","Some groups have no name or cannot be distinguished with the received data. Refresh or give them an unambiguous name or description before selecting them."),style=MaterialTheme.typography.bodySmall)
+                for(mesh in candidates.take(100)) {val mid=mesh.optString("_id");TextButton(modifier=Modifier.testTag("group-grant-candidate-"+mid),enabled=subjectIdentity.usable && profileGroupChoiceUsable(mesh,s.groups) && profileReviewIdentity(mesh,s.groups,es).usable,onClick={selected=mid;selectedMesh=JSONObject(mesh.toString());error=false}) {Text((if(selected==mid) "● " else "○ ")+profileReviewIdentity(mesh,s.groups,es).label)}}
+                if(candidates.any {!profileGroupChoiceUsable(it,s.groups) || !profileReviewIdentity(it,s.groups,es).usable}) Text(t("Hay grupos sin nombre o sin datos suficientes para distinguirlos. Actualiza o asigna un nombre o descripción inequívocos antes de seleccionarlos.","Some groups have no name or cannot be distinguished with the received data. Refresh or give them an unambiguous name or description before selecting them."),style=MaterialTheme.typography.bodySmall)
                 if(candidates.isEmpty()) Text(t("No hay candidatos elegibles en los datos actuales. Actualiza o revisa permisos y enlaces recibidos.","No eligible candidates in current data. Refresh or review permissions and received links."))
                 if(candidates.size>100) Text(t("Primeros 100 resultados. Acota la búsqueda.","First 100 results. Narrow the search."))
                 Text(t("Selección: ","Selection: ")+(rights?.let {deviceGroupRightsLabel(it,es)} ?: if(hex.isBlank()) t("Sin permisos seleccionados","No rights selected") else t("Máscara no válida: corrígela en Avanzado","Invalid mask: correct it in Advanced")),style=MaterialTheme.typography.bodySmall)
@@ -75,22 +83,22 @@ internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rig
                     }
                 }
                 ProfileDisclosure(t("Avanzado: máscara hexadecimal","Advanced: hexadecimal mask")) {
-                OutlinedTextField(hex,{hex=it.take(256);error=false},label={Text(t("Derechos: máscara hexadecimal","Rights: hexadecimal mask"))},supportingText={Text(t("Sin valor predeterminado. Debe ser distinta de cero y usar solo bits de 0x00FFFFF8. No admite administración completa ni los bits 1, 2 y 4.","No default. Must be nonzero and use only bits in 0x00FFFFF8. Full administration and bits 1, 2 and 4 are excluded."))},isError=hex.isNotBlank() && rights==null,singleLine=true,modifier=Modifier.fillMaxWidth())
+                OutlinedTextField(hex,{hex=it.take(256);error=false},label={Text(t("Derechos: máscara hexadecimal","Rights: hexadecimal mask"))},supportingText={Text(t("Sin valor predeterminado. Debe ser distinta de cero y usar solo bits de 0x00FFFFF8. No admite administración completa ni los bits 1, 2 y 4.","No default. Must be nonzero and use only bits in 0x00FFFFF8. Full administration and bits 1, 2 and 4 are excluded."))},isError=hex.isNotBlank() && rights==null,singleLine=true,modifier=Modifier.fillMaxWidth().testTag("group-grant-hex"))
                 }
             }
-            if(selected.isNotBlank()) Text(t("Grupo de dispositivos: ","Device group: ")+selectedLabel)
+            if(selected.isNotBlank()) Text(t("Grupo de dispositivos: ","Device group: ")+meshIdentity.label)
             if(review!=null) {
                 Text(t("Derechos congelados: ","Frozen rights: ")+java.lang.String.format(java.util.Locale.ROOT,"0x%08X",review.getLong("meshadmin")))
                 Text(deviceGroupRightsLabel(review.getLong("meshadmin"),es),style=MaterialTheme.typography.bodySmall)
-                if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current);Text(t("Confirmo crear esta asignación con estos derechos.","I confirm creating this assignment with these rights."),Modifier.weight(1f))}
+                if(!submitted) Row {Checkbox(approved,{approved=it},enabled=current,modifier=Modifier.testTag("group-grant-consent"));Text(t("Confirmo crear esta asignación con estos derechos.","I confirm creating this assignment with these rights."),Modifier.weight(1f))}
             }
             Text(t("Puede conceder acceso heredado a los miembros. Las consultas no son atómicas y no calculan todos los permisos efectivos. No hay reintentos automáticos; cerrar no cancela una solicitud enviada.","May grant inherited access to members. Reads are not atomic and do not calculate all effective rights. No automatic retries; closing does not cancel a sent request."),style=MaterialTheme.typography.bodySmall)
             if(observed) Text(t("Respuesta confirmada y derechos solicitados observados en ambos enlaces.","Reply confirmed and requested rights observed in both links."))
             else if(submitted) Text(if(s.notice=="rejected") t("Solicitud rechazada.","Request rejected.") else t("Enviada; resultado sin verificar. Consulta el estado antes de repetir.","Sent; outcome not verified. Check state before repeating."))
             else if(error || (review!=null && !current)) Text(t("La copia ya no es válida. Vuelve atrás y actualiza.","This copy is no longer valid. Go back and refresh."),color=MaterialTheme.colorScheme.error)
         }
-    },confirmButton={if(!submitted) Button(enabled=if(review==null) draft!=null else current && packet!=null && profileGroupMeshGrantAllowed(s,packet,server),onClick={if(review==null) {frozen=draft?.let {JSONObject(it.toString())};approved=false;error=false} else if(packet!=null && session.submit(packet)) {submitted=true;approved=false} else error=true}) {Text(if(review==null) t("Revisar asignación","Review assignment") else t("Crear asignación","Create assignment"))}},dismissButton={Row {
-        if(!submitted) TextButton(onClick={frozen=null;approved=false;error=false;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Volver y actualizar","Back and refresh"))}
+    },confirmButton={if(!submitted) Button(modifier=Modifier.testTag(if(review==null) "group-grant-prepare" else "group-grant-send"),enabled=if(review==null) draft!=null else current && packet!=null && profileGroupMeshGrantAllowed(s,packet,server),onClick={if(review==null) {frozen=draft?.let {JSONObject(it.toString())};approved=false;error=false} else if(packet!=null && current && session.submit(packet)) {submitted=true;approved=false} else error=true}) {Text(if(review==null) t("Revisar asignación","Review assignment") else t("Crear asignación","Create assignment"))}},dismissButton={Row {
+        if(!submitted) TextButton(onClick={frozen=null;approved=false;invalidated=false;error=false;session.refresh();session.loadUserGroupDirectory()}) {Text(t("Volver y actualizar","Back and refresh"))}
         TextButton(onClick=onDismiss) {Text(t("Cerrar","Close"))}
     }})
 }

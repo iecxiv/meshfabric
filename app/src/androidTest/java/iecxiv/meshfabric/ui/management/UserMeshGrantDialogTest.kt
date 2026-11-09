@@ -19,7 +19,7 @@ class UserMeshGrantDialogTest {
     @get:Rule val compose=createComposeRule()
     private val actor="user//admin";private val uid="user//target";private val mid="mesh//group"
     private fun state(rights:Long=8):ProfileState {
-        val user=JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject().apply {if(rights!=8L) put(mid,JSONObject().put("rights",rights))})
+        val user=JSONObject().put("_id",uid).put("name","Cuenta destino").put("siteadmin",0).put("links",JSONObject().apply {if(rights!=8L) put(mid,JSONObject().put("rights",rights))})
         val mesh=JSONObject().put("_id",mid).put("name","Group").put("links",JSONObject().put(actor,JSONObject().put("rights",0xffffffffL)).apply {if(rights!=8L) put(uid,JSONObject().put("rights",rights))})
         return ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(user),groups=listOf(mesh))
     }
