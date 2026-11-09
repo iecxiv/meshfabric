@@ -41,6 +41,12 @@ private fun editMask(value:Long)=java.lang.String.format(java.util.Locale.ROOT,"
     val actor=remember {s.id};val server=remember {session.broadcastServerLabel()}
     val baseline=remember {profileUserMeshEditBaseline(s,uid,mid,actor,server)}
     val before=baseline?.getLong("meshadmin")
+    val subject=remember {s.users.singleOrNull {it.optString("_id")==uid}?.let {JSONObject(it.toString())}}
+    val deviceGroup=remember {s.groups.singleOrNull {it.optString("_id")==mid}?.let {JSONObject(it.toString())}}
+    val subjectIdentity=profileReviewIdentity(subject,s.users,es)
+    val meshIdentity=profileReviewIdentity(deviceGroup,s.groups,es)
+    val identityReady=subjectIdentity.usable && meshIdentity.usable
+    val displayNames=rememberProfileDisplayNames(s,server)
     var hex by remember {mutableStateOf(before?.let {java.lang.Long.toHexString(it and USER_MESH_EDITABLE_MASK)}.orEmpty())}
     var frozen by remember {mutableStateOf<JSONObject?>(null)}
     var approved by remember {mutableStateOf(false)}
@@ -50,18 +56,19 @@ private fun editMask(value:Long)=java.lang.String.format(java.util.Locale.ROOT,"
     val bound=actor==s.id && server.isNotBlank() && server==session.broadcastServerLabel()
     val selected=profileUserMeshEditHex(hex)
     val after=if(before!=null && selected!=null) profileUserMeshEditedRights(before,selected) else null
-    val draft=if(bound) profileUserMeshEditDraft(s,baseline,selected,server) else null
+    val draft=if(bound && identityReady) profileUserMeshEditDraft(s,baseline,selected,server) else null
     val review=frozen
-    val current=bound && !invalidated && review!=null && profileUserMeshEditAllowed(s,JSONObject(review.toString()).put("_userEditConfirmed",true),server)
+    val current=bound && identityReady && !invalidated && review!=null && profileUserMeshEditAllowed(s,JSONObject(review.toString()).put("_userEditConfirmed",true),server)
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {approved=false;invalidated=true}}
     val packet=review?.let {JSONObject(it.toString()).put("_userEditConfirmed",approved)}
     val observed=submitted && s.notice=="userMeshEditedObserved" && s.editedDirectUser==uid && s.editedDirectMesh==mid
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar derechos directos","Edit direct rights"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(server,style=MaterialTheme.typography.bodySmall)
-            Text(t("Actor: ","Actor: ")+actor,style=MaterialTheme.typography.bodySmall)
-            Text(t("Usuario: ","User: ")+uid,style=MaterialTheme.typography.bodySmall)
-            Text(t("Grupo de dispositivos: ","Device group: ")+mid,style=MaterialTheme.typography.bodySmall)
+            Text(t("Actor: ","Actor: ")+displayNames.label(actor,es),style=MaterialTheme.typography.bodySmall)
+            Text(t("Usuario: ","User: ")+subjectIdentity.label,style=MaterialTheme.typography.bodySmall)
+            Text(t("Grupo de dispositivos: ","Device group: ")+meshIdentity.label,style=MaterialTheme.typography.bodySmall)
+            if(!identityReady) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             Text(t("Solo modifica un acceso directo existente y coherente en ambos enlaces. No modifica los accesos heredados ni calcula todos los permisos efectivos.","Only edits an existing direct assignment consistent in both links. Does not modify inherited assignments or calculate all effective rights."),style=MaterialTheme.typography.bodySmall)
             if(s.loading || s.detailsBusy || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
             if(before!=null) {
@@ -70,12 +77,12 @@ private fun editMask(value:Long)=java.lang.String.format(java.util.Locale.ROOT,"
                 Text(t("Bits conservados fuera de la parte editable: ","Preserved bits outside the editable portion: ")+editMask(before and USER_MESH_EDITABLE_MASK.inv() and 0xffffffffL),style=MaterialTheme.typography.bodySmall)
             } else Text(t("Copia no editable: faltan enlaces coherentes o se trata de administración completa.","Copy cannot be edited: consistent links are missing or the assignment has full administration."),color=MaterialTheme.colorScheme.error)
             if(review==null && !submitted) {
-                OutlinedTextField(hex,{hex=it.take(32);approved=false;error=false},label={Text(t("Parte editable: hexadecimal","Editable portion: hexadecimal"))},supportingText={Text(t("Se precarga la parte editable recibida; no son permisos predeterminados. Solo admite bits de 0x00FFFFF8. Los demás se conservan. Una máscara final cero requiere la acción de retirada.","Preloads the received editable portion, not default permissions. Only bits in 0x00FFFFF8 are accepted. Other bits are preserved. A zero final mask requires the revocation action."))},isError=selected==null,singleLine=true,enabled=bound && s.canWrite && !s.detailsBusy,modifier=Modifier.fillMaxWidth().testTag("direct-edit-hex"))
+                OutlinedTextField(hex,{hex=it.take(32);approved=false;error=false},label={Text(t("Parte editable: hexadecimal","Editable portion: hexadecimal"))},supportingText={Text(t("Se precarga la parte editable recibida; no son permisos predeterminados. Solo admite bits de 0x00FFFFF8. Los demás se conservan. Una máscara final cero requiere la acción de retirada.","Preloads the received editable portion, not default permissions. Only bits in 0x00FFFFF8 are accepted. Other bits are preserved. A zero final mask requires the revocation action."))},isError=selected==null,singleLine=true,enabled=identityReady && bound && s.canWrite && !s.detailsBusy,modifier=Modifier.fillMaxWidth().testTag("direct-edit-hex"))
                 Text(t("Las opciones incluyen permisos y restricciones. No se añaden dependencias automáticamente.","Options include rights and restrictions. Dependencies are not added automatically."),style=MaterialTheme.typography.bodySmall)
                 ProfileDisclosure(t("Seleccionar permisos y restricciones","Select rights and restrictions")) {
                     for(index in 3..23) {val bit=1L shl index
                         Row {
-                            Checkbox(checked=(selected ?: 0L) and bit!=0L,enabled=bound && s.canWrite && !s.detailsBusy && selected!=null,onCheckedChange={checked->
+                            Checkbox(checked=(selected ?: 0L) and bit!=0L,enabled=identityReady && bound && s.canWrite && !s.detailsBusy && selected!=null,onCheckedChange={checked->
                                 val value=selected ?: 0L
                                 hex=java.lang.Long.toHexString(if(checked) value or bit else value and bit.inv());approved=false;error=false
                             },modifier=Modifier.testTag("direct-edit-bit-"+bit))

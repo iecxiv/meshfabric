@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 class GroupMeshEditDialogTest {
     @get:Rule val compose=createComposeRule()
     private val actor="user//admin";private val gid="ugrp//group";private val mid="mesh//group"
-    private fun state(rights:Long=0x80000008L)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",256L),listedUserGroups=listOf(JSONObject().put("_id",gid).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("links",JSONObject().put(gid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))),userGroupPhase="ready")
+    private fun state(rights:Long=0x80000008L)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",256L),listedUserGroups=listOf(JSONObject().put("_id",gid).put("name","Destino").put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("name","Oficina").put("links",JSONObject().put(gid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))),userGroupPhase="ready")
     private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
     private inner class Fixture(initial:ProfileState=state()):AutoCloseable {
         val client=MeshCentralClient();val session=ProfileSession(client)
@@ -119,5 +119,37 @@ class GroupMeshEditDialogTest {
         compose.onNodeWithTag("group-edit-bit-8").performScrollTo().performClick()
         compose.onNodeWithTag("group-edit-after").assertTextEquals("0x80000010")
         compose.onNodeWithTag("group-edit-prepare").assertIsEnabled()
+    }}
+
+    @Test fun readableHeadingsDoNotExposeInternalIds() {Fixture().use {
+        for(id in listOf(actor,gid,mid)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)
+        compose.onNodeWithText("Destino",substring=true).assertExists()
+        compose.onNodeWithText("Oficina",substring=true).assertExists()
+    }}
+    @Test fun missingOrIndistinguishableNamesBlockPreparingChanges() {Fixture().use {f->
+        chooseEdit()
+        val old=state()
+        val subject=requireNotNull(old.listedUserGroups).single()
+        val missing=JSONObject(subject.toString()).apply {remove("name")}
+        compose.runOnIdle {f.current.value=old.copy(listedUserGroups=listOf(missing))}
+        compose.onNodeWithTag("group-edit-prepare").assertIsNotEnabled()
+        val duplicate=JSONObject(subject.toString()).put("_id","ugrp//other")
+        compose.runOnIdle {f.current.value=old.copy(listedUserGroups=requireNotNull(old.listedUserGroups)+duplicate)}
+        compose.onNodeWithTag("group-edit-prepare").assertIsNotEnabled()
+        compose.runOnIdle {f.current.value=old}
+        compose.onNodeWithTag("group-edit-prepare").assertIsEnabled()
+    }}
+    @Test fun ambiguousFrozenReviewCannotReactivateWhenNamesBecomeUniqueAgain() {Fixture().use {f->
+        chooseEdit()
+        compose.onNodeWithTag("group-edit-prepare").assertIsEnabled().performClick()
+        compose.onNodeWithTag("group-edit-consent").performScrollTo().performClick()
+        compose.onNodeWithTag("group-edit-send").assertIsEnabled()
+        val old=state()
+        val duplicate=JSONObject(requireNotNull(old.listedUserGroups).single().toString()).put("_id","ugrp//other")
+        compose.runOnIdle {f.current.value=old.copy(listedUserGroups=requireNotNull(old.listedUserGroups)+duplicate)}
+        compose.onNodeWithTag("group-edit-send").assertIsNotEnabled()
+        compose.runOnIdle {f.current.value=old}
+        compose.onNodeWithTag("group-edit-send").assertIsNotEnabled()
+        compose.onNodeWithTag("group-edit-consent").assertIsNotEnabled()
     }}
 }

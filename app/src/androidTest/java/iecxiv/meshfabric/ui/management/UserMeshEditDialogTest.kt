@@ -18,7 +18,7 @@ import org.junit.runner.RunWith
 class UserMeshEditDialogTest {
     @get:Rule val compose=createComposeRule()
     private val actor="user//admin";private val uid="user//target";private val mid="mesh//group"
-    private fun state(rights:Long=0x80000008L)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(JSONObject().put("_id",uid).put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("links",JSONObject().put(uid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))))
+    private fun state(rights:Long=0x80000008L)=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",2),users=listOf(JSONObject().put("_id",uid).put("name","Destino").put("siteadmin",0).put("links",JSONObject().put(mid,JSONObject().put("rights",rights)))),groups=listOf(JSONObject().put("_id",mid).put("name","Oficina").put("links",JSONObject().put(uid,JSONObject().put("rights",rights)).put(actor,JSONObject().put("rights",0xffffffffL)))))
     private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
     private inner class Fixture(initial:ProfileState=state()):AutoCloseable {
         val client=MeshCentralClient();val session=ProfileSession(client)
@@ -93,5 +93,37 @@ class UserMeshEditDialogTest {
         compose.runOnIdle {f.current.value=state()}
         compose.onNodeWithTag("direct-edit-consent").assertIsNotEnabled()
         compose.onNodeWithTag("direct-edit-send").assertIsNotEnabled()
+    }}
+
+    @Test fun readableHeadingsDoNotExposeInternalIds() {Fixture().use {
+        for(id in listOf(actor,uid,mid)) compose.onAllNodesWithText(id,substring=true).assertCountEquals(0)
+        compose.onNodeWithText("Destino",substring=true).assertExists()
+        compose.onNodeWithText("Oficina",substring=true).assertExists()
+    }}
+    @Test fun missingOrIndistinguishableNamesBlockPreparingChanges() {Fixture().use {f->
+        chooseEdit()
+        val old=state()
+        val subject=old.users.single()
+        val missing=JSONObject(subject.toString()).apply {remove("name")}
+        compose.runOnIdle {f.current.value=old.copy(users=listOf(missing))}
+        compose.onNodeWithTag("direct-edit-prepare").assertIsNotEnabled()
+        val duplicate=JSONObject(subject.toString()).put("_id","user//other")
+        compose.runOnIdle {f.current.value=old.copy(users=old.users+duplicate)}
+        compose.onNodeWithTag("direct-edit-prepare").assertIsNotEnabled()
+        compose.runOnIdle {f.current.value=old}
+        compose.onNodeWithTag("direct-edit-prepare").assertIsEnabled()
+    }}
+    @Test fun ambiguousFrozenReviewCannotReactivateWhenNamesBecomeUniqueAgain() {Fixture().use {f->
+        chooseEdit()
+        compose.onNodeWithTag("direct-edit-prepare").assertIsEnabled().performClick()
+        compose.onNodeWithTag("direct-edit-consent").performScrollTo().performClick()
+        compose.onNodeWithTag("direct-edit-send").assertIsEnabled()
+        val old=state()
+        val duplicate=JSONObject(old.users.single().toString()).put("_id","user//other")
+        compose.runOnIdle {f.current.value=old.copy(users=old.users+duplicate)}
+        compose.onNodeWithTag("direct-edit-send").assertIsNotEnabled()
+        compose.runOnIdle {f.current.value=old}
+        compose.onNodeWithTag("direct-edit-send").assertIsNotEnabled()
+        compose.onNodeWithTag("direct-edit-consent").assertIsNotEnabled()
     }}
 }
