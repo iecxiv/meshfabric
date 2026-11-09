@@ -19,7 +19,7 @@ import java.util.Locale
     @get:Rule val compose=createComposeRule()
     private val uid="user//alice";private val gid="ugrp//team";private val missing="ugrp//missing";private val mid="mesh//office";private val nid="node//laptop"
     private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
-    private inner class Fixture(val groupMode:String="",val deviceCanOpen:Boolean=false,val ambiguousDevice:Boolean=false):AutoCloseable {
+    private inner class Fixture(val groupMode:String="",val deviceCanOpen:Boolean=false,val ambiguousDevice:Boolean=false,val duplicateDeviceId:Boolean=false):AutoCloseable {
         var openedGroup:String?=null
         var openedDevice:String?=null
         val client=MeshCentralClient();val session=ProfileSession(client)
@@ -28,12 +28,12 @@ import java.util.Locale
         val team=JSONObject().put("_id",gid).put("name","Equipo").put("desc","Madrid").put("links",JSONObject().put(uid,JSONObject().put("rights",1)))
         val mesh=JSONObject().put("_id",mid).put("name",if(groupMode=="missing") "" else "Oficina").put("desc","Madrid")
         val node=JSONObject().put("_id",nid).put("name","Portátil").put("desc","Personal").put("meshid",mid)
-        val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=if(groupMode=="ambiguous") listOf(mesh,JSONObject(mesh.toString()).put("_id","mesh//other")) else listOf(mesh),nodes=if(ambiguousDevice) listOf(node,JSONObject(node.toString()).put("_id","node//other")) else listOf(node),userGroups=listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
+        val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=if(groupMode=="ambiguous") listOf(mesh,JSONObject(mesh.toString()).put("_id","mesh//other")) else listOf(mesh),nodes=if(duplicateDeviceId) listOf(node,JSONObject(node.toString())) else if(ambiguousDevice) listOf(node,JSONObject(node.toString()).put("_id","node//other")) else listOf(node),userGroups=listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
         init {
             compose.setContent {
                 val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
-                    UserAdministrationDialog(session,state,ProfileForm(true,"edit",uid,"Alicia","alice@example.invalid"),onOpenGroup={openedGroup=it},onOpenDevice={openedDevice=it},canOpenDevice={deviceCanOpen && it==nid},onDismiss={})
+                    UserAdministrationDialog(session,state,ProfileForm(true,"edit",uid,"Alicia","alice@example.invalid"),onOpenGroup={openedGroup=it},onOpenDevice={openedDevice=it},canOpenDevice={deviceCanOpen && (it==nid || (ambiguousDevice && it=="node//other"))},onDismiss={})
                 }}
             }
         }
@@ -103,7 +103,18 @@ import java.util.Locale
         compose.onNodeWithText("Abrir ficha").performScrollTo().assertIsEnabled().performClick()
         assertEquals(nid,f.openedDevice);f.assertNoIds()
     }}
-    @Test fun ambiguousCommonDevicesCannotBypassIdentityGuard() {Fixture(deviceCanOpen=true,ambiguousDevice=true).use {f->
+    @Test fun homonymousCommonDevicesOpenTheirOwnExactIds() {Fixture(deviceCanOpen=true,ambiguousDevice=true).use {f->
+        compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
+        val buttons=compose.onAllNodesWithText("Abrir ficha")
+        buttons.assertCountEquals(2)
+        buttons[0].performScrollTo().assertIsEnabled().performClick()
+        assertEquals(nid,f.openedDevice)
+        buttons[1].performScrollTo().assertIsEnabled().performClick()
+        assertEquals("node//other",f.openedDevice)
+        compose.onAllNodesWithText("Ficha no disponible:",substring=true).assertCountEquals(0)
+        f.assertNoIds()
+    }}
+    @Test fun duplicateExactDeviceIdStillBlocksBothEntries() {Fixture(deviceCanOpen=true,duplicateDeviceId=true).use {f->
         compose.onNodeWithText("Dispositivos en común").performScrollTo().performClick()
         val buttons=compose.onAllNodesWithText("Abrir ficha")
         buttons.assertCountEquals(2)
