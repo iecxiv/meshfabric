@@ -34,10 +34,11 @@ val feedback=userGroupsNoticeText(s.notice,es)
     LazyColumn(modifier,contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         item {
             if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=if(userGroupsNoticeIsError(s.notice)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-ManagementCard(Modifier.testTag("user-groups-server-actions")) {
-Text(t("Acciones del servidor","Server actions"),style=MaterialTheme.typography.titleSmall)
+ServerGeneralActions {
+Column(Modifier.testTag("user-groups-server-actions")) {
 TextButton(enabled=refreshAction!=UserGroupsRefreshAction.NONE,onClick={when(refreshAction) {UserGroupsRefreshAction.RECONNECT->session.start();UserGroupsRefreshAction.REFRESH->{session.refresh();session.loadUserGroupDirectory()};UserGroupsRefreshAction.NONE->Unit}}) {Text(if(s.ready) t("Actualizar","Refresh") else t("Reconectar","Reconnect"))}
 TextButton(enabled=s.canWrite && s.userGroupPhase=="ready" && profileUserGroupEditRole(s.site),onClick={editing=null;deleting=null;removing=null;creating=true}) {Text(t("Crear grupo de usuarios","Create user group"))}
+}
 }
 if(s.notice=="userGroupCreated" && s.createdUserGroup.isNotBlank()) Text(t("El servidor confirmó la creación: ","The server confirmed creation: ")+displayNames.label(s.createdUserGroup,es),style=MaterialTheme.typography.bodySmall)
             if(s.notice=="userGroupDeleted" && s.deletedUserGroup.isNotBlank()) Text(t("El grupo ","Group ")+displayNames.label(s.deletedUserGroup,es)+t(" ha sido eliminado. Borrado confirmado por el servidor."," has been deleted. Deletion confirmed by the server."),style=MaterialTheme.typography.bodySmall)

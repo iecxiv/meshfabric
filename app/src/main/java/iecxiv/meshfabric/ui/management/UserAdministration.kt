@@ -196,8 +196,7 @@ Text(t("Solo enlaces directos recibidos. No representa todos los permisos efecti
 val directGroups=s.groups.filter {g->user.optJSONObject("links")?.has(g.optString("_id"))==true || g.optJSONObject("links")?.has(form.id)==true}
 if(directGroups.isEmpty()) Text(t("No se han recibido enlaces directos con los grupos visibles.","No direct links received for visible groups."))
 for(g in directGroups) ManagementCard {
-Text(g.optString("name").ifBlank {g.optString("_id")},style=MaterialTheme.typography.titleSmall)
-Text(g.optString("_id"),style=MaterialTheme.typography.bodySmall)
+Text(g.optString("name").ifBlank {t("Grupo sin nombre","Unnamed group")},style=MaterialTheme.typography.titleSmall)
 TextButton(enabled=contactReady && !s.detailsBusy,onClick={directMesh=g.optString("_id");session.refresh()}) {Text(t("Revisar acceso directo","Review direct access"))}
 TextButton(enabled=contactReady && !s.detailsBusy,onClick={directEdit=g.optString("_id")}) {Text(t("Editar derechos directos","Edit direct rights"))}
 }

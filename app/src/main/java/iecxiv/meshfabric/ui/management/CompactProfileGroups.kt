@@ -30,13 +30,26 @@ internal fun deviceGroupRightsLabel(value:Long,es:Boolean):String {
     if(mask and 0xff000000L!=0L) selected.add(if(es) "Permisos adicionales" else "Additional rights")
     return selected.joinToString(", ")
 }
+internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.vector.ImageVector=when {
+    title.contains("identificador",true) || title.contains("identifier",true)->Icons.Default.Fingerprint
+    title.contains("acceso",true) || title.contains("access",true) || title.contains("permiso",true) || title.contains("rights",true)->Icons.Default.Security
+    title.contains("dispositivo",true) || title.contains("device",true)->Icons.Default.Devices
+    title.contains("grupo",true) || title.contains("group",true)->Icons.Default.Group
+    title.contains("seguridad",true) || title.contains("security",true)->Icons.Default.Lock
+    title.contains("consent",true)->Icons.Default.VerifiedUser
+    title.contains("avanzado",true) || title.contains("advanced",true)->Icons.Default.Tune
+    title.contains("información",true) || title.contains("information",true)->Icons.Default.Info
+    else->Icons.Default.Settings
+}
 @Composable internal fun ProfileDisclosure(title:String,summary:String="",content:@Composable ()->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     var expanded by rememberSaveable(title) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         TextButton(onClick={expanded=!expanded},modifier=Modifier.fillMaxWidth().heightIn(min=48.dp).semantics { stateDescription=if(expanded) { if(es) "Expandido" else "Expanded" } else { if(es) "Plegado" else "Collapsed" } },contentPadding=PaddingValues(horizontal=0.dp,vertical=4.dp)) {
+            Icon(profileDisclosureIcon(title),null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f),horizontalAlignment=Alignment.Start) {
-                Text(title,style=MaterialTheme.typography.titleSmall)
+                Text(title,style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)
                 if(summary.isNotBlank()) Text(summary,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
             }
             Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,contentDescription=null)

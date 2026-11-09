@@ -6,6 +6,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -94,10 +97,10 @@ items(rows,key={ it.optString("_id") }) { row->
 val id=row.optString("_id")
 val name=row.optString("name").ifBlank { if(users) id else t("Grupo sin nombre","Unnamed group") }
 ManagementCard {
-Text(name,style=MaterialTheme.typography.titleSmall)
+if(users) Text(name,style=MaterialTheme.typography.titleSmall) else Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {Icon(Icons.Default.Devices,null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.primary);Text(name,Modifier.weight(1f),style=MaterialTheme.typography.titleSmall,maxLines=2,overflow=TextOverflow.Ellipsis)}
 if(users) Text(id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 val detail=row.optString(if(users) "email" else "desc")
-if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium)
+if(detail.isNotBlank()) Text(detail,style=MaterialTheme.typography.bodyMedium,maxLines=3,overflow=TextOverflow.Ellipsis)
 if(users && userIsLocked(row.optLong("siteadmin",0))) Text(t("Bloqueado","Locked"),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.labelMedium)
 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {
