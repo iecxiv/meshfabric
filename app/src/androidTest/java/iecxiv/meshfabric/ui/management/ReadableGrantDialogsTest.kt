@@ -20,14 +20,14 @@ import java.util.Locale
     @get:Rule val compose=createComposeRule()
     private val actor="user//admin";private val mid="mesh//office"
     private fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
-    private inner class Fixture(val groups:Boolean,missingName:Boolean=false):AutoCloseable {
+    private inner class Fixture(val groups:Boolean,missingName:Boolean=false,startLoading:Boolean=false):AutoCloseable {
         val uid=if(groups) "ugrp//target" else "user//target"
         val prefix=if(groups) "group-grant-" else "direct-grant-"
         val client=MeshCentralClient();val session=ProfileSession(client)
         val subject=JSONObject().put("_id",uid).put("name",if(missingName) "" else "Equipo").put("desc","Madrid").put("siteadmin",0).put("links",JSONObject())
         val mesh=JSONObject().put("_id",mid).put("name","Oficina").put("desc","Madrid").put("links",JSONObject().put(actor,JSONObject().put("rights",0xffffffffL)))
         val baseline=ProfileState(ready=true,user=JSONObject().put("_id",actor).put("siteadmin",if(groups) 256L else 2L),users=if(groups) emptyList() else listOf(subject),groups=listOf(mesh),listedUserGroups=if(groups) listOf(subject) else emptyList(),userGroupPhase="ready")
-        val state=mutableStateOf(baseline)
+        val state=mutableStateOf(if(startLoading) baseline.copy(listedUserGroups=null,userGroupPhase="loading") else baseline)
         init {
             field(client,"serverUrl").set(client,"https://example.invalid/");field(client,"authCookie").set(client,"offline-grant-identity-test")
             @Suppress("UNCHECKED_CAST") val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>
@@ -78,6 +78,39 @@ import java.util.Locale
         compose.onNodeWithText("nombre no disponible",substring=true).assertExists()
         compose.onNodeWithTag(f.prefix+"candidate-"+mid).performScrollTo().assertIsNotEnabled()
         compose.onNodeWithTag(f.prefix+"prepare").assertIsNotEnabled()
+    }}
+    @Test fun initialDirectoryReloadDoesNotFreezeNullSubject() {Fixture(true,startLoading=true).use {f->
+        compose.onNodeWithTag("group-grant-loading").assertExists()
+        compose.onAllNodesWithText("No se puede confirmar:",substring=true).assertCountEquals(0)
+        compose.onNodeWithTag("group-grant-prepare").assertIsNotEnabled()
+        compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+        compose.onNodeWithTag("group-grant-loading").assertDoesNotExist()
+        compose.onNodeWithText("Grupo de usuarios: Equipo · Madrid").assertExists()
+        compose.onNodeWithTag("group-grant-candidate-"+mid).performScrollTo().assertIsEnabled().performClick()
+        compose.onNodeWithText("Avanzado: máscara hexadecimal").performScrollTo().performClick()
+        compose.onNodeWithTag("group-grant-hex").performScrollTo().performTextReplacement("8")
+        compose.onNodeWithTag("group-grant-prepare").assertIsEnabled()
+        f.assertNoIds()
+    }}
+    @Test fun directoryReloadAfterReviewCannotReactivateConfirmation() {Fixture(true).use {f->
+        compose.onNodeWithTag("group-grant-candidate-"+mid).performScrollTo().performClick()
+        compose.onNodeWithText("Avanzado: máscara hexadecimal").performScrollTo().performClick()
+        compose.onNodeWithTag("group-grant-hex").performScrollTo().performTextReplacement("8")
+        compose.onNodeWithTag("group-grant-prepare").performClick()
+        compose.onNodeWithTag("group-grant-consent").performScrollTo().performClick()
+        compose.onNodeWithTag("group-grant-send").assertIsEnabled()
+        compose.runOnIdle {f.state.value=f.baseline.copy(listedUserGroups=null,userGroupPhase="loading")};compose.waitForIdle()
+        compose.onNodeWithTag("group-grant-send").assertIsNotEnabled()
+        compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+        compose.onNodeWithTag("group-grant-send").assertIsNotEnabled()
+        compose.onNodeWithTag("group-grant-consent").assertIsNotEnabled()
+    }}
+    @Test fun genuinelyMissingNameStaysBlockedAfterInitialLoad() {Fixture(true,missingName=true,startLoading=true).use {f->
+        compose.runOnIdle {f.state.value=f.baseline};compose.waitForIdle()
+        compose.onNodeWithText("No se puede confirmar:",substring=true).assertExists()
+        compose.onNodeWithTag("group-grant-candidate-"+mid).assertIsNotEnabled()
+        compose.onNodeWithTag("group-grant-prepare").assertIsNotEnabled()
+        f.assertNoIds()
     }}
     @Test fun userGrantUsesNamesAndPermanentlyInvalidatesAmbiguousReview()=verifyGrant(false)
     @Test fun groupGrantUsesNamesAndPermanentlyInvalidatesAmbiguousReview()=verifyGrant(true)

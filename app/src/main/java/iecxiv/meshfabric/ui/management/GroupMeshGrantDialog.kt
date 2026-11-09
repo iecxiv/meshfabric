@@ -44,30 +44,38 @@ internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rig
     var submitted by remember {mutableStateOf(false)}
     var error by remember {mutableStateOf(false)}
     val bound=actor==s.id && server.isNotBlank() && server==session.broadcastServerLabel()
-    val subject=remember {s.listedUserGroups.orEmpty().singleOrNull {it.optString("_id")==gid}?.let {JSONObject(it.toString())}}
+    val querying=s.loading || s.userGroupPhase in setOf("idle","loading")
+    var subject by remember(gid) {mutableStateOf<JSONObject?>(s.listedUserGroups?.takeIf {s.userGroupPhase=="ready"}?.singleOrNull {it.optString("_id")==gid}?.let {JSONObject(it.toString())})}
+    LaunchedEffect(gid,s.userGroupPhase,s.listedUserGroups) {
+        if(subject==null && frozen==null && !submitted && s.userGroupPhase=="ready") {
+            subject=s.listedUserGroups?.singleOrNull {it.optString("_id")==gid}?.let {JSONObject(it.toString())}
+        }
+    }
     val subjectIdentity=profileReviewIdentity(subject,s.listedUserGroups.orEmpty(),es)
     val meshIdentity=profileReviewIdentity(selectedMesh,s.groups,es)
     val identityReady=subjectIdentity.usable && meshIdentity.usable
     var invalidated by remember {mutableStateOf(false)}
     val rights=profileGroupMeshGrantHex(hex)
-    val draft=if(bound && identityReady && rights!=null && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups)) profileGroupMeshGrantDraft(s,gid,selected,rights,actor,server) else null
+    val draft=if(bound && !querying && identityReady && rights!=null && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups)) profileGroupMeshGrantDraft(s,gid,selected,rights,actor,server) else null
     val review=frozen
     val packet=review?.let {JSONObject(it.toString()).put("_grantConfirmed",approved)}
-    val current=bound && identityReady && !invalidated && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups) && review!=null && profileGroupMeshGrantAllowed(s,JSONObject(review.toString()).put("_grantConfirmed",true),server)
+    val current=bound && !querying && identityReady && !invalidated && profileGroupChoiceUsable(s.groups.singleOrNull {it.optString("_id")==selected},s.groups) && review!=null && profileGroupMeshGrantAllowed(s,JSONObject(review.toString()).put("_grantConfirmed",true),server)
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {approved=false;invalidated=true}}
     val observed=submitted && s.notice=="groupMeshGrantedObserved" && s.grantedGroup==gid && s.grantedDeviceGroup==selected
     val candidates=if(bound && !submitted && review==null) s.groups.filter {profileGroupMeshGrantDraft(s,gid,it.optString("_id"),8L,actor,server)!=null}.filter {deviceGroupMatches(query,it.optString("name"),it.optString("desc"))} else emptyList()
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Nueva asignación","New assignment"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text(server,style=MaterialTheme.typography.bodySmall);Text(t("Grupo de usuarios: ","User group: ")+subjectIdentity.label,style=MaterialTheme.typography.bodySmall)
-            if(!subjectIdentity.usable || (selected.isNotBlank() && !meshIdentity.usable)) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+            Text(server,style=MaterialTheme.typography.bodySmall);Text(t("Grupo de usuarios: ","User group: ")+(if(subject==null && querying) t("Pendiente de consulta","Awaiting read") else subjectIdentity.label),style=MaterialTheme.typography.bodySmall)
+            if(!querying && s.userGroupPhase=="ready" && (!subjectIdentity.usable || (selected.isNotBlank() && !meshIdentity.usable))) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+            if(querying) Text(t("Consultando datos del grupo...","Loading group details..."),Modifier.testTag("group-grant-loading"))
+            if(s.userGroupPhase=="failed") Text(t("No se pudo consultar el directorio. Cierra y actualiza.","Could not read the directory. Close and refresh."),color=MaterialTheme.colorScheme.error)
             Text(t("Solo asignaciones nuevas. No se sobrescriben enlaces existentes. Se exige autoridad directa completa sobre el grupo de dispositivos.","New assignments only. Existing links are not overwritten. Direct full authority over the device group is required."),style=MaterialTheme.typography.bodySmall)
             if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
             if(review==null && !submitted) {
                 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo de dispositivos","Search device groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
                 for(mesh in candidates.take(100)) {val mid=mesh.optString("_id");TextButton(modifier=Modifier.testTag("group-grant-candidate-"+mid),enabled=subjectIdentity.usable && profileGroupChoiceUsable(mesh,s.groups) && profileReviewIdentity(mesh,s.groups,es).usable,onClick={selected=mid;selectedMesh=JSONObject(mesh.toString());error=false}) {Text((if(selected==mid) "● " else "○ ")+profileReviewIdentity(mesh,s.groups,es).label)}}
                 if(candidates.any {!profileGroupChoiceUsable(it,s.groups) || !profileReviewIdentity(it,s.groups,es).usable}) Text(t("Hay grupos sin nombre o sin datos suficientes para distinguirlos. Actualiza o asigna un nombre o descripción inequívocos antes de seleccionarlos.","Some groups have no name or cannot be distinguished with the received data. Refresh or give them an unambiguous name or description before selecting them."),style=MaterialTheme.typography.bodySmall)
-                if(candidates.isEmpty()) Text(t("No hay candidatos elegibles en los datos actuales. Actualiza o revisa permisos y enlaces recibidos.","No eligible candidates in current data. Refresh or review permissions and received links."))
+                if(candidates.isEmpty() && !querying) Text(t("No hay candidatos elegibles en los datos actuales. Actualiza o revisa permisos y enlaces recibidos.","No eligible candidates in current data. Refresh or review permissions and received links."))
                 if(candidates.size>100) Text(t("Primeros 100 resultados. Acota la búsqueda.","First 100 results. Narrow the search."))
                 Text(t("Selección: ","Selection: ")+(rights?.let {deviceGroupRightsLabel(it,es)} ?: if(hex.isBlank()) t("Sin permisos seleccionados","No rights selected") else t("Máscara no válida: corrígela en Avanzado","Invalid mask: correct it in Advanced")),style=MaterialTheme.typography.bodySmall)
                 Text(t("Las opciones incluyen permisos y restricciones. Marcar una restricción no equivale a conceder el acceso correspondiente. No se añaden dependencias automáticamente.","Options include rights and restrictions. Selecting a restriction does not grant the corresponding access. Dependencies are not added automatically."),style=MaterialTheme.typography.bodySmall)
