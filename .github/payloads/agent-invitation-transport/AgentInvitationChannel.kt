@@ -10,9 +10,7 @@ import java.util.UUID
 
 internal sealed class InvitationDelivery {
     data class Reply(val outcome:AgentInvitationOutcome,val observed:Boolean=false):InvitationDelivery()
-    data class Shares(val records:List<JsonObject>):InvitationDelivery()
     object NotSent:InvitationDelivery()
-    object ReadFailed:InvitationDelivery()
     object Unconfirmed:InvitationDelivery()
     object ContextChanged:InvitationDelivery()
 }
@@ -44,26 +42,17 @@ internal class AgentInvitationChannel(
     private var phase=0
     private var socket:WebSocket?=null
     private var request=JsonObject()
-    private var ack=JsonObject()
     private var action=""
     private var target=""
     private var nonce=""
-    private var readNonce=""
-    private var reads=0
-    private var accepted:AgentInvitationOutcome?=null
     private fun text(o:JsonObject,k:String)=o.get(k)?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString
-    private fun number(o:JsonObject,k:String)=o.get(k)?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isNumber}?.asString?.toLongOrNull()
-    private fun bool(o:JsonObject,k:String)=o.get(k)?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isBoolean}?.asBoolean
     private fun live()=runCatching {current()}.getOrDefault(false)
     @Synchronized fun start(packet:JsonObject):Boolean {
         if(used || done || !live()) return false
         val a=text(packet,"action") ?: return false
-        if(a !in setOf("createInviteLink","inviteAgent","createDeviceShareLink","removeDeviceShare","deviceShares")) return false
-        val kind=if(a in setOf("createInviteLink","inviteAgent")) "mesh" else "node"
-        val t=text(packet,if(kind=="mesh") "meshid" else "nodeid") ?: return false
-        val p=t.split('/');val actor=binding.actor.split('/')
-        if(p.size!=3 || actor.size!=3 || actor[0]!="user" || p[0]!=kind || p[1]!=actor[1] || p[2].isBlank()) return false
-        if(a=="createDeviceShareLink" && ((number(packet,"expire") ?: 0L)<=0L || (number(packet,"p") ?: 0L) !in 1L..7L)) return false
+        if(a !in setOf("createInviteLink","inviteAgent") || packet.has("nodeid")) return false
+        val t=text(packet,"meshid") ?: return false
+        if(runCatching {AgentInvitationContract.installationTarget(binding.actor,t)}.isFailure) return false
         used=true;action=a;target=t;nonce=UUID.randomUUID().toString()
         request=packet.deepCopy().apply {addProperty("responseid",nonce)}
         try {
@@ -77,52 +66,11 @@ internal class AgentInvitationChannel(
     private fun finish(value:InvitationDelivery) {
         if(done) return
         done=true;clock.close();socket?.cancel();socket=null
-        request=JsonObject();ack=JsonObject();accepted=null
+        request=JsonObject()
         result(value)
     }
-    private fun fail()=finish(if(action=="deviceShares") InvitationDelivery.ReadFailed else if(sent) InvitationDelivery.Unconfirmed else InvitationDelivery.NotSent)
+    private fun fail()=finish(if(sent) InvitationDelivery.Unconfirmed else InvitationDelivery.NotSent)
     @Synchronized fun close() {if(!done) fail()}
-    private fun sendRead() {
-        if(done || !live()) {finish(InvitationDelivery.ContextChanged);return}
-        phase=2;reads++;readNonce=UUID.randomUUID().toString()
-        val p=AgentInvitationContract.listShares(target,readNonce)
-        if(socket?.send(p.toString())!=true) fail()
-    }
-    private fun records(p:JsonObject):List<JsonObject>? {
-        val a=p.get("deviceShares")?.takeIf {it.isJsonArray}?.asJsonArray ?: return null
-        if(a.size()>1000 || a.any {!it.isJsonObject}) return null
-        val list=a.map {it.asJsonObject.deepCopy()}
-        val ids=list.map {text(it,"publicid") ?: return null}
-        if(ids.any {it.isBlank() || it.length>128} || ids.distinct().size!=ids.size) return null
-        return list
-    }
-    private fun observe(p:JsonObject) {
-        if(text(p,"responseid")==readNonce && p.has("result") && !text(p,"result").orEmpty().equals("ok",true)) {
-            if(action=="deviceShares") finish(InvitationDelivery.Reply(AgentInvitationOutcome.Rejected(text(p,"result").orEmpty().take(200)))) else fail()
-            return
-        }
-        if(text(p,"nodeid")!=target) return
-        if(p.has("responseid") && text(p,"responseid")!=readNonce) return
-        if(p.has("result") && !text(p,"result").orEmpty().equals("ok",true)) {fail();return}
-        val list=records(p) ?: run {fail();return}
-        if(action=="deviceShares") {finish(InvitationDelivery.Shares(list));return}
-        val outcome=accepted
-        val verified=when(outcome) {
-            is AgentInvitationOutcome.ShareCreated->{
-                val row=list.singleOrNull {text(it,"publicid")==outcome.publicId}
-                if(row==null) false else {
-                    val matches=number(row,"p")==number(request,"p") && text(row,"guestName")==text(request,"guestname") && number(row,"consent")==number(request,"consent") && (bool(row,"viewOnly") ?: false)==(bool(ack,"viewOnly") ?: false) && number(row,"expireTime")==number(ack,"expire") && (number(row,"expireTime") ?: 0)>System.currentTimeMillis() && (!row.has("url") || text(row,"url")==outcome.url)
-                    if(!matches) {fail();return}
-                    true
-                }
-            }
-            AgentInvitationOutcome.ShareRemoved->list.none {text(it,"publicid")==text(request,"publicid")}
-            else->false
-        }
-        if(verified && outcome!=null) finish(InvitationDelivery.Reply(outcome,true)) else if(reads<3) {
-            phase=3;clock.later(500) {synchronized(this) {if(!done && phase==3) sendRead()}}
-        } else fail()
-    }
     private fun receive(p:JsonObject) {
         val a=text(p,"action") ?: return
         if(a=="ping") {if(socket?.send("{\"action\":\"pong\"}")!=true) fail();return}
@@ -137,26 +85,13 @@ internal class AgentInvitationChannel(
             if(user==null || text(user,"_id")!=binding.actor) {finish(InvitationDelivery.ContextChanged);return}
             if(phase!=0) return
             if(!live()) {finish(InvitationDelivery.ContextChanged);return}
-            if(action=="deviceShares") {sendRead();return}
             phase=1;sent=true
             try {if(socket?.send(request.toString())!=true) {sent=false;fail()}} catch(_:Exception) {fail()}
             return
         }
-        if(phase==2 && a=="deviceShares") {observe(p);return}
         if(phase!=1) return
         val answer=AgentInvitationReplies.parse(action,target,nonce,p) ?: return
-        when(answer) {
-            is AgentInvitationOutcome.ShareCreated->{
-                val expiry=number(p,"expire") ?: 0L
-                val minutes=number(request,"expire") ?: 0L
-                val now=System.currentTimeMillis()
-                if(number(p,"p")!=number(request,"p") || text(p,"guestname")!=text(request,"guestname") || number(p,"consent")!=number(request,"consent") || (bool(request,"viewOnly")==true && bool(p,"viewOnly")!=true) || expiry<=now || minutes>Int.MAX_VALUE || expiry>now+minutes*60_000L+5000L) {fail();return}
-                accepted=answer;ack=p.deepCopy();sendRead()
-            }
-            AgentInvitationOutcome.ShareRemoved->{accepted=answer;sendRead()}
-            AgentInvitationOutcome.Malformed,AgentInvitationOutcome.Unknown->fail()
-            else->finish(InvitationDelivery.Reply(answer))
-        }
+        if(answer==AgentInvitationOutcome.Malformed || answer==AgentInvitationOutcome.Unknown) fail() else finish(InvitationDelivery.Reply(answer))
     }
     private val listener=object:WebSocketListener() {
         override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@AgentInvitationChannel) {

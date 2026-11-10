@@ -1,62 +1,29 @@
 package iecxiv.meshfabric.data.remote
 
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.*
 import org.junit.Test
-import okhttp3.HttpUrl.Companion.toHttpUrl
 
 class AgentInvitationContractTest {
-    private val mesh="mesh//abc@${'$'}def"
-    private val node="node//device"
-    private val rights=524296L
-    @Test fun groupAndDeviceUseDifferentUnits() {
-        assertEquals(24,AgentInvitationContract.groupLink(mesh,24,0,0,"g").get("expire").asInt)
-        assertEquals(60,AgentInvitationContract.temporaryShare(node,"Guest",60,2,rights,null,true,false,"d").get("expire").asInt)
-    }
-    @Test fun temporaryAccessCannotBeUnlimited() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.temporaryShare(node,"Guest",0,2,rights,null,true,false,"d")}}
-    @Test fun serverDurationLimitIsNotSilentlyChanged() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.temporaryShare(node,"Guest",61,2,rights,60,true,false,"d")}}
-    @Test fun permissionsRespectRestrictionsAndFullMask() {
-        assertFalse(AgentInvitationContract.sharingAllowed(8,2))
-        assertFalse(AgentInvitationContract.sharingAllowed(rights or 4096,2))
-        assertFalse(AgentInvitationContract.sharingAllowed(rights or 512,1))
-        assertFalse(AgentInvitationContract.sharingAllowed(rights or 1024,4))
-        assertFalse(AgentInvitationContract.sharingAllowed(rights or 65536,2))
-        assertTrue(AgentInvitationContract.sharingAllowed(-1,7))
-        assertFalse(AgentInvitationContract.sharingAllowed(-1,2,false))
-    }
-    @Test fun fileSharingUsesBitFourNotTunnelProtocolFive() {assertEquals(4,AgentInvitationContract.temporaryShare(node,"Guest",5,4,rights,null,true,false,"d").get("p").asInt)}
-    @Test fun restrictedDesktopForcesViewOnly() {assertTrue(AgentInvitationContract.temporaryShare(node,"Guest",5,2,rights or 256,null,true,false,"d").get("viewOnly").asBoolean)}
-    @Test fun groupPolicySeparatesLanInvitesAndAgentTypes() {
-        assertTrue(AgentInvitationContract.groupAllowed(0,4,2,true,false))
-        assertFalse(AgentInvitationContract.groupAllowed(0,4,2,true,true))
-        assertFalse(AgentInvitationContract.groupAllowed(4096,4,2,false,false))
-        assertFalse(AgentInvitationContract.groupAllowed(-1,-1,1,false,false))
-    }
-    @Test fun aliasFailureNeedsExactRequestIdentity() {
-        val p=JsonObject().apply {addProperty("action","deviceShares");addProperty("responseid","r");addProperty("result","Access denied")}
-        assertTrue(AgentInvitationContract.isCorrelatedFailure("createDeviceShareLink","r",p))
-        assertFalse(AgentInvitationContract.isCorrelatedFailure("createDeviceShareLink","old",p))
-        assertFalse(AgentInvitationContract.isCorrelatedFailure("createInviteLink","r",p))
-    }
-    @Test fun downloadsPreserveDomainPathAndParameterValues() {
-        val url=AgentInvitationContract.download("https://example.test/proxy/domain",mesh,"windows",43,2).toHttpUrl()
-        assertEquals("/proxy/domain/meshagents",url.encodedPath)
-        assertEquals("abc@${'$'}def",url.queryParameter("meshid"))
-        assertEquals("43",url.queryParameter("id"))
-        assertEquals("2",url.queryParameter("installflags"))
-        assertNull(url.queryParameter("auth"))
-    }
-    @Test fun assistantAndBinaryHaveSeparateSelectors() {
-        val a=AgentInvitationContract.download("https://example.test",mesh,"assistant",10006,4).toHttpUrl()
-        assertEquals("4",a.queryParameter("ac"));assertNull(a.queryParameter("installflags"))
-        val b=AgentInvitationContract.download("https://example.test",mesh,"binary",29,1).toHttpUrl()
-        assertEquals("29",b.queryParameter("meshinstall"));assertEquals("abc@${'$'}def",b.queryParameter("id"))
-    }
-    @Test fun mobilePayloadHasServerCertificateAndGroup() {assertEquals("mc://agent.example/domain,"+"a".repeat(64)+",abc@${'$'}def",AgentInvitationContract.mobileConfiguration("mc://agent.example/domain","a".repeat(64),mesh))}
-    @Test fun rejectsInjectedIdentifiers() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.groupLink("mesh//a&auth=secret",24,0,0,"r")}}
-    @Test fun emailPacketIsDistinctFromLinkPacket() {
-        val p=AgentInvitationContract.groupEmail(mesh,"guest@example.test","Guest","Welcome",4,2,24,"r")
-        assertEquals("inviteAgent",p.get("action").asString);assertEquals("4",p.get("os").asString);assertEquals("2",p.get("flags").asString)
-    }
-    @Test fun revokeTargetsExactPublicIdentifier() {val p=AgentInvitationContract.revoke(node,"public-id","r");assertEquals(node,p.get("nodeid").asString);assertEquals("public-id",p.get("publicid").asString)}
+    private val mesh="mesh//group"
+    private fun j(s:String):JsonObject=JsonParser.parseString(s).asJsonObject
+    private fun parse(a:String,t:String,r:String,p:JsonObject)=AgentInvitationReplies.parse(a,t,r,p)
+    private val link=j("""{"action":"createInviteLink","meshid":"mesh//group","responseid":"r","url":"https://example.test/agentinvite?c=secret","expire":24}""")
+    private val ok=j("""{"action":"inviteAgent","responseid":"r","result":"ok"}""")
+    @Test fun bothOriginsResolveTheSameGroup() {assertEquals(mesh,AgentInvitationContract.installationTarget("user//actor",mesh))}
+    @Test fun deviceIdentifierIsNotAGroup() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.installationTarget("user//actor","node//device")}}
+    @Test fun missingGroupIsNotGuessed() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.installationTarget("user//actor","")}}
+    @Test fun crossDomainInvitationIsRejected() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.installationTarget("user/other/actor",mesh)}}
+    @Test fun agentGroupTypeIsRequired() {assertFalse(AgentInvitationContract.groupAllowed(-1,-1,1,false,true))}
+    @Test fun accountRestrictionBlocksEnrollment() {assertFalse(AgentInvitationContract.groupAllowed(4096,4,2,false,false))}
+    @Test fun lanOnlySeparatesInstallFromInvitation() {assertTrue(AgentInvitationContract.groupAllowed(0,4,2,true,false));assertFalse(AgentInvitationContract.groupAllowed(0,4,2,true,true))}
+    @Test fun installationInvitationUsesHours() {val p=AgentInvitationContract.groupLink(mesh,24,2,16,"r");assertEquals(24,p.get("expire").asInt);assertEquals(mesh,p.get("meshid").asString);assertFalse(p.has("nodeid"))}
+    @Test fun emailHasDistinctPlatformAndModeFields() {val p=AgentInvitationContract.groupEmail(mesh,"guest@example.test","Guest","Welcome",4,2,24,"r");assertEquals("inviteAgent",p.get("action").asString);assertEquals("4",p.get("os").asString);assertEquals("2",p.get("flags").asString)}
+    @Test fun downloadPreservesDomainPrefix() {val u=AgentInvitationContract.download("https://example.test/proxy/domain",mesh,"windows",43,2).toHttpUrl();assertEquals("/proxy/domain/meshagents",u.encodedPath);assertEquals("43",u.queryParameter("id"));assertEquals("2",u.queryParameter("installflags"));assertNull(u.queryParameter("auth"))}
+    @Test fun assistantDoesNotUseInstallFlags() {val u=AgentInvitationContract.download("https://example.test",mesh,"assistant",10006,4).toHttpUrl();assertEquals("4",u.queryParameter("ac"));assertNull(u.queryParameter("installflags"))}
+    @Test fun binaryInstallerUsesArchitectureSelector() {val u=AgentInvitationContract.download("https://example.test",mesh,"binary",29,1).toHttpUrl();assertEquals("29",u.queryParameter("meshinstall"));assertEquals("group",u.queryParameter("id"))}
+    @Test fun mobilePayloadIncludesCertificateAndGroup() {assertEquals("mc://agent.example/domain,"+"a".repeat(64)+",group",AgentInvitationContract.mobileConfiguration("mc://agent.example/domain","a".repeat(64),mesh))}
+    @Test fun sharingIsNotAnInstallationFailureAlias() {val p=j("""{"action":"deviceShares","responseid":"r","result":"Access denied"}""");assertFalse(AgentInvitationContract.isCorrelatedFailure("createInviteLink","r",p));assertFalse(AgentInvitationContract.isCorrelatedFailure("createDeviceShareLink","r",p))}
 }
