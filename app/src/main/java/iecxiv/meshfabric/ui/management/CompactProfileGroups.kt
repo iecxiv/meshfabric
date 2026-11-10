@@ -83,6 +83,7 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
                     0->{
                         Text(group.optString("desc").ifBlank { t("Sin descripción","No description") },style=MaterialTheme.typography.bodyMedium)
                         ProfileDisclosure(t("Identificador del grupo","Group identifier")) { SelectionContainer { Text(id,style=MaterialTheme.typography.bodySmall) } }
+                        AgentEnrollmentGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)
                         AgentInviteGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)
                         ProfileGroupActionButton(t("Editar nombre y descripción","Edit name and description"),Icons.Default.Edit,s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit)
                         ProfileGroupActionButton(t("Ajustes avanzados","Advanced settings"),Icons.Default.Tune,s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true})

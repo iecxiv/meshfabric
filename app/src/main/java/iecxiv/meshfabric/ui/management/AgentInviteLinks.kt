@@ -38,8 +38,8 @@ internal data class AgentInviteLinkOptions(val hours:Int=1,val agents:Int=0,val 
 }
 private fun expiryLabel(v:Int,es:Boolean)=if(es) mapOf(1 to "1 h",8 to "8 h",24 to "1 día",168 to "1 semana",720 to "1 mes",0 to "Ilimitado").getValue(v) else mapOf(1 to "1 hour",8 to "8 hours",24 to "1 day",168 to "1 week",720 to "1 month",0 to "Unlimited").getValue(v)
 private fun agentLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Todos los agentes disponibles",1 to "Agente de malla de Windows",2 to "Agente de malla de Linux",4 to "Agente de malla de MacOS",8 to "Asistente MeshCentral",16 to "Android MeshAgent").getValue(v) else mapOf(0 to "All available agents",1 to "Windows MeshAgent",2 to "Linux MeshAgent",4 to "MacOS MeshAgent",8 to "MeshCentral Assistant",16 to "Android MeshAgent").getValue(v)
-private fun modeLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Segundo plano e interactivo",2 to "Segundo plano solamente",1 to "Solo interactivo").getValue(v) else mapOf(0 to "Background and interactive",2 to "Background only",1 to "Interactive only").getValue(v)
-@Composable private fun InviteChoice(label:String,tag:String,value:Int,values:List<Int>,enabled:Boolean,text:(Int)->String,onSelect:(Int)->Unit) {
+internal fun modeLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Segundo plano e interactivo",2 to "Segundo plano solamente",1 to "Solo interactivo").getValue(v) else mapOf(0 to "Background and interactive",2 to "Background only",1 to "Interactive only").getValue(v)
+@Composable internal fun InviteChoice(label:String,tag:String,value:Int,values:List<Int>,enabled:Boolean,text:(Int)->String,onSelect:(Int)->Unit) {
     var expanded by remember(tag) {mutableStateOf(false)}
     LaunchedEffect(enabled) {if(!enabled) expanded=false}
     Text(label,style=MaterialTheme.typography.labelMedium)
@@ -62,7 +62,7 @@ private fun modeLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Segundo plano e inter
         TextButton(onClick=onGenerate,enabled=enabled && !busy,modifier=Modifier.fillMaxWidth().testTag("invite-generate")) {Text(t("Generar enlace","Generate link"))}
     }
 }
-private fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean):JSONObject? {
+internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitation:Boolean=true):JSONObject? {
     if(!s.canWrite || s.detailsBusy) return null
     val mid=if(device) s.nodes?.singleOrNull {it.optString("_id")==id}?.optString("meshid") ?: return null else id
     val target=runCatching {AgentInvitationContract.installationTarget(s.id,mid)}.getOrNull() ?: return null
@@ -71,7 +71,7 @@ private fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean):JSONObj
     s.user?.optJSONObject("links")?.keys()?.forEach {if(it.startsWith("ugrp/")) subjects.add(it)}
     var rights=0L
     for(subject in subjects) {val raw=group.optJSONObject("links")?.optJSONObject(subject)?.opt("rights");if(raw is Number) rights=rights or runCatching {userAdvancedMask(raw)}.getOrDefault(0L)}
-    return group.takeIf {AgentInvitationContract.groupAllowed(s.site,rights,2,false,true)}
+    return group.takeIf {AgentInvitationContract.groupAllowed(s.site,rights,2,false,invitation)}
 }
 @Composable internal fun AgentInviteGroupButton(source:MeshCentralClient,id:String,enabled:Boolean) {
     val es=LocalConfiguration.current.locales[0].language=="es"
@@ -79,7 +79,7 @@ private fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean):JSONObj
     ProfileGroupActionButton(if(es) "Invitar" else "Invite",Icons.Default.PersonAdd,enabled,onClick={open=true})
     if(open) AgentInviteLinkDialog(source,id,false) {open=false}
 }
-@Composable internal fun AgentInviteLinkDialog(source:MeshCentralClient,id:String,device:Boolean,onDismiss:()->Unit) {
+@Composable internal fun AgentInviteLinkDialog(source:MeshCentralClient,id:String,device:Boolean,enrollment:Boolean=false,onDismiss:()->Unit) {
     val connected by source.connectionState.collectAsState()
     val user by source.userInfo.collectAsState()
     val binding=remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,user?.id) {InvitationBinding(source.serverUrl,user?.id.orEmpty(),source.authCookie,source.ignoreSsl)}
@@ -100,7 +100,7 @@ private fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean):JSONObj
         }
         LaunchedEffect(profile,lifecycle,connected) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {if(connected && !source.isUserLogout) {profile.start();try {awaitCancellation()} finally {profile.stop()}} else profile.stop()}}
         LaunchedEffect(profile,s.ready) {if(s.ready && device) profile.loadGroupDetails()}
-        val group=receivedInviteGroup(s,id,device)
+        val group=receivedInviteGroup(s,id,device,invitation=!enrollment)
         LaunchedEffect(group?.toString(),s.id,connected) {invalidate()}
         val enabled=connected && foreground && binding.matches(source) && s.id==binding.actor && group!=null
         fun generate() {
@@ -126,10 +126,10 @@ private fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean):JSONObj
             channel=created;busy=true
             if(!created.start(payload)) {version++;channel=null;created.close();busy=false;notice=t("La solicitud no se ha enviado.","The request was not sent.")}
         }
-        ManagementDialog(onDismissRequest={invalidate();onDismiss()},modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(t("Invitar","Invite"))},text={
+        ManagementDialog(onDismissRequest={invalidate();onDismiss()},modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(enrollment) t("Agregar agente","Add agent") else t("Invitar","Invite"))},text={
             Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState())) {
                 if(s.loading || s.detailsBusy || !s.ready) LinearProgressIndicator(Modifier.fillMaxWidth())
-                AgentInviteLinkForm(group?.optString("name").orEmpty(),options,enabled,busy,es,onChange={invalidate();options=it;notice=""},onGenerate={generate()})
+                if(enrollment) AgentEnrollmentContent(source,group,s.server,enabled) else AgentInviteLinkForm(group?.optString("name").orEmpty(),options,enabled,busy,es,onChange={invalidate();options=it;notice=""},onGenerate={generate()})
                 if(!enabled) Text(t("Esperando un grupo de agentes y permisos válidos. No se adivina el grupo del dispositivo.","Waiting for a valid agent group and permissions. The device group is not guessed."),style=MaterialTheme.typography.bodySmall)
                 if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)
                 link?.let {generated->SelectionContainer {Text(generated.url,style=MaterialTheme.typography.bodySmall)};TextButton(onClick={

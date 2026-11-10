@@ -68,3 +68,5 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
+
+dependencies { implementation("com.google.zxing:core:3.5.4") }
