@@ -1,0 +1,124 @@
+name: Validate and publish Events controls and icons
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths:
+      - .github/workflows/publish-events-controls.yml
+      - .github/scripts/prepare-events-controls.py
+permissions:
+  contents: write
+concurrency:
+  group: log-complete
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Guard and generate only Events controls icons and regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = a50e4060f4b1cf724fcb88cac07a620cfe535599
+          mkdir -p validation
+          python3 .github/scripts/prepare-events-controls.py
+          git diff --cached --check
+      - name: Reuse pinned SDK build unit lint and independent Android setup
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/events-controls-yaml
+          /tmp/events-controls-yaml/bin/pip install --disable-pip-version-check PyYAML==6.0.2
+          /tmp/events-controls-yaml/bin/python - <<'PY'
+          from pathlib import Path
+          import ast,subprocess,yaml
+          yaml.safe_load(Path('.github/workflows/publish-events-controls.yml').read_text())
+          ref='a50e4060f4b1cf724fcb88cac07a620cfe535599:.github/workflows/fix-log-numeric-message.yml'
+          assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()=='8159fd5fd773b8f13f094b47a8c977faec43f8db'
+          data=yaml.safe_load(subprocess.check_output(['git','show',ref],text=True))
+          names=['Prepare existing scoped Android runner and numeric UI regressions','Install Android SDK','Build execute JVM tests compile Android tests and lint']
+          for name in names:
+              matches=[s for s in data['jobs']['validate']['steps'] if s.get('name')==name]
+              assert len(matches)==1
+              print('Executing pinned step: '+name,flush=True)
+              subprocess.run(['bash','-euo','pipefail','-c',matches[0]['run']],check=True)
+          p=Path('validation/run-log-class-isolation.py');text=p.read_text();anchor='expected={\n'
+          assert text.count(anchor)==1
+          text=text.replace(anchor,anchor+"    'ServerEventsControlsTest':{'typeSelectionPreservesRequestedCount','unlimitedSelectionPreservesTypeAndHasNoRequestLimit','knownAndUnknownEventsHaveIconsWithoutDroppingRows'},\n")
+          text=text.replace('Expected: 12 distinct methods across 5 independent class runs.','Expected: 15 distinct methods across 6 independent class runs.')
+          text=text.replace('Numeric msg compatibility on guarded base ddba870175edf678ac1ee991f2d41f0a053a68a2.','Events controls on guarded base a50e4060f4b1cf724fcb88cac07a620cfe535599.')
+          ast.parse(text);p.write_text(text)
+          PY
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute affected Android classes independently
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 validation/run-log-class-isolation.py
+      - name: Require exact executed regression evidence and change scope
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,xml.etree.ElementTree as ET
+          cases=[]
+          for p in Path('app/build/test-results/testDebugUnitTest').rglob('*.xml'): cases.extend(ET.parse(p).getroot().iter('testcase'))
+          assert cases and all(all(c.find(tag) is None for tag in ('failure','error','skipped')) for c in cases)
+          for name,count in {'ServerEventsQueryTest':8,'LogEventsReaderTest':11,'ServerEventsReadPolicyTest':9,'ServerEventsDiagnosticsTest':3,'LogNumericMessageTest':8}.items():
+              assert sum(c.get('classname','').split('.')[-1]==name for c in cases)==count,name
+          results=json.loads(Path('validation/class-isolation/summary.json').read_text())
+          required={'ServerEventsControlsTest':3,'LogNumericMessageUiTest':2,'LogEventsDiagnosticsUiTest':2,'RegistroSectionTabsTest':2,'LogScreenTest':4,'ManagementNavigationLabelTest':2}
+          assert len(results)==6 and {r['class'] for r in results}=={'iecxiv.meshfabric.ui.management.'+name for name in required}
+          for result in results:
+              assert result['passed'] is True and result['exit_code']==0,result
+              assert len(result['cases'])==required[result['class'].split('.')[-1]],result
+          expected=json.loads(Path('validation/options-expected.json').read_text())
+          assert len(expected)==12 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          Path('validation/options-tests.json').write_text(json.dumps({'jvm_cases':len(cases),'android_cases':sum(len(r['cases']) for r in results),'live_server_verified':False,'visual_review_verified':False},indent=2)+'\n')
+          PY
+          git diff --cached --check
+          git diff --cached > validation/events-controls.diff
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: events-controls-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish all tested sources only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/options-expected.json').read_text())
+          assert len(expected)==12 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(log): add server event filters count selectors and type icons'
+          git push origin HEAD:work/registro-server-events
