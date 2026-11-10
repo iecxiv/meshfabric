@@ -12,7 +12,7 @@ internal fun serverEventsRequest(tag:String):JsonObject {
 }
 private fun JsonObject.eventText(key:String):String {
     val value=get(key) ?: return ""
-    if(!(value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isString))) eventDecodeFailure(ServerEventsIssueKind.FIELD_TYPE,key,value)
+    if(!(value.isJsonNull || (value.isJsonPrimitive && (value.asJsonPrimitive.isString || (key=="msg" && value.asJsonPrimitive.isNumber))))) eventDecodeFailure(ServerEventsIssueKind.FIELD_TYPE,key,value)
     return if(value.isJsonNull) "" else value.asString.also {if(it.length>4096) eventDecodeFailure(ServerEventsIssueKind.FIELD_LENGTH,key,value,it.length)}
 }
 private fun eventTime(item:JsonObject):Long?=runCatching {
