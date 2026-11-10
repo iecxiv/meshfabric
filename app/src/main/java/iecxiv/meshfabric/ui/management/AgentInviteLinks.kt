@@ -75,9 +75,8 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
 }
 @Composable internal fun AgentInviteGroupButton(source:MeshCentralClient,id:String,enabled:Boolean) {
     val es=LocalConfiguration.current.locales[0].language=="es"
-    var open by remember(id) {mutableStateOf(false)}
-    ProfileGroupActionButton(if(es) "Invitar" else "Invite",Icons.Default.PersonAdd,enabled,onClick={open=true})
-    if(open) AgentInviteLinkDialog(source,id,false) {open=false}
+    val opener=LocalAgentGroupDialogOpener.current
+    ProfileGroupActionButton(if(es) "Invitar" else "Invite",Icons.Default.PersonAdd,enabled && opener!=null,onClick={opener?.invoke(AgentGroupDialog(id,false))})
 }
 @Composable internal fun AgentInviteLinkDialog(source:MeshCentralClient,id:String,device:Boolean,enrollment:Boolean=false,onDismiss:()->Unit) {
     val connected by source.connectionState.collectAsState()
@@ -94,14 +93,14 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
         var link by remember {mutableStateOf<AgentInvitationOutcome.GroupLink?>(null)};var notice by remember {mutableStateOf("")}
         fun invalidate() {version++;val previous=channel;channel=null;previous?.close();busy=false;link=null}
         DisposableEffect(profile,lifecycle) {
-            val observer=LifecycleEventObserver {_,_->foreground=lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED);if(!foreground) invalidate()}
+            val observer=LifecycleEventObserver {_,_->foreground=lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED);if(!foreground) {if(busy) notice=t("Petición interrumpida; resultado sin confirmar.","Request interrupted; outcome unconfirmed.");invalidate()}}
             lifecycle.addObserver(observer)
             onDispose {lifecycle.removeObserver(observer);invalidate();profile.close()}
         }
         LaunchedEffect(profile,lifecycle,connected) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {if(connected && !source.isUserLogout) {profile.start();try {awaitCancellation()} finally {profile.stop()}} else profile.stop()}}
         LaunchedEffect(profile,s.ready) {if(s.ready && device) profile.loadGroupDetails()}
         val group=receivedInviteGroup(s,id,device,invitation=!enrollment)
-        LaunchedEffect(group?.toString(),s.id,connected) {invalidate()}
+        LaunchedEffect(group?.optString("_id"),group?.opt("mtype"),group?.optJSONObject("links")?.toString(),s.user?.optJSONObject("links")?.toString(),s.site,s.id,connected) {val wasBusy=busy;invalidate();if(wasBusy) notice=t("Contexto de permisos actualizado; resultado sin confirmar.","Authority context updated; outcome unconfirmed.")}
         val enabled=connected && foreground && binding.matches(source) && s.id==binding.actor && group!=null
         fun generate() {
             if(!enabled || busy || group==null) return
@@ -109,6 +108,7 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
             val payload=selected.packet(group.optString("_id"))
             val created=AgentInvitationChannel.fromSource(source) {delivery->scope.launch {
                 if(ticket!=version || !foreground || !binding.matches(source)) return@launch
+                val diagnostic=channel?.diagnosticCode.orEmpty()
                 busy=false;channel=null
                 if(receivedInviteGroup(profile.state.value,id,device)==null) {link=null;notice=t("El grupo o los permisos han cambiado; resultado sin confirmar.","Group or permissions changed; outcome unconfirmed.");return@launch}
                 when(delivery) {
@@ -121,6 +121,7 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
                     InvitationDelivery.ContextChanged->notice=t("Cuenta, conexión o permisos modificados; resultado sin confirmar.","Account, connection or permissions changed; outcome unconfirmed.")
                     InvitationDelivery.Unconfirmed->notice=t("Resultado sin confirmar. No se reenviará automáticamente.","Outcome unconfirmed. No automatic resend.")
                 }
+                if(link==null && diagnostic.isNotBlank()) notice+=" ["+diagnostic+"]"
             }}
             if(created==null) {notice=t("Conexión no disponible.","Connection unavailable.");return}
             channel=created;busy=true
@@ -131,6 +132,7 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
                 if(s.loading || s.detailsBusy || !s.ready) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if(enrollment) AgentEnrollmentContent(source,group,s.server,enabled) else AgentInviteLinkForm(group?.optString("name").orEmpty(),options,enabled,busy,es,onChange={invalidate();options=it;notice=""},onGenerate={generate()})
                 if(!enabled) Text(t("Esperando un grupo de agentes y permisos válidos. No se adivina el grupo del dispositivo.","Waiting for a valid agent group and permissions. The device group is not guessed."),style=MaterialTheme.typography.bodySmall)
+                if(!enabled) Text("INVITE_CONTEXT_"+when { !connected->"DISCONNECTED"; !foreground->"BACKGROUND"; !s.ready->"NOT_READY"; s.loading->"LOADING"; s.readError->"READ_FAILED"; s.detailsBusy->"DETAILS_LOADING"; s.id!=binding.actor->"ACTOR_MISMATCH"; else->"GROUP_OR_RIGHTS" },style=MaterialTheme.typography.bodySmall)
                 if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)
                 link?.let {generated->SelectionContainer {Text(generated.url,style=MaterialTheme.typography.bodySmall)};TextButton(onClick={
                     val copied=runCatching {val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: error("Clipboard unavailable");clipboard.setPrimaryClip(ClipData.newPlainText(t("Invitación de instalación","Agent installation invitation"),generated.url))}.isSuccess

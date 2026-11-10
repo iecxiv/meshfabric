@@ -40,6 +40,7 @@ internal class AgentInvitationChannel(
     private var done=false
     private var sent=false
     private var phase=0
+    val diagnosticCode:String get()=if(phase==0) "INVITE_WAITING_USERINFO" else "INVITE_WAITING_LINK_REPLY"
     private var socket:WebSocket?=null
     private var request=JsonObject()
     private var action=""

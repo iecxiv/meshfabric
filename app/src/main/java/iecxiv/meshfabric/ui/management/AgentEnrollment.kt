@@ -85,8 +85,8 @@ private fun assistantLabel(v:Int,es:Boolean)=if(es) mapOf(2 to "Aplicación, con
         val file=pending;val identity=binding;pending=null
         if(uri==null) {file?.delete();busy=false} else job=scope.launch {
             var saved=false
-            try {require(file!=null && identity!=null && identity.matches(source));withContext(Dispatchers.IO) {file.inputStream().use {input->(context.contentResolver.openOutputStream(uri,"wt") ?: error("output")).use {output->val b=ByteArray(65536);while(true) {ensureActive();check(identity.matches(source));val n=input.read(b);if(n<0) break;output.write(b,0,n)}}}};saved=true;notice=message(true)}
-            catch(e:CancellationException) {throw e} catch(_:Exception) {notice=message(false)}
+            try {val f=file ?: throw EnrollmentSaveFailure("SAVE_NO_PENDING_FILE");val identityRequired=identity ?: throw EnrollmentSaveFailure("SAVE_NO_IDENTITY");val coroutine=currentCoroutineContext();withContext(Dispatchers.IO) {val guard={coroutine.ensureActive();identityRequired.matches(source)};val receipt=copyEnrollmentSave(f,{context.contentResolver.openOutputStream(uri,"wt") ?: throw EnrollmentSaveFailure("SAVE_NO_OUTPUT")},guard);verifyEnrollmentSave(receipt,{context.contentResolver.openInputStream(uri) ?: throw EnrollmentSaveFailure("SAVE_NO_READBACK")},guard)};saved=true;notice=message(true)}
+            catch(e:CancellationException) {throw e} catch(e:Exception) {notice=message(false)+" ["+((e as? EnrollmentSaveFailure)?.code ?: "SAVE_IO")+"]"}
             finally {file?.delete();if(!saved) withContext(NonCancellable+Dispatchers.IO) {runCatching {DocumentsContract.deleteDocument(context.contentResolver,uri)}};busy=false}
         }
     }
@@ -95,6 +95,7 @@ private fun assistantLabel(v:Int,es:Boolean)=if(es) mapOf(2 to "Aplicación, con
         val server=source.serverUrl;val cookie=source.authCookie;val ssl=source.ignoreSsl;val actor=source.userInfo.value?.id.orEmpty();val identity=InvitationBinding(server,actor,cookie,ssl)
         job=scope.launch {
             var file:File?=null
+            var handedToPicker=false
             try {
                 check(actor.isNotBlank() && identity.matches(source))
                 val target=artifact.url.toHttpUrl();val origin=enrollmentBase(server).toHttpUrl();require(target.scheme==origin.scheme && target.host==origin.host && target.port==origin.port && target.username.isEmpty() && target.password.isEmpty())
@@ -107,17 +108,16 @@ private fun assistantLabel(v:Int,es:Boolean)=if(es) mapOf(2 to "Aplicación, con
                         val head=ByteArray(4);require(f.inputStream().use {it.read(head)}==4 && enrollmentValidHeader(artifact.kind,head))
                     }
                 }
-                ensureActive();check(identity.matches(source));binding=identity;pending=file;picker.launch(artifact.fileName)
-            } catch(e:CancellationException) {throw e} catch(_:Exception) {notice=message(false)}
-            finally {call.getAndSet(null)?.cancel();if(pending==null) {file?.delete();busy=false}}
+                ensureActive();check(identity.matches(source));binding=identity;pending=file;picker.launch(artifact.fileName);handedToPicker=true
+            } catch(e:CancellationException) {if(!handedToPicker) pending=null;throw e} catch(_:Exception) {if(!handedToPicker) pending=null;notice=message(false)+" [DOWNLOAD_OR_PICKER_FAILED]"}
+            finally {call.getAndSet(null)?.cancel();if(!handedToPicker) {file?.delete();busy=false}}
         }
     }}
     return Triple(busy,notice,start)
 }
 @Composable internal fun AgentEnrollmentGroupButton(source:MeshCentralClient,id:String,enabled:Boolean) {
-    val es=LocalConfiguration.current.locales[0].language=="es";var open by remember(id) {mutableStateOf(false)}
-    ProfileGroupActionButton(if(es) "Agregar agente" else "Add agent",Icons.Default.AddCircle,enabled,onClick={open=true})
-    if(open) AgentInviteLinkDialog(source,id,false,enrollment=true) {open=false}
+    val es=LocalConfiguration.current.locales[0].language=="es";val opener=LocalAgentGroupDialogOpener.current
+    ProfileGroupActionButton(if(es) "Agregar agente" else "Add agent",Icons.Default.AddCircle,enabled && opener!=null,onClick={opener?.invoke(AgentGroupDialog(id,true))})
 }
 @Composable internal fun AgentEnrollmentContent(source:MeshCentralClient,group:JSONObject?,server:JSONObject?,enabled:Boolean) {
     val es=LocalConfiguration.current.locales[0].language=="es";val context=LocalContext.current
