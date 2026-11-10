@@ -1,0 +1,138 @@
+name: Validate and publish Log decode diagnostics
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths:
+      - .github/workflows/publish-log-decode-diagnostics.yml
+      - .github/scripts/prepare-log-decode-diagnostics.py
+permissions:
+  contents: write
+concurrency:
+  group: log-complete
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Guard base and prepare exactly scoped changes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = dcfba09df5eef28b0a711ca49336e7494273c452
+          mkdir -p validation
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          ast.parse(Path('.github/scripts/prepare-log-decode-diagnostics.py').read_text())
+          PY
+          python3 .github/scripts/prepare-log-decode-diagnostics.py
+          git diff --cached --check
+      - name: Prepare independent Android class checks including error UI
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/log-decode-yaml
+          /tmp/log-decode-yaml/bin/pip install --disable-pip-version-check PyYAML==6.0.2
+          /tmp/log-decode-yaml/bin/python - <<'PY'
+          from pathlib import Path
+          import ast,subprocess,yaml
+          yaml.safe_load(Path('.github/workflows/publish-log-decode-diagnostics.yml').read_text())
+          ref='570c9c7a811131096878525b461b963963bdc7a5:.github/workflows/diagnose-log-test-selection.yml'
+          assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()=='af22984d2c8aff8eeb9c371eff67512d8587881c'
+          data=yaml.safe_load(subprocess.check_output(['git','show',ref],text=True))
+          matches=[s for s in data['jobs']['diagnose']['steps'] if s.get('name')=='Prepare strict independent class executions']
+          assert len(matches)==1
+          subprocess.run(['bash','-euo','pipefail','-c',matches[0]['run']],check=True)
+          p=Path('validation/run-log-class-isolation.py');text=p.read_text()
+          anchor='expected={\n'
+          assert text.count(anchor)==1
+          text=text.replace(anchor,anchor+"    'LogEventsDiagnosticsUiTest':{'oversizedFrameHasSpecificMessage','fieldFailureShowsMetadataWithoutHistoryContents'},\n")
+          text=text.replace('Expected: 8 distinct methods across 3 independent class runs.','Expected: 10 distinct methods across 4 independent class runs.')
+          text=text.replace('Pinned sources: da751d3742c7e65a21ed672132e03a17c7322f6d.','Decode diagnostics on guarded base dcfba09df5eef28b0a711ca49336e7494273c452.')
+          ast.parse(text);p.write_text(text)
+          PY
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute JVM tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute affected Android classes independently with exact methods
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 validation/run-log-class-isolation.py
+      - name: Require executed regression evidence and exact source scope
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,xml.etree.ElementTree as ET
+          cases=[]
+          for p in Path('app/build/test-results/testDebugUnitTest').rglob('*.xml'): cases.extend(ET.parse(p).getroot().iter('testcase'))
+          assert cases
+          assert all(all(c.find(tag) is None for tag in ('failure','error','skipped')) for c in cases)
+          for name,count in {'LogEventsReaderTest':9,'ServerEventsReadPolicyTest':9,'ServerEventsDiagnosticsTest':3}.items():
+              assert sum(c.get('classname','').split('.')[-1]==name for c in cases)==count,name
+          results=json.loads(Path('validation/class-isolation/summary.json').read_text())
+          required={'LogEventsDiagnosticsUiTest':2,'RegistroSectionTabsTest':2,'LogScreenTest':4,'ManagementNavigationLabelTest':2}
+          assert len(results)==4
+          assert {r['class'] for r in results}=={'iecxiv.meshfabric.ui.management.'+name for name in required}
+          for r in results:
+              assert r['passed'] is True and r['exit_code']==0,r
+              assert len(r['cases'])==required[r['class'].split('.')[-1]],r
+          expected=json.loads(Path('validation/fix-expected.json').read_text())
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert len(expected)==11 and actual==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          Path('validation/fix-tests.json').write_text(json.dumps({'jvm_cases':len(cases),'android_cases':sum(len(r['cases']) for r in results),'live_server_verified':False},indent=2)+'\n')
+          PY
+          git diff --cached --check
+          git diff --cached > validation/decode-diagnostics.diff
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-decode-diagnostics-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish tested diagnostics only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/fix-expected.json').read_text())
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert len(expected)==11 and actual==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(log): distinguish decode failures with private-data-free diagnostics'
+          git push origin HEAD:work/registro-server-events
