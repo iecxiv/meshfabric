@@ -40,6 +40,8 @@ import java.util.Date
     val source=viewModel.meshClient
     val actor by source.userInfo.collectAsState()
     val connected by source.connectionState.collectAsState()
+    val groups by source.groupedDevices.collectAsState()
+    val inventory=remember(groups,connected,actor?.id,source.serverUrl,source.authCookie) {if(connected && !actor?.id.isNullOrBlank() && !source.isUserLogout) serverEventInventory(groups) else ServerEventInventory()}
     var selectedType by rememberSaveable {mutableStateOf(ServerEventType.ALL.name)}
     var selectedLimit by rememberSaveable {mutableIntStateOf(60)}
     val selection=ServerEventsQuery(ServerEventType.entries.firstOrNull {it.name==selectedType} ?: ServerEventType.ALL,selectedLimit.takeUnless {it==0})
@@ -55,11 +57,11 @@ import java.util.Date
     DisposableEffect(reader) {onDispose {reader.close()}}
     Scaffold(topBar={Column {MeshFabricAppBar(viewModel,onOpenSettings);header()}}) {padding->
         val visible=if(state.selection==selection) state else ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=selection)
-        ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0})
+        ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
     }
 }
-@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null) {
-    var detail by remember(state.records,state.phase,selection) {mutableStateOf<ServerEventRecord?>(null)}
+@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory()) {
+    var detail by remember(state.records,state.phase,selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}
     val status=when(state.phase) {
         ServerEventsPhase.IDLE->R.string.log_idle
         ServerEventsPhase.LOADING->R.string.log_loading
@@ -87,7 +89,7 @@ import java.util.Date
         if(state.phase==ServerEventsPhase.INVALID && state.issue!=null) Text(stringResource(R.string.log_diagnostic,state.issue.safeCode()),Modifier.testTag("log-events-diagnostic"),style=MaterialTheme.typography.bodySmall)
         if(state.phase==ServerEventsPhase.LOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(state.phase==ServerEventsPhase.READY) {
-            val rows=state.records.filter {row->listOf(row.message,row.actor,row.nodeName,row.action).any {it.contains(query.trim(),true)}}
+            val rows=state.records.map {it.withInventory(inventory)}.filter {row->listOf(row.message,row.actor,row.nodeName,row.action,row.groupName,row.nodeId,row.meshId,row.details["cmds"].orEmpty()).any {it.contains(query.trim(),true)}}
             if(selection.limit!=null && state.records.size==selection.limit) Text(stringResource(R.string.log_limit),style=MaterialTheme.typography.bodySmall)
             if(state.records.isEmpty()) Text(stringResource(R.string.log_empty),Modifier.testTag("log-events-empty"))
             else if(rows.isEmpty()) Text(stringResource(R.string.log_no_match),Modifier.testTag("log-events-no-match"))
@@ -96,7 +98,10 @@ import java.util.Date
                     ServerEventIcon(row.action)
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(row.message.ifBlank {stringResource(R.string.log_event)},style=MaterialTheme.typography.bodyMedium)
-                    if(row.nodeName.isNotBlank()) Text(row.nodeName,style=MaterialTheme.typography.labelMedium)
+                    if(row.deviceLabel().isNotBlank()) Text(row.deviceLabel(),Modifier.testTag("log-event-device-$index"),style=MaterialTheme.typography.labelMedium)
+                    if(row.nodeId.isNotBlank()) Text(stringResource(R.string.log_detail_node)+": "+row.nodeId,Modifier.testTag("log-event-node-$index"),style=MaterialTheme.typography.labelSmall)
+                    if(row.meshId.isNotBlank()) Text(stringResource(R.string.log_detail_mesh)+": "+row.meshId,Modifier.testTag("log-event-mesh-$index"),style=MaterialTheme.typography.labelSmall)
+                    if(row.inventoryResolved) Text(stringResource(R.string.log_detail_inventory),style=MaterialTheme.typography.bodySmall)
                     if(row.actor.isNotBlank()) Text(row.actor,style=MaterialTheme.typography.labelSmall)
                     Text(row.time?.let {DateFormat.getDateTimeInstance().format(Date(it))} ?: stringResource(R.string.log_time_unknown),style=MaterialTheme.typography.labelSmall)
                 }}}

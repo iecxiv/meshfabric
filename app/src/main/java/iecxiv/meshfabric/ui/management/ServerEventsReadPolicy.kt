@@ -3,7 +3,7 @@ import com.google.gson.JsonObject
 import java.time.Instant
 internal const val SERVER_EVENTS_LIMIT=200
 internal data class ServerEventsScope(val server:String,val actor:String,val session:Long,val authority:String)
-internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?,val details:Map<String,String> = emptyMap())
+internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?,val details:Map<String,String> = emptyMap(),val meshId:String="",val groupName:String="",val inventoryResolved:Boolean=false)
 internal enum class ServerEventsPhase { IDLE, LOADING, READY, DENIED, ERROR, INVALID, TIMEOUT, INVALIDATED }
 internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null,val selection:ServerEventsQuery?=null)
 internal fun serverEventsRequest(tag:String,selection:ServerEventsQuery=legacyServerEventsQuery):JsonObject {
@@ -67,7 +67,8 @@ internal class ServerEventsReadGate {
             value.asJsonArray.map {element->
                 if(!element.isJsonObject) eventDecodeFailure(ServerEventsIssueKind.RECORD_SHAPE,value=element)
                 val item=element.asJsonObject
-                ServerEventRecord(item.eventText("action"),item.eventText("msg",selected.limit==null),item.eventText("username"),item.eventText("nodeid"),item.eventText("nodename"),eventTime(item),serverEventDetails(item))
+                val device=serverEventDevice(item)
+                ServerEventRecord(item.eventText("action"),item.eventText("msg",selected.limit==null),item.eventText("username"),item.eventText("nodeid").ifBlank {device.nodeId},item.eventText("nodename").ifBlank {device.name},eventTime(item),serverEventDetails(item),device.meshId,device.group)
             }.sortedWith(compareByDescending<ServerEventRecord> {it.time ?: Long.MIN_VALUE})
         }
         val issue=decoded.exceptionOrNull()?.let {(it as? ServerEventsDecodeException)?.issue ?: ServerEventsIssue(ServerEventsIssueKind.INTERNAL)}

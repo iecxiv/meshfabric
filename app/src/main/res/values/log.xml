@@ -48,4 +48,10 @@
     <string name="log_detail_node">Device identifier</string>
     <string name="log_detail_message">Full message</string>
     <string name="log_detail_close">Close</string>
+    <string name="log_detail_mesh">Mesh ID</string>
+    <string name="log_detail_group">Device group</string>
+    <string name="log_detail_command">Command sent</string>
+    <string name="log_detail_cmd_type">Command type (server value)</string>
+    <string name="log_detail_run_as">Run-as mode (server value)</string>
+    <string name="log_detail_inventory">Some device or group data comes from the current connection inventory and may differ from the event time.</string>
 </resources>

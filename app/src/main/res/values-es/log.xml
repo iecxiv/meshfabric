@@ -48,4 +48,10 @@
     <string name="log_detail_node">Identificador del dispositivo</string>
     <string name="log_detail_message">Mensaje completo</string>
     <string name="log_detail_close">Cerrar</string>
+    <string name="log_detail_mesh">Mesh ID</string>
+    <string name="log_detail_group">Grupo de dispositivos</string>
+    <string name="log_detail_command">Comando enviado</string>
+    <string name="log_detail_cmd_type">Tipo de comando (valor del servidor)</string>
+    <string name="log_detail_run_as">Modo de ejecución (valor del servidor)</string>
+    <string name="log_detail_inventory">Parte de los datos de dispositivo o grupo procede del inventario de la conexión actual y puede diferir del momento del evento.</string>
 </resources>
