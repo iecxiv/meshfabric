@@ -6,6 +6,8 @@ on:
       - .github/workflows/prepare-dev-1.3.2.yml
       - .github/scripts/prepare-dev-1.3.2.py
       - .github/scripts/validate-dev-integration.py
+      - .github/scripts/test_inventory.py
+      - .github/scripts/test_test_inventory.py
 permissions:
   contents: write
 concurrency:
@@ -28,15 +30,17 @@ jobs:
         with:
           node-version: '22'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Guard source and dev before preparing version and documentation
+      - name: Guard branches and validate the corrected class-aware test inventory
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = 0db997466ef7647e42ec9a42da0302f5537f9bdf
+          test "$(git rev-parse HEAD^)" = 1b7827578210ebdd1c3425bf18a5560682704430
           git fetch origin dev work/registro-server-events
           test "$(git rev-parse origin/dev)" = ee873325bafb864db729491fef4c973517c91065
           test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
           mkdir -p validation
+          python3 .github/scripts/test_test_inventory.py
           python3 .github/scripts/prepare-dev-1.3.2.py
+          python3 .github/scripts/validate-dev-integration.py manifest
           git diff --cached --check
       - name: Install required SDK packages
         run: |
