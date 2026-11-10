@@ -3,17 +3,17 @@ import com.google.gson.JsonObject
 import java.time.Instant
 internal const val SERVER_EVENTS_LIMIT=200
 internal data class ServerEventsScope(val server:String,val actor:String,val session:Long,val authority:String)
-internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?)
+internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?,val details:Map<String,String> = emptyMap())
 internal enum class ServerEventsPhase { IDLE, LOADING, READY, DENIED, ERROR, INVALID, TIMEOUT, INVALIDATED }
 internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null,val selection:ServerEventsQuery?=null)
 internal fun serverEventsRequest(tag:String,selection:ServerEventsQuery=legacyServerEventsQuery):JsonObject {
     require(tag.isNotBlank() && tag.length<=128)
     return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);if(selection.limit!=null) addProperty("limit",selection.limit);if(selection.type!=ServerEventType.ALL) addProperty("filter",selection.type.wire)}
 }
-private fun JsonObject.eventText(key:String):String {
+private fun JsonObject.eventText(key:String,unboundedMessage:Boolean=false):String {
     val value=get(key) ?: return ""
     if(!(value.isJsonNull || (value.isJsonPrimitive && (value.asJsonPrimitive.isString || (key=="msg" && value.asJsonPrimitive.isNumber))))) eventDecodeFailure(ServerEventsIssueKind.FIELD_TYPE,key,value)
-    return if(value.isJsonNull) "" else value.asString.also {if(it.length>4096) eventDecodeFailure(ServerEventsIssueKind.FIELD_LENGTH,key,value,it.length)}
+    return if(value.isJsonNull) "" else value.asString.also {if(!(key=="msg" && unboundedMessage) && it.length>4096) eventDecodeFailure(ServerEventsIssueKind.FIELD_LENGTH,key,value,it.length)}
 }
 private fun eventTime(item:JsonObject):Long?=runCatching {
     val value=item.get("time") ?: return@runCatching null
@@ -63,11 +63,11 @@ internal class ServerEventsReadGate {
         }
         val decoded=runCatching {
             val value=packet.get("events")
-            if(value==null || !value.isJsonArray || value.asJsonArray.size()>(selected.limit ?: SERVER_EVENTS_SAFETY_LIMIT)) eventDecodeFailure(ServerEventsIssueKind.HISTORY_SHAPE,"events",value,if(value?.isJsonArray==true) value.asJsonArray.size() else null)
+            if(value==null || !value.isJsonArray || (selected.limit?.let {value.asJsonArray.size()>it}==true)) eventDecodeFailure(ServerEventsIssueKind.HISTORY_SHAPE,"events",value,if(value?.isJsonArray==true) value.asJsonArray.size() else null)
             value.asJsonArray.map {element->
                 if(!element.isJsonObject) eventDecodeFailure(ServerEventsIssueKind.RECORD_SHAPE,value=element)
                 val item=element.asJsonObject
-                ServerEventRecord(item.eventText("action"),item.eventText("msg"),item.eventText("username"),item.eventText("nodeid"),item.eventText("nodename"),eventTime(item))
+                ServerEventRecord(item.eventText("action"),item.eventText("msg",selected.limit==null),item.eventText("username"),item.eventText("nodeid"),item.eventText("nodename"),eventTime(item),serverEventDetails(item))
             }.sortedWith(compareByDescending<ServerEventRecord> {it.time ?: Long.MIN_VALUE})
         }
         val issue=decoded.exceptionOrNull()?.let {(it as? ServerEventsDecodeException)?.issue ?: ServerEventsIssue(ServerEventsIssueKind.INTERNAL)}

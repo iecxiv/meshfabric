@@ -28,7 +28,7 @@
     <string name="log_event_show">Mostrar</string>
     <string name="log_event_latest">Últimos %1$d</string>
     <string name="log_event_unlimited">Sin límite</string>
-    <string name="log_event_safety">Sin límite no solicita un máximo al servidor. Por seguridad, la app rechaza respuestas de más de 10000 registros o 2000000 caracteres; nunca las recorta silenciosamente.</string>
+    <string name="log_event_safety">Sin límite no impone un máximo fijo de registros ni de tamaño de mensaje en la app. Los historiales grandes pueden tardar y consumir más memoria. Cambia la selección para cancelar.</string>
     <string-array name="log_event_types">
         <item>Todos</item>
         <item>Registros del agente</item>
@@ -39,4 +39,13 @@
         <item>Cambios de dispositivo</item>
         <item>Eliminación de dispositivo</item>
     </string-array>
+    <string name="log_detail_title">Detalles del evento</string>
+    <string name="log_detail_missing">No disponible</string>
+    <string name="log_detail_date">Fecha y hora</string>
+    <string name="log_detail_type">Tipo de evento</string>
+    <string name="log_detail_actor">Usuario</string>
+    <string name="log_detail_device">Dispositivo</string>
+    <string name="log_detail_node">Identificador del dispositivo</string>
+    <string name="log_detail_message">Mensaje completo</string>
+    <string name="log_detail_close">Cerrar</string>
 </resources>

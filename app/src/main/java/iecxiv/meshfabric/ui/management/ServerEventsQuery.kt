@@ -1,5 +1,4 @@
 package iecxiv.meshfabric.ui.management
-internal const val SERVER_EVENTS_SAFETY_LIMIT=10000
 internal val serverEventLimitChoices=listOf(60,120,250,500,1000,0)
 internal enum class ServerEventType(val wire:String) {
     ALL(""), AGENT("agentlog"), RELAY("relaylog"), MANUAL("manual"), COMMAND("runcommands"), UPLOAD("batchupload"), CHANGE("changenode"), REMOVE("removenode");

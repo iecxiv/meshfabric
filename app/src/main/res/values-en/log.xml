@@ -28,7 +28,7 @@
     <string name="log_event_show">Show</string>
     <string name="log_event_latest">Latest %1$d</string>
     <string name="log_event_unlimited">Unlimited</string>
-    <string name="log_event_safety">Unlimited sends no count limit to the server. For safety, the app rejects responses exceeding 10000 records or 2000000 characters; it never silently truncates them.</string>
+    <string name="log_event_safety">Unlimited imposes no fixed app count or message-size ceiling. Large histories may take longer and consume more memory. Change the selection to cancel.</string>
     <string-array name="log_event_types">
         <item>All events</item>
         <item>Agent logs</item>
@@ -39,4 +39,13 @@
         <item>Device changes</item>
         <item>Device removals</item>
     </string-array>
+    <string name="log_detail_title">Event details</string>
+    <string name="log_detail_missing">Not available</string>
+    <string name="log_detail_date">Date and time</string>
+    <string name="log_detail_type">Event type</string>
+    <string name="log_detail_actor">User</string>
+    <string name="log_detail_device">Device</string>
+    <string name="log_detail_node">Device identifier</string>
+    <string name="log_detail_message">Full message</string>
+    <string name="log_detail_close">Close</string>
 </resources>

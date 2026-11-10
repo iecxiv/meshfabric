@@ -68,4 +68,17 @@ class LogEventsReaderTest {
             assertEquals(next,h.reader.state.value.selection);assertTrue(h.reader.state.value.records.isEmpty())
         } finally {h.reader.close()}
     }
+    @Test fun unlimitedAcceptsTheObserved2489999CharacterFrame() {
+        val h=Harness();try {
+            h.start(ServerEventsQuery(limit=null))
+            val tag=JsonParser.parseString(h.fake.sent.last()).asJsonObject.get("tag").asString
+            val prefix="{\"action\":\"events\",\"tag\":\""+tag+"\",\"events\":[{\"msg\":\""
+            val suffix="\"}]}"
+            val message="x".repeat(2489999-prefix.length-suffix.length)
+            val frame=prefix+message+suffix;assertEquals(2489999,frame.length)
+            h.listener.onMessage(h.fake,frame)
+            assertEquals(ServerEventsPhase.READY,h.reader.state.value.phase)
+            assertEquals(message,h.reader.state.value.records.single().message)
+        } finally {h.reader.close()}
+    }
 }

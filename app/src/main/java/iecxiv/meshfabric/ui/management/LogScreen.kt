@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.management
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.*
@@ -58,6 +59,7 @@ import java.util.Date
     }
 }
 @Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null) {
+    var detail by remember(state.records,state.phase,selection) {mutableStateOf<ServerEventRecord?>(null)}
     val status=when(state.phase) {
         ServerEventsPhase.IDLE->R.string.log_idle
         ServerEventsPhase.LOADING->R.string.log_loading
@@ -76,6 +78,7 @@ import java.util.Date
         ServerEventsPhase.READY->null
     }
     Column(modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        detail?.let {ServerEventDetailsDialog(it) {detail=null}}
         Text(stringResource(R.string.log_scope),style=MaterialTheme.typography.bodySmall)
         if(onSelection!=null) ServerEventsControls(selection,enabled,onSelection)
         OutlinedTextField(query,onQuery,label={Text(stringResource(R.string.log_search))},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("log-events-search"))
@@ -88,8 +91,8 @@ import java.util.Date
             if(selection.limit!=null && state.records.size==selection.limit) Text(stringResource(R.string.log_limit),style=MaterialTheme.typography.bodySmall)
             if(state.records.isEmpty()) Text(stringResource(R.string.log_empty),Modifier.testTag("log-events-empty"))
             else if(rows.isEmpty()) Text(stringResource(R.string.log_no_match),Modifier.testTag("log-events-no-match"))
-            LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {itemsIndexed(rows) {_,row->
-                Card(Modifier.fillMaxWidth()) {Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {itemsIndexed(rows) {index,row->
+                Card(Modifier.fillMaxWidth().testTag("log-event-row-$index").clickable {detail=row}) {Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     ServerEventIcon(row.action)
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(row.message.ifBlank {stringResource(R.string.log_event)},style=MaterialTheme.typography.bodyMedium)

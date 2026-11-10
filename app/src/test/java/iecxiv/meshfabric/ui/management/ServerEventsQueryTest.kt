@@ -36,10 +36,9 @@ class ServerEventsQueryTest {
         val state=decode(ServerEventsQuery(limit=null),1001)
         assertEquals(ServerEventsPhase.READY,state.phase);assertEquals(1001,state.records.size)
     }
-    @Test fun unlimitedSafetyBoundRejectsRatherThanTruncates() {
-        val state=decode(ServerEventsQuery(limit=null),SERVER_EVENTS_SAFETY_LIMIT+1)
-        assertEquals(ServerEventsPhase.INVALID,state.phase);assertTrue(state.records.isEmpty())
-        assertEquals(ServerEventsIssueKind.HISTORY_SHAPE,state.issue?.kind)
+    @Test fun unlimitedHasNoTenThousandRecordCeiling() {
+        val state=decode(ServerEventsQuery(limit=null),10001)
+        assertEquals(ServerEventsPhase.READY,state.phase);assertEquals(10001,state.records.size)
     }
     @Test fun changedSelectionRejectsPreviousAttemptAndTag() {
         val gate=ServerEventsReadGate();val first=gate.begin(scope,"old",ServerEventsQuery(limit=60))

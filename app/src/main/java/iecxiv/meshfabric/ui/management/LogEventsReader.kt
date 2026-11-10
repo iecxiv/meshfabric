@@ -39,7 +39,7 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
             override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@LogEventsReader) {
                 if(generation!=epoch) return
                 if(current()!=binding) {stop(ServerEventsPhase.INVALIDATED);return}
-                if(text.length>2_000_000) {invalid(ServerEventsIssue(ServerEventsIssueKind.FRAME_SIZE,length=text.length));return}
+                if(requested.limit!=null && text.length>2_000_000) {invalid(ServerEventsIssue(ServerEventsIssueKind.FRAME_SIZE,length=text.length));return}
                 val parsed=try {JsonParser.parseString(text)} catch(_:Exception) {invalid(ServerEventsIssue(ServerEventsIssueKind.JSON));return}
                 if(!parsed.isJsonObject) {invalid(ServerEventsIssue(ServerEventsIssueKind.ENVELOPE,type=eventValueType(parsed)));return}
                 val packet=parsed.asJsonObject

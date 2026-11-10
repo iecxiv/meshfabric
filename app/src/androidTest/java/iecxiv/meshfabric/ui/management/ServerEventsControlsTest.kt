@@ -25,8 +25,8 @@ class ServerEventsControlsTest {
     @Test fun knownAndUnknownEventsHaveIconsWithoutDroppingRows() {
         val state=ServerEventsSnapshot(ServerEventsPhase.READY,listOf(ServerEventRecord("relaylog","relay entry","","","",null),ServerEventRecord("future-type","unknown entry","","","",null)))
         compose.setContent {MaterialTheme {ServerEventsPanel(state,"",{},true,{})}}
-        compose.onNodeWithTag("log-event-icon-relaylog").assertIsDisplayed()
-        compose.onNodeWithTag("log-event-icon-other").assertIsDisplayed()
+        compose.onNodeWithTag("log-event-icon-relaylog",useUnmergedTree=true).assertIsDisplayed()
+        compose.onNodeWithTag("log-event-icon-other",useUnmergedTree=true).assertIsDisplayed()
         compose.onNodeWithText("relay entry").assertIsDisplayed();compose.onNodeWithText("unknown entry").assertIsDisplayed()
     }
 }
