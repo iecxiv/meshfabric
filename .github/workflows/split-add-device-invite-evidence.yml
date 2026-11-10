@@ -17,7 +17,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Split verified originals without changing their content
+      - name: Split verified originals into lossless JSON envelopes
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = add-device-invite
@@ -28,18 +28,22 @@ jobs:
           root=Path('tools/tests'); out=root/'add-device-invite-chunks'
           assert not out.exists(), 'Refuse to overwrite an existing split'
           out.mkdir()
-          index={'description':'Exact ordered text fragments; joining fragments for each source must reproduce the original bytes. Excerpt line numbers are not upstream source line numbers.','sources':[]}
+          index={'description':'Each fragment is a JSON envelope with a text field. Decode JSON, concatenate text fields in listed order, then UTF-8 encode to recover the exact original bytes. Excerpt line numbers are not upstream source line numbers.','sources':[]}
           for name,expected in sources.items():
               path=root/name
               assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()==expected, 'Original changed: '+name
               raw=path.read_bytes(); text=raw.decode('utf-8')
               assert text.encode('utf-8')==raw
               fragments=[]; rebuilt=[]
-              for number,start in enumerate(range(0,len(text),10000),1):
-                  part=text[start:start+10000]; data=part.encode('utf-8')
-                  target=f'{name}.{number:03d}.txt'
-                  (out/target).write_bytes(data)
-                  rebuilt.append((out/target).read_bytes())
+              for number,start in enumerate(range(0,len(text),6000),1):
+                  part=text[start:start+6000]
+                  target=f'{name}.{number:03d}.json'
+                  encoded=json.dumps({'text':part},ensure_ascii=True,indent=2)+'\n'
+                  assert all(line==line.rstrip() for line in encoded.splitlines())
+                  (out/target).write_bytes(encoded.encode('ascii'))
+                  decoded=json.loads((out/target).read_text(encoding='ascii'))['text']
+                  assert decoded==part
+                  rebuilt.append(decoded.encode('utf-8'))
                   topics=[]
                   for label,pattern in [('group-invite',r'inviteAgent|createInviteLink|agentinvite|invitationLink'),('device-share',r'createDeviceShareLink|removeDeviceShare|deviceShares|guestsharing|guestdevicesharing'),('add-agent',r'showAddMeshAgent|meshagents|meshsettings|installflags|magenturl|agentCertHash')]:
                       if re.search(pattern,part,re.I): topics.append(label)
