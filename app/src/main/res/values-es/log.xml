@@ -54,4 +54,5 @@
     <string name="log_detail_cmd_type">Tipo de comando (valor del servidor)</string>
     <string name="log_detail_run_as">Modo de ejecución (valor del servidor)</string>
     <string name="log_detail_inventory">Parte de los datos de dispositivo o grupo procede del inventario de la conexión actual y puede diferir del momento del evento.</string>
+    <string name="log_date_unknown">Fecha no disponible</string>
 </resources>

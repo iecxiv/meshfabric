@@ -30,10 +30,10 @@ class LogScreenTest {
         compose.onNodeWithTag("log-events-empty").assertIsDisplayed()
     }
     @Test fun receivedEventsCanBeSearchedWithoutShowingInternalIds() {
-        val query=mutableStateOf("")
         val row=ServerEventRecord("runcommands","example event","Operator","node/a/private","",null)
-        compose.setContent {MaterialTheme {ServerEventsPanel(ServerEventsSnapshot(ServerEventsPhase.READY,listOf(row)),query.value,{query.value=it},true,{})}}
+        compose.setContent {MaterialTheme {SearchableEventsTestPanel(ServerEventsSnapshot(ServerEventsPhase.READY,listOf(row)))}}
         compose.onNodeWithText("example event").assertIsDisplayed();compose.onNodeWithText("node/a/private").assertDoesNotExist()
+        compose.onNodeWithTag("log-events-search-toggle").performClick()
         compose.onNodeWithTag("log-events-search").performTextInput("not-present")
         compose.onNodeWithTag("log-events-no-match").assertIsDisplayed();compose.onNodeWithText("example event").assertDoesNotExist()
     }

@@ -9,12 +9,13 @@ class EventContentUiTest {
     @get:Rule val compose=createComposeRule()
     private fun event()=ServerEventRecord("runcommands","Running commands","operator","node//device","surface",1L,details=mapOf("cmds" to "echo ready\nwhoami","cmdType" to "2","runAsUser" to "1"),meshId="mesh//agent",groupName="agent")
     private fun state(row:ServerEventRecord)=ServerEventsSnapshot(ServerEventsPhase.READY,listOf(row))
-    @Test fun cardAndDetailsShareDeviceGroupAndBothIdentifiers() {
+    @Test fun cardHidesIdentifiersWhileDetailsKeepThem() {
         compose.setContent {MaterialTheme {ServerEventsPanel(state(event()),"",{},true,{})}}
         compose.onNodeWithTag("log-event-device-0",useUnmergedTree=true).assertTextEquals("surface(agent)")
-        compose.onNodeWithTag("log-event-node-0",useUnmergedTree=true).assertExists();compose.onNodeWithTag("log-event-mesh-0",useUnmergedTree=true).assertExists()
+        compose.onNodeWithTag("log-event-node-0",useUnmergedTree=true).assertDoesNotExist();compose.onNodeWithTag("log-event-mesh-0",useUnmergedTree=true).assertDoesNotExist()
         compose.onNodeWithTag("log-event-row-0").performClick()
         compose.onNodeWithTag("log-event-details-device").assertTextEquals("surface(agent)")
+        compose.onNodeWithText("node//device").assertExists();compose.onNodeWithText("mesh//agent").assertExists()
         compose.onNodeWithTag("log-event-command").assertTextEquals("echo ready\nwhoami")
         compose.onNodeWithTag("log-event-details-message").assertTextEquals("Running commands")
     }
@@ -24,7 +25,8 @@ class EventContentUiTest {
         compose.onNodeWithTag("log-event-row-0").performClick();compose.onNodeWithTag("log-event-command").assertTextEquals(command)
     }
     @Test fun groupAndCommandAreSearchable() {
-        compose.setContent {var query by remember {mutableStateOf("")};MaterialTheme {ServerEventsPanel(state(event()),query,{query=it},true,{})}}
+        compose.setContent {MaterialTheme {SearchableEventsTestPanel(state(event()))}}
+        compose.onNodeWithTag("log-events-search-toggle").performClick()
         compose.onNodeWithTag("log-events-search").performTextInput("whoami");compose.onNodeWithTag("log-event-row-0").assertExists()
         compose.onNodeWithTag("log-events-search").performTextClearance();compose.onNodeWithTag("log-events-search").performTextInput("agent");compose.onNodeWithTag("log-event-row-0").assertExists()
     }

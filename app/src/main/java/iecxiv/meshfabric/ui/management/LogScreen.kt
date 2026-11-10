@@ -53,9 +53,10 @@ import java.util.Date
     val state by reader.state.collectAsState()
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var query by rememberSaveable {mutableStateOf("")}
+    var showSearch by rememberSaveable {mutableStateOf(false)}
     LaunchedEffect(reader,lifecycle,selection) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {try {reader.load(selection);awaitCancellation()} finally {reader.pause(selection)}}}
     DisposableEffect(reader) {onDispose {reader.close()}}
-    Scaffold(topBar={Column {MeshFabricAppBar(viewModel,onOpenSettings);header()}}) {padding->
+    Scaffold(topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header)}) {padding->
         val visible=if(state.selection==selection) state else ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=selection)
         ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
     }
@@ -83,7 +84,6 @@ import java.util.Date
         detail?.let {ServerEventDetailsDialog(it) {detail=null}}
         Text(stringResource(R.string.log_scope),style=MaterialTheme.typography.bodySmall)
         if(onSelection!=null) ServerEventsControls(selection,enabled,onSelection)
-        OutlinedTextField(query,onQuery,label={Text(stringResource(R.string.log_search))},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("log-events-search"))
         TextButton(onClick=onRefresh,enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("log-events-refresh")) {Text(stringResource(R.string.log_refresh))}
         if(status!=null) Text(stringResource(status),Modifier.testTag("log-events-state"),color=if(state.phase in setOf(ServerEventsPhase.DENIED,ServerEventsPhase.ERROR,ServerEventsPhase.INVALID,ServerEventsPhase.TIMEOUT)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         if(state.phase==ServerEventsPhase.INVALID && state.issue!=null) Text(stringResource(R.string.log_diagnostic,state.issue.safeCode()),Modifier.testTag("log-events-diagnostic"),style=MaterialTheme.typography.bodySmall)
@@ -93,19 +93,22 @@ import java.util.Date
             if(selection.limit!=null && state.records.size==selection.limit) Text(stringResource(R.string.log_limit),style=MaterialTheme.typography.bodySmall)
             if(state.records.isEmpty()) Text(stringResource(R.string.log_empty),Modifier.testTag("log-events-empty"))
             else if(rows.isEmpty()) Text(stringResource(R.string.log_no_match),Modifier.testTag("log-events-no-match"))
-            LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {itemsIndexed(rows) {index,row->
+            LazyColumn(Modifier.weight(1f).testTag("log-events-list"),verticalArrangement=Arrangement.spacedBy(6.dp),contentPadding=PaddingValues(vertical=6.dp)) {
+                serverEventDays(rows).forEach {group->
+                    item(key="date-${group.date ?: "unknown"}") {ServerEventDayHeader(group)}
+                    itemsIndexed(group.entries) {_,entry->
+                        val index=entry.index
+                        val row=entry.value
                 Card(Modifier.fillMaxWidth().testTag("log-event-row-$index").clickable {detail=row}) {Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     ServerEventIcon(row.action)
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(row.message.ifBlank {stringResource(R.string.log_event)},style=MaterialTheme.typography.bodyMedium)
                     if(row.deviceLabel().isNotBlank()) Text(row.deviceLabel(),Modifier.testTag("log-event-device-$index"),style=MaterialTheme.typography.labelMedium)
-                    if(row.nodeId.isNotBlank()) Text(stringResource(R.string.log_detail_node)+": "+row.nodeId,Modifier.testTag("log-event-node-$index"),style=MaterialTheme.typography.labelSmall)
-                    if(row.meshId.isNotBlank()) Text(stringResource(R.string.log_detail_mesh)+": "+row.meshId,Modifier.testTag("log-event-mesh-$index"),style=MaterialTheme.typography.labelSmall)
                     if(row.inventoryResolved) Text(stringResource(R.string.log_detail_inventory),style=MaterialTheme.typography.bodySmall)
                     if(row.actor.isNotBlank()) Text(row.actor,style=MaterialTheme.typography.labelSmall)
                     Text(row.time?.let {DateFormat.getDateTimeInstance().format(Date(it))} ?: stringResource(R.string.log_time_unknown),style=MaterialTheme.typography.labelSmall)
                 }}}
-            }}
+            }}}
         }
     }
 }

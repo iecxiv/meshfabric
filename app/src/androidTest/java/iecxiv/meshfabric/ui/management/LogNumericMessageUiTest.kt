@@ -22,8 +22,9 @@ class LogNumericMessageUiTest {
         compose.onNodeWithTag("log-events-state").assertDoesNotExist()
     }
     @Test fun numericLiteralCanBeSearched() {
-        val state=snapshot();val query=mutableStateOf("")
-        compose.setContent {MaterialTheme {ServerEventsPanel(state,query.value,{query.value=it},true,{})}}
+        val state=snapshot()
+        compose.setContent {MaterialTheme {SearchableEventsTestPanel(state)}}
+        compose.onNodeWithTag("log-events-search-toggle").performClick()
         compose.onNodeWithTag("log-events-search").performTextInput("123")
         compose.onNode(hasText("123") and hasSetTextAction().not()).assertIsDisplayed()
         compose.onNodeWithText("text message").assertDoesNotExist()

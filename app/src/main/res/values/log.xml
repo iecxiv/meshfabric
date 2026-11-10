@@ -54,4 +54,5 @@
     <string name="log_detail_cmd_type">Command type (server value)</string>
     <string name="log_detail_run_as">Run-as mode (server value)</string>
     <string name="log_detail_inventory">Some device or group data comes from the current connection inventory and may differ from the event time.</string>
+    <string name="log_date_unknown">Date not available</string>
 </resources>
