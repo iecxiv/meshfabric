@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="registro_title">Log</string>
+    <string name="registro_activity">Activity</string>
+    <string name="registro_events">Events</string>
+    <string name="log_loading">Loading server events…</string>
+    <string name="log_idle">Load server events.</string>
+    <string name="log_empty">No visible events were returned.</string>
+    <string name="log_denied">The server explicitly denied the request.</string>
+    <string name="log_error">The query failed. No empty history is assumed.</string>
+    <string name="log_invalid">Invalid or oversized server response.</string>
+    <string name="log_timeout">No response within the time limit. Check connection and permissions.</string>
+    <string name="log_invalidated">Data cleared after a connection, account or access change. Refresh to query again.</string>
+    <string name="log_scope">Up to 200 recent events visible to this account; not a complete server audit log.</string>
+    <string name="log_refresh">Refresh</string>
+    <string name="log_search">Search received events</string>
+    <string name="log_no_match">No received events match the search.</string>
+    <string name="log_event">Server event</string>
+    <string name="log_time_unknown">Time not available</string>
+    <string name="log_limit">The query limit was reached; older events may exist.</string>
+</resources>

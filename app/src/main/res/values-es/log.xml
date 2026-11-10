@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="registro_title">Registro</string>
+    <string name="registro_activity">Actividad</string>
+    <string name="registro_events">Eventos</string>
+    <string name="log_loading">Consultando eventos del servidor…</string>
+    <string name="log_idle">Consulta los eventos del servidor.</string>
+    <string name="log_empty">No se han devuelto eventos visibles.</string>
+    <string name="log_denied">El servidor ha denegado explícitamente la consulta.</string>
+    <string name="log_error">La consulta ha fallado. No se interpreta como un historial vacío.</string>
+    <string name="log_invalid">Respuesta del servidor no válida o demasiado grande.</string>
+    <string name="log_timeout">Sin respuesta dentro del plazo. Comprueba conexión y permisos.</string>
+    <string name="log_invalidated">Datos retirados tras un cambio de conexión, cuenta o acceso. Actualiza para consultar de nuevo.</string>
+    <string name="log_scope">Hasta 200 eventos recientes visibles para esta cuenta; no es una auditoría completa del servidor.</string>
+    <string name="log_refresh">Actualizar</string>
+    <string name="log_search">Buscar en los eventos recibidos</string>
+    <string name="log_no_match">Ningún evento recibido coincide con la búsqueda.</string>
+    <string name="log_event">Evento del servidor</string>
+    <string name="log_time_unknown">Hora no disponible</string>
+    <string name="log_limit">Se ha alcanzado el límite de consulta; puede haber eventos anteriores.</string>
+</resources>

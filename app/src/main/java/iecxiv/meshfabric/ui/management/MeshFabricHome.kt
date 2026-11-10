@@ -26,7 +26,6 @@ import iecxiv.meshfabric.data.model.MeshNode
 import iecxiv.meshfabric.data.remote.DesktopRelayClient
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import iecxiv.meshfabric.data.remote.OkHttpHelper
-import iecxiv.meshfabric.ui.components.MeshFabricActivityScreen
 import iecxiv.meshfabric.ui.components.MeshFabricAppBar
 import iecxiv.meshfabric.ui.devices.DeviceListScreen
 import iecxiv.meshfabric.ui.devices.DeviceListViewModel
@@ -272,7 +271,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize())
             } else if(page==4) {
                 NoticeInboxScreen(management.inbox,state.ready,Modifier.fillMaxSize())
-            } else MeshFabricActivityScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
+            } else LogScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
                 actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
         }
     }
