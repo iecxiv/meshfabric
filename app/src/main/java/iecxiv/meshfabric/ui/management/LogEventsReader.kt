@@ -37,8 +37,14 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
             override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@LogEventsReader) {
                 if(generation!=epoch) return
                 if(current()!=binding) {stop(ServerEventsPhase.INVALIDATED);return}
-                if(text.length>2_000_000) {stop(ServerEventsPhase.INVALID);return}
-                runCatching {receive(webSocket,JsonParser.parseString(text).asJsonObject)}.onFailure {stop(ServerEventsPhase.INVALID)}
+                if(text.length>2_000_000) {invalid(ServerEventsIssue(ServerEventsIssueKind.FRAME_SIZE,length=text.length));return}
+                val parsed=try {JsonParser.parseString(text)} catch(_:Exception) {invalid(ServerEventsIssue(ServerEventsIssueKind.JSON));return}
+                if(!parsed.isJsonObject) {invalid(ServerEventsIssue(ServerEventsIssueKind.ENVELOPE,type=eventValueType(parsed)));return}
+                val packet=parsed.asJsonObject
+                try {receive(webSocket,packet)} catch(e:ServerEventsDecodeException) {invalid(e.issue)} catch(_:Exception) {
+                    val identity=packet.get("action")?.let {it.isJsonPrimitive && it.asJsonPrimitive.isString && it.asString=="userinfo"}==true
+                    invalid(ServerEventsIssue(if(identity) ServerEventsIssueKind.IDENTITY else ServerEventsIssueKind.INTERNAL))
+                }
             }}
             override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {webSocket.close(code,"");failed(generation)}
             override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {failed(generation)}
@@ -52,7 +58,9 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
         when(str(p,"action")) {
             "ping"->if(!ws.send("{\"action\":\"pong\"}")) stop(ServerEventsPhase.ERROR)
             "userinfo"->{
-                val user=p.getAsJsonObject("userinfo") ?: error("Missing identity")
+                val rawUser=p.get("userinfo")
+                if(rawUser==null || !rawUser.isJsonObject) eventDecodeFailure(ServerEventsIssueKind.IDENTITY,"userinfo",rawUser)
+                val user=rawUser.asJsonObject
                 val site=user.get("siteadmin")?.asLong?.toInt() ?: 0
                 if(str(user,"_id")!=b.actor || site!=b.site) {stop(ServerEventsPhase.INVALIDATED);return}
                 val authority=site.toString()+":"+(user.get("links")?.toString() ?: "unavailable")
@@ -73,6 +81,7 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
             "close","stopped"->stop(ServerEventsPhase.ERROR)
         }
     }
+    private fun invalid(issue:ServerEventsIssue) {stop(ServerEventsPhase.INVALID);mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue)}
     @Synchronized fun timeout() {if(mutable.value.phase==ServerEventsPhase.LOADING) stop(ServerEventsPhase.TIMEOUT)}
     @Synchronized private fun failed(generation:Long) {if(generation==epoch) stop(ServerEventsPhase.ERROR)}
     @Synchronized private fun stop(phase:ServerEventsPhase) {

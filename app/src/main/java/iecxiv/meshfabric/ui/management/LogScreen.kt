@@ -59,7 +59,14 @@ import java.util.Date
         ServerEventsPhase.LOADING->R.string.log_loading
         ServerEventsPhase.DENIED->R.string.log_denied
         ServerEventsPhase.ERROR->R.string.log_error
-        ServerEventsPhase.INVALID->R.string.log_invalid
+        ServerEventsPhase.INVALID->when(state.issue?.kind) {
+            ServerEventsIssueKind.FRAME_SIZE->R.string.log_invalid_frame
+            ServerEventsIssueKind.JSON,ServerEventsIssueKind.ENVELOPE->R.string.log_invalid_json
+            ServerEventsIssueKind.IDENTITY->R.string.log_invalid_identity
+            ServerEventsIssueKind.HISTORY_SHAPE,ServerEventsIssueKind.RECORD_SHAPE,ServerEventsIssueKind.FIELD_TYPE,ServerEventsIssueKind.FIELD_LENGTH->R.string.log_invalid_history
+            ServerEventsIssueKind.INTERNAL->R.string.log_invalid_internal
+            null->R.string.log_invalid
+        }
         ServerEventsPhase.TIMEOUT->R.string.log_timeout
         ServerEventsPhase.INVALIDATED->R.string.log_invalidated
         ServerEventsPhase.READY->null
@@ -69,6 +76,7 @@ import java.util.Date
         OutlinedTextField(query,onQuery,label={Text(stringResource(R.string.log_search))},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("log-events-search"))
         TextButton(onClick=onRefresh,enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("log-events-refresh")) {Text(stringResource(R.string.log_refresh))}
         if(status!=null) Text(stringResource(status),Modifier.testTag("log-events-state"),color=if(state.phase in setOf(ServerEventsPhase.DENIED,ServerEventsPhase.ERROR,ServerEventsPhase.INVALID,ServerEventsPhase.TIMEOUT)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        if(state.phase==ServerEventsPhase.INVALID && state.issue!=null) Text(stringResource(R.string.log_diagnostic,state.issue.safeCode()),Modifier.testTag("log-events-diagnostic"),style=MaterialTheme.typography.bodySmall)
         if(state.phase==ServerEventsPhase.LOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(state.phase==ServerEventsPhase.READY) {
             val rows=state.records.filter {row->listOf(row.message,row.actor,row.nodeName,row.action).any {it.contains(query.trim(),true)}}

@@ -35,4 +35,19 @@ class LogEventsReaderTest {
     @Test fun accessChangeClearsPreviouslyLoadedData() {
         val h=Harness();try {h.start();h.history();h.listener.onMessage(h.fake,"""{"action":"event","event":{"action":"meshchange"}}""");assertEquals(ServerEventsPhase.INVALIDATED,h.reader.state.value.phase)} finally {h.reader.close()}
     }
+    @Test fun oversizedFrameIsNotReportedAsInvalidHistory() {
+        val h=Harness();try {h.start();h.listener.onMessage(h.fake,"x".repeat(2_000_001));assertEquals(ServerEventsIssueKind.FRAME_SIZE,h.reader.state.value.issue?.kind);assertTrue(h.fake.cancelled)} finally {h.reader.close()}
+    }
+    @Test fun malformedJsonHasItsOwnSafeIssue() {
+        val h=Harness();try {h.start();h.listener.onMessage(h.fake,"{\"private-content\":");assertEquals(ServerEventsIssueKind.JSON,h.reader.state.value.issue?.kind);assertFalse(h.reader.state.value.issue!!.safeCode().contains("private-content"))} finally {h.reader.close()}
+    }
+    @Test fun nonObjectJsonIsAnEnvelopeFailure() {
+        val h=Harness();try {h.start();h.listener.onMessage(h.fake,"[]");assertEquals(ServerEventsIssueKind.ENVELOPE,h.reader.state.value.issue?.kind)} finally {h.reader.close()}
+    }
+    @Test fun malformedUserInfoIsNotReportedAsHistoryFailure() {
+        val h=Harness();try {h.start();h.listener.onMessage(h.fake,"{\"action\":\"userinfo\",\"userinfo\":[]}");assertEquals(ServerEventsIssueKind.IDENTITY,h.reader.state.value.issue?.kind)} finally {h.reader.close()}
+    }
+    @Test fun nullSitePermissionsRemainInvalidNotImplicitlyAuthorized() {
+        val h=Harness();try {h.start();h.listener.onMessage(h.fake,"{\"action\":\"userinfo\",\"userinfo\":{\"_id\":\"user/a/me\",\"siteadmin\":null}}");assertEquals(ServerEventsIssueKind.IDENTITY,h.reader.state.value.issue?.kind);assertTrue(h.reader.state.value.records.isEmpty())} finally {h.reader.close()}
+    }
 }

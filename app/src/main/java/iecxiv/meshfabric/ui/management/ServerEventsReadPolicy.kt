@@ -5,15 +5,15 @@ internal const val SERVER_EVENTS_LIMIT=200
 internal data class ServerEventsScope(val server:String,val actor:String,val session:Long,val authority:String)
 internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?)
 internal enum class ServerEventsPhase { IDLE, LOADING, READY, DENIED, ERROR, INVALID, TIMEOUT, INVALIDATED }
-internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList())
+internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null)
 internal fun serverEventsRequest(tag:String):JsonObject {
     require(tag.isNotBlank() && tag.length<=128)
     return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);addProperty("limit",SERVER_EVENTS_LIMIT)}
 }
 private fun JsonObject.eventText(key:String):String {
     val value=get(key) ?: return ""
-    require(value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isString))
-    return if(value.isJsonNull) "" else value.asString.also {require(it.length<=4096)}
+    if(!(value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isString))) eventDecodeFailure(ServerEventsIssueKind.FIELD_TYPE,key,value)
+    return if(value.isJsonNull) "" else value.asString.also {if(it.length>4096) eventDecodeFailure(ServerEventsIssueKind.FIELD_LENGTH,key,value,it.length)}
 }
 private fun eventTime(item:JsonObject):Long?=runCatching {
     val value=item.get("time") ?: return@runCatching null
@@ -60,16 +60,17 @@ internal class ServerEventsReadGate {
             state=ServerEventsSnapshot(if(denied) ServerEventsPhase.DENIED else ServerEventsPhase.ERROR)
             return true
         }
-        val records=runCatching {
+        val decoded=runCatching {
             val value=packet.get("events")
-            require(value!=null && value.isJsonArray && value.asJsonArray.size()<=SERVER_EVENTS_LIMIT)
+            if(value==null || !value.isJsonArray || value.asJsonArray.size()>SERVER_EVENTS_LIMIT) eventDecodeFailure(ServerEventsIssueKind.HISTORY_SHAPE,"events",value,if(value?.isJsonArray==true) value.asJsonArray.size() else null)
             value.asJsonArray.map {element->
-                require(element.isJsonObject)
+                if(!element.isJsonObject) eventDecodeFailure(ServerEventsIssueKind.RECORD_SHAPE,value=element)
                 val item=element.asJsonObject
                 ServerEventRecord(item.eventText("action"),item.eventText("msg"),item.eventText("username"),item.eventText("nodeid"),item.eventText("nodename"),eventTime(item))
             }.sortedWith(compareByDescending<ServerEventRecord> {it.time ?: Long.MIN_VALUE})
-        }.getOrNull()
-        state=if(records==null) ServerEventsSnapshot(ServerEventsPhase.INVALID) else ServerEventsSnapshot(ServerEventsPhase.READY,records)
+        }
+        val issue=decoded.exceptionOrNull()?.let {(it as? ServerEventsDecodeException)?.issue ?: ServerEventsIssue(ServerEventsIssueKind.INTERNAL)}
+        state=if(issue!=null) ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue) else ServerEventsSnapshot(ServerEventsPhase.READY,decoded.getOrThrow())
         return true
     }
 }

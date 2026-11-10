@@ -18,4 +18,10 @@
     <string name="log_event">Evento del servidor</string>
     <string name="log_time_unknown">Hora no disponible</string>
     <string name="log_limit">Se ha alcanzado el límite de consulta; puede haber eventos anteriores.</string>
+    <string name="log_invalid_frame">El mensaje recibido supera el límite de tamaño de seguridad.</string>
+    <string name="log_invalid_json">El canal de control ha devuelto un mensaje que no se puede interpretar.</string>
+    <string name="log_invalid_identity">No se ha podido procesar la respuesta de identidad de la cuenta.</string>
+    <string name="log_invalid_history">El historial de eventos contiene un campo o una estructura no compatible.</string>
+    <string name="log_invalid_internal">Se ha producido un error interno al procesar el canal de control.</string>
+    <string name="log_diagnostic">Detalle técnico: %1$s</string>
 </resources>

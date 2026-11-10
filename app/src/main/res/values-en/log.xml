@@ -18,4 +18,10 @@
     <string name="log_event">Server event</string>
     <string name="log_time_unknown">Time not available</string>
     <string name="log_limit">The query limit was reached; older events may exist.</string>
+    <string name="log_invalid_frame">The received message exceeds the safety size limit.</string>
+    <string name="log_invalid_json">The control channel returned an unreadable message.</string>
+    <string name="log_invalid_identity">The account identity response could not be processed.</string>
+    <string name="log_invalid_history">The event history contains an unsupported field or structure.</string>
+    <string name="log_invalid_internal">An internal error occurred while processing the control channel.</string>
+    <string name="log_diagnostic">Technical detail: %1$s</string>
 </resources>
