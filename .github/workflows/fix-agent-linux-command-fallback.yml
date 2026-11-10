@@ -12,8 +12,6 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      AGENT_COMMAND_FIXTURES: ${{ runner.temp }}/agent-command-fixtures.json
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,7 +22,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = add-device-invite
-          test "$(git rev-parse HEAD^)" = c55b2c91cfcd460fd1f2393db3867ac498339e2c
+          test "$(git rev-parse HEAD^)" = 6497ac00f679dd3ecf19d8c14ca8cfb665f64648
+          printf 'AGENT_COMMAND_FIXTURES=%s/agent-command-fixtures.json\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
           python3 - <<'PY'
           from pathlib import Path
           import subprocess
