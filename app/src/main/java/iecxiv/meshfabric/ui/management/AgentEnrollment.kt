@@ -62,7 +62,7 @@ internal fun enrollmentQuote(s:String)="'"+s.replace("'","'\"'\"'")+"'"
 internal fun enrollmentLinuxCommand(base:String,mesh:String,uninstall:Boolean,ignoreSsl:Boolean):String {
     val b=enrollmentBase(base);val mid=enrollmentMesh(mesh);val url=(b+"/").toHttpUrl().newBuilder().addPathSegment("meshagents").addQueryParameter("script","1").build().toString()
     val tls=if(ignoreSsl) " --no-check-certificate" else "";val prefix=if(uninstall) "uninstall " else ""
-    return "(wget "+enrollmentQuote(url)+tls+" -O ./meshinstall.sh || wget "+enrollmentQuote(url)+" --no-proxy"+tls+" -O ./meshinstall.sh) && chmod 755 ./meshinstall.sh && sudo -E ./meshinstall.sh "+prefix+enrollmentQuote(b)+" "+enrollmentQuote(mid)
+    return "(wget "+enrollmentQuote(url)+tls+" -O ./meshinstall.sh || wget "+enrollmentQuote(url)+" --no-proxy"+tls+" -O ./meshinstall.sh) && chmod 755 ./meshinstall.sh && sudo -E ./meshinstall.sh "+prefix+enrollmentQuote(b)+" "+enrollmentQuote(mid)+" || ./meshinstall.sh "+prefix+enrollmentQuote(b)+" "+enrollmentQuote(mid)
 }
 internal fun enrollmentValidHeader(kind:String,bytes:ByteArray):Boolean {val h=bytes.take(4).joinToString("") {"%02x".format(it.toInt() and 255)};return when(kind) {"pe"->h.length==8 && h.startsWith("4d5a");"zip"->h=="504b0304";"bin"->h in setOf("7f454c46","cafebabe","bebafeca","feedface","cefaedfe","feedfacf","cffaedfe");else->false}}
 internal fun enrollmentQr(payload:String)=QRCodeWriter().encode(payload,BarcodeFormat.QR_CODE,256,256,mapOf(EncodeHintType.CHARACTER_SET to "UTF-8",EncodeHintType.MARGIN to 2,EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M))
