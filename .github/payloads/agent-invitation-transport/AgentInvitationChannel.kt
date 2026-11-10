@@ -50,7 +50,7 @@ internal class AgentInvitationChannel(
     @Synchronized fun start(packet:JsonObject):Boolean {
         if(used || done || !live()) return false
         val a=text(packet,"action") ?: return false
-        if(a !in setOf("createInviteLink","inviteAgent") || packet.has("nodeid")) return false
+        if(a!="createInviteLink" || packet.has("nodeid")) return false
         val t=text(packet,"meshid") ?: return false
         if(runCatching {AgentInvitationContract.installationTarget(binding.actor,t)}.isFailure) return false
         used=true;action=a;target=t;nonce=UUID.randomUUID().toString()

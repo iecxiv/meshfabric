@@ -260,7 +260,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                     desktopSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
                     terminalSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
                     fileSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE)
-                DeviceActionMenu(node,state.ready,hasActiveSessions,
+                DeviceActionMenu(viewModel.meshClient,node,state.ready,hasActiveSessions,
                     onDisconnectSessions={ viewModel.closeDeviceActiveSessions(node.id) },onRead={ management.openNotes(node,false) },onEdit={ management.openNotes(node,true) },
                     onSelect={ op->operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
             }) {
@@ -333,8 +333,10 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         }
     } }
 }
-@Composable private fun DeviceActionMenu(node:MeshNode,ready:Boolean,hasActiveSessions:Boolean,onDisconnectSessions:()->Unit,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {
+@Composable private fun DeviceActionMenu(inviteSource:MeshCentralClient,node:MeshNode,ready:Boolean,hasActiveSessions:Boolean,onDisconnectSessions:()->Unit,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {
     var expanded by remember(node.id) { mutableStateOf(false) }
+    var inviteOpen by remember(node.id) {mutableStateOf(false)}
+    if(inviteOpen) AgentInviteLinkDialog(inviteSource,node.id,true) {inviteOpen=false}
     val configuration=LocalConfiguration.current
     val density=LocalDensity.current
     val safeInsets=WindowInsets.safeDrawing
@@ -375,6 +377,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
             }
+            MenuEntry(if(configuration.locales[0].language=="es") "Invitar" else "Invite",Icons.Default.PersonAdd,ready) {expanded=false;inviteOpen=true}
             MenuEntry("Leer notas",Icons.Default.Description,ready) { expanded=false; onRead() }
             MenuEntry("Guardar notas",Icons.Default.Edit,ready) { expanded=false; onEdit() }
             if(regularActions.isNotEmpty()) {
