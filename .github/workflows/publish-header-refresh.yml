@@ -1,0 +1,122 @@
+name: Validate and publish header refresh in Events and Management
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths:
+      - .github/workflows/publish-header-refresh.yml
+      - .github/scripts/prepare-header-refresh.py
+permissions:
+  contents: write
+concurrency:
+  group: log-complete
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare only guarded header actions and requested notice removals
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 25a98e550ad181632c41eb5e7909f133f40bfd20
+          mkdir -p validation
+          python3 .github/scripts/prepare-header-refresh.py
+          git diff --cached --check
+      - name: Compile execute JVM lint and prepare exact affected Android runner
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/header-refresh-yaml
+          /tmp/header-refresh-yaml/bin/pip install --disable-pip-version-check PyYAML==6.0.2
+          /tmp/header-refresh-yaml/bin/python - <<'PY'
+          from pathlib import Path
+          import ast,subprocess,yaml
+          yaml.safe_load(Path('.github/workflows/publish-header-refresh.yml').read_text())
+          old=subprocess.check_output(['git','show','25a98e550ad181632c41eb5e7909f133f40bfd20:.github/scripts/prepare-events-numeric-search.py'],text=True)
+          ast.parse(old);p=Path('validation/pinned-numeric-search-runner.py');p.write_text(old)
+          subprocess.run(['/tmp/header-refresh-yaml/bin/python',str(p),'--build'],check=True)
+          p=Path('validation/run-log-class-isolation.py');s=p.read_text();anchor='expected={\n'
+          assert s.count(anchor)==1
+          extra="    'HeaderRefreshUiTest':{'eventRefreshPrecedesSearchAndKeepsQuery','eventHeaderRefreshHonorsDisabledState','managementRefreshAppearsOnlyOnTheThreeDirectoryTabs','managementHeaderBlocksBusyAndDirectoryLoading','eventNoticesDisappearWithoutLosingRecordsOrDetails','eventsPanelHasNoRefreshButtonOrManagementChannelRow'},\n    'UserGroupsActionsCardTest':{'serverActionsAreGroupedAndOldHeadingIsAbsent'},\n    'UserGroupsSectionSpacingTest':{'actionHeadingGapMatchesUsersColumnLayout','resultsHeadingPrecedesGroupsAndIsAbsentWhenNoGroupsExist'},\n"
+          s=s.replace(anchor,anchor+extra).replace('Expected: 33 distinct methods across 10 independent class runs.','Expected: 42 distinct methods across 13 independent class runs.')
+          ast.parse(s);p.write_text(s)
+          PY
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute all 42 affected Android methods independently
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 validation/run-log-class-isolation.py
+      - name: Require exact executed evidence and thirteen-file scope
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,xml.etree.ElementTree as ET
+          cases=[]
+          for p in Path('app/build/test-results/testDebugUnitTest').rglob('*.xml'): cases.extend(ET.parse(p).getroot().iter('testcase'))
+          assert cases and all(all(c.find(t) is None for t in ('failure','error','skipped')) for c in cases)
+          for name,count in {'HeaderRefreshPolicyTest':6,'ServerEventDaysTest':5,'EventContentTest':10,'ServerEventDetailsPolicyTest':4,'ServerEventsQueryTest':8,'LogEventsReaderTest':12,'ServerEventsReadPolicyTest':9,'ServerEventsDiagnosticsTest':3,'LogNumericMessageTest':8}.items():
+              found=[c for c in cases if c.get('classname','').split('.')[-1]==name]
+              assert len(found)==count and len({c.get('name') for c in found})==count,name
+          results=json.loads(Path('validation/class-isolation/summary.json').read_text())
+          required={'HeaderRefreshUiTest':6,'UserGroupsActionsCardTest':1,'UserGroupsSectionSpacingTest':2,'EventsHeaderDatesTest':5,'EventContentUiTest':4,'EventsSelectorWidthTest':5,'EventsPresentationTest':4,'ServerEventsControlsTest':3,'LogNumericMessageUiTest':2,'LogEventsDiagnosticsUiTest':2,'RegistroSectionTabsTest':2,'LogScreenTest':4,'ManagementNavigationLabelTest':2}
+          assert len(results)==13 and {r['class'] for r in results}=={'iecxiv.meshfabric.ui.management.'+n for n in required}
+          for r in results:
+              assert r['passed'] is True and r['exit_code']==0,r
+              assert len(r['cases'])==required[r['class'].split('.')[-1]],r
+          expected=json.loads(Path('validation/header-refresh-expected.json').read_text())
+          assert len(expected)==13 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          untouched=['ManagementConnectionStatus.kt','ManagementConnectionSpacing.kt','ProfileManagementConnectionStatus.kt','ProfileSession.kt','ActivityTimeline.kt','ServerEventsReadPolicy.kt','LogEventsReader.kt']
+          for name in untouched:
+              assert not subprocess.check_output(['git','diff','--cached','--name-only','--','app/src/main/java/iecxiv/meshfabric/ui/management/'+name],text=True).strip()
+          assert not subprocess.check_output(['git','diff','--cached','--name-only','--','app/src/main/java/iecxiv/meshfabric/ui/components/MeshFabricAppBar.kt'],text=True).strip()
+          Path('validation/header-refresh-tests.json').write_text(json.dumps({'jvm_cases':len(cases),'android_cases':42,'live_server_verified':False,'physical_visual_review_verified':False},indent=2)+'\n')
+          PY
+          git diff --cached --check
+          git diff --cached > validation/header-refresh.diff
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: header-refresh-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish tested sources only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/header-refresh-expected.json').read_text())
+          assert len(expected)==13 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(ui): move Events and Management refresh to app bars and hide notices'
+          git push origin HEAD:work/registro-server-events

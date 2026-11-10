@@ -33,7 +33,8 @@ import java.util.Locale
             val headingBounds=compose.onNodeWithText(heading).fetchSemanticsNode().boundsInRoot
             val actionsBounds=compose.onNodeWithTag("user-groups-server-actions").fetchSemanticsNode().boundsInRoot
             org.junit.Assert.assertTrue("Heading must precede action controls",headingBounds.bottom<=actionsBounds.top)
-            compose.onNode(hasText("Reconectar") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertExists()
+            compose.onNode(hasText("Reconectar") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertDoesNotExist()
+            compose.onNode(hasText("Actualizar") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertDoesNotExist()
             compose.onNode(hasText("Crear grupo de usuarios") and hasAnyAncestor(hasTestTag("user-groups-server-actions"))).assertIsNotEnabled()
             compose.onNodeWithText("Buscar grupo").assertExists()
         } finally {

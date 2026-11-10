@@ -1,0 +1,84 @@
+name: Validate and publish scoped presentation polish
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths:
+      - .github/workflows/publish-presentation-polish.yml
+      - .github/scripts/prepare-presentation-polish.py
+permissions:
+  contents: write
+concurrency:
+  group: log-complete
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare only guarded event history and statistics presentation changes
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 4188e655b07fc428410daac73ca6b3887489d0e6
+          mkdir -p validation
+          python3 .github/scripts/prepare-presentation-polish.py
+          git diff --cached --check
+      - name: Ensure required Android SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build both APKs once execute related unit tests and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:testDebugUnitTest --tests iecxiv.meshfabric.ui.management.PresentationPolishPolicyTest --tests iecxiv.meshfabric.ui.management.LoginHistoryLabelsTest --tests iecxiv.meshfabric.ui.management.EventContentTest --tests iecxiv.meshfabric.ui.management.ServerHistoryTest --tests iecxiv.meshfabric.ui.management.ServerHistoryCsvSelectionTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --no-daemon --stacktrace
+          python3 validation/run-presentation-polish.py unit
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Install APKs once and execute ten pertinent Android methods
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 validation/run-presentation-polish.py android
+      - name: Verify exact executed evidence and fourteen-file scope
+        run: |
+          set -euo pipefail
+          python3 validation/run-presentation-polish.py verify
+          git diff --cached --check
+          git diff --cached > validation/presentation-polish.diff
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: presentation-polish-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish all tested files only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          python3 validation/run-presentation-polish.py verify
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(ui): refine event labels login histories and statistics refresh'
+          git push origin HEAD:work/registro-server-events

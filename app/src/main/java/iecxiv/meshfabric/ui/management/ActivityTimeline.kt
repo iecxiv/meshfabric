@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -121,8 +122,8 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
 @Composable internal fun ActivityTimeline(journal:ActivityJournal,feedback:RemoteActionFeedback,modifier:Modifier=Modifier,query:String="") {
     val records by journal.entries.collectAsState()
     val remote by feedback.state.collectAsState()
-    var filter by remember { mutableIntStateOf(0) }
-    var device by remember { mutableStateOf("") }
+    var filter by rememberSaveable { mutableIntStateOf(0) }
+    var device by rememberSaveable { mutableStateOf("") }
     var menu by remember { mutableStateOf(false) }
     val scheme=MaterialTheme.colorScheme
     val devices=records.filter { it.nodeId.isNotBlank() }.distinctBy { it.nodeId }.map { it.nodeId to it.target }.sortedBy { it.second.lowercase() }

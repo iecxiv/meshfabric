@@ -2,7 +2,9 @@
 
 English | [Español](README_ES.md)
 
-MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and an activity view without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
+Current development version: `1.3.2`.
+
+MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and a Log view with Activity and Events tabs without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
 Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
 
@@ -13,10 +15,10 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Browse devices grouped by their MeshCentral device groups, with online/offline status and operating-system information.
 - Expand or collapse individual groups or all groups, with saved group expansion preferences.
 - Search the device list by name or operating system.
-- Use the bottom navigation bar for Management, Server, Devices, Activity and Notices.
+- Use the bottom navigation bar for Management, Server, Devices, Log and Notices.
 - Access desktop, terminal, file sessions, and device actions from each device card.
 
-### Native management and account security (1.3.1)
+### Native management and account security (1.3.2)
 
 - Management provides My Account, Device Groups, Users and Groups (user groups) tabs.
 - Manage users, user groups, individual memberships and device-group access, subject to server permissions.
@@ -175,6 +177,19 @@ A request being sent or accepted is not the same as an action being executed. Me
 - Inspect request identifiers, actor information, timestamps, and result details when available.
 - The activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.
 
+### Events (1.3.2)
+
+- Log has separate Activity and Events tabs. Activity remains the local session journal; Events queries the historical records visible to the current server account. It is not a complete audit archive.
+- Server-side type and quantity selectors offer 60, 120, 250, 500, 1000 or Unlimited. Unlimited omits the requested maximum and imposes no artificial app record/frame/message ceiling; server permissions, response availability, timeouts and device resources still apply. Results are not silently truncated.
+- Refresh and search are available in the Events header. Visible results have themed date bands; events without a valid time have a separate unknown-date group.
+- Type/quantity controls use a capped 2:1 layout with matching anchor/menu widths and wrapping labels. Event-type icons preserve unknown event types.
+- Cards show device (group), when resolvable, without node/mesh identifier fields. Read-only details show the device name, group and available identifiers separately; command events retain the literal command, command type and run-as value supplied by the server.
+- Event-provided names take precedence. Missing names may be completed from the inventory of the same connection; current inventory is not historical proof. Account/server changes and stale query replies are isolated.
+- Previous-login histories share outcome colors and the user-editor presentation; only the My Account history dialog adopts its reference dimensions. Management directory tabs and Server Statistics provide header refresh actions.
+- Trace source state accepts an explicit null as no active sources, distinguishes malformed/missing data, and bounds the initial wait. Opening or reconnecting does not send traceinfo writes that could change global sources. Administrator/domain restrictions remain authoritative.
+
+Guide: [Log and Events](docs/log.md). Protocol reference: [MeshCentral 1.3.1 trace sources](docs/reference/meshcentral-1.3.1-trace-sources.md). The app version 1.3.2 is distinct from the MeshCentral 1.3.1 protocol reference.
+
 ### Background sessions and notification
 
 - A keep-alive foreground-service notification is used while the app is in the background with sessions that need it.
@@ -233,6 +248,8 @@ To build a debug APK from the repository root:
 The generated debug APK is placed under `app/build/outputs/apk/debug/` after a successful build. Build tooling is defined in `gradle/libs.versions.toml` and `gradle/wrapper/gradle-wrapper.properties`.
 
 ## Verification
+
+Before integration into dev, run the unfiltered JVM suite, the complete Android instrumentation suite, all standalone JavaScript test scripts and lint. Feature-scoped workflows do not replace that integration check. Build and install the APKs once; preserve actual per-method execution evidence.
 
 Run JVM tests:
 

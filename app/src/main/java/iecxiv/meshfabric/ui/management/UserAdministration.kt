@@ -48,7 +48,7 @@ if(mesh.isNotBlank()) rights=rights or userAccess(s,u,mesh)
 return ProfilePermissions.normalized(rights)
 }
 internal fun canGrantDevice(s:ProfileState,node:JSONObject)=s.user?.let { userAccess(s,it,node.optString("_id"),node.optString("meshid")) and 2L != 0L }==true
-private fun userDate(value:Any?):String=runCatching {
+internal fun userDate(value:Any?):String=runCatching {
 val instant=if(value is Number) { val n=value.toLong(); require(n>0); Instant.ofEpochMilli(if(n<100000000000L) Math.multiplyExact(n,1000L) else n) } else Instant.parse(value.toString())
 DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(instant)
 }.getOrDefault("")
@@ -160,9 +160,7 @@ if(s.historyFailed) Text(t("Historial no disponible o respuesta incompatible.","
 val a=s.history.takeIf { s.historyUser==form.id }
 if(a!=null && a.length()==0) Text(t("Sin registros.","No records."))
 if(a!=null) for(i in 0 until minOf(a.length(),200)) a.optJSONObject(i)?.let { event->
-Text(userDate(event.opt("t")).ifBlank { t("Fecha no disponible","Date unavailable") },style=MaterialTheme.typography.titleSmall)
-Text(loginHistoryLabel(event.opt("m"),es)+" · "+(event.optJSONArray("a")?.let { args->(0 until args.length()).joinToString(" · ") { args.optString(it) } }.orEmpty()),style=MaterialTheme.typography.bodySmall)
-HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+PreviousLoginEntry(event,userDate(event.opt("t")).ifBlank { t("Fecha no disponible","Date unavailable") },event.optJSONArray("a")?.let {args->(0 until args.length()).joinToString(" · ") {args.optString(it)}}.orEmpty(),es)
 }
 TextButton(onClick={ session.previousLogins(form.id) },enabled=!s.historyBusy) { Text(t("Actualizar","Refresh")) }
 }

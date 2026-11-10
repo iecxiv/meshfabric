@@ -1,0 +1,144 @@
+name: Diagnose Log test selection by class
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths: [.github/workflows/diagnose-log-test-selection.yml]
+permissions:
+  contents: read
+concurrency:
+  group: diagnose-log-test-selection
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: da751d3742c7e65a21ed672132e03a17c7322f6d
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Replay pinned generation build JVM tests and lint without publication
+        run: |
+          set -euo pipefail
+          mkdir -p validation
+          python3 -m venv /tmp/log-isolation-yaml
+          /tmp/log-isolation-yaml/bin/pip install --disable-pip-version-check PyYAML==6.0.2
+          /tmp/log-isolation-yaml/bin/python - <<'PY'
+          from pathlib import Path
+          import subprocess,yaml,hashlib,json
+          sha='da751d3742c7e65a21ed672132e03a17c7322f6d'
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==sha
+          source=Path('.github/workflows/publish-log-complete.yml').read_text()
+          blob=subprocess.check_output(['git','rev-parse',sha+':.github/workflows/publish-log-complete.yml'],text=True).strip()
+          assert blob=='e080261b514011feff908e76ad44518bd9e385e0'
+          steps=yaml.safe_load(source)['jobs']['validate']['steps']
+          names=[
+              'Validate YAML and recover pinned generator without YAML-embedded documents',
+              'Generate complete Log integration and verify exact source scope',
+              'Install Android SDK',
+              'Build execute JVM tests compile Android tests and lint'
+          ]
+          plan=[]
+          for name in names:
+              matches=[s for s in steps if s.get('name')==name]
+              assert len(matches)==1 and 'run' in matches[0],name
+              plan.append(matches[0])
+          Path('validation/isolation-plan.json').write_text(json.dumps({'commit':sha,'workflow_blob':blob,'steps':names,'publication':False},indent=2)+'\n')
+          for step in plan:
+              print('Executing pinned step: '+step['name'],flush=True)
+              subprocess.run(['bash','-euo','pipefail','-c',step['run']],check=True)
+          PY
+      - name: Prepare strict independent class executions
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          script=r"""from pathlib import Path
+          import collections,json,shutil,subprocess,xml.etree.ElementTree as ET
+          base=Path('validation/class-isolation')
+          base.mkdir(parents=True,exist_ok=True)
+          expected={
+              'RegistroSectionTabsTest':{'activityCallbackUsesIndexZero','bothTabsAreVisibleAndEventsCallbackUsesIndexOne'},
+              'LogScreenTest':{'activityStateSurvivesEventsRoundTrip','loadingAndTimeoutAreNeverEmptyHistory','receivedEventsCanBeSearchedWithoutShowingInternalIds','invalidationRemovesOldRows'},
+              'ManagementNavigationLabelTest':{'spanishManagementKeepsDestination','englishManagementKeepsDestination'}
+          }
+          results=[]
+          for name,methods in expected.items():
+              target=base/name
+              target.mkdir()
+              connected=Path('app/build/outputs/androidTest-results/connected')
+              if connected.exists(): shutil.rmtree(connected)
+              report=Path('app/build/reports/androidTests/connected')
+              if report.exists(): shutil.rmtree(report)
+              fqcn='iecxiv.meshfabric.ui.management.'+name
+              command=['bash','./gradlew',':app:connectedDebugAndroidTest','-Pandroid.testInstrumentationRunnerArguments.class='+fqcn,'--no-daemon','--stacktrace','--no-configuration-cache','--rerun-tasks']
+              (target/'command.json').write_text(json.dumps(command,indent=2)+'\n')
+              print('Running class: '+fqcn,flush=True)
+              with (target/'gradle.log').open('w') as log:
+                  process=subprocess.Popen(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+                  for line in process.stdout:
+                      log.write(line)
+                      print(line,end='',flush=True)
+                  code=process.wait()
+              if connected.exists(): shutil.copytree(connected,target/'connected-results')
+              if report.exists(): shutil.copytree(report,target/'html-report')
+              cases=[]
+              xmls=list((target/'connected-results').rglob('*.xml'))
+              parse_errors=[]
+              suite_errors=[]
+              for xml in xmls:
+                  try:
+                      root=ET.parse(xml).getroot()
+                      cases.extend({'classname':c.get('classname'),'name':c.get('name'),'bad':[tag for tag in ('failure','error','skipped') if c.find(tag) is not None],'file':str(xml.relative_to(target))} for c in root.iter('testcase'))
+                      for node in root.iter():
+                          if node.tag in ('testsuite','testsuites'):
+                              for field in ('failures','errors','skipped'):
+                                  if int(node.get(field,'0')): suite_errors.append({'file':str(xml),'field':field,'value':node.get(field)})
+                  except Exception as error: parse_errors.append(str(xml)+': '+str(error))
+              counts=collections.Counter((c['classname'],c['name']) for c in cases)
+              wanted=collections.Counter({(fqcn,method):1 for method in methods})
+              passed=code==0 and counts==wanted and not any(c['bad'] for c in cases) and not parse_errors and not suite_errors
+              result={'class':fqcn,'exit_code':code,'expected_methods':sorted(methods),'xml_count':len(xmls),'cases':cases,'parse_errors':parse_errors,'suite_errors':suite_errors,'passed':passed}
+              (target/'result.json').write_text(json.dumps(result,indent=2)+'\n')
+              results.append(result)
+          (base/'summary.json').write_text(json.dumps(results,indent=2)+'\n')
+          lines=['# Independent Log test selection','Pinned sources: da751d3742c7e65a21ed672132e03a17c7322f6d.','Expected: 8 distinct methods across 3 independent class runs.','']
+          lines += [r['class']+': '+('PASS' if r['passed'] else 'FAIL')+'; observed '+str(len(r['cases']))+' cases; expected '+str(len(r['expected_methods'])) for r in results]
+          lines += ['','No publication performed. This does not prove the cause of the previous combined-filter failure.']
+          (base/'README.md').write_text('\n'.join(lines)+'\n')
+          if not all(r['passed'] for r in results): raise SystemExit(1)
+          """
+          ast.parse(script)
+          Path('validation/run-log-class-isolation.py').write_text(script)
+          PY
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute all three classes separately and require all eight methods
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 validation/run-log-class-isolation.py
+      - name: Upload independent evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-test-selection-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error

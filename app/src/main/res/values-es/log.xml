@@ -1,0 +1,58 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="registro_title">Registro</string>
+    <string name="registro_activity">Actividad</string>
+    <string name="registro_events">Eventos</string>
+    <string name="log_loading">Consultando eventos del servidor…</string>
+    <string name="log_idle">Consulta los eventos del servidor.</string>
+    <string name="log_empty">No se han devuelto eventos visibles.</string>
+    <string name="log_denied">El servidor ha denegado explícitamente la consulta.</string>
+    <string name="log_error">La consulta ha fallado. No se interpreta como un historial vacío.</string>
+    <string name="log_invalid">Respuesta del servidor no válida o demasiado grande.</string>
+    <string name="log_timeout">Sin respuesta dentro del plazo. Comprueba conexión y permisos.</string>
+    <string name="log_invalidated">Datos retirados tras un cambio de conexión, cuenta o acceso. Actualiza para consultar de nuevo.</string>
+    <string name="log_scope">Eventos visibles para esta cuenta; no es una auditoría completa del servidor.</string>
+    <string name="log_refresh">Actualizar</string>
+    <string name="log_search">Buscar en los eventos recibidos</string>
+    <string name="log_no_match">Ningún evento recibido coincide con la búsqueda.</string>
+    <string name="log_event">Evento del servidor</string>
+    <string name="log_time_unknown">Hora no disponible</string>
+    <string name="log_limit">Se ha alcanzado el límite de consulta; puede haber eventos anteriores.</string>
+    <string name="log_invalid_frame">El mensaje recibido supera el límite de tamaño de seguridad.</string>
+    <string name="log_invalid_json">El canal de control ha devuelto un mensaje que no se puede interpretar.</string>
+    <string name="log_invalid_identity">No se ha podido procesar la respuesta de identidad de la cuenta.</string>
+    <string name="log_invalid_history">El historial de eventos contiene un campo o una estructura no compatible.</string>
+    <string name="log_invalid_internal">Se ha producido un error interno al procesar el canal de control.</string>
+    <string name="log_diagnostic">Detalle técnico: %1$s</string>
+    <string name="log_event_filter">Tipo</string>
+    <string name="log_event_show">Mostrar</string>
+    <string name="log_event_latest">Últimos %1$d</string>
+    <string name="log_event_unlimited">Sin límite</string>
+    <string name="log_event_safety">Sin límite no impone un máximo fijo de registros ni de tamaño de mensaje en la app. Los historiales grandes pueden tardar y consumir más memoria. Cambia la selección para cancelar.</string>
+    <string-array name="log_event_types">
+        <item>Todos</item>
+        <item>Registros del agente</item>
+        <item>Registros de relay</item>
+        <item>Registros manuales</item>
+        <item>Ejecución de comandos</item>
+        <item>Carga por lotes</item>
+        <item>Cambios de dispositivo</item>
+        <item>Eliminación de dispositivo</item>
+    </string-array>
+    <string name="log_detail_title">Detalles del evento</string>
+    <string name="log_detail_missing">No disponible</string>
+    <string name="log_detail_date">Fecha y hora</string>
+    <string name="log_detail_type">Tipo de evento</string>
+    <string name="log_detail_actor">Usuario</string>
+    <string name="log_detail_device">Dispositivo</string>
+    <string name="log_detail_node">Identificador del dispositivo</string>
+    <string name="log_detail_message">Mensaje completo</string>
+    <string name="log_detail_close">Cerrar</string>
+    <string name="log_detail_mesh">Mesh ID</string>
+    <string name="log_detail_group">Grupo de dispositivos</string>
+    <string name="log_detail_command">Comando enviado</string>
+    <string name="log_detail_cmd_type">Tipo de comando (valor del servidor)</string>
+    <string name="log_detail_run_as">Modo de ejecución (valor del servidor)</string>
+    <string name="log_detail_inventory">Parte de los datos de dispositivo o grupo procede del inventario de la conexión actual y puede diferir del momento del evento.</string>
+    <string name="log_date_unknown">Fecha no disponible</string>
+</resources>

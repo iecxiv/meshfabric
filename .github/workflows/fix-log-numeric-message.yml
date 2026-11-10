@@ -1,0 +1,233 @@
+name: Validate and publish numeric Log messages
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths: [.github/workflows/fix-log-numeric-message.yml]
+permissions:
+  contents: write
+concurrency:
+  group: log-complete
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply only numeric msg compatibility and regression sources
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = ddba870175edf678ac1ee991f2d41f0a053a68a2
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          policy=Path('app/src/main/java/iecxiv/meshfabric/ui/management/ServerEventsReadPolicy.kt')
+          assert subprocess.check_output(['git','hash-object',str(policy)],text=True).strip()=='f80cad62d0cc299605cd54c576709618c058a8ff'
+          old='value.isJsonPrimitive && value.asJsonPrimitive.isString'
+          new='value.isJsonPrimitive && (value.asJsonPrimitive.isString || (key=="msg" && value.asJsonPrimitive.isNumber))'
+          text=policy.read_text();assert text.count(old)==1;policy.write_text(text.replace(old,new))
+          files={
+          'app/src/test/java/iecxiv/meshfabric/ui/management/LogNumericMessageTest.kt':r"""package iecxiv.meshfabric.ui.management
+          import com.google.gson.JsonParser
+          import org.junit.Assert.*
+          import org.junit.Test
+          class LogNumericMessageTest {
+              private val scope=ServerEventsScope("server","actor",1,"rights")
+              private fun packet(rows:String,tag:String="test")=JsonParser.parseString("{\"action\":\"events\",\"tag\":\""+tag+"\",\"events\":"+rows+"}").asJsonObject
+              private fun decode(rows:String):ServerEventsSnapshot {
+                  val gate=ServerEventsReadGate();val attempt=gate.begin(scope,"test")
+                  assertTrue(gate.receive(attempt,scope,packet(rows)));return gate.state
+              }
+              @Test fun mixedTextAndNumericMessagesKeepEveryRecord() {
+                  val state=decode("[{\"msg\":123},{\"msg\":\"text message\"}]")
+                  assertEquals(ServerEventsPhase.READY,state.phase)
+                  assertEquals(listOf("123","text message"),state.records.map {it.message})
+                  assertNull(state.issue)
+              }
+              @Test fun largeIntegerKeepsExactDigits() {
+                  val number="900719925474099312345678901234567890"
+                  val state=decode("[{\"msg\":"+number+"}]")
+                  assertEquals(ServerEventsPhase.READY,state.phase);assertEquals(number,state.records.single().message)
+              }
+              @Test fun scientificNotationKeepsLiteralRepresentation() {
+                  val state=decode("[{\"msg\":1.25e+40}]")
+                  assertEquals(ServerEventsPhase.READY,state.phase);assertEquals("1.25e+40",state.records.single().message)
+              }
+              @Test fun nullAndMissingMessageRemainSupported() {
+                  val state=decode("[{\"msg\":null},{}]")
+                  assertEquals(ServerEventsPhase.READY,state.phase);assertEquals(listOf("",""),state.records.map {it.message})
+              }
+              @Test fun booleanArrayAndObjectMessagesStillRejectTheWholeBatch() {
+                  for(value in listOf("true","[]","{}")) {
+                      val state=decode("[{\"msg\":123},{\"msg\":"+value+"}]")
+                      assertEquals(ServerEventsPhase.INVALID,state.phase);assertTrue(state.records.isEmpty())
+                      assertEquals(ServerEventsIssueKind.FIELD_TYPE,state.issue?.kind);assertEquals(ServerEventsField.MSG,state.issue?.field)
+                  }
+              }
+              @Test fun numericValuesInOtherTextFieldsAreStillRejected() {
+                  for(key in listOf("action","username","nodeid","nodename")) {
+                      val state=decode("[{\"msg\":123,\""+key+"\":456}]")
+                      assertEquals(ServerEventsPhase.INVALID,state.phase);assertTrue(state.records.isEmpty())
+                      assertEquals(ServerEventsIssueKind.FIELD_TYPE,state.issue?.kind)
+                  }
+              }
+              @Test fun numericMessageRetainsTheTextLengthBound() {
+                  val state=decode("[{\"msg\":"+"1".repeat(4097)+"}]")
+                  assertEquals(ServerEventsPhase.INVALID,state.phase);assertTrue(state.records.isEmpty())
+                  assertEquals(ServerEventsIssueKind.FIELD_LENGTH,state.issue?.kind)
+              }
+              @Test fun mismatchedTagCannotAcceptNumericHistory() {
+                  val gate=ServerEventsReadGate();val attempt=gate.begin(scope,"test")
+                  assertFalse(gate.receive(attempt,scope,packet("[{\"msg\":123}]","other")))
+                  assertEquals(ServerEventsPhase.LOADING,gate.state.phase);assertTrue(gate.state.records.isEmpty())
+              }
+          }
+          """,
+          'app/src/androidTest/java/iecxiv/meshfabric/ui/management/LogNumericMessageUiTest.kt':r"""package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import com.google.gson.JsonParser
+          import org.junit.Rule
+          import org.junit.Test
+          class LogNumericMessageUiTest {
+              @get:Rule val compose=createComposeRule()
+              private fun snapshot():ServerEventsSnapshot {
+                  val gate=ServerEventsReadGate();val scope=ServerEventsScope("server","actor",1,"rights")
+                  val attempt=gate.begin(scope,"test")
+                  gate.receive(attempt,scope,JsonParser.parseString("{\"action\":\"events\",\"tag\":\"test\",\"events\":[{\"msg\":123},{\"msg\":\"text message\"}]}").asJsonObject)
+                  return gate.state
+              }
+              @Test fun numericAndTextMessagesRemainVisible() {
+                  val state=snapshot()
+                  compose.setContent {MaterialTheme {ServerEventsPanel(state,"",{},true,{})}}
+                  compose.onNodeWithText("123").assertIsDisplayed()
+                  compose.onNodeWithText("text message").assertIsDisplayed()
+                  compose.onNodeWithTag("log-events-state").assertDoesNotExist()
+              }
+              @Test fun numericLiteralCanBeSearched() {
+                  val state=snapshot();val query=mutableStateOf("")
+                  compose.setContent {MaterialTheme {ServerEventsPanel(state,query.value,{query.value=it},true,{})}}
+                  compose.onNodeWithTag("log-events-search").performTextInput("123")
+                  compose.onNode(hasText("123") and hasSetTextAction().not()).assertIsDisplayed()
+                  compose.onNodeWithText("text message").assertDoesNotExist()
+                  compose.onNodeWithTag("log-events-no-match").assertDoesNotExist()
+              }
+          }
+          """}
+          for name,content in files.items():
+              p=Path(name);assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
+          doc=Path('docs/log.md')
+          doc.write_text(doc.read_text()+'\nNumeric msg compatibility: only the event msg field additionally accepts JSON numbers. Their original Gson string representation is retained, without Int/Double conversion or interpreting them as localized message identifiers. Other text fields remain strict. The 200-record, 4096-character field and frame bounds, tag matching, identity binding and invalid-batch handling remain unchanged. Synthetic regression values reproduce the observed type mismatch; real-server verification remains necessary.\n')
+          changed=[str(policy),*files,str(doc)]
+          assert len(changed)==4
+          subprocess.run(['git','add','--',*changed],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(changed)
+          Path('validation/numeric-expected.json').write_text(json.dumps(changed,indent=2)+'\n')
+          PY
+          git diff --cached --check
+      - name: Prepare existing scoped Android runner and numeric UI regressions
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/log-numeric-yaml
+          /tmp/log-numeric-yaml/bin/pip install --disable-pip-version-check PyYAML==6.0.2
+          /tmp/log-numeric-yaml/bin/python - <<'PY'
+          from pathlib import Path
+          import ast,subprocess,yaml
+          yaml.safe_load(Path('.github/workflows/fix-log-numeric-message.yml').read_text())
+          ref='ddba870175edf678ac1ee991f2d41f0a053a68a2:.github/workflows/publish-log-decode-diagnostics.yml'
+          assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()=='15d93f6ad0690cde272a63d1ac7110c8d94ba758'
+          data=yaml.safe_load(subprocess.check_output(['git','show',ref],text=True))
+          matches=[s for s in data['jobs']['validate']['steps'] if s.get('name')=='Prepare independent Android class checks including error UI']
+          assert len(matches)==1
+          subprocess.run(['bash','-euo','pipefail','-c',matches[0]['run']],check=True)
+          p=Path('validation/run-log-class-isolation.py');text=p.read_text();anchor='expected={\n'
+          assert text.count(anchor)==1
+          text=text.replace(anchor,anchor+"    'LogNumericMessageUiTest':{'numericAndTextMessagesRemainVisible','numericLiteralCanBeSearched'},\n")
+          text=text.replace('Expected: 10 distinct methods across 4 independent class runs.','Expected: 12 distinct methods across 5 independent class runs.')
+          text=text.replace('Decode diagnostics on guarded base dcfba09df5eef28b0a711ca49336e7494273c452.','Numeric msg compatibility on guarded base ddba870175edf678ac1ee991f2d41f0a053a68a2.')
+          ast.parse(text);p.write_text(text)
+          PY
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute JVM tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute affected Android regressions independently
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 validation/run-log-class-isolation.py
+      - name: Verify executed evidence and exact changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,xml.etree.ElementTree as ET
+          cases=[]
+          for p in Path('app/build/test-results/testDebugUnitTest').rglob('*.xml'): cases.extend(ET.parse(p).getroot().iter('testcase'))
+          assert cases and all(all(c.find(tag) is None for tag in ('failure','error','skipped')) for c in cases)
+          for name,count in {'LogNumericMessageTest':8,'LogEventsReaderTest':9,'ServerEventsReadPolicyTest':9,'ServerEventsDiagnosticsTest':3}.items():
+              assert sum(c.get('classname','').split('.')[-1]==name for c in cases)==count,name
+          results=json.loads(Path('validation/class-isolation/summary.json').read_text())
+          required={'LogNumericMessageUiTest':2,'LogEventsDiagnosticsUiTest':2,'RegistroSectionTabsTest':2,'LogScreenTest':4,'ManagementNavigationLabelTest':2}
+          assert len(results)==5 and {r['class'] for r in results}=={'iecxiv.meshfabric.ui.management.'+name for name in required}
+          for r in results:
+              assert r['passed'] is True and r['exit_code']==0,r
+              assert len(r['cases'])==required[r['class'].split('.')[-1]],r
+          expected=json.loads(Path('validation/numeric-expected.json').read_text())
+          assert len(expected)==4 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          Path('validation/numeric-tests.json').write_text(json.dumps({'jvm_cases':len(cases),'android_cases':sum(len(r['cases']) for r in results),'live_server_verified':False},indent=2)+'\n')
+          PY
+          git diff --cached --check
+          git diff --cached > validation/numeric-message.diff
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log-numeric-message-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish only tested changes on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/numeric-expected.json').read_text())
+          assert len(expected)==4 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(log): accept numeric event messages without lossy conversion'
+          git push origin HEAD:work/registro-server-events
