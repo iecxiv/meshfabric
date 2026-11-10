@@ -1,0 +1,93 @@
+name: Prepare 1.3.2 documentation and full dev integration validation
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths:
+      - .github/workflows/prepare-dev-1.3.2.yml
+      - .github/scripts/prepare-dev-1.3.2.py
+      - .github/scripts/validate-dev-integration.py
+permissions:
+  contents: write
+concurrency:
+  group: dev-integration-1.3.2
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Guard source and dev before preparing version and documentation
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 0db997466ef7647e42ec9a42da0302f5537f9bdf
+          git fetch origin dev work/registro-server-events
+          test "$(git rev-parse origin/dev)" = ee873325bafb864db729491fef4c973517c91065
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          mkdir -p validation
+          python3 .github/scripts/prepare-dev-1.3.2.py
+          git diff --cached --check
+      - name: Install required SDK packages
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Run all JavaScript test scripts
+        run: python3 .github/scripts/validate-dev-integration.py js
+      - name: Build APKs once run the unfiltered JVM suite and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+          python3 .github/scripts/validate-dev-integration.py unit
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Install APKs once and execute the complete Android suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 .github/scripts/validate-dev-integration.py android
+      - name: Verify full executed evidence and exact release scope
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/validate-dev-integration.py verify
+          git diff --cached --check
+          git diff --cached > validation/release-1.3.2.diff
+      - name: Preserve complete evidence on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-integration-1.3.2-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Publish README and version first only on unchanged work branch
+        run: |
+          set -euo pipefail
+          git fetch origin dev work/registro-server-events
+          test "$(git rev-parse origin/dev)" = ee873325bafb864db729491fef4c973517c91065
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          python3 .github/scripts/validate-dev-integration.py verify
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore: prepare 1.3.2 and document Log Events before dev integration'
+          git push origin HEAD:work/registro-server-events
+          printf 'Version and READMEs published on work branch. dev and main remain unchanged.\n' >> "$GITHUB_STEP_SUMMARY"
