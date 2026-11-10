@@ -1,0 +1,142 @@
+name: Validate and publish complete Log integration
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths: [.github/workflows/publish-log-complete.yml]
+permissions:
+  contents: write
+concurrency:
+  group: log-complete
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Reuse pinned generation and independently validated class runner
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 570c9c7a811131096878525b461b963963bdc7a5
+          mkdir -p validation
+          python3 -m venv /tmp/log-publication-yaml
+          /tmp/log-publication-yaml/bin/pip install --disable-pip-version-check PyYAML==6.0.2
+          /tmp/log-publication-yaml/bin/python - <<'PY'
+          from pathlib import Path
+          import ast,json,subprocess,yaml
+          def pinned(commit,path,blob):
+              ref=commit+':'+path
+              assert subprocess.check_output(['git','rev-parse',ref],text=True).strip()==blob
+              return yaml.safe_load(subprocess.check_output(['git','show',ref],text=True))
+          previous=pinned('da751d3742c7e65a21ed672132e03a17c7322f6d','.github/workflows/publish-log-complete.yml','e080261b514011feff908e76ad44518bd9e385e0')
+          diagnostic=pinned('570c9c7a811131096878525b461b963963bdc7a5','.github/workflows/diagnose-log-test-selection.yml','af22984d2c8aff8eeb9c371eff67512d8587881c')
+          current=yaml.safe_load(Path('.github/workflows/publish-log-complete.yml').read_text())
+          assert 'validate' in current['jobs']
+          def command(document,job,name):
+              matches=[s for s in document['jobs'][job]['steps'] if s.get('name')==name]
+              assert len(matches)==1 and 'run' in matches[0],name
+              return matches[0]['run']
+          names=[
+              'Validate YAML and recover pinned generator without YAML-embedded documents',
+              'Generate complete Log integration and verify exact source scope',
+              'Install Android SDK',
+              'Build execute JVM tests compile Android tests and lint'
+          ]
+          plan=[command(previous,'validate',name) for name in names]
+          old='test "$(git rev-parse HEAD^)" = 3eaac8d494f1a8780f27c364e9a15a8f60d2bebf'
+          new='test "$(git rev-parse HEAD^)" = 570c9c7a811131096878525b461b963963bdc7a5'
+          assert plan[0].count(old)==1
+          plan[0]=plan[0].replace(old,new)
+          Path('validation/publication-plan.json').write_text(json.dumps({'head':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'parent':'570c9c7a811131096878525b461b963963bdc7a5','generation_commit':'da751d3742c7e65a21ed672132e03a17c7322f6d','class_runner_commit':'570c9c7a811131096878525b461b963963bdc7a5','steps':names},indent=2)+'\n')
+          for name,script in zip(names,plan):
+              print('Executing pinned step: '+name,flush=True)
+              subprocess.run(['bash','-euo','pipefail','-c',script],check=True)
+          prepare=command(diagnostic,'diagnose','Prepare strict independent class executions')
+          subprocess.run(['bash','-euo','pipefail','-c',prepare],check=True)
+          verifier=Path('validation/log-verifier.py')
+          text=verifier.read_text()
+          old="'app/build/outputs/androidTest-results/connected'"
+          assert text.count(old)==1
+          text=text.replace(old,"'validation/verified-android-xml'")
+          ast.parse(text)
+          verifier.write_text(text)
+          PY
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute three independent classes and require all eight methods
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 validation/run-log-class-isolation.py
+      - name: Verify independent evidence JVM execution and exact publication scope
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,shutil
+          results=json.loads(Path('validation/class-isolation/summary.json').read_text())
+          expected={'RegistroSectionTabsTest':2,'LogScreenTest':4,'ManagementNavigationLabelTest':2}
+          prefix='iecxiv.meshfabric.ui.management.'
+          assert len(results)==3
+          assert {r['class'] for r in results}=={prefix+name for name in expected}
+          target=Path('validation/verified-android-xml')
+          target.mkdir()
+          for result in results:
+              name=result['class'].removeprefix(prefix)
+              assert result['passed'] is True and result['exit_code']==0,result
+              assert len(result['cases'])==len(result['expected_methods'])==expected[name],result
+              source=Path('validation/class-isolation')/name/'connected-results'
+              xmls=sorted(source.rglob('*.xml'))
+              assert xmls,name
+              for i,xml in enumerate(xmls): shutil.copy2(xml,target/(name+'-'+str(i)+'.xml'))
+          assert sum(len(r['cases']) for r in results)==8
+          PY
+          python3 validation/log-verifier.py
+          git diff --cached --check
+          git diff --cached > validation/log.diff
+      - name: Upload validation evidence even on failure
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: log-integration-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+            app/build/intermediates/lint_intermediate_text_report/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish all Log sources together only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          test "$(git rev-parse HEAD^)" = 570c9c7a811131096878525b461b963963bdc7a5
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=json.loads(Path('validation/expected.json').read_text())
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only','--no-renames'],text=True).splitlines())
+          assert len(expected)==15 and actual==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(log): integrate Activity and server Events with verified class regressions'
+          git push origin HEAD:work/registro-server-events

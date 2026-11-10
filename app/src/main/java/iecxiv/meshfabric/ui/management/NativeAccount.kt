@@ -384,7 +384,7 @@ val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardM
 val clip=ClipData.newPlainText("MeshFabric",value).apply { description.extras=PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE",true) } }
 feedback=if(runCatching { checkNotNull(clipboard).setPrimaryClip(clip) }.isSuccess) t("Copiado.","Copied.") else t("No se pudo copiar.","Could not copy.")
 }
-ManagementDialog(onDismissRequest={ if(!state.busy) { wire.clearResult(); mode=null } },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(labels[selected]) },text={
+if(selected==3) OwnPreviousLoginsDialog(state.user?.optString("name").orEmpty(),actor,reply?.optJSONArray("events"),state.busy,state.status in setOf("incompatible","rejected","unknown","malformed","timeout"),es,onRefresh={run("previousLogins")},onDismiss={wire.clearResult();mode=null},error=feedback) else ManagementDialog(onDismissRequest={ if(!state.busy) { wire.clearResult(); mode=null } },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(labels[selected]) },text={
 Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
 if(status.isNotBlank()) Text(status)
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())

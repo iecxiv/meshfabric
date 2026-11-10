@@ -1,0 +1,115 @@
+name: Validate Registro foundation with explicit English resources
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths: [.github/workflows/fix-registro-foundation-english.yml]
+permissions:
+  contents: write
+concurrency:
+  group: registro-events-foundation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Regenerate guarded foundation with explicit English translation
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = aa743f8c96f2651f5705b814fa15abbdae92ad72
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,textwrap,xml.etree.ElementTree as ET
+          original=Path('.github/workflows/publish-registro-events-foundation.yml')
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()=='f686c0bca0d2051648cf4a055b3958fdd262d022'
+          code=textwrap.dedent(original.read_text().split("          python3 - <<'PY'\n")[1].split('\n          PY\n',1)[0])
+          anchor='for name,content in files.items():'
+          assert code.count(anchor)==1
+          code=code.replace(anchor,"files['app/src/main/res/values-en/registro.xml']=files['app/src/main/res/values/registro.xml']\n"+anchor,1)
+          exec(compile(code,'guarded-registro-foundation-generator','exec'),{})
+          expected=json.loads(Path('validation/expected.json').read_text())
+          assert len(expected)==7 and 'app/src/main/res/values-en/registro.xml' in expected
+          keys={'registro_title','registro_activity','registro_events'}
+          tables={}
+          for directory in ('values','values-en','values-es'):
+              p=Path('app/src/main/res')/directory/'registro.xml'
+              entries=ET.parse(p).getroot().findall('string')
+              assert len(entries)==3
+              tables[directory]={e.attrib['name']:e.text for e in entries}
+              assert set(tables[directory])==keys
+              assert all(tables[directory].values())
+          assert tables['values']==tables['values-en']=={'registro_title':'Log','registro_activity':'Activity','registro_events':'Events'}
+          assert tables['values-es']=={'registro_title':'Registro','registro_activity':'Actividad','registro_events':'Eventos'}
+          Path('validation/translations.json').write_text(json.dumps(tables,ensure_ascii=False,indent=2)+'\n')
+          subprocess.run(['git','add','--',*expected],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute JVM tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android and Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete executed evidence and seven-file allowlist
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          original=Path('.github/workflows/publish-registro-events-foundation.yml')
+          assert subprocess.check_output(['git','hash-object',str(original)],text=True).strip()=='f686c0bca0d2051648cf4a055b3958fdd262d022'
+          code=textwrap.dedent(original.read_text().split("          python3 - <<'PY'\n")[2].split('\n          PY\n',1)[0])
+          assert code.count('assert len(expected)==6')==1
+          code=code.replace('assert len(expected)==6','assert len(expected)==7',1)
+          exec(compile(code,'complete-registro-test-evidence','exec'),{})
+          PY
+          git diff --cached --check
+          git diff --cached > validation/foundation.diff
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registro-foundation-english-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+            app/build/intermediates/lint_intermediate_text_report/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish validated foundation only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(registro): publish tested events foundation with explicit English resources'
+          git push origin HEAD:work/registro-server-events

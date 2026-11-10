@@ -187,7 +187,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun MyServerScreen(source:MeshCentralClient?,modifier:Modifier=Modifier) {
+@Composable internal fun MyServerScreen(source:MeshCentralClient?,modifier:Modifier=Modifier,header:@Composable (@Composable ()->Unit)->Unit={}) {
     val context=LocalContext.current.applicationContext
     val preferences=remember(context) { ServerHistoryPreferences(context.getSharedPreferences("server_history",Context.MODE_PRIVATE)) }
     val reader=remember(source,preferences) { source?.let { ServerReader(it,preferences.hours()) } }
@@ -203,7 +203,11 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     LaunchedEffect(state.pending) { if(state.pending.isNotEmpty()) { delay(25000); reader?.timeout(state.pending) } }
     LaunchedEffect(tab,state.ready) { if(tab==1 && state.ready && state.history.isBlank()) reader?.request("servertimelinestats",state.hours) }
     DisposableEffect(reader) { onDispose { reader?.close() } }
+    fun refreshHistory(period:Int) {
+        if(period in serverHistoryPeriods && state.ready && state.pending.isEmpty()) {preferences.saveHours(period);reader?.request("servertimelinestats",period)}
+    }
     Column(modifier) {
+        ServerStatisticsHeader(tab,state.ready,state.pending.isNotEmpty(),header) {refreshHistory(state.hours)}
         ServerSectionTabs(tab) { tab=it }
         ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,modifier=Modifier.padding(horizontal=16.dp),onReconnect={retry++})
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -218,12 +222,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
                     }
                     ServerGeneralOverview(state.stats,state.ready)
                 }
-                1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty()) { period->
-                    if(period in serverHistoryPeriods && state.ready && state.pending.isEmpty()) {
-                        preferences.saveHours(period)
-                        reader?.request("servertimelinestats",period)
-                    }
-                }
+                1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty(),onLoad=::refreshHistory)
                 else->ServerAdminPanel(source,tab==3)
             }
             if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -278,7 +277,6 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     }
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
         Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()),verticalAlignment=Alignment.CenterVertically) {
-            TextButton(onClick={ onLoad(hours) },enabled=ready && !busy) { Text(if(es) "Actualizar" else "Refresh") }
             FilterChip(selected=logarithmic,onClick={ logarithmic=!logarithmic },label={ Text(if(es) "Escala logarítmica" else "Log scale") })
         }
         val exportable=parsed.isSuccess && filtered.any { point->keys.any { point.values[it]!=null } }

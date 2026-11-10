@@ -1,0 +1,298 @@
+name: Validate Registro tabs and events read foundation
+on:
+  push:
+    branches: [work/registro-server-events]
+    paths: [.github/workflows/publish-registro-events-foundation.yml]
+permissions:
+  contents: write
+concurrency:
+  group: registro-events-foundation
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Generate bounded read policy tabs resources and regressions
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = 417fc48d1a3ea00165a1dfdf9003d639e4512507
+          mkdir -p validation
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          reference='docs/reference/meshcentral-1.3.1-registro-events/README.md'
+          assert subprocess.check_output(['git','hash-object',reference],text=True).strip()=='29d3488cf413d4d222fb0e3947417f3b660f3356'
+          files={
+          'app/src/main/java/iecxiv/meshfabric/ui/management/ServerEventsReadPolicy.kt':'''package iecxiv.meshfabric.ui.management
+          import com.google.gson.JsonObject
+          import java.time.Instant
+          internal const val SERVER_EVENTS_LIMIT=200
+          internal data class ServerEventsScope(val server:String,val actor:String,val session:Long,val authority:String)
+          internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?)
+          internal enum class ServerEventsPhase { IDLE, LOADING, READY, DENIED, ERROR, INVALID, TIMEOUT, INVALIDATED }
+          internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList())
+          internal fun serverEventsRequest(tag:String):JsonObject {
+              require(tag.isNotBlank() && tag.length<=128)
+              return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);addProperty("limit",SERVER_EVENTS_LIMIT)}
+          }
+          private fun JsonObject.eventText(key:String):String {
+              val value=get(key) ?: return ""
+              require(value.isJsonNull || (value.isJsonPrimitive && value.asJsonPrimitive.isString))
+              return if(value.isJsonNull) "" else value.asString.also {require(it.length<=4096)}
+          }
+          private fun eventTime(item:JsonObject):Long?=runCatching {
+              val value=item.get("time") ?: return@runCatching null
+              if(!value.isJsonPrimitive) return@runCatching null
+              val raw=value.asString
+              val number=raw.toDoubleOrNull()
+              if(number==null) Instant.parse(raw).toEpochMilli() else {
+                  require(number.isFinite() && number>0)
+                  val millis=if(number<100000000000.0) number*1000 else number
+                  require(millis<Long.MAX_VALUE.toDouble())
+                  millis.toLong()
+              }
+          }.getOrNull()
+          internal class ServerEventsReadGate {
+              private var epoch=0L
+              private var binding:ServerEventsScope?=null
+              private var tag=""
+              @Volatile var state=ServerEventsSnapshot()
+                  private set
+              @Synchronized fun begin(scope:ServerEventsScope,requestTag:String):Long {
+                  require(scope.server.isNotBlank() && scope.actor.isNotBlank() && scope.authority.isNotBlank())
+                  serverEventsRequest(requestTag)
+                  epoch++;binding=scope;tag=requestTag
+                  state=ServerEventsSnapshot(ServerEventsPhase.LOADING)
+                  return epoch
+              }
+              @Synchronized fun invalidate() {
+                  epoch++;binding=null;tag=""
+                  state=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED)
+              }
+              @Synchronized fun timeout(attempt:Long) {
+                  if(attempt==epoch && state.phase==ServerEventsPhase.LOADING) {
+                      epoch++;tag="";state=ServerEventsSnapshot(ServerEventsPhase.TIMEOUT)
+                  }
+              }
+              @Synchronized fun receive(attempt:Long,scope:ServerEventsScope,packet:JsonObject):Boolean {
+                  if(attempt!=epoch || state.phase!=ServerEventsPhase.LOADING) return false
+                  if(scope!=binding) {invalidate();return false}
+                  fun field(key:String)=runCatching {packet.eventText(key)}.getOrDefault("")
+                  if(field("action")!="events" || field("tag")!=tag) return false
+                  val result=field("result").lowercase()
+                  if(packet.has("error") || packet.has("err") || (result.isNotBlank() && result!="ok")) {
+                      val denied=result in setOf("denied","forbidden","access denied") || field("error").lowercase() in setOf("denied","forbidden","access denied")
+                      state=ServerEventsSnapshot(if(denied) ServerEventsPhase.DENIED else ServerEventsPhase.ERROR)
+                      return true
+                  }
+                  val records=runCatching {
+                      val value=packet.get("events")
+                      require(value!=null && value.isJsonArray && value.asJsonArray.size()<=SERVER_EVENTS_LIMIT)
+                      value.asJsonArray.map {element->
+                          require(element.isJsonObject)
+                          val item=element.asJsonObject
+                          ServerEventRecord(item.eventText("action"),item.eventText("msg"),item.eventText("username"),item.eventText("nodeid"),item.eventText("nodename"),eventTime(item))
+                      }.sortedWith(compareByDescending<ServerEventRecord> {it.time ?: Long.MIN_VALUE})
+                  }.getOrNull()
+                  state=if(records==null) ServerEventsSnapshot(ServerEventsPhase.INVALID) else ServerEventsSnapshot(ServerEventsPhase.READY,records)
+                  return true
+              }
+          }
+          ''',
+          'app/src/main/java/iecxiv/meshfabric/ui/management/RegistroSectionTabs.kt':'''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.res.stringResource
+          import iecxiv.meshfabric.R
+          @Composable internal fun RegistroSectionTabs(selected:Int,onSelect:(Int)->Unit) {
+              ManagementSectionTabs(listOf(stringResource(R.string.registro_activity),stringResource(R.string.registro_events)),selected.coerceIn(0,1),onSelect)
+          }
+          ''',
+          'app/src/main/res/values/registro.xml':'''<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="registro_title">Log</string>
+              <string name="registro_activity">Activity</string>
+              <string name="registro_events">Events</string>
+          </resources>
+          ''',
+          'app/src/main/res/values-es/registro.xml':'''<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="registro_title">Registro</string>
+              <string name="registro_activity">Actividad</string>
+              <string name="registro_events">Eventos</string>
+          </resources>
+          ''',
+          'app/src/test/java/iecxiv/meshfabric/ui/management/ServerEventsReadPolicyTest.kt':'''package iecxiv.meshfabric.ui.management
+          import com.google.gson.JsonParser
+          import org.junit.Assert.*
+          import org.junit.Test
+          class ServerEventsReadPolicyTest {
+              private val scope=ServerEventsScope("https://server","user/a/me",1,"rights-version-1")
+              private fun packet(body:String)=JsonParser.parseString(body).asJsonObject
+              @Test fun requestIsBoundedReadOnlyAndTagged() {
+                  val p=serverEventsRequest("read-1")
+                  assertEquals("events",p.get("action").asString)
+                  assertEquals("read-1",p.get("tag").asString)
+                  assertEquals(200,p.get("limit").asInt)
+                  assertEquals(setOf("action","tag","limit"),p.keySet())
+              }
+              @Test fun emptyHistoryRequiresValidMatchedArray() {
+                  val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1")
+                  assertTrue(g.receive(attempt,scope,packet("""{"action":"events","tag":"read-1","events":[]}""")))
+                  assertEquals(ServerEventsPhase.READY,g.state.phase);assertTrue(g.state.records.isEmpty())
+              }
+              @Test fun missingArrayIsInvalidNotEmptyHistory() {
+                  val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1")
+                  g.receive(attempt,scope,packet("""{"action":"events","tag":"read-1"}"""))
+                  assertEquals(ServerEventsPhase.INVALID,g.state.phase)
+              }
+              @Test fun staleTagAndUnrelatedActionCannotCompleteRead() {
+                  val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1")
+                  assertFalse(g.receive(attempt,scope,packet("""{"action":"events","tag":"old","events":[]}""")))
+                  assertFalse(g.receive(attempt,scope,packet("""{"action":"event","tag":"read-1","events":[]}""")))
+                  assertEquals(ServerEventsPhase.LOADING,g.state.phase)
+              }
+              @Test fun timeoutRejectsLateReplyAndDoesNotClaimDenial() {
+                  val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1");g.timeout(attempt)
+                  assertFalse(g.receive(attempt,scope,packet("""{"action":"events","tag":"read-1","events":[]}""")))
+                  assertEquals(ServerEventsPhase.TIMEOUT,g.state.phase)
+              }
+              @Test fun changedIdentitySessionOrAuthorityClearsAndInvalidates() {
+                  listOf(scope.copy(server="other"),scope.copy(actor="user/a/other"),scope.copy(session=2),scope.copy(authority="changed")).forEach {other->
+                      val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1")
+                      assertFalse(g.receive(attempt,other,packet("""{"action":"events","tag":"read-1","events":[]}""")))
+                      assertEquals(ServerEventsPhase.INVALIDATED,g.state.phase);assertTrue(g.state.records.isEmpty())
+                  }
+              }
+              @Test fun explicitDenialIsDifferentFromMalformedOrSilentRead() {
+                  val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1")
+                  g.receive(attempt,scope,packet("""{"action":"events","tag":"read-1","result":"Denied"}"""))
+                  assertEquals(ServerEventsPhase.DENIED,g.state.phase)
+              }
+              @Test fun oversizedOrMalformedHistoryIsRejectedWithoutTruncation() {
+                  listOf("[null]","["+List(201) {"{}"}.joinToString(",")+"]").forEach {rows->
+                      val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1")
+                      g.receive(attempt,scope,packet("{\\"action\\":\\"events\\",\\"tag\\":\\"read-1\\",\\"events\\":$rows}"))
+                      assertEquals(ServerEventsPhase.INVALID,g.state.phase)
+                  }
+              }
+              @Test fun recordsUseServerTimeAndNeverInventDeviceOrActorNames() {
+                  val g=ServerEventsReadGate();val attempt=g.begin(scope,"read-1")
+                  g.receive(attempt,scope,packet("""{"action":"events","tag":"read-1","events":[{"time":"bad","nodeid":"node/a/1"},{"time":"2026-01-01T00:00:00Z","msg":"hello"}]}"""))
+                  assertEquals(ServerEventsPhase.READY,g.state.phase)
+                  assertNotNull(g.state.records[0].time);assertNull(g.state.records[1].time)
+                  assertEquals("",g.state.records[1].nodeName);assertEquals("",g.state.records[1].actor)
+                  g.invalidate();assertTrue(g.state.records.isEmpty())
+              }
+          }
+          ''',
+          'app/src/androidTest/java/iecxiv/meshfabric/ui/management/RegistroSectionTabsTest.kt':'''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.res.stringResource
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import iecxiv.meshfabric.R
+          import org.junit.Assert.assertEquals
+          import org.junit.Rule
+          import org.junit.Test
+          class RegistroSectionTabsTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun bothTabsAreVisibleAndEventsCallbackUsesIndexOne() {
+                  var activity="";var events="";var selected=-1
+                  compose.setContent {MaterialTheme {
+                      activity=stringResource(R.string.registro_activity);events=stringResource(R.string.registro_events)
+                      RegistroSectionTabs(0) {selected=it}
+                  }}
+                  compose.onNodeWithText(activity).assertIsDisplayed()
+                  compose.onNodeWithText(events).assertIsDisplayed().performClick()
+                  compose.runOnIdle {assertEquals(1,selected)}
+              }
+              @Test fun activityCallbackUsesIndexZero() {
+                  var label="";var selected=-1
+                  compose.setContent {MaterialTheme {label=stringResource(R.string.registro_activity);RegistroSectionTabs(1) {selected=it}}}
+                  compose.onNodeWithText(label).performClick()
+                  compose.runOnIdle {assertEquals(0,selected)}
+              }
+          }
+          '''}
+          for name,content in files.items():
+              p=Path(name);assert not p.exists(),name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
+          Path('validation/expected.json').write_text(json.dumps(sorted(files)))
+          Path('validation/scope.txt').write_text('Foundation only: bounded tagged history response policy and reusable native tabs. Existing navigation, Activity journal and transport unchanged. Native server query transport and screen integration remain pending. No real-server or visual validation claimed.\n')
+          PY
+          git diff --check
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build execute JVM tests compile Android tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android and Compose suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify executed test evidence and staged changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess,xml.etree.ElementTree as ET
+          results={}
+          for kind,folder,required,count in [('jvm','app/build/test-results/testDebugUnitTest','ServerEventsReadPolicyTest',9),('android','app/build/outputs/androidTest-results/connected','RegistroSectionTabsTest',2)]:
+              cases=[]
+              for p in Path(folder).rglob('*.xml'):cases.extend(ET.parse(p).getroot().iter('testcase'))
+              assert cases,(kind,'No executed test evidence')
+              assert all(all(c.find(tag) is None for tag in ('failure','error','skipped')) for c in cases),(kind,'Failed or skipped tests')
+              own=[c for c in cases if c.get('classname','').split('.')[-1]==required]
+              assert len(own)==count,(kind,required,len(own))
+              results[kind]={'total':len(cases),'new_regressions':len(own)}
+          Path('validation/tests.json').write_text(json.dumps(results,indent=2))
+          expected=json.loads(Path('validation/expected.json').read_text())
+          assert len(expected)==6
+          subprocess.run(['git','add','--',*expected],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git diff --cached > validation/foundation.diff
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: registro-foundation-validation-${{ github.run_id }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish validated foundation only on unchanged work branch
+        run: |
+          set -euo pipefail
+          test "${{ github.ref_name }}" = work/registro-server-events
+          git fetch origin work/registro-server-events
+          test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(registro): add tested events read policy and section tabs foundation'
+          git push origin HEAD:work/registro-server-events

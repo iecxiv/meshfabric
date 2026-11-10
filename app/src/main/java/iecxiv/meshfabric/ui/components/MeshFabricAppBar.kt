@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,10 +57,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 }
 
 @Composable internal fun MeshFabricActivityScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,
-    actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit) {
+    actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit,header:@Composable ()->Unit={}) {
     val connected by viewModel.isConnected.collectAsState()
-    var showSearch by remember { mutableStateOf(false) }
-    var search by remember { mutableStateOf("") }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
+    var search by rememberSaveable { mutableStateOf("") }
     val requester=remember { FocusRequester() }
     val keyboard=LocalSoftwareKeyboardController.current
     val focusManager=LocalFocusManager.current
@@ -75,6 +76,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 Icon(if(showSearch) Icons.Default.Close else Icons.Default.Search,contentDescription=stringResource(R.string.search),modifier=Modifier.size(20.dp))
             }
         } })
+        header()
         AnimatedVisibility(showSearch) {
             LaunchedEffect(showSearch) { if(showSearch) { withFrameNanos { }; requester.requestFocus(); keyboard?.show() } }
             OutlinedTextField(value=search,onValueChange={ search=it },singleLine=true,

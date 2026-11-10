@@ -47,7 +47,7 @@ Surface(color=scheme.surface,tonalElevation=0.dp,shadowElevation=0.dp) {
 Column {
 HorizontalDivider(color=scheme.outlineVariant)
 Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal+WindowInsetsSides.Bottom)).selectableGroup(),verticalAlignment=Alignment.CenterVertically) {
-val labels=listOf(if(es) "Equipos" else "Devices",stringResource(R.string.my_server_activity),stringResource(R.string.navigation_server),if(es) "Gestión" else "Management",if(es) "Avisos" else "Notices")
+val labels=listOf(if(es) "Equipos" else "Devices",stringResource(R.string.registro_title),stringResource(R.string.navigation_server),if(es) "Gestión" else "Management",if(es) "Avisos" else "Notices")
 bottomNavigationPageOrder.forEach { index->
 val label=labels[index]
 val selected=page==index
