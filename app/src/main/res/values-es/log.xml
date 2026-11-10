@@ -11,7 +11,7 @@
     <string name="log_invalid">Respuesta del servidor no válida o demasiado grande.</string>
     <string name="log_timeout">Sin respuesta dentro del plazo. Comprueba conexión y permisos.</string>
     <string name="log_invalidated">Datos retirados tras un cambio de conexión, cuenta o acceso. Actualiza para consultar de nuevo.</string>
-    <string name="log_scope">Hasta 200 eventos recientes visibles para esta cuenta; no es una auditoría completa del servidor.</string>
+    <string name="log_scope">Eventos visibles para esta cuenta; no es una auditoría completa del servidor.</string>
     <string name="log_refresh">Actualizar</string>
     <string name="log_search">Buscar en los eventos recibidos</string>
     <string name="log_no_match">Ningún evento recibido coincide con la búsqueda.</string>
@@ -24,4 +24,19 @@
     <string name="log_invalid_history">El historial de eventos contiene un campo o una estructura no compatible.</string>
     <string name="log_invalid_internal">Se ha producido un error interno al procesar el canal de control.</string>
     <string name="log_diagnostic">Detalle técnico: %1$s</string>
+    <string name="log_event_filter">Tipo</string>
+    <string name="log_event_show">Mostrar</string>
+    <string name="log_event_latest">Últimos %1$d</string>
+    <string name="log_event_unlimited">Sin límite</string>
+    <string name="log_event_safety">Sin límite no solicita un máximo al servidor. Por seguridad, la app rechaza respuestas de más de 10000 registros o 2000000 caracteres; nunca las recorta silenciosamente.</string>
+    <string-array name="log_event_types">
+        <item>Todos</item>
+        <item>Registros del agente</item>
+        <item>Registros de relay</item>
+        <item>Registros manuales</item>
+        <item>Ejecución de comandos</item>
+        <item>Carga por lotes</item>
+        <item>Cambios de dispositivo</item>
+        <item>Eliminación de dispositivo</item>
+    </string-array>
 </resources>

@@ -18,7 +18,7 @@ class LogEventsReaderTest {
         var binding:LogEventsBinding?=LogEventsBinding("https://server","user/a/me","test-cookie",false,0,"test-token")
         val fake=Fake();lateinit var listener:WebSocketListener
         val reader=LogEventsReader({binding},{_,l->listener=l;fake})
-        fun start() {reader.load();listener.onOpen(fake,Response.Builder().request(fake.request()).protocol(Protocol.HTTP_1_1).code(101).message("Switching").build());listener.onMessage(fake,"""{"action":"userinfo","userinfo":{"_id":"user/a/me","siteadmin":0,"links":{}}}""")}
+        fun start(selection:ServerEventsQuery=legacyServerEventsQuery) {reader.load(selection);listener.onOpen(fake,Response.Builder().request(fake.request()).protocol(Protocol.HTTP_1_1).code(101).message("Switching").build());listener.onMessage(fake,"""{"action":"userinfo","userinfo":{"_id":"user/a/me","siteadmin":0,"links":{}}}""")}
         fun history() {val p=JsonParser.parseString(fake.sent.last()).asJsonObject;listener.onMessage(fake,"{\"action\":\"events\",\"tag\":\""+p.get("tag").asString+"\",\"events\":[] }")}
     }
     @Test fun authenticatedReadUsesBoundedTaggedRequestAndEmptyReply() {
@@ -49,5 +49,23 @@ class LogEventsReaderTest {
     }
     @Test fun nullSitePermissionsRemainInvalidNotImplicitlyAuthorized() {
         val h=Harness();try {h.start();h.listener.onMessage(h.fake,"{\"action\":\"userinfo\",\"userinfo\":{\"_id\":\"user/a/me\",\"siteadmin\":null}}");assertEquals(ServerEventsIssueKind.IDENTITY,h.reader.state.value.issue?.kind);assertTrue(h.reader.state.value.records.isEmpty())} finally {h.reader.close()}
+    }
+    @Test fun selectedFilterAndLimitAreSentAfterIdentityCheck() {
+        val h=Harness();try {
+            h.start(ServerEventsQuery(ServerEventType.MANUAL,120))
+            val p=JsonParser.parseString(h.fake.sent.last()).asJsonObject
+            assertEquals("manual",p.get("filter").asString);assertEquals(120,p.get("limit").asInt)
+        } finally {h.reader.close()}
+    }
+    @Test fun selectionChangeRetiresOldSocketReplies() {
+        val h=Harness();try {
+            h.start(ServerEventsQuery(limit=60));val old=h.listener
+            val tag=JsonParser.parseString(h.fake.sent.last()).asJsonObject.get("tag").asString
+            val next=ServerEventsQuery(ServerEventType.RELAY,1000);h.start(next)
+            old.onMessage(h.fake,"{\"action\":\"events\",\"tag\":\""+tag+"\",\"events\":[{\"msg\":\"retired\"}]}")
+            assertEquals(ServerEventsPhase.LOADING,h.reader.state.value.phase)
+            h.history();assertEquals(ServerEventsPhase.READY,h.reader.state.value.phase)
+            assertEquals(next,h.reader.state.value.selection);assertTrue(h.reader.state.value.records.isEmpty())
+        } finally {h.reader.close()}
     }
 }

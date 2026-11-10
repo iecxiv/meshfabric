@@ -20,14 +20,16 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
     private var epoch=0L
     private var attempt=0L
     private var queryScope:ServerEventsScope?=null
+    private var requested=legacyServerEventsQuery
     private var timer:Job?=null
     init {jobs.launch {while(isActive) {delay(500);synchronized(this@LogEventsReader) {if(binding!=null && current()!=binding) stop(ServerEventsPhase.INVALIDATED)}}}}
-    @Synchronized fun load() {
+    @Synchronized fun load(selection:ServerEventsQuery=legacyServerEventsQuery) {
+        requested=selection
         stop(ServerEventsPhase.IDLE)
-        val b=current() ?: run {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED);return}
-        if(b.server.isBlank() || b.actor.isBlank() || b.cookie.isBlank()) {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED);return}
+        val b=current() ?: run {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED,selection=requested);return}
+        if(b.server.isBlank() || b.actor.isBlank() || b.cookie.isBlank()) {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED,selection=requested);return}
         binding=b;val generation=epoch
-        mutable.value=ServerEventsSnapshot(ServerEventsPhase.LOADING)
+        mutable.value=ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=requested)
         runCatching {socket=open(b,object:WebSocketListener() {
             override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@LogEventsReader) {
                 if(generation!=epoch || current()!=binding) {webSocket.cancel();return}
@@ -67,12 +69,12 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
                 val previous=queryScope
                 if(previous!=null) {if(previous.authority!=authority) stop(ServerEventsPhase.INVALIDATED);return}
                 val scope=ServerEventsScope(b.server,b.actor,epoch,authority);queryScope=scope
-                val tag=UUID.randomUUID().toString();attempt=gate.begin(scope,tag)
-                if(!ws.send(serverEventsRequest(tag).toString())) stop(ServerEventsPhase.ERROR)
+                val tag=UUID.randomUUID().toString();attempt=gate.begin(scope,tag,requested)
+                if(!ws.send(serverEventsRequest(tag,requested).toString())) stop(ServerEventsPhase.ERROR)
             }
             "events"->{
                 val scope=queryScope ?: return
-                if(gate.receive(attempt,scope,p)) {timer?.cancel();mutable.value=gate.state}
+                if(gate.receive(attempt,scope,p)) {timer?.cancel();mutable.value=gate.state.copy(selection=requested)}
             }
             "event"->{
                 val event=p.get("event")?.takeIf {it.isJsonObject}?.asJsonObject
@@ -81,13 +83,13 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
             "close","stopped"->stop(ServerEventsPhase.ERROR)
         }
     }
-    private fun invalid(issue:ServerEventsIssue) {stop(ServerEventsPhase.INVALID);mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue)}
+    private fun invalid(issue:ServerEventsIssue) {stop(ServerEventsPhase.INVALID);mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue,selection=requested)}
     @Synchronized fun timeout() {if(mutable.value.phase==ServerEventsPhase.LOADING) stop(ServerEventsPhase.TIMEOUT)}
     @Synchronized private fun failed(generation:Long) {if(generation==epoch) stop(ServerEventsPhase.ERROR)}
     @Synchronized private fun stop(phase:ServerEventsPhase) {
         epoch++;timer?.cancel();timer=null;binding=null;queryScope=null;gate.invalidate()
-        val previous=socket;socket=null;mutable.value=ServerEventsSnapshot(phase);previous?.cancel()
+        val previous=socket;socket=null;mutable.value=ServerEventsSnapshot(phase,selection=requested);previous?.cancel()
     }
-    @Synchronized fun pause()=stop(ServerEventsPhase.INVALIDATED)
+    @Synchronized fun pause(selection:ServerEventsQuery?=null) {if(selection==null || selection==requested) stop(ServerEventsPhase.INVALIDATED)}
     @Synchronized fun close() {pause();jobs.cancel()}
 }

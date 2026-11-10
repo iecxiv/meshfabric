@@ -11,7 +11,7 @@
     <string name="log_invalid">Invalid or oversized server response.</string>
     <string name="log_timeout">No response within the time limit. Check connection and permissions.</string>
     <string name="log_invalidated">Data cleared after a connection, account or access change. Refresh to query again.</string>
-    <string name="log_scope">Up to 200 recent events visible to this account; not a complete server audit log.</string>
+    <string name="log_scope">Events visible to this account; not a complete server audit log.</string>
     <string name="log_refresh">Refresh</string>
     <string name="log_search">Search received events</string>
     <string name="log_no_match">No received events match the search.</string>
@@ -24,4 +24,19 @@
     <string name="log_invalid_history">The event history contains an unsupported field or structure.</string>
     <string name="log_invalid_internal">An internal error occurred while processing the control channel.</string>
     <string name="log_diagnostic">Technical detail: %1$s</string>
+    <string name="log_event_filter">Type</string>
+    <string name="log_event_show">Show</string>
+    <string name="log_event_latest">Latest %1$d</string>
+    <string name="log_event_unlimited">Unlimited</string>
+    <string name="log_event_safety">Unlimited sends no count limit to the server. For safety, the app rejects responses exceeding 10000 records or 2000000 characters; it never silently truncates them.</string>
+    <string-array name="log_event_types">
+        <item>All events</item>
+        <item>Agent logs</item>
+        <item>Relay logs</item>
+        <item>Manual logs</item>
+        <item>Run command logs</item>
+        <item>Batch upload logs</item>
+        <item>Device changes</item>
+        <item>Device removals</item>
+    </string-array>
 </resources>

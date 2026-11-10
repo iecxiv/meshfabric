@@ -5,10 +5,10 @@ internal const val SERVER_EVENTS_LIMIT=200
 internal data class ServerEventsScope(val server:String,val actor:String,val session:Long,val authority:String)
 internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?)
 internal enum class ServerEventsPhase { IDLE, LOADING, READY, DENIED, ERROR, INVALID, TIMEOUT, INVALIDATED }
-internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null)
-internal fun serverEventsRequest(tag:String):JsonObject {
+internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null,val selection:ServerEventsQuery?=null)
+internal fun serverEventsRequest(tag:String,selection:ServerEventsQuery=legacyServerEventsQuery):JsonObject {
     require(tag.isNotBlank() && tag.length<=128)
-    return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);addProperty("limit",SERVER_EVENTS_LIMIT)}
+    return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);if(selection.limit!=null) addProperty("limit",selection.limit);if(selection.type!=ServerEventType.ALL) addProperty("filter",selection.type.wire)}
 }
 private fun JsonObject.eventText(key:String):String {
     val value=get(key) ?: return ""
@@ -31,11 +31,12 @@ internal class ServerEventsReadGate {
     private var epoch=0L
     private var binding:ServerEventsScope?=null
     private var tag=""
+    private var selected=legacyServerEventsQuery
     @Volatile var state=ServerEventsSnapshot()
         private set
-    @Synchronized fun begin(scope:ServerEventsScope,requestTag:String):Long {
+    @Synchronized fun begin(scope:ServerEventsScope,requestTag:String,selection:ServerEventsQuery=legacyServerEventsQuery):Long {
         require(scope.server.isNotBlank() && scope.actor.isNotBlank() && scope.authority.isNotBlank())
-        serverEventsRequest(requestTag)
+        serverEventsRequest(requestTag,selection);selected=selection
         epoch++;binding=scope;tag=requestTag
         state=ServerEventsSnapshot(ServerEventsPhase.LOADING)
         return epoch
@@ -62,7 +63,7 @@ internal class ServerEventsReadGate {
         }
         val decoded=runCatching {
             val value=packet.get("events")
-            if(value==null || !value.isJsonArray || value.asJsonArray.size()>SERVER_EVENTS_LIMIT) eventDecodeFailure(ServerEventsIssueKind.HISTORY_SHAPE,"events",value,if(value?.isJsonArray==true) value.asJsonArray.size() else null)
+            if(value==null || !value.isJsonArray || value.asJsonArray.size()>(selected.limit ?: SERVER_EVENTS_SAFETY_LIMIT)) eventDecodeFailure(ServerEventsIssueKind.HISTORY_SHAPE,"events",value,if(value?.isJsonArray==true) value.asJsonArray.size() else null)
             value.asJsonArray.map {element->
                 if(!element.isJsonObject) eventDecodeFailure(ServerEventsIssueKind.RECORD_SHAPE,value=element)
                 val item=element.asJsonObject
