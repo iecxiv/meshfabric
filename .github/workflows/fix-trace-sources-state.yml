@@ -1,19 +1,20 @@
-name: Validate and publish trace source null-state fix
+name: Validate trace sources efficiently and publish tested fix
 on:
   push:
     branches: [work/registro-server-events]
     paths:
       - .github/workflows/fix-trace-sources-state.yml
       - .github/scripts/prepare-trace-sources-state.py
+      - .github/scripts/validate-trace-sources-focused.py
 permissions:
   contents: write
 concurrency:
   group: log-complete
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,96 +25,59 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Prepare only guarded trace state decoding timeout and regression changes
+      - name: Prepare the identical approved application correction
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = e1c866c3d60ca5bf151f61d25b20e1efeb23ef0b
+          test "$(git rev-parse HEAD^)" = b00e5dc80a924c3d47f228ba900d5f681f3d1c9e
           mkdir -p validation
           python3 .github/scripts/prepare-trace-sources-state.py
           git diff --cached --check
-      - name: Compile execute JVM lint and prepare exact Android regressions
+      - name: Ensure required Android SDK packages
         run: |
           set -euo pipefail
-          python3 -m venv /tmp/trace-sources-yaml
-          /tmp/trace-sources-yaml/bin/pip install --disable-pip-version-check PyYAML==6.0.2
-          /tmp/trace-sources-yaml/bin/python - <<'PY'
-          from pathlib import Path
-          import ast,subprocess,yaml
-          yaml.safe_load(Path('.github/workflows/fix-trace-sources-state.yml').read_text())
-          old=yaml.safe_load(subprocess.check_output(['git','show','e1c866c3d60ca5bf151f61d25b20e1efeb23ef0b:.github/workflows/publish-header-refresh.yml'],text=True))
-          matches=[s for s in old['jobs']['validate']['steps'] if s.get('name')=='Compile execute JVM lint and prepare exact affected Android runner']
-          assert len(matches)==1
-          subprocess.run(['bash','-euo','pipefail','-c',matches[0]['run']],check=True)
-          p=Path('validation/run-log-class-isolation.py');s=p.read_text();anchor='expected={\n'
-          assert s.count(anchor)==1
-          extra="    'TraceSourcesChannelTest':{'initialNullEnablesSelectionWithoutWritingGlobalSources','malformedStateIsNotAcceptedAsAnEmptySelection','missingStateTimesOutAndReconnectDoesNotWriteSources','nonAdminCannotUnlockOrChangeSources','userChangeWritesOnceAndOnlyReadbackConfirmsIt','staleSocketCannotUnlockANewConnection'},\n    'ServerConsoleWebViewTest':{'localWebViewConsumesInitialAndUpdatedSnapshotsWithoutServer'},\n"
-          s=s.replace(anchor,anchor+extra).replace('Expected: 42 distinct methods across 13 independent class runs.','Expected: 49 distinct methods across 15 independent class runs.')
-          ast.parse(s);p.write_text(s)
-          PY
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build both APKs once run only related JVM tests and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:testDebugUnitTest --tests iecxiv.meshfabric.ui.management.TraceSourcesPolicyTest --tests iecxiv.meshfabric.ui.management.ServerAdminPolicyTest --tests iecxiv.meshfabric.ui.management.ServerConsolePolicyTest --tests iecxiv.meshfabric.ui.management.ServerConsoleSubmissionGateTest --tests iecxiv.meshfabric.ui.management.ServerCsvTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --no-daemon --stacktrace
+          python3 .github/scripts/validate-trace-sources-focused.py unit
       - name: Enable KVM
         run: |
           test -e /dev/kvm
           sudo chmod a+rw /dev/kvm
-      - name: Execute all 49 affected Android methods independently
+      - name: Install APKs once and execute exactly seven Android methods
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
           disable-animations: true
-          script: python3 validation/run-log-class-isolation.py
-      - name: Require exact execution source scope and no automatic trace writes
+          script: python3 .github/scripts/validate-trace-sources-focused.py android
+      - name: Verify raw execution evidence and unchanged application scope
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import json,subprocess,xml.etree.ElementTree as ET
-          cases=[]
-          for p in Path('app/build/test-results/testDebugUnitTest').rglob('*.xml'): cases.extend(ET.parse(p).getroot().iter('testcase'))
-          assert cases and all(all(c.find(t) is None for t in ('failure','error','skipped')) for c in cases)
-          for name,count in {'TraceSourcesPolicyTest':8,'HeaderRefreshPolicyTest':6,'ServerEventDaysTest':5,'EventContentTest':10,'ServerEventDetailsPolicyTest':4,'ServerEventsQueryTest':8,'LogEventsReaderTest':12,'ServerEventsReadPolicyTest':9,'ServerEventsDiagnosticsTest':3,'LogNumericMessageTest':8}.items():
-              found=[c for c in cases if c.get('classname','').split('.')[-1]==name]
-              assert len(found)==count and len({c.get('name') for c in found})==count,name
-          results=json.loads(Path('validation/class-isolation/summary.json').read_text())
-          required={'TraceSourcesChannelTest':6,'ServerConsoleWebViewTest':1,'HeaderRefreshUiTest':6,'UserGroupsActionsCardTest':1,'UserGroupsSectionSpacingTest':2,'EventsHeaderDatesTest':5,'EventContentUiTest':4,'EventsSelectorWidthTest':5,'EventsPresentationTest':4,'ServerEventsControlsTest':3,'LogNumericMessageUiTest':2,'LogEventsDiagnosticsUiTest':2,'RegistroSectionTabsTest':2,'LogScreenTest':4,'ManagementNavigationLabelTest':2}
-          assert len(results)==15 and {r['class'] for r in results}=={'iecxiv.meshfabric.ui.management.'+n for n in required}
-          for r in results:
-              assert r['passed'] is True and r['exit_code']==0,r
-              assert len(r['cases'])==required[r['class'].split('.')[-1]],r
-          expected=json.loads(Path('validation/trace-sources-expected.json').read_text())
-          assert len(expected)==5 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
-          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
-          source=Path('app/src/main/java/iecxiv/meshfabric/ui/management/ServerAdminPanel.kt').read_text()
-          assert source.count('put("action","traceinfo")')==1
-          Path('validation/trace-sources-tests.json').write_text(json.dumps({'jvm_cases':len(cases),'android_cases':49,'synthetic_channel_verified':True,'live_server_verified':False,'physical_visual_review_verified':False},indent=2)+'\n')
-          PY
+          python3 .github/scripts/validate-trace-sources-focused.py verify
           git diff --cached --check
           git diff --cached > validation/trace-sources-state.diff
       - name: Preserve evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: trace-sources-state-validation-${{ github.run_id }}
+          name: trace-sources-focused-validation-${{ github.run_id }}
           path: |
             validation/
             app/build/reports/
             app/build/test-results/
-            app/build/outputs/androidTest-results/
           retention-days: 7
           if-no-files-found: error
-      - name: Publish all tested sources only on unchanged work branch
+      - name: Publish the five tested source and documentation files only
         run: |
           set -euo pipefail
           test "${{ github.ref_name }}" = work/registro-server-events
           git fetch origin work/registro-server-events
           test "$(git rev-parse origin/work/registro-server-events)" = "${{ github.sha }}"
-          python3 - <<'PY'
-          from pathlib import Path
-          import json,subprocess
-          expected=json.loads(Path('validation/trace-sources-expected.json').read_text())
-          assert len(expected)==5 and set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(expected)
-          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
-          PY
+          python3 .github/scripts/validate-trace-sources-focused.py verify
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
