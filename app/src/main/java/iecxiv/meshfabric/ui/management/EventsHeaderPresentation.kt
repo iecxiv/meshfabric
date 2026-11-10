@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
@@ -18,19 +19,21 @@ import androidx.compose.ui.unit.dp
 import iecxiv.meshfabric.R
 import java.text.DateFormat
 import java.util.Date
-@Composable internal fun ServerEventsSearchHeader(query:String,onQuery:(String)->Unit,expanded:Boolean,onExpanded:(Boolean)->Unit,header:@Composable (@Composable ()->Unit)->Unit,tabs:@Composable ()->Unit={}) {
+@Composable internal fun ServerEventsSearchHeader(query:String,onQuery:(String)->Unit,expanded:Boolean,onExpanded:(Boolean)->Unit,header:@Composable (@Composable ()->Unit)->Unit,tabs:@Composable ()->Unit={},refreshEnabled:Boolean=false,onRefresh:(()->Unit)?=null) {
     val requester=remember {FocusRequester()}
     val keyboard=LocalSoftwareKeyboardController.current
     val focus=LocalFocusManager.current
     Column {
         header {
+            Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
+            if(onRefresh!=null) HeaderRefreshButton(refreshEnabled,"log-events-refresh",onRefresh)
             IconButton(onClick={
                 if(expanded) {onQuery("");focus.clearFocus(force=true);keyboard?.hide()}
                 onExpanded(!expanded)
             },modifier=Modifier.size(38.dp).testTag("log-events-search-toggle")) {
                 Icon(if(expanded) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search),Modifier.size(20.dp))
             }
-        }
+        }}
         tabs()
         AnimatedVisibility(expanded) {
             LaunchedEffect(expanded) {if(expanded) {withFrameNanos {};requester.requestFocus();keyboard?.show()}}

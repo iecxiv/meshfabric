@@ -15,7 +15,7 @@ import org.junit.Test
     var query by rememberSaveable {mutableStateOf("")}
     var expanded by rememberSaveable {mutableStateOf(false)}
     Column(Modifier.fillMaxSize()) {
-        ServerEventsSearchHeader(query,{query=it},expanded,{expanded=it},header={actions->Row {actions()}})
+        ServerEventsSearchHeader(query,{query=it},expanded,{expanded=it},header={actions->Row {actions()}},refreshEnabled=eventsHeaderRefreshEnabled(true,true,true,state.phase),onRefresh={})
         ServerEventsPanel(state,query,{query=it},true,{},Modifier.weight(1f),inventory=inventory)
     }
 }

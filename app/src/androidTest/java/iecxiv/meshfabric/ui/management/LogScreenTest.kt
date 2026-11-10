@@ -22,7 +22,7 @@ class LogScreenTest {
     }
     @Test fun loadingAndTimeoutAreNeverEmptyHistory() {
         val state=mutableStateOf(ServerEventsSnapshot(ServerEventsPhase.LOADING))
-        compose.setContent {MaterialTheme {ServerEventsPanel(state.value,"",{},true,{})}}
+        compose.setContent {MaterialTheme {SearchableEventsTestPanel(state.value)}}
         compose.onNodeWithTag("log-events-empty").assertDoesNotExist();compose.onNodeWithTag("log-events-refresh").assertIsNotEnabled()
         compose.runOnIdle {state.value=ServerEventsSnapshot(ServerEventsPhase.TIMEOUT)}
         compose.onNodeWithTag("log-events-state").assertIsDisplayed();compose.onNodeWithTag("log-events-empty").assertDoesNotExist()

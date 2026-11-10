@@ -25,7 +25,7 @@ import org.json.JSONObject
 
 internal data class ProfileForm(val users:Boolean,val operation:String,val id:String="",val name:String="",val email:String="",val description:String="")
 
-@Composable internal fun ProfileScreen(source:MeshCentralClient,modifier:Modifier=Modifier) {
+@Composable internal fun ProfileScreen(source:MeshCentralClient,modifier:Modifier=Modifier,header:@Composable (@Composable ()->Unit)->Unit={}) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(s:String,e:String)=if(es) s else e
 val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -60,6 +60,7 @@ if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation
 } }
 LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null } }
 Column(modifier) {
+ProfileRefreshHeader(tab,state,header) {performProfileHeaderRefresh(tab,session)}
 ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { ownAccountRequest=null;section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false }
 if(tab!=0) ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null}) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
@@ -87,7 +88,6 @@ if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,c
 if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 ServerGeneralActions {
 if(users) TextButton(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={form=null;groupDetails=null;origins=emptyList();groupDetailTab=0;broadcast=true}) {Text("Broadcast")}
-TextButton(enabled=!state.loading && !state.busy,onClick={ if(state.ready) session.refresh() else session.start() }) { Text(t("Actualizar","Refresh")) }
 TextButton(enabled=state.canWrite && permitted && (if(users) state.canCreateUser else ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
 }
 Text(if(users) t("Usuarios","Users") else t("Grupos de dispositivos","Device groups"),style=MaterialTheme.typography.titleMedium)

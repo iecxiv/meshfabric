@@ -56,7 +56,7 @@ import java.util.Date
     var showSearch by rememberSaveable {mutableStateOf(false)}
     LaunchedEffect(reader,lifecycle,selection) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {try {reader.load(selection);awaitCancellation()} finally {reader.pause(selection)}}}
     DisposableEffect(reader) {onDispose {reader.close()}}
-    Scaffold(topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header)}) {padding->
+    Scaffold(topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header,refreshEnabled=eventsHeaderRefreshEnabled(connected,!actor?.id.isNullOrBlank(),state.selection==selection,state.phase),onRefresh={reader.load(selection)})}) {padding->
         val visible=if(state.selection==selection) state else ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=selection)
         ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
     }
@@ -84,13 +84,11 @@ import java.util.Date
         detail?.let {ServerEventDetailsDialog(it) {detail=null}}
         Text(stringResource(R.string.log_scope),style=MaterialTheme.typography.bodySmall)
         if(onSelection!=null) ServerEventsControls(selection,enabled,onSelection)
-        TextButton(onClick=onRefresh,enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("log-events-refresh")) {Text(stringResource(R.string.log_refresh))}
         if(status!=null) Text(stringResource(status),Modifier.testTag("log-events-state"),color=if(state.phase in setOf(ServerEventsPhase.DENIED,ServerEventsPhase.ERROR,ServerEventsPhase.INVALID,ServerEventsPhase.TIMEOUT)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         if(state.phase==ServerEventsPhase.INVALID && state.issue!=null) Text(stringResource(R.string.log_diagnostic,state.issue.safeCode()),Modifier.testTag("log-events-diagnostic"),style=MaterialTheme.typography.bodySmall)
         if(state.phase==ServerEventsPhase.LOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
         if(state.phase==ServerEventsPhase.READY) {
             val rows=state.records.map {it.withInventory(inventory)}.filter {row->listOf(row.message,row.actor,row.nodeName,row.action,row.groupName,row.nodeId,row.meshId,row.details["cmds"].orEmpty()).any {it.contains(query.trim(),true)}}
-            if(selection.limit!=null && state.records.size==selection.limit) Text(stringResource(R.string.log_limit),style=MaterialTheme.typography.bodySmall)
             if(state.records.isEmpty()) Text(stringResource(R.string.log_empty),Modifier.testTag("log-events-empty"))
             else if(rows.isEmpty()) Text(stringResource(R.string.log_no_match),Modifier.testTag("log-events-no-match"))
             LazyColumn(Modifier.weight(1f).testTag("log-events-list"),verticalArrangement=Arrangement.spacedBy(6.dp),contentPadding=PaddingValues(vertical=6.dp)) {
@@ -104,7 +102,6 @@ import java.util.Date
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(row.message.ifBlank {stringResource(R.string.log_event)},style=MaterialTheme.typography.bodyMedium)
                     if(row.deviceLabel().isNotBlank()) Text(row.deviceLabel(),Modifier.testTag("log-event-device-$index"),style=MaterialTheme.typography.labelMedium)
-                    if(row.inventoryResolved) Text(stringResource(R.string.log_detail_inventory),style=MaterialTheme.typography.bodySmall)
                     if(row.actor.isNotBlank()) Text(row.actor,style=MaterialTheme.typography.labelSmall)
                     Text(row.time?.let {DateFormat.getDateTimeInstance().format(Date(it))} ?: stringResource(R.string.log_time_unknown),style=MaterialTheme.typography.labelSmall)
                 }}}
