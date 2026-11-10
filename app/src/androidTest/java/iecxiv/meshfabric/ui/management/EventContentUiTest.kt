@@ -11,10 +11,10 @@ class EventContentUiTest {
     private fun state(row:ServerEventRecord)=ServerEventsSnapshot(ServerEventsPhase.READY,listOf(row))
     @Test fun cardHidesIdentifiersWhileDetailsKeepThem() {
         compose.setContent {MaterialTheme {ServerEventsPanel(state(event()),"",{},true,{})}}
-        compose.onNodeWithTag("log-event-device-0",useUnmergedTree=true).assertTextEquals("surface(agent)")
+        compose.onNodeWithTag("log-event-device-0",useUnmergedTree=true).assertTextEquals("surface (agent)")
         compose.onNodeWithTag("log-event-node-0",useUnmergedTree=true).assertDoesNotExist();compose.onNodeWithTag("log-event-mesh-0",useUnmergedTree=true).assertDoesNotExist()
         compose.onNodeWithTag("log-event-row-0").performClick()
-        compose.onNodeWithTag("log-event-details-device").assertTextEquals("surface(agent)")
+        compose.onNodeWithTag("log-event-details-device").assertTextEquals("surface")
         compose.onNodeWithText("node//device").assertExists();compose.onNodeWithText("mesh//agent").assertExists()
         compose.onNodeWithTag("log-event-command").assertTextEquals("echo ready\nwhoami")
         compose.onNodeWithTag("log-event-details-message").assertTextEquals("Running commands")
@@ -33,7 +33,7 @@ class EventContentUiTest {
     @Test fun inventoryChangeRemovesOpenResolvedDetails() {
         val inventory=mutableStateOf(ServerEventInventory(mapOf("node//device" to EventDevice("node//device","surface","mesh//agent")),mapOf("mesh//agent" to "agent")))
         compose.setContent {MaterialTheme {ServerEventsPanel(state(event().copy(nodeName="",groupName="",meshId="")),"",{},true,{},inventory=inventory.value)}}
-        compose.onNodeWithTag("log-event-row-0").performClick();compose.onNodeWithTag("log-event-details-device").assertTextEquals("surface(agent)")
+        compose.onNodeWithTag("log-event-row-0").performClick();compose.onNodeWithTag("log-event-details-device").assertTextEquals("surface")
         compose.runOnIdle {inventory.value=ServerEventInventory()};compose.onNodeWithTag("log-event-details").assertDoesNotExist()
     }
 }

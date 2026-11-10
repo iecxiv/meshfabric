@@ -34,4 +34,4 @@ internal fun ServerEventRecord.withInventory(inventory:ServerEventInventory):Ser
     val group=groupName.ifBlank {inventory.groups[eventKey(mesh,"mesh")].orEmpty()}
     return copy(nodeName=name,meshId=mesh,groupName=group,inventoryResolved=inventoryResolved || name!=nodeName || mesh!=meshId || group!=groupName)
 }
-internal fun ServerEventRecord.deviceLabel():String=if(nodeName.isBlank()) "" else nodeName+if(groupName.isBlank()) "" else "($groupName)"
+internal fun ServerEventRecord.deviceLabel():String=if(nodeName.isBlank()) "" else nodeName+if(groupName.isBlank()) "" else " ($groupName)"

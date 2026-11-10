@@ -40,7 +40,7 @@ class HeaderRefreshUiTest {
         val row=ServerEventRecord("manual","entry","operator","node//device","surface",1L,meshId="mesh//agent",groupName="agent",inventoryResolved=true)
         compose.setContent {MaterialTheme {ServerEventsPanel(ServerEventsSnapshot(ServerEventsPhase.READY,List(60) {row}),"",{},true,{},selection=ServerEventsQuery(limit=60))}}
         compose.onNodeWithText(context.getString(R.string.log_limit)).assertDoesNotExist();compose.onNodeWithText(context.getString(R.string.log_detail_inventory)).assertDoesNotExist()
-        compose.onNodeWithTag("log-event-row-0").performClick();compose.onNodeWithTag("log-event-details-device").assertTextEquals("surface(agent)")
+        compose.onNodeWithTag("log-event-row-0").performClick();compose.onNodeWithTag("log-event-details-device").assertTextEquals("surface")
         compose.onNodeWithText(context.getString(R.string.log_detail_inventory)).assertDoesNotExist();compose.onNodeWithText("node//device").assertExists();compose.onNodeWithText("mesh//agent").assertExists()
     }
     @Test fun eventsPanelHasNoRefreshButtonOrManagementChannelRow() {

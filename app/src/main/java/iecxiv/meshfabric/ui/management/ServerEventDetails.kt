@@ -36,7 +36,7 @@ internal fun serverEventDetails(item:JsonObject):Map<String,String> {
             ManagementInfoRow(stringResource(R.string.log_detail_type),row.action.ifBlank {missing})
             ManagementInfoRow(stringResource(R.string.log_detail_actor),row.actor.ifBlank {missing})
             Text(stringResource(R.string.log_detail_device),style=MaterialTheme.typography.labelMedium)
-            Text(row.deviceLabel().ifBlank {missing},Modifier.testTag("log-event-details-device"),style=MaterialTheme.typography.bodyMedium)
+            Text(row.nodeName.ifBlank {missing},Modifier.testTag("log-event-details-device"),style=MaterialTheme.typography.bodyMedium)
             if(row.groupName.isNotBlank()) ManagementInfoRow(stringResource(R.string.log_detail_group),row.groupName)
             if(row.meshId.isNotBlank()) ManagementInfoRow(stringResource(R.string.log_detail_mesh),row.meshId)
             if(row.nodeId.isNotBlank()) ManagementInfoRow(stringResource(R.string.log_detail_node),row.nodeId)

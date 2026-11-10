@@ -12,7 +12,7 @@ class EventContentTest {
         val packet=com.google.gson.JsonObject().apply {addProperty("action","events");addProperty("tag","test");add("events",com.google.gson.JsonArray().apply {add(com.google.gson.JsonObject().apply {addProperty("action","runcommands");addProperty("nodeid","node//device");addProperty("nodename","surface");addProperty("meshid","mesh//agent");addProperty("meshname","agent");addProperty("msg","Running commands");addProperty("cmds",command);addProperty("cmdType",2);addProperty("runAsUser",1)})})}
         val gate=ServerEventsReadGate();val scope=ServerEventsScope("server","user",1,"rights");val attempt=gate.begin(scope,"test")
         assertTrue(gate.receive(attempt,scope,packet));assertEquals(ServerEventsPhase.READY,gate.state.phase)
-        val event=gate.state.records.single();assertEquals("surface(agent)",event.deviceLabel());assertEquals("mesh//agent",event.meshId);assertEquals(command,event.details["cmds"]);assertEquals("Running commands",event.message);assertEquals("2",event.details["cmdType"]);assertEquals("1",event.details["runAsUser"])
+        val event=gate.state.records.single();assertEquals("surface (agent)",event.deviceLabel());assertEquals("mesh//agent",event.meshId);assertEquals(command,event.details["cmds"]);assertEquals("Running commands",event.message);assertEquals("2",event.details["cmdType"]);assertEquals("1",event.details["runAsUser"])
     }
     @Test fun unknownCredentialFieldsAreNotRetained() {
         val details=serverEventDetails(JsonParser.parseString("{\"action\":\"manual\",\"cmds\":\"hidden\",\"password\":\"hidden\",\"token\":\"hidden\",\"node\":{\"auth\":\"hidden\"}}").asJsonObject)
@@ -31,10 +31,10 @@ class EventContentTest {
         assertEquals("node//device",device.nodeId);assertEquals("",device.name)
     }
     @Test fun inventoryCompletesBothNamesAndMarksTheirOrigin() {
-        val event=row().withInventory(inventory());assertEquals("surface(agent)",event.deviceLabel());assertEquals("mesh//agent",event.meshId);assertTrue(event.inventoryResolved)
+        val event=row().withInventory(inventory());assertEquals("surface (agent)",event.deviceLabel());assertEquals("mesh//agent",event.meshId);assertTrue(event.inventoryResolved)
     }
     @Test fun historicalNamesWinOverTheCurrentInventory() {
-        val event=row("old surface","mesh//old","old agent").withInventory(inventory());assertEquals("old surface(old agent)",event.deviceLabel());assertFalse(event.inventoryResolved)
+        val event=row("old surface","mesh//old","old agent").withInventory(inventory());assertEquals("old surface (old agent)",event.deviceLabel());assertFalse(event.inventoryResolved)
     }
     @Test fun currentGroupIsNotAssignedToAHistoricalDifferentMesh() {
         val event=row("old surface","mesh//old").withInventory(inventory());assertEquals("",event.groupName);assertEquals("old surface",event.deviceLabel())

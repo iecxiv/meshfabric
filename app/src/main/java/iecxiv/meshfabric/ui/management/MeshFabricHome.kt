@@ -244,7 +244,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     LaunchedEffect(connected,viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie) { if(connected) management.connect() else management.pause() }
     LaunchedEffect(nodes) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
-        topBar={ if(page==2 || page==4) MeshFabricAppBar(viewModel,onOpenSettings) },
+        topBar={ if(page==4) MeshFabricAppBar(viewModel,onOpenSettings) },
         bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
             if(next in 0..4 && next!=page) {
                 if(next==2 && page in 0..1) returnPage=page
@@ -266,7 +266,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             }) {
                 DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
             } else if(page==2) CompositionLocalProvider(LocalDeviceDetailsClient provides viewModel.meshClient) {
-                MyServerScreen(viewModel.meshClient,Modifier.fillMaxSize())
+                MyServerScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
             } else if(page==3) {
                 ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
             } else if(page==4) {
