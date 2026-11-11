@@ -23,18 +23,16 @@ jobs:
           set -euo pipefail
           python3 -m venv "$RUNNER_TEMP/docs-validator"
           "$RUNNER_TEMP/docs-validator/bin/python" -m pip install --disable-pip-version-check PyYAML
-      - name: Repair, validate and apply documentation only
+      - name: Generate, validate and publish Markdown only
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = dev
-          test "$(git rev-parse HEAD^)" = 2cf9fc873baf56035e32a219b8bb64fe662d38de
+          test "$(git rev-parse HEAD^)" = fe8555f1a57d1c745d774defd212a31a576325d1
           "$RUNNER_TEMP/docs-validator/bin/python" - <<'PY'
           from pathlib import Path
           import re,subprocess,yaml
-          p=Path('.github/workflows/refresh-agent-documentation.yml')
-          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='94c2489bd9e6436d9ccc5cc086597aac58a807dd'
-          text=p.read_text()
+          text=subprocess.check_output(['git','cat-file','blob','94c2489bd9e6436d9ccc5cc086597aac58a807dd'],text=True)
           for anchor in ["          replace(en,'### Remote desktop','''","          replace(es,'### Escritorio remoto','''"]:
               assert text.count(anchor)==1
               start=text.index(anchor);end=text.index("''')",start)+4
@@ -54,29 +52,31 @@ jobs:
               text=text.replace(old,new,1)
           document=yaml.load(text,Loader=yaml.BaseLoader)
           assert document['on']['push']['branches']==['dev']
-          steps=document['jobs']['docs']['steps']
-          scripts=[step['run'] for step in steps if 'run' in step]
+          scripts=[step['run'] for step in document['jobs']['docs']['steps'] if 'run' in step]
           assert len(scripts)==3
           for i,script in enumerate(scripts):
               subprocess.run(['bash','-n','-c',script],check=True)
               payloads=re.findall(r"python3 - <<'PY'\n(.*?)\nPY(?:\n|$)",script,re.S)
               assert len(payloads)==(0 if i==2 else 1),(i,len(payloads))
               for payload in payloads:compile(payload,'documentation-step-'+str(i),'exec')
-          assert "git fetch origin dev" in scripts[2] and "HEAD:refs/heads/dev" in scripts[2]
           assert 'gradlew' not in '\n'.join(scripts)
+          assert 'git fetch origin dev' in scripts[2] and 'HEAD:refs/heads/dev' in scripts[2]
           def execute(script):
               subprocess.run(['bash','-e','-u','-o','pipefail','-c',script],check=True)
           execute(scripts[0])
           execute(scripts[1])
-          p.write_text(text)
-          subprocess.run(['git','add','--',str(p)],check=True)
           staged=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
-          required={'README.md','README_ES.md','docs/profile.md','docs/es/profile.md','docs/agent-installation.md','docs/es/agent-installation.md','docs/features/add-device-invite-scope.md','docs/features/add-device-invite-acceptance.md',str(p)}
+          required={'README.md','README_ES.md','docs/profile.md','docs/es/profile.md','docs/agent-installation.md','docs/es/agent-installation.md','docs/features/add-device-invite-scope.md','docs/features/add-device-invite-acceptance.md'}
           assert required.issubset(staged),(required-staged)
-          assert all(name==str(p) or name in {'README.md','README_ES.md'} or (name.startswith('docs/') and name.endswith('.md')) for name in staged),staged
+          assert all(name in {'README.md','README_ES.md'} or (name.startswith('docs/') and name.endswith('.md')) for name in staged),staged
+          assert not subprocess.check_output(['git','diff','HEAD','--name-only','--','.github/workflows'],text=True).strip()
           subprocess.run(['git','diff','--cached','--check'],check=True)
+          validator=yaml.load(Path('.github/workflows/refresh-agent-documentation.yml').read_text(),Loader=yaml.BaseLoader)
+          assert validator['permissions']['contents']=='read'
+          for step in validator['jobs']['docs']['steps']:
+              if 'run' in step:execute(step['run'])
           execute(scripts[2])
-          final=yaml.load(p.read_text(),Loader=yaml.BaseLoader)
-          assert final['on']['push']['branches']==['dev']
+          commit_files=set(subprocess.check_output(['git','diff-tree','--no-commit-id','--name-only','-r','HEAD'],text=True).splitlines())
+          assert commit_files==staged,(commit_files,staged)
           assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
           PY

@@ -1,245 +1,37 @@
-name: Refresh agent documentation
+name: Validate agent documentation
 on:
+  workflow_dispatch:
   push:
-    branches: [add-device-invite]
-    paths: [.github/workflows/refresh-agent-documentation.yml]
+    branches: [dev]
+    paths: ['README.md', 'README_ES.md', 'docs/**']
 permissions:
-  contents: write
-concurrency:
-  group: refresh-agent-documentation
-  cancel-in-progress: false
+  contents: read
 jobs:
   docs:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-      - name: Refresh bilingual README and management guides
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF_NAME" = add-device-invite
-          git merge-base --is-ancestor 9c190c05c2f4574bf9b42220e60ed954c437c630 HEAD^
-          git show HEAD^:app/build.gradle.kts | grep -F 'versionName = "1.3.3"'
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          def replace(p,a,b):
-              s=p.read_text();assert s.count(a)==1,(str(p),a);p.write_text(s.replace(a,b,1))
-          en=Path('README.md');es=Path('README_ES.md')
-          replace(en,'Current development version: `1.3.2`.\n\n','')
-          replace(es,'Versión actual de desarrollo: `1.3.2`.\n\n','')
-          for p in [en,es]:
-              s=p.read_text();s=re.sub(r'(?m)^(#{1,6} [^\n]+?) \(1\.3\.2\)$',r'\1',s);p.write_text(s)
-          old='Guide: [Log and Events](docs/log.md). Protocol reference: [MeshCentral 1.3.1 trace sources](docs/reference/meshcentral-1.3.1-trace-sources.md). The app version 1.3.2 is distinct from the MeshCentral 1.3.1 protocol reference.'
-          replace(en,old,'Guide: [Log and Events](docs/log.md). Protocol reference: [Trace sources](docs/reference/meshcentral-1.3.1-trace-sources.md).')
-          old='Guía técnica: [Registro y Eventos](docs/log.md) (en inglés). Referencia de protocolo: [Fuentes de MeshCentral 1.3.1](docs/reference/meshcentral-1.3.1-trace-sources.md) (en inglés). La versión 1.3.2 de la app no es la versión 1.3.1 de MeshCentral usada como referencia de protocolo.'
-          replace(es,old,'Guía técnica: [Registro y Eventos](docs/log.md) (en inglés). Referencia de protocolo: [Fuentes de rastreo](docs/reference/meshcentral-1.3.1-trace-sources.md) (en inglés).')
-          replace(en,'### Remote desktop','''### Agent installation and invitations
-
-- Open an agent device group in Management to use Add agent or Invite. Invite is not in the three-dot menu of device cards in Devices.
-- Add agent provides supported installers, architecture choices, Linux/BSD commands, Assistant options and Android APK/QR configuration. The app does not execute installers or commands.
-- Invite generates a link to install an agent into the selected group; it does not grant temporary access to an existing device or send email.
-- Generation is explicit. Unknown results are not success and are not automatically retried. Saving an installer requires a non-empty copy verified by readback.
-- Automated checks do not replace confirming installation into the intended group against the actual server.
-
-Guide: [Agent installation and invitations](docs/agent-installation.md).
-
-### Remote desktop''')
-          replace(es,'### Escritorio remoto','''### Instalación de agentes e invitaciones
-
-- Abre un grupo con agente en Gestión para utilizar Agregar agente o Invitar. Invitar no está en el menú de tres puntos de las tarjetas de Equipos/Dispositivos.
-- Agregar agente ofrece instaladores admitidos, arquitecturas, comandos Linux/BSD, opciones de Assistant y configuración Android mediante APK/QR. La app no ejecuta instaladores ni comandos.
-- Invitar genera un enlace para instalar un agente e incorporarlo al grupo seleccionado; no concede acceso temporal a un dispositivo existente ni envía correo.
-- La generación es explícita. Los resultados desconocidos no se presentan como éxito ni se reintentan automáticamente. El guardado exige una copia no vacía y verificada mediante relectura.
-- Las pruebas automatizadas no sustituyen comprobar la incorporación al grupo previsto contra el servidor real.
-
-Guía: [Instalación de agentes e invitaciones](docs/es/agent-installation.md).
-
-### Escritorio remoto''')
-          replace(Path('docs/profile.md'),'## Available functionality\n','## Available functionality\n\n- Agent-group actions provide Add agent and installation-link invitations: see [Agent installation and invitations](agent-installation.md).\n')
-          replace(Path('docs/es/profile.md'),'## Funciones disponibles\n','## Funciones disponibles\n\n- Las acciones de grupos con agente ofrecen Agregar agente e invitaciones de instalación: [Instalación de agentes e invitaciones](agent-installation.md).\n')
-          for p in Path('docs').rglob('*.md'):
-              if 'reference' in p.parts:continue
-              s=p.read_text();updated=re.sub(r'(?m)^(#{1,6}[^\n]*\bMeshFabric)\s+v?\d+\.\d+\.\d+\b',r'\1',s)
-              if updated!=s:p.write_text(updated)
-          assert not Path('docs/agent-installation.md').exists() and not Path('docs/es/agent-installation.md').exists()
-          PY
-          cat > docs/agent-installation.md <<'DOC'
-          # Agent installation and invitations
-
-          [Español](es/agent-installation.md) | [Management](profile.md) | [README](../README.md)
-
-          ## Entry points
-
-          Open Management, Device Groups and an agent-based group. Add agent prepares installation material; Invite generates an installation link for that group. Invite is not an action in the three-dot menu of device cards in Devices. Neither operation provides temporary access to an existing device or email invitations. Server permissions remain authoritative.
-
-          ## Add agent
-
-          Select the platform and available architecture or mode. Options cover Windows installers, Linux/BSD commands and binary architectures, macOS installers, MeshCentral Assistant and Android MeshAgent APK/QR configuration. Availability depends on received metadata and the server. Missing configuration is not invented.
-
-          Downloads use the current session against the configured origin, without following redirects, under the configured certificate policy and a 128 MiB bound. A private temporary file is prepared before opening Android's destination picker. The save flow counts the copied bytes and rereads the destination to compare size and SHA-256. A zero-byte file, failed verification or changed identity is not reported as a successful save. Readback verifies copy consistency, not publisher identity or an installer's signature. Cancellation and provider errors can prevent a save; deletion of an incomplete destination is best effort.
-
-          The installation dialog is owned outside the group-details content so that removal of that content does not itself destroy the pending save. This does not guarantee recovery after process death.
-
-          Linux/BSD install and uninstall commands retain the direct-execution alternative after sudo. Both invocations receive the same arguments; uninstall includes its argument in both. Shell AND/OR ordering means the fallback can also run after an earlier failure, not only when sudo is unavailable. Review commands before using them on a test host. MeshFabric never executes them or installers locally.
-
-          ## Invite
-
-          Choose expiration, agents and installation type, then press Generate link. Opening the dialog or changing a selector does not create a link.
-
-          - Expiration: 1 hour, 8 hours, 1 day, 1 week, 1 month or Unlimited. One month means 30 days.
-          - Agents: all available, Windows, Linux, macOS, MeshCentral Assistant or Android MeshAgent.
-          - Installation type: background and interactive, background only or interactive only. Assistant and Android hide this option and reset its value; returning does not restore a hidden selection.
-
-          The independent control channel sends authentication arguments before requesting user information. The expected identity must be validated before the group-link request. Replies are correlated with the request and group. There are no automatic mutation retries.
-
-          Copy the generated link only after success is confirmed. Options, identity, connection or authority changes and leaving the foreground invalidate the locally displayed result. This does not revoke a link already generated on the server. Treat invitation links and QR configuration as sensitive.
-
-          ## Errors and verification
-
-          Diagnostics distinguish connection, handshake send, identity wait and link-reply wait. A send accepted locally is not proof of server processing. An unknown result is not success; inspect the state before retrying. Share only the error text/code, never cookies, complete invitation links or QR configuration.
-
-          Automated test results, visual review, successful download, successful installation and enrollment into the correct group are separate checks. A published workflow or APK does not establish all of them. Use the [acceptance checklist](features/add-device-invite-acceptance.md) to record actual observations.
-          DOC
-          cat > docs/es/agent-installation.md <<'DOC'
-          # Instalación de agentes e invitaciones
-
-          [English](../agent-installation.md) | [Gestión](profile.md) | [README](../../README_ES.md)
-
-          ## Acceso
-
-          En Gestión, abre Grupos de dispositivos y un grupo con agente. Agregar agente prepara material de instalación; Invitar genera un enlace de instalación para ese grupo. Invitar no aparece en el menú de tres puntos de las tarjetas de Equipos/Dispositivos. Ninguna de estas acciones concede acceso temporal a un dispositivo existente ni envía invitaciones por correo. Los permisos del servidor siguen siendo la autoridad.
-
-          ## Agregar agente
-
-          Selecciona plataforma y arquitectura o modo disponible. Se ofrecen instaladores Windows, comandos Linux/BSD y arquitecturas binarias, instaladores macOS, Asistente MeshCentral y configuración Android MeshAgent mediante APK/QR. La disponibilidad depende de los datos recibidos y del servidor; no se inventa información ausente.
-
-          Las descargas usan la sesión actual contra el origen configurado, sin seguir redirecciones, con su política de certificados y límite de 128 MiB. Se prepara un temporal privado antes de abrir el selector de destino de Android. El guardado cuenta los bytes copiados y relee el destino para comparar tamaño y SHA-256. Un archivo de cero bytes, una verificación fallida o un cambio de identidad no se presenta como guardado correcto. La relectura comprueba la copia, no la identidad del editor ni la firma del instalador. Cancelaciones y errores del proveedor pueden impedir guardar; borrar un destino incompleto es un intento de mejor esfuerzo.
-
-          El diálogo se mantiene fuera del contenido de la ficha del grupo para que retirar ese contenido no destruya por sí mismo el guardado pendiente. Esto no garantiza recuperación tras la muerte del proceso.
-
-          Los comandos Linux/BSD de instalación y desinstalación conservan la alternativa de ejecución directa tras sudo. Ambas invocaciones reciben los mismos argumentos; la desinstalación incluye su argumento en las dos. Por el orden de los operadores AND/OR, la alternativa puede ejecutarse también tras un fallo anterior, no solo por ausencia de sudo. Revisa los comandos antes de usarlos en un equipo de prueba. MeshFabric no ejecuta comandos ni instaladores localmente.
-
-          ## Invitar
-
-          Elige caducidad, agentes y tipo de instalación y pulsa Generar enlace. Abrir el diálogo o cambiar un selector no crea el enlace.
-
-          - Caducidad: 1 h, 8 h, 1 día, 1 semana, 1 mes o Ilimitado. Un mes equivale a 30 días.
-          - Agentes: todos los disponibles, Windows, Linux, macOS, Asistente MeshCentral o Android MeshAgent.
-          - Instalación: segundo plano e interactivo, segundo plano solamente o solo interactivo. Assistant y Android ocultan la opción y reinician su valor; al volver no se restaura una selección oculta.
-
-          El canal de control independiente envía los argumentos de autenticación antes de solicitar información de usuario. Debe validar la identidad esperada antes de pedir el enlace del grupo. Las respuestas se correlacionan con la petición y el grupo. No hay reenvíos automáticos de la operación.
-
-          Copia el enlace solo tras confirmar su generación. Cambios de opciones, identidad, conexión o permisos y salir de primer plano invalidan el resultado mostrado localmente. Eso no revoca un enlace generado en el servidor. Los enlaces de invitación y la configuración QR son sensibles.
-
-          ## Errores y comprobaciones
-
-          Los diagnósticos distinguen conexión, envío del handshake, espera de identidad y espera de respuesta del enlace. La aceptación local del envío no prueba procesamiento en el servidor. Un resultado desconocido no es éxito: comprueba el estado antes de repetir. Comparte solo texto/código de error, nunca cookies, enlaces completos ni QR de configuración.
-
-          Pruebas automatizadas, revisión visual, descarga, instalación e incorporación al grupo correcto son comprobaciones diferentes. Publicar un workflow o APK no demuestra todas ellas. Registra lo observado en la [lista de aceptación](../features/add-device-invite-acceptance.md).
-          DOC
-          cat > docs/features/add-device-invite-scope.md <<'DOC'
-          # Agent installation scope
-
-          ## Implemented entry points
-
-          Management agent-group actions expose Add agent and Invite. Invite is not present in the three-dot menu of device cards in Devices. Installation invitations target the selected received group, never a node identifier or a guessed group. Missing or unauthorized records block the operation.
-
-          Add agent provides supported installers, architecture and mode choices, Linux/BSD install/uninstall commands, Assistant options and Android APK/QR configuration. Invite creates an agent-installation link using createInviteLink; it is not email delivery or temporary device/session sharing. Historical upstream audit evidence is not changed by this documentation update.
-
-          ## Options and lifecycle
-
-          Expiration choices are 1 hour, 8 hours, 1 day, 1 week, 1 month (30 days) and Unlimited. Agent choices are all available, Windows, Linux, macOS, Assistant and Android. Installation modes are background and interactive, background only and interactive only. Assistant and Android hide and reset the mode. Generation requires an explicit button press.
-
-          The channel authenticates before requesting identity and validates that identity before the mutation. Replies must match request and group. Unknown outcomes do not trigger automatic resends. Context changes and leaving the foreground invalidate the local link, not a link previously issued by the server.
-
-          Agent dialogs are owned outside the group-details content. Downloads use authenticated, origin-bound requests without redirects, a 128 MiB limit and private temporary files. Saving requires byte-count and SHA-256 readback consistency. This is not installer signature verification. Incomplete-destination cleanup is best effort. Linux/BSD commands preserve the direct fallback for both installation and uninstall; no command or installer is executed by the app.
-
-          ## Verification boundaries
-
-          Automated reports, APK publication, visual checks, actual downloads and correct-group enrollment are distinct evidence. Do not infer live-server acceptance from CI success or a workflow commit. Record the run, source commit, artifact and observed results in the acceptance checklist. No merge into dev or main is authorized by a test result.
-
-          User guide: [Agent installation and invitations](../agent-installation.md). Spanish guide: [Instalación de agentes e invitaciones](../es/agent-installation.md). Acceptance: [Checklist](add-device-invite-acceptance.md).
-          DOC
-          cat > docs/features/add-device-invite-acceptance.md <<'DOC'
-          # Aceptación de Agregar agente e Invitar
-
-          ## Identificar la evidencia
-
-          Registrar rama, commit funcional, ejecución de validación, artefacto probado, entorno Android, servidor y cuenta de prueba sin credenciales. Utilizar el APK construido desde el código que se está revisando. El commit de un workflow no sustituye al commit funcional. No confundir los métodos de regresión exigidos con el total real de pruebas ejecutadas.
-
-          Se notificaron fallos reales de generación de enlaces y guardado de archivos vacíos. Hay correcciones publicadas de autenticación, propiedad de diálogos y verificación del guardado; la publicación no acredita por sí sola que hayan superado una nueva prueba en el servidor real. Las casillas siguientes permanecen pendientes hasta registrar evidencia concreta.
-
-          ## Interfaz y navegación
-
-          - [ ] Agregar agente e Invitar aparecen en Gestión dentro de un grupo con agente.
-          - [ ] Invitar no aparece en el menú de tres puntos de tarjetas de Equipos/Dispositivos; las demás acciones mantienen su comportamiento.
-          - [ ] Se presentan seis caducidades y seis tipos de agente. Un mes se explica como 30 días.
-          - [ ] Los tres modos se muestran donde corresponde; Assistant y Android los ocultan y reinician sin restaurar una selección anterior.
-          - [ ] Menús, textos largos, fuente ampliada y orientación no ocultan controles.
-          - [ ] Plataformas, arquitecturas, Assistant y desinstalación se presentan según los datos disponibles; no se inventa un QR con información incompleta.
-
-          ## Servidor y archivos
-
-          - [ ] Generar un enlace desde Gestión y verificar las opciones y el grupo de destino al abrirlo en otro equipo.
-          - [ ] Instalar el agente en un equipo de prueba y comprobar su incorporación al grupo correcto.
-          - [ ] Descargar un instalador, elegir destino y volver desde el selector externo sin perder el diálogo ni su archivo pendiente.
-          - [ ] Verificar que el destino no está vacío y coincide con el contenido descargado. No confundir esta comprobación con la firma del instalador.
-          - [ ] Cancelar descarga/guardado y simular errores de proveedor: no debe anunciarse éxito ni conservarse deliberadamente un parcial como válido; registrar fallos de limpieza.
-          - [ ] Revisar servidor, dominio y grupo de los comandos Linux/BSD. Instalación y desinstalación incluyen la alternativa directa con argumentos iguales en ambas invocaciones.
-          - [ ] Escanear el QR en un móvil de prueba y comprobar servidor y grupo.
-          - [ ] Probar cuenta con permisos limitados, información ausente, cambio de cuenta/servidor, pérdida de conexión y cierre del diálogo: sin enlaces de otra sesión ni reenvíos automáticos.
-          - [ ] Distinguir errores de conexión, autenticación, espera de identidad y respuesta del enlace. No presentar un resultado desconocido como éxito.
-
-          No es necesario ejecutar desinstalaciones para la revisión visual. Toda instalación o desinstalación funcional requiere un equipo de prueba elegido expresamente.
-
-          ## Registro e integración
-
-          Conservar informes reales de unitarios, lint e instrumentación cuando correspondan, sus totales, el resultado visual y las plataformas probadas. No marcar comprobaciones como realizadas basándose solo en que un APK se publicó. No adjuntar cookies, enlaces completos, QR de conexión ni configuración sensible; ocultarlos en capturas.
-
-          No fusionar automáticamente en dev ni main. Tras cambios de código, ejecutar las comprobaciones pertinentes. Los cambios exclusivamente documentales requieren revisión documental y de enlaces, no compilación ni emulador.
-
-          Guía: [Instalación de agentes e invitaciones](../es/agent-installation.md).
-          DOC
-      - name: Validate documentation-only diff and local links
+      - name: Check documentation and local links without publishing
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           from urllib.parse import unquote,urlsplit
-          import re,subprocess
-          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
-          changed.update(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
-          assert changed
-          for name in sorted(changed):
-              assert name in {'README.md','README_ES.md'} or (name.startswith('docs/') and name.endswith('.md')),name
-              p=Path(name);assert p.is_file() and p.stat().st_size>0
+          import re
+          names=['README.md','README_ES.md','docs/profile.md','docs/es/profile.md','docs/agent-installation.md','docs/es/agent-installation.md','docs/features/add-device-invite-scope.md','docs/features/add-device-invite-acceptance.md']
+          for name in names:
+              p=Path(name);assert p.is_file() and p.stat().st_size>0,name
               text=p.read_text()
               for target in re.findall(r'\[[^\]\n]+\]\(([^\s)]+)\)',text):
                   parsed=urlsplit(target)
                   if parsed.scheme or parsed.netloc or not parsed.path:continue
                   dest=(p.parent/unquote(parsed.path)).resolve()
                   assert dest.is_relative_to(Path.cwd().resolve()) and dest.exists(),(name,target)
-              for heading in (x for x in text.splitlines() if x.startswith('#')):
+              for heading in (line for line in text.splitlines() if line.startswith('#')):
                   assert not re.search(r'MeshFabric\s+v?\d+\.\d+\.\d+',heading),name
-          for name in ['README.md','README_ES.md']:
+          for name in names[:2]:
               text=Path(name).read_text();assert '1.3.2' not in text and '1.3.3' not in text,name
-          subprocess.run(['git','add','--',*sorted(changed)],check=True)
           PY
-          git diff --cached --check
-      - name: Publish documentation without building the app
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch origin add-device-invite
-          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
-          test -z "$(git diff --name-only)"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'docs: describe agent installation and invitations without app release labels'
-          git push origin HEAD:refs/heads/add-device-invite
+          git diff --check
