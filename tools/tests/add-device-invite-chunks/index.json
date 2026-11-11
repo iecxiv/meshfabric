@@ -1,0 +1,637 @@
+{
+  "description": "Each fragment is a JSON envelope with a text field. Decode JSON, concatenate text fields in listed order, then UTF-8 encode to recover the exact original bytes. Excerpt line numbers are not upstream source line numbers.",
+  "sources": [
+    {
+      "file": "meshuser.js.excerpts.md",
+      "git_blob": "fd0bd343e9d1835f60f12c25252bac937223661b",
+      "sha256": "dadd61905a9e3468783eef4dc5e3bb42a65371cae272af877ffacbec8d448418",
+      "bytes": 191750,
+      "fragments": [
+        {
+          "file": "meshuser.js.excerpts.md.001.json",
+          "excerpt_line_start": 1,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.002.json",
+          "excerpt_line_start": 116,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.003.json",
+          "excerpt_line_start": 197,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.004.json",
+          "excerpt_line_start": 269,
+          "topics": [
+            "device-share",
+            "add-agent"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.005.json",
+          "excerpt_line_start": 333,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.006.json",
+          "excerpt_line_start": 425,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.007.json",
+          "excerpt_line_start": 483,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.008.json",
+          "excerpt_line_start": 560,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.009.json",
+          "excerpt_line_start": 639,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.010.json",
+          "excerpt_line_start": 719,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.011.json",
+          "excerpt_line_start": 781,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.012.json",
+          "excerpt_line_start": 844,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.013.json",
+          "excerpt_line_start": 918,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.014.json",
+          "excerpt_line_start": 982,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.015.json",
+          "excerpt_line_start": 1044,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.016.json",
+          "excerpt_line_start": 1126,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.017.json",
+          "excerpt_line_start": 1197,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.018.json",
+          "excerpt_line_start": 1268,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.019.json",
+          "excerpt_line_start": 1345,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.020.json",
+          "excerpt_line_start": 1421,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.021.json",
+          "excerpt_line_start": 1505,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.022.json",
+          "excerpt_line_start": 1596,
+          "topics": [
+            "group-invite",
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.023.json",
+          "excerpt_line_start": 1677,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.024.json",
+          "excerpt_line_start": 1754,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.025.json",
+          "excerpt_line_start": 1820,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.026.json",
+          "excerpt_line_start": 1889,
+          "topics": [
+            "group-invite",
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.027.json",
+          "excerpt_line_start": 1955,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "meshuser.js.excerpts.md.028.json",
+          "excerpt_line_start": 2037,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.029.json",
+          "excerpt_line_start": 2126,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.030.json",
+          "excerpt_line_start": 2189,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.031.json",
+          "excerpt_line_start": 2266,
+          "topics": []
+        },
+        {
+          "file": "meshuser.js.excerpts.md.032.json",
+          "excerpt_line_start": 2358,
+          "topics": []
+        }
+      ]
+    },
+    {
+      "file": "webserver.js.excerpts.md",
+      "git_blob": "1ea4011423845eaf5ae68b7fc788fd7835695a17",
+      "sha256": "92ecb251c0e01446beedab978dcad50b71c16f1fbf7163ed4093b4e228c252d8",
+      "bytes": 165029,
+      "fragments": [
+        {
+          "file": "webserver.js.excerpts.md.001.json",
+          "excerpt_line_start": 1,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.002.json",
+          "excerpt_line_start": 97,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.003.json",
+          "excerpt_line_start": 176,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.004.json",
+          "excerpt_line_start": 261,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.005.json",
+          "excerpt_line_start": 342,
+          "topics": [
+            "group-invite",
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.006.json",
+          "excerpt_line_start": 406,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.007.json",
+          "excerpt_line_start": 483,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.008.json",
+          "excerpt_line_start": 574,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.009.json",
+          "excerpt_line_start": 619,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.010.json",
+          "excerpt_line_start": 666,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.011.json",
+          "excerpt_line_start": 738,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.012.json",
+          "excerpt_line_start": 805,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.013.json",
+          "excerpt_line_start": 881,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.014.json",
+          "excerpt_line_start": 949,
+          "topics": [
+            "group-invite",
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.015.json",
+          "excerpt_line_start": 1006,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.016.json",
+          "excerpt_line_start": 1062,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.017.json",
+          "excerpt_line_start": 1138,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.018.json",
+          "excerpt_line_start": 1204,
+          "topics": [
+            "group-invite",
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.019.json",
+          "excerpt_line_start": 1283,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.020.json",
+          "excerpt_line_start": 1357,
+          "topics": [
+            "group-invite",
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.021.json",
+          "excerpt_line_start": 1437,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.022.json",
+          "excerpt_line_start": 1537,
+          "topics": [
+            "group-invite",
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.023.json",
+          "excerpt_line_start": 1605,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.024.json",
+          "excerpt_line_start": 1677,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.025.json",
+          "excerpt_line_start": 1753,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "webserver.js.excerpts.md.026.json",
+          "excerpt_line_start": 1831,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.027.json",
+          "excerpt_line_start": 1914,
+          "topics": []
+        },
+        {
+          "file": "webserver.js.excerpts.md.028.json",
+          "excerpt_line_start": 1991,
+          "topics": []
+        }
+      ]
+    },
+    {
+      "file": "default.handlebars.excerpts.md",
+      "git_blob": "35cd30cbbaca141cb5a84a8f98c6bda99e2da349",
+      "sha256": "00241892962ffa8e2b09cbeb35ba8fece490d5fe4d22cdb51470a0340ff42af8",
+      "bytes": 233871,
+      "fragments": [
+        {
+          "file": "default.handlebars.excerpts.md.001.json",
+          "excerpt_line_start": 1,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.002.json",
+          "excerpt_line_start": 84,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.003.json",
+          "excerpt_line_start": 178,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.004.json",
+          "excerpt_line_start": 252,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.005.json",
+          "excerpt_line_start": 322,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.006.json",
+          "excerpt_line_start": 400,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.007.json",
+          "excerpt_line_start": 464,
+          "topics": [
+            "group-invite",
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.008.json",
+          "excerpt_line_start": 559,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.009.json",
+          "excerpt_line_start": 630,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.010.json",
+          "excerpt_line_start": 705,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.011.json",
+          "excerpt_line_start": 776,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.012.json",
+          "excerpt_line_start": 844,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.013.json",
+          "excerpt_line_start": 909,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.014.json",
+          "excerpt_line_start": 942,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.015.json",
+          "excerpt_line_start": 969,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.016.json",
+          "excerpt_line_start": 999,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.017.json",
+          "excerpt_line_start": 1054,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.018.json",
+          "excerpt_line_start": 1137,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.019.json",
+          "excerpt_line_start": 1227,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.020.json",
+          "excerpt_line_start": 1326,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.021.json",
+          "excerpt_line_start": 1383,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.022.json",
+          "excerpt_line_start": 1449,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.023.json",
+          "excerpt_line_start": 1529,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.024.json",
+          "excerpt_line_start": 1587,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.025.json",
+          "excerpt_line_start": 1649,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.026.json",
+          "excerpt_line_start": 1719,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.027.json",
+          "excerpt_line_start": 1791,
+          "topics": [
+            "add-agent"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.028.json",
+          "excerpt_line_start": 1861,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.029.json",
+          "excerpt_line_start": 1962,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.030.json",
+          "excerpt_line_start": 2015,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.031.json",
+          "excerpt_line_start": 2072,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.032.json",
+          "excerpt_line_start": 2148,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.033.json",
+          "excerpt_line_start": 2217,
+          "topics": [
+            "group-invite"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.034.json",
+          "excerpt_line_start": 2294,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.035.json",
+          "excerpt_line_start": 2385,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.036.json",
+          "excerpt_line_start": 2459,
+          "topics": [
+            "device-share"
+          ]
+        },
+        {
+          "file": "default.handlebars.excerpts.md.037.json",
+          "excerpt_line_start": 2536,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.038.json",
+          "excerpt_line_start": 2645,
+          "topics": []
+        },
+        {
+          "file": "default.handlebars.excerpts.md.039.json",
+          "excerpt_line_start": 2766,
+          "topics": []
+        }
+      ]
+    }
+  ]
+}

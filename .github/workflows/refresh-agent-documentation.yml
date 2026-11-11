@@ -1,0 +1,37 @@
+name: Validate agent documentation
+on:
+  workflow_dispatch:
+  push:
+    branches: [dev]
+    paths: ['README.md', 'README_ES.md', 'docs/**']
+permissions:
+  contents: read
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check documentation and local links without publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import unquote,urlsplit
+          import re
+          names=['README.md','README_ES.md','docs/profile.md','docs/es/profile.md','docs/agent-installation.md','docs/es/agent-installation.md','docs/features/add-device-invite-scope.md','docs/features/add-device-invite-acceptance.md']
+          for name in names:
+              p=Path(name);assert p.is_file() and p.stat().st_size>0,name
+              text=p.read_text()
+              for target in re.findall(r'\[[^\]\n]+\]\(([^\s)]+)\)',text):
+                  parsed=urlsplit(target)
+                  if parsed.scheme or parsed.netloc or not parsed.path:continue
+                  dest=(p.parent/unquote(parsed.path)).resolve()
+                  assert dest.is_relative_to(Path.cwd().resolve()) and dest.exists(),(name,target)
+              for heading in (line for line in text.splitlines() if line.startswith('#')):
+                  assert not re.search(r'MeshFabric\s+v?\d+\.\d+\.\d+',heading),name
+          for name in names[:2]:
+              text=Path(name).read_text();assert '1.3.2' not in text and '1.3.3' not in text,name
+          PY
+          git diff --check

@@ -1,10 +1,12 @@
-# Gestión — MeshFabric 1.3.1
+# Gestión — MeshFabric
 
 [English](../profile.md) | [README](../../README_ES.md)
 
 Gestión sustituye la etiqueta Perfil. Sus cuatro pestañas son Mi cuenta, Grupos de dispositivos, Usuarios y Grupos (de usuarios). Los dos tipos de grupo son entidades distintas.
 
 ## Funciones disponibles
+
+- Las acciones de grupos con agente ofrecen Agregar agente e invitaciones de instalación: [Instalación de agentes e invitaciones](agent-installation.md).
 
 - Controles nativos de seguridad y preferencias: [Mi cuenta](profile-native.md).
 - Usuarios, grupos, membresías y accesos: [Administración de usuarios y accesos](profile-user-administration.md).

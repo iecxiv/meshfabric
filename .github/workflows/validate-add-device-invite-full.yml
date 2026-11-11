@@ -1,0 +1,117 @@
+name: Full add-device-invite validation
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/validate-add-device-invite-full.yml]
+permissions:
+  contents: read
+concurrency:
+  group: full-add-device-invite-validation
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  complete:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify frozen application source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 2f50fd4a9940fe6c5ba8f54addcec52d0af9c347
+          test -z "$(git diff 2f50fd4a9940fe6c5ba8f54addcec52d0af9c347 HEAD -- app gradle gradle.properties settings.gradle.kts build.gradle.kts gradlew)"
+          python3 - <<'PY'
+          import subprocess
+          paths=subprocess.check_output(['git','diff','HEAD^','HEAD','--name-only'],text=True).splitlines()
+          assert paths==['.github/workflows/validate-add-device-invite-full.yml'],paths
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Clean build, all unit tests and lint
+        run: bash ./gradlew :app:clean :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Execute all Android tests without class or annotation filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete reports and exact feature regressions
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os,re,xml.etree.ElementTree as E
+          entries=[
+          ('app/src/test/java/iecxiv/meshfabric/ui/management/AgentInviteLinkOptionsTest.kt','iecxiv.meshfabric.ui.management.AgentInviteLinkOptionsTest',8),
+          ('app/src/test/java/iecxiv/meshfabric/data/remote/AgentInviteLinkChannelTest.kt','iecxiv.meshfabric.data.remote.AgentInviteLinkChannelTest',3),
+          ('app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentTest.kt','iecxiv.meshfabric.ui.management.AgentEnrollmentTest',10),
+          ('app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentInviteLinkFormTest.kt','iecxiv.meshfabric.ui.management.AgentInviteLinkFormTest',6),
+          ('app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentEnrollmentFormTest.kt','iecxiv.meshfabric.ui.management.AgentEnrollmentFormTest',6),
+          ('app/src/androidTest/java/iecxiv/meshfabric/ui/navigation/NavigationRegressionTest.kt','iecxiv.meshfabric.ui.navigation.NavigationRegressionTest',6)]
+          expected={};provenance={}
+          for file,name,count in entries:
+              data=Path(file).read_bytes();methods=re.findall(r'@Test\s+fun\s+(\w+)\s*\(',data.decode('utf-8'))
+              assert len(methods)==count and len(set(methods))==count,(file,methods)
+              expected[name]=set(methods);provenance[file]=hashlib.sha256(data).hexdigest()
+          assert sum(len(v) for v in expected.values())==39
+          found={k:[] for k in expected};counts={}
+          roots={'unit':Path('app/build/test-results/testDebugUnitTest'),'android':Path('app/build/outputs/androidTest-results/connected')}
+          for kind,folder in roots.items():
+              reports=list(folder.rglob('TEST-*.xml'));assert reports,(kind,'missing XML reports')
+              total=0
+              for file in reports:
+                  root=E.parse(file).getroot()
+                  assert not root.findall('.//failure') and not root.findall('.//error') and not root.findall('.//skipped'),str(file)
+                  for case in root.iter('testcase'):
+                      total+=1
+                      if case.get('classname') in found:found[case.get('classname')].append(case.get('name'))
+              assert total>0,(kind,'no executed test cases')
+              counts[kind]={'report_files':len(reports),'executed_test_cases':total}
+          for name,methods in expected.items():
+              assert len(found[name])==len(methods) and set(found[name])==methods,(name,found[name])
+          summary={'validation_commit':os.environ['GITHUB_SHA'],'application_base_commit':'2f50fd4a9940fe6c5ba8f54addcec52d0af9c347','run_id':os.environ['GITHUB_RUN_ID'],'test_filters':None,'reports':counts,'verified_feature_methods':39,'feature_methods':found,'test_source_sha256':provenance,'real_server_validation':'pending','visual_apk_review':'pending','merge_performed':False}
+          out=Path('validation/add-device-invite');out.mkdir(parents=True,exist_ok=True)
+          (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('# Full add-device-invite validation\n\nApplication base: `'+summary['application_base_commit']+'`\n\n')
+              for kind,value in counts.items():f.write('- '+kind+': '+str(value['executed_test_cases'])+' executed cases, '+str(value['report_files'])+' XML reports.\n')
+              f.write('\nAll 39 feature methods verified. No merge performed. Real-server validation and visual APK review remain pending.\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: add-device-invite-full-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+            validation/add-device-invite/
+          retention-days: 14
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-add-device-invite-full-debug-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error

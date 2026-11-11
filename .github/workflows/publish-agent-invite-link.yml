@@ -1,0 +1,347 @@
+name: Integrate agent installation invite links
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/publish-agent-invite-link.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-agent-invite-link
+  cancel-in-progress: false
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check fixed base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 2f08cc6c654087c7f12c36c1e2ff0bf951ad5c21
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare dialog, options and entry points
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric')
+          payload=Path('.github/payloads/agent-invitation-transport/AgentInvitationChannel.kt')
+          pinned={payload:'690cfd7bde7b8ab66b55f3d7f194da5c6cafb9a6',base/'ui/management/CompactProfileGroups.kt':'30c9d09d379fe4319e9f3310c8234599d298002e',base/'ui/management/MeshFabricHome.kt':'edff652f66cbe0e42cbfff847613d3f82e92d438'}
+          for p,sha in pinned.items():
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,str(p)
+          def change(path,old,new):
+              s=path.read_text();assert s.count(old)==1,old;path.write_text(s.replace(old,new,1))
+          change(payload,'if(a !in setOf("createInviteLink","inviteAgent") || packet.has("nodeid"))','if(a!="createInviteLink" || packet.has("nodeid"))')
+          target=base/'data/remote/AgentInvitationChannel.kt';assert not target.exists();target.write_bytes(payload.read_bytes())
+          p=base/'ui/management/ProfileSession.kt'
+          change(p,'internal class ProfileSession(private val source:MeshCentralClient) {','internal class ProfileSession(private val source:MeshCentralClient) {\ninternal fun invitationSource()=source')
+          p=base/'ui/management/CompactProfileGroups.kt'
+          old='                        ProfileGroupActionButton(t("Editar nombre y descripción","Edit name and description")'
+          change(p,old,'                        AgentInviteGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)\n'+old)
+          p=base/'ui/management/MeshFabricHome.kt'
+          change(p,'DeviceActionMenu(node,state.ready,hasActiveSessions,','DeviceActionMenu(viewModel.meshClient,node,state.ready,hasActiveSessions,')
+          change(p,'private fun DeviceActionMenu(node:MeshNode,','private fun DeviceActionMenu(inviteSource:MeshCentralClient,node:MeshNode,')
+          old='    var expanded by remember(node.id) { mutableStateOf(false) }'
+          change(p,old,old+'\n    var inviteOpen by remember(node.id) {mutableStateOf(false)}\n    if(inviteOpen) AgentInviteLinkDialog(inviteSource,node.id,true) {inviteOpen=false}')
+          old='            MenuEntry("Leer notas",Icons.Default.Description,ready)'
+          change(p,old,'            MenuEntry(if(configuration.locales[0].language=="es") "Invitar" else "Invite",Icons.Default.PersonAdd,ready) {expanded=false;inviteOpen=true}\n'+old)
+          files=[str(p) for p in pinned]+[str(target),str(base/'ui/management/ProfileSession.kt'),str(base/'ui/management/AgentInviteLinks.kt'),'app/src/test/java/iecxiv/meshfabric/ui/management/AgentInviteLinkOptionsTest.kt','app/src/test/java/iecxiv/meshfabric/data/remote/AgentInviteLinkChannelTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentInviteLinkFormTest.kt']
+          assert len(files)==len(set(files))
+          Path('/tmp/invite-link-files.json').write_text(json.dumps(files))
+          PY
+          production=app/src/main/java/iecxiv/meshfabric/ui/management/AgentInviteLinks.kt
+          test ! -e "$production"
+          cat > "$production" <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+
+          import android.content.ClipData
+          import android.content.ClipboardManager
+          import android.content.Context
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.text.selection.SelectionContainer
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.PersonAdd
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.window.DialogProperties
+          import androidx.compose.ui.window.SecureFlagPolicy
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.LifecycleEventObserver
+          import androidx.lifecycle.compose.LocalLifecycleOwner
+          import androidx.lifecycle.repeatOnLifecycle
+          import iecxiv.meshfabric.data.remote.*
+          import kotlinx.coroutines.awaitCancellation
+          import kotlinx.coroutines.launch
+          import org.json.JSONObject
+          import java.util.UUID
+
+          internal data class AgentInviteLinkOptions(val hours:Int=1,val agents:Int=0,val flags:Int=0) {
+              init {require(hours in expirations && agents in agentKinds && flags in installationModes)}
+              val showsType:Boolean get()=agents in setOf(0,1,2,4)
+              val effectiveFlags:Int get()=if(showsType) flags else 0
+              fun selectAgent(value:Int)=copy(agents=value,flags=if(value in setOf(8,16)) 0 else flags)
+              fun packet(mesh:String)=AgentInvitationContract.groupLink(mesh,hours,effectiveFlags,agents,UUID.randomUUID().toString())
+              companion object {val expirations=listOf(1,8,24,168,720,0);val agentKinds=listOf(0,1,2,4,8,16);val installationModes=listOf(0,2,1)}
+          }
+          private fun expiryLabel(v:Int,es:Boolean)=if(es) mapOf(1 to "1 h",8 to "8 h",24 to "1 día",168 to "1 semana",720 to "1 mes",0 to "Ilimitado").getValue(v) else mapOf(1 to "1 hour",8 to "8 hours",24 to "1 day",168 to "1 week",720 to "1 month",0 to "Unlimited").getValue(v)
+          private fun agentLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Todos los agentes disponibles",1 to "Agente de malla de Windows",2 to "Agente de malla de Linux",4 to "Agente de malla de MacOS",8 to "Asistente MeshCentral",16 to "Android MeshAgent").getValue(v) else mapOf(0 to "All available agents",1 to "Windows MeshAgent",2 to "Linux MeshAgent",4 to "MacOS MeshAgent",8 to "MeshCentral Assistant",16 to "Android MeshAgent").getValue(v)
+          private fun modeLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Segundo plano e interactivo",2 to "Segundo plano solamente",1 to "Solo interactivo").getValue(v) else mapOf(0 to "Background and interactive",2 to "Background only",1 to "Interactive only").getValue(v)
+          @Composable private fun InviteChoice(label:String,tag:String,value:Int,values:List<Int>,enabled:Boolean,text:(Int)->String,onSelect:(Int)->Unit) {
+              var expanded by remember(tag) {mutableStateOf(false)}
+              LaunchedEffect(enabled) {if(!enabled) expanded=false}
+              Text(label,style=MaterialTheme.typography.labelMedium)
+              BoxWithConstraints(Modifier.fillMaxWidth()) {
+                  val width=maxWidth
+                  OutlinedButton(onClick={expanded=true},enabled=enabled,modifier=Modifier.fillMaxWidth().testTag(tag)) {Text(text(value))}
+                  DropdownMenu(expanded=expanded && enabled,onDismissRequest={expanded=false},modifier=Modifier.width(width).testTag(tag+"-menu")) {values.forEach {v->DropdownMenuItem(text={Text(text(v))},modifier=Modifier.testTag(tag+"-"+v),onClick={expanded=false;onSelect(v)})}}
+              }
+          }
+          @Composable internal fun AgentInviteLinkForm(groupName:String,options:AgentInviteLinkOptions,enabled:Boolean,busy:Boolean,es:Boolean,onChange:(AgentInviteLinkOptions)->Unit,onGenerate:()->Unit) {
+              fun t(a:String,b:String)=if(es) a else b
+              Column(Modifier.fillMaxWidth()) {
+                  Text(groupName,style=MaterialTheme.typography.titleSmall)
+                  Text(t("El enlace permite instalar el agente para incorporarse a este grupo.","The link allows agent installation into this device group."),style=MaterialTheme.typography.bodySmall)
+                  InviteChoice(t("Expiración de enlace","Link expiration"),"invite-expiry",options.hours,AgentInviteLinkOptions.expirations,enabled && !busy,{expiryLabel(it,es)}) {onChange(options.copy(hours=it))}
+                  if(options.hours==720) Text(t("1 mes equivale a 30 días (720 horas).","1 month means 30 days (720 hours)."),style=MaterialTheme.typography.bodySmall)
+                  InviteChoice(t("Agentes","Agents"),"invite-agent",options.agents,AgentInviteLinkOptions.agentKinds,enabled && !busy,{agentLabel(it,es)}) {onChange(options.selectAgent(it))}
+                  if(options.showsType) InviteChoice(t("Tipo de instalación","Installation type"),"invite-mode",options.flags,AgentInviteLinkOptions.installationModes,enabled && !busy,{modeLabel(it,es)}) {onChange(options.copy(flags=it))}
+                  if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                  TextButton(onClick=onGenerate,enabled=enabled && !busy,modifier=Modifier.fillMaxWidth().testTag("invite-generate")) {Text(t("Generar enlace","Generate link"))}
+              }
+          }
+          private fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean):JSONObject? {
+              if(!s.canWrite || s.detailsBusy) return null
+              val mid=if(device) s.nodes?.singleOrNull {it.optString("_id")==id}?.optString("meshid") ?: return null else id
+              val target=runCatching {AgentInvitationContract.installationTarget(s.id,mid)}.getOrNull() ?: return null
+              val group=s.groups.singleOrNull {it.optString("_id")==target && it.optInt("mtype")==2} ?: return null
+              val subjects=mutableSetOf(s.id)
+              s.user?.optJSONObject("links")?.keys()?.forEach {if(it.startsWith("ugrp/")) subjects.add(it)}
+              var rights=0L
+              for(subject in subjects) {val raw=group.optJSONObject("links")?.optJSONObject(subject)?.opt("rights");if(raw is Number) rights=rights or runCatching {userAdvancedMask(raw)}.getOrDefault(0L)}
+              return group.takeIf {AgentInvitationContract.groupAllowed(s.site,rights,2,false,true)}
+          }
+          @Composable internal fun AgentInviteGroupButton(source:MeshCentralClient,id:String,enabled:Boolean) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              var open by remember(id) {mutableStateOf(false)}
+              ProfileGroupActionButton(if(es) "Invitar" else "Invite",Icons.Default.PersonAdd,enabled,onClick={open=true})
+              if(open) AgentInviteLinkDialog(source,id,false) {open=false}
+          }
+          @Composable internal fun AgentInviteLinkDialog(source:MeshCentralClient,id:String,device:Boolean,onDismiss:()->Unit) {
+              val connected by source.connectionState.collectAsState()
+              val user by source.userInfo.collectAsState()
+              val binding=remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,user?.id) {InvitationBinding(source.serverUrl,user?.id.orEmpty(),source.authCookie,source.ignoreSsl)}
+              key(binding,id,device) {
+                  val es=LocalConfiguration.current.locales[0].language=="es"
+                  fun t(a:String,b:String)=if(es) a else b
+                  val context=LocalContext.current;val scope=rememberCoroutineScope();val lifecycle=LocalLifecycleOwner.current.lifecycle
+                  val profile=remember(source) {ProfileSession(source)};val s by profile.state.collectAsState()
+                  var foreground by remember {mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))}
+                  var options by remember {mutableStateOf(AgentInviteLinkOptions())};var busy by remember {mutableStateOf(false)}
+                  var channel by remember {mutableStateOf<AgentInvitationChannel?>(null)};var version by remember {mutableLongStateOf(0)}
+                  var link by remember {mutableStateOf<AgentInvitationOutcome.GroupLink?>(null)};var notice by remember {mutableStateOf("")}
+                  fun invalidate() {version++;val previous=channel;channel=null;previous?.close();busy=false;link=null}
+                  DisposableEffect(profile,lifecycle) {
+                      val observer=LifecycleEventObserver {_,_->foreground=lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED);if(!foreground) invalidate()}
+                      lifecycle.addObserver(observer)
+                      onDispose {lifecycle.removeObserver(observer);invalidate();profile.close()}
+                  }
+                  LaunchedEffect(profile,lifecycle,connected) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {if(connected && !source.isUserLogout) {profile.start();try {awaitCancellation()} finally {profile.stop()}} else profile.stop()}}
+                  LaunchedEffect(profile,s.ready) {if(s.ready && device) profile.loadGroupDetails()}
+                  val group=receivedInviteGroup(s,id,device)
+                  LaunchedEffect(group?.toString(),s.id,connected) {invalidate()}
+                  val enabled=connected && foreground && binding.matches(source) && s.id==binding.actor && group!=null
+                  fun generate() {
+                      if(!enabled || busy || group==null) return
+                      invalidate();notice="";version++;val ticket=version;val selected=options
+                      val payload=selected.packet(group.optString("_id"))
+                      val created=AgentInvitationChannel.fromSource(source) {delivery->scope.launch {
+                          if(ticket!=version || !foreground || !binding.matches(source)) return@launch
+                          busy=false;channel=null
+                          if(receivedInviteGroup(profile.state.value,id,device)==null) {link=null;notice=t("El grupo o los permisos han cambiado; resultado sin confirmar.","Group or permissions changed; outcome unconfirmed.");return@launch}
+                          when(delivery) {
+                              is InvitationDelivery.Reply->when(val outcome=delivery.outcome) {
+                                  is AgentInvitationOutcome.GroupLink->if(outcome.hours==selected.hours) {link=outcome;notice=t("Enlace generado.","Link generated.")} else {notice=t("Caducidad inesperada; no se confirma el enlace.","Unexpected expiration; link not confirmed.")}
+                                  is AgentInvitationOutcome.Rejected->notice=t("Solicitud rechazada: ","Request rejected: ")+outcome.reason
+                                  else->notice=t("Respuesta inesperada; resultado sin confirmar.","Unexpected response; outcome unconfirmed.")
+                              }
+                              InvitationDelivery.NotSent->notice=t("La solicitud no se ha enviado.","The request was not sent.")
+                              InvitationDelivery.ContextChanged->notice=t("Cuenta, conexión o permisos modificados; resultado sin confirmar.","Account, connection or permissions changed; outcome unconfirmed.")
+                              InvitationDelivery.Unconfirmed->notice=t("Resultado sin confirmar. No se reenviará automáticamente.","Outcome unconfirmed. No automatic resend.")
+                          }
+                      }}
+                      if(created==null) {notice=t("Conexión no disponible.","Connection unavailable.");return}
+                      channel=created;busy=true
+                      if(!created.start(payload)) {version++;channel=null;created.close();busy=false;notice=t("La solicitud no se ha enviado.","The request was not sent.")}
+                  }
+                  ManagementDialog(onDismissRequest={invalidate();onDismiss()},modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(t("Invitar","Invite"))},text={
+                      Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState())) {
+                          if(s.loading || s.detailsBusy || !s.ready) LinearProgressIndicator(Modifier.fillMaxWidth())
+                          AgentInviteLinkForm(group?.optString("name").orEmpty(),options,enabled,busy,es,onChange={invalidate();options=it;notice=""},onGenerate={generate()})
+                          if(!enabled) Text(t("Esperando un grupo de agentes y permisos válidos. No se adivina el grupo del dispositivo.","Waiting for a valid agent group and permissions. The device group is not guessed."),style=MaterialTheme.typography.bodySmall)
+                          if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)
+                          link?.let {generated->SelectionContainer {Text(generated.url,style=MaterialTheme.typography.bodySmall)};TextButton(onClick={
+                              val copied=runCatching {val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: error("Clipboard unavailable");clipboard.setPrimaryClip(ClipData.newPlainText(t("Invitación de instalación","Agent installation invitation"),generated.url))}.isSuccess
+                              notice=if(copied) t("Enlace copiado.","Link copied.") else t("No se ha podido copiar el enlace.","Could not copy the link.")
+                          }) {Text(t("Copiar enlace","Copy link"))}}
+                      }
+                  },confirmButton={},dismissButton={TextButton(onClick={invalidate();onDismiss()}) {Text(t("Cerrar","Close"))}})
+              }
+          }
+          KOTLIN
+          mkdir -p app/src/test/java/iecxiv/meshfabric/ui/management app/src/androidTest/java/iecxiv/meshfabric/ui/management
+          cat > app/src/test/java/iecxiv/meshfabric/ui/management/AgentInviteLinkOptionsTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class AgentInviteLinkOptionsTest {
+              @Test fun expirationValues() {assertEquals(listOf(1,8,24,168,720,0),AgentInviteLinkOptions.expirations)}
+              @Test fun agentValues() {assertEquals(listOf(0,1,2,4,8,16),AgentInviteLinkOptions.agentKinds)}
+              @Test fun modeValues() {assertEquals(listOf(0,2,1),AgentInviteLinkOptions.installationModes)}
+              @Test fun assistantClearsMode() {val o=AgentInviteLinkOptions(flags=2).selectAgent(8);assertFalse(o.showsType);assertEquals(0,o.flags)}
+              @Test fun androidClearsMode() {val o=AgentInviteLinkOptions(flags=1).selectAgent(16);assertFalse(o.showsType);assertEquals(0,o.flags)}
+              @Test fun windowsDoesNotRestoreHiddenMode() {assertEquals(0,AgentInviteLinkOptions(flags=2).selectAgent(8).selectAgent(1).flags)}
+              @Test fun packetIsInstallationLinkOnly() {val p=AgentInviteLinkOptions(168,4,1).packet("mesh//group");assertEquals("createInviteLink",p.get("action").asString);assertEquals(168,p.get("expire").asInt);assertEquals(4,p.get("agents").asInt);assertEquals(1,p.get("flags").asInt);assertFalse(p.has("nodeid"));assertFalse(p.has("email"))}
+              @Test fun hiddenModeCannotLeak() {for(a in listOf(8,16)) assertEquals(0,AgentInviteLinkOptions(agents=a,flags=2).packet("mesh//group").get("flags").asInt)}
+          }
+          KOTLIN
+          cat > app/src/test/java/iecxiv/meshfabric/data/remote/AgentInviteLinkChannelTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.data.remote
+          import com.google.gson.JsonObject
+          import com.google.gson.JsonParser
+          import okhttp3.*
+          import okio.ByteString
+          import org.junit.Assert.*
+          import org.junit.Test
+          class AgentInviteLinkChannelTest {
+              private class Clock:InvitationScheduler {val tasks=mutableListOf<Pair<Long,()->Unit>>();override fun later(delay:Long,task:()->Unit) {tasks.add(delay to task)};override fun close() {};fun expire() {tasks.first {it.first==20000L}.second()}}
+              private class Socket:WebSocket {var req=Request.Builder().url("https://example.test").build();val sent=mutableListOf<JsonObject>();override fun request()=req;override fun queueSize()=0L;override fun send(text:String):Boolean {sent.add(JsonParser.parseString(text).asJsonObject);return true};override fun send(bytes:ByteString)=true;override fun close(code:Int,reason:String?)=true;override fun cancel() {}}
+              private class Fixture {
+                  val socket=Socket();val clock=Clock();val results=mutableListOf<InvitationDelivery>();lateinit var listener:WebSocketListener;var opens=0
+                  val factory=object:WebSocket.Factory {override fun newWebSocket(request:Request,listener:WebSocketListener):WebSocket {opens++;socket.req=request;this@Fixture.listener=listener;return socket}}
+                  val channel=AgentInvitationChannel(InvitationBinding("https://example.test/domain","user//actor","cookie=secret",false),factory,{true},{results.add(it)},clock)
+                  fun open() {listener.onOpen(socket,Response.Builder().request(socket.req).protocol(Protocol.HTTP_1_1).code(101).message("Switching").build())}
+                  fun login() {listener.onMessage(socket,"""{"action":"userinfo","userinfo":{"_id":"user//actor"}}""")}
+              }
+              @Test fun linkWaitsForIdentityAndSendsOnce() {val f=Fixture();assertTrue(f.channel.start(AgentInvitationContract.groupLink("mesh//group",1,0,0,"old")));f.open();assertEquals(1,f.socket.sent.size);f.login();f.login();assertEquals(2,f.socket.sent.size);val p=f.socket.sent.last();assertNotEquals("old",p.get("responseid").asString);val r=p.deepCopy().apply {addProperty("url","https://example.test/agentinvite?c=secret")};f.listener.onMessage(f.socket,r.toString());assertTrue((f.results.single() as InvitationDelivery.Reply).outcome is AgentInvitationOutcome.GroupLink)}
+              @Test fun nonLinkOperationsNeverOpenSocket() {val f=Fixture();for(a in listOf("inviteAgent","createDeviceShareLink","deviceShares","removeDeviceShare")) {val p=AgentInvitationContract.groupLink("mesh//group",1,0,0,"r").apply {addProperty("action",a)};assertFalse(f.channel.start(p))};assertEquals(0,f.opens);f.channel.close()}
+              @Test fun timeoutDoesNotReplayMutation() {val f=Fixture();f.channel.start(AgentInvitationContract.groupLink("mesh//group",1,0,0,"r"));f.open();f.login();f.clock.expire();f.login();assertEquals(listOf(InvitationDelivery.Unconfirmed),f.results);assertEquals(1,f.socket.sent.count {it.get("action").asString=="createInviteLink"})}
+          }
+          KOTLIN
+          cat > app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentInviteLinkFormTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class AgentInviteLinkFormTest {
+              @get:Rule val compose=createComposeRule()
+              private fun show(initial:AgentInviteLinkOptions=AgentInviteLinkOptions(),busy:Boolean=false,onGenerate:()->Unit={}) {compose.setContent {var o by remember {mutableStateOf(initial)};MaterialTheme {AgentInviteLinkForm("Grupo de prueba",o,true,busy,true,{o=it},onGenerate)}}}
+              @Test fun sixExpirations() {show();compose.onNodeWithTag("invite-expiry").performClick();for(h in AgentInviteLinkOptions.expirations) compose.onNodeWithTag("invite-expiry-"+h).assertExists()}
+              @Test fun sixAgentKinds() {show();compose.onNodeWithTag("invite-agent").performClick();for(a in AgentInviteLinkOptions.agentKinds) compose.onNodeWithTag("invite-agent-"+a).assertExists()}
+              @Test fun threeModes() {show();compose.onNodeWithTag("invite-mode").performClick();for(f in AgentInviteLinkOptions.installationModes) compose.onNodeWithTag("invite-mode-"+f).assertExists()}
+              @Test fun assistantAndAndroidHideType() {show(AgentInviteLinkOptions(flags=2));for(a in listOf(8,16)) {compose.onNodeWithTag("invite-agent").performClick();compose.onNodeWithTag("invite-agent-"+a).performScrollTo().performClick();compose.onNodeWithTag("invite-mode").assertDoesNotExist()};compose.onNodeWithTag("invite-agent").performClick();compose.onNodeWithTag("invite-agent-1").performScrollTo().performClick();compose.onNodeWithTag("invite-mode").assertTextContains("Segundo plano e interactivo")}
+              @Test fun generationRequiresClickAndIsDisabledWhileBusy() {var calls=0;show(busy=true,onGenerate={calls++});compose.onNodeWithTag("invite-generate").assertIsNotEnabled();compose.runOnIdle {assertEquals(0,calls)}}
+              @Test fun menuMatchesButtonWidth() {show();val width=compose.onNodeWithTag("invite-expiry").fetchSemanticsNode().boundsInRoot.width;compose.onNodeWithTag("invite-expiry").performClick();val menu=compose.onNodeWithTag("invite-expiry-menu").fetchSemanticsNode().boundsInRoot.width;assertEquals(width,menu,2f)}
+          }
+          KOTLIN
+      - name: Compile app and Android tests; execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Execute Compose and navigation separately
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.AgentInviteLinkFormTest --no-daemon --stacktrace
+            mkdir -p /tmp/invite-link-android/form
+            cp -a app/build/outputs/androidTest-results/connected/. /tmp/invite-link-android/form/
+            bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.navigation.NavigationRegressionTest --no-daemon --stacktrace
+            mkdir -p /tmp/invite-link-android/navigation
+            cp -a app/build/outputs/androidTest-results/connected/. /tmp/invite-link-android/navigation/
+      - name: Require exact executed test methods
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as E
+          expected={
+          'iecxiv.meshfabric.ui.management.AgentInviteLinkOptionsTest':{'expirationValues','agentValues','modeValues','assistantClearsMode','androidClearsMode','windowsDoesNotRestoreHiddenMode','packetIsInstallationLinkOnly','hiddenModeCannotLeak'},
+          'iecxiv.meshfabric.data.remote.AgentInviteLinkChannelTest':{'linkWaitsForIdentityAndSendsOnce','nonLinkOperationsNeverOpenSocket','timeoutDoesNotReplayMutation'},
+          'iecxiv.meshfabric.ui.management.AgentInviteLinkFormTest':{'sixExpirations','sixAgentKinds','threeModes','assistantAndAndroidHideType','generationRequiresClickAndIsDisabledWhileBusy','menuMatchesButtonWidth'},
+          'iecxiv.meshfabric.ui.navigation.NavigationRegressionTest':{'repeatedForwardAndBackDoNotEmptyTheStack','repeatedBackAtRootKeepsAVisibleDestination','callbacksFromAnOldScreenAreIgnored','missingParentRecoversWithoutPoppingTheLastDestination','routeArgumentsPreservePercentPlusSlashAndUnicode','emptyDisplayNameFallsBackToTheDeviceId'}
+          }
+          found={k:[] for k in expected}
+          paths=list(Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'))+list(Path('/tmp/invite-link-android').rglob('TEST-*.xml'))
+          assert paths
+          for path in paths:
+              root=E.parse(path).getroot();assert not root.findall('.//failure') and not root.findall('.//error'),str(path)
+              for c in root.iter('testcase'):
+                  if c.get('classname') in found:
+                      assert c.find('skipped') is None,c.get('name');found[c.get('classname')].append(c.get('name'))
+          for name,methods in expected.items():
+              assert len(found[name])==len(methods) and set(found[name])==methods,(name,found[name])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-invite-link-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            /tmp/invite-link-android/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish validated integration on unchanged branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=set(json.loads(Path('/tmp/invite-link-files.json').read_text()))
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines());assert actual==expected,actual
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: integrate installation invite links in groups and device menu'
+          git push origin HEAD:refs/heads/add-device-invite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-agent-invite-link-debug-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7

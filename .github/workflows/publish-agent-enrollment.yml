@@ -1,0 +1,351 @@
+name: Validate and publish native agent enrollment
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/publish-agent-enrollment.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-agent-enrollment
+  cancel-in-progress: false
+jobs:
+  enrollment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check fixed base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 88eb36cc5d39b9cf4f678724426e967716cc12c5
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare integration and dependency
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          invite=root/'AgentInviteLinks.kt'
+          assert subprocess.check_output(['git','hash-object',str(invite)],text=True).strip()=='0cf93e2f06d936dabf7196b53c985a3cfedf5f66'
+          def change(p,a,b):
+              s=p.read_text();assert s.count(a)==1,a;p.write_text(s.replace(a,b,1))
+          change(invite,'@Composable private fun InviteChoice(','@Composable internal fun InviteChoice(')
+          change(invite,'private fun modeLabel(','internal fun modeLabel(')
+          change(invite,'private fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean)','internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitation:Boolean=true)')
+          change(invite,'groupAllowed(s.site,rights,2,false,true)','groupAllowed(s.site,rights,2,false,invitation)')
+          change(invite,'AgentInviteLinkDialog(source:MeshCentralClient,id:String,device:Boolean,onDismiss:()->Unit)','AgentInviteLinkDialog(source:MeshCentralClient,id:String,device:Boolean,enrollment:Boolean=false,onDismiss:()->Unit)')
+          change(invite,'val group=receivedInviteGroup(s,id,device)','val group=receivedInviteGroup(s,id,device,invitation=!enrollment)')
+          change(invite,'title={Text(t("Invitar","Invite"))}','title={Text(if(enrollment) t("Agregar agente","Add agent") else t("Invitar","Invite"))}')
+          change(invite,'                AgentInviteLinkForm(group?.optString','                if(enrollment) AgentEnrollmentContent(source,group,s.server,enabled) else AgentInviteLinkForm(group?.optString')
+          groups=root/'CompactProfileGroups.kt'
+          line=next(x for x in groups.read_text().splitlines() if 'AgentInviteGroupButton(session.invitationSource()' in x)
+          change(groups,line,'                        AgentEnrollmentGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)\n'+line)
+          gradle=Path('app/build.gradle.kts')
+          assert subprocess.check_output(['git','hash-object',str(gradle)],text=True).strip()=='4e5489403ef30eefeb3598a1d05119bec773924d'
+          gradle.write_text(gradle.read_text()+'\ndependencies { implementation("com.google.zxing:core:3.5.4") }\n')
+          files=[str(invite),str(groups),str(gradle),str(root/'AgentEnrollment.kt'),'app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentEnrollmentFormTest.kt','docs/features/agent-enrollment.md']
+          assert all(not Path(p).exists() for p in files[3:])
+          Path('/tmp/agent-enrollment-files.json').write_text(json.dumps(files))
+          PY
+          cat > app/src/main/java/iecxiv/meshfabric/ui/management/AgentEnrollment.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+
+          import android.content.*
+          import android.graphics.Bitmap
+          import android.net.Uri
+          import android.provider.DocumentsContract
+          import androidx.activity.compose.rememberLauncherForActivityResult
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.compose.foundation.Image
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.text.selection.SelectionContainer
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.AddCircle
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.asImageBitmap
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.unit.dp
+          import com.google.zxing.BarcodeFormat
+          import com.google.zxing.EncodeHintType
+          import com.google.zxing.qrcode.QRCodeWriter
+          import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+          import iecxiv.meshfabric.data.remote.AgentInvitationContract
+          import iecxiv.meshfabric.data.remote.InvitationBinding
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import iecxiv.meshfabric.data.remote.OkHttpHelper
+          import kotlinx.coroutines.*
+          import okhttp3.Call
+          import okhttp3.Request
+          import okhttp3.HttpUrl.Companion.toHttpUrl
+          import org.json.JSONObject
+          import java.io.File
+          import java.util.concurrent.atomic.AtomicReference
+
+          internal val enrollmentFamilies=listOf(0,1,5,2,6,7,3,4,8)
+          internal val enrollmentArchitectures=linkedMapOf(6 to "Linux x86-64",5 to "Linux x86-32",10005 to "macOS Universal",25 to "Linux ARM-HF / Raspberry Pi",26 to "Linux ARM64-HF",28 to "Linux MIPS24KC / OpenWRT",30 to "FreeBSD x86-64",32 to "Linux ARM 64 bit",36 to "OpenWRT x86-64",37 to "OpenBSD x86-64",40 to "Linux MIPSEL24KC / OpenWRT",41 to "ARMADA / CORTEX-A53 / MUSL",45 to "RISC-V 64 bit",16 to "macOS x86-64",29 to "macOS ARM64")
+          internal data class AgentEnrollmentOptions(val family:Int=0,val architecture:Int=6,val mode:Int=0,val assistant:Int=2) {
+              init {require(family in enrollmentFamilies && architecture in enrollmentArchitectures && mode in setOf(0,2,1) && assistant in 0..4)}
+              val showsType:Boolean get()=family in setOf(0,5)
+              fun selectFamily(v:Int)=copy(family=v,mode=0,assistant=2)
+          }
+          internal data class EnrollmentArtifact(val label:String,val url:String,val fileName:String,val kind:String)
+          internal const val enrollmentDownloadLimit=134217728L
+          internal fun enrollmentBase(value:String):String {val u=(value.trimEnd('/')+"/").toHttpUrl();require(u.username.isEmpty() && u.password.isEmpty() && u.query==null && u.fragment==null);return u.toString().trimEnd('/')}
+          private fun enrollmentMesh(value:String):String {val p=value.split('/');require(p.size==3 && p[0]=="mesh" && p[2].matches(Regex("[A-Za-z0-9_@+${'$'}=-]+")));return p[2]}
+          internal fun enrollmentArtifacts(base:String,mesh:String,o:AgentEnrollmentOptions):List<EnrollmentArtifact> {
+              val b=enrollmentBase(base);enrollmentMesh(mesh)
+              fun item(label:String,platform:String,id:Int,name:String,kind:String,mode:Int=0)=EnrollmentArtifact(label,AgentInvitationContract.download(b,mesh,platform,id,mode),name,kind)
+              return when(o.family) {
+                  0,3->listOf(item("Windows x86-32","windows",3,"meshagent-x86.exe","pe",if(o.family==0) o.mode else 0),item("Windows x86-64","windows",4,"meshagent-x64.exe","pe",if(o.family==0) o.mode else 0),item("Windows ARM64","windows",43,"meshagent-arm64.exe","pe",if(o.family==0) o.mode else 0))
+                  2->listOf(item("macOS x86-64","macos",16,"meshagent-macos-x64.zip","zip"),item("macOS ARM64","macos",29,"meshagent-macos-arm64.zip","zip"),item("macOS Universal","macos",10005,"meshagent-macos-universal.zip","zip"))
+                  8->listOf(item("macOS Universal","macos",10005,"meshagent-macos-universal.zip","zip"))
+                  5->listOf(item(enrollmentArchitectures.getValue(o.architecture),"binary",o.architecture,"meshagent","bin",o.mode))
+                  6->listOf(item("Android APK","android",14,"meshagent.apk","zip"))
+                  7->listOf(item("MeshCentral Assistant","assistant",10006,"meshcentral-assistant.exe","pe",o.assistant))
+                  else->emptyList()
+              }
+          }
+          internal fun enrollmentQuote(s:String)="'"+s.replace("'","'\"'\"'")+"'"
+          internal fun enrollmentLinuxCommand(base:String,mesh:String,uninstall:Boolean,ignoreSsl:Boolean):String {
+              val b=enrollmentBase(base);val mid=enrollmentMesh(mesh);val url=(b+"/").toHttpUrl().newBuilder().addPathSegment("meshagents").addQueryParameter("script","1").build().toString()
+              val tls=if(ignoreSsl) " --no-check-certificate" else "";val prefix=if(uninstall) "uninstall " else ""
+              return "(wget "+enrollmentQuote(url)+tls+" -O ./meshinstall.sh || wget "+enrollmentQuote(url)+" --no-proxy"+tls+" -O ./meshinstall.sh) && chmod 755 ./meshinstall.sh && sudo -E ./meshinstall.sh "+prefix+enrollmentQuote(b)+" "+enrollmentQuote(mid)
+          }
+          internal fun enrollmentValidHeader(kind:String,bytes:ByteArray):Boolean {val h=bytes.take(4).joinToString("") {"%02x".format(it.toInt() and 255)};return when(kind) {"pe"->h.length==8 && h.startsWith("4d5a");"zip"->h=="504b0304";"bin"->h in setOf("7f454c46","cafebabe","bebafeca","feedface","cefaedfe","feedfacf","cffaedfe");else->false}}
+          internal fun enrollmentQr(payload:String)=QRCodeWriter().encode(payload,BarcodeFormat.QR_CODE,256,256,mapOf(EncodeHintType.CHARACTER_SET to "UTF-8",EncodeHintType.MARGIN to 2,EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M))
+          private fun familyLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Windows",1 to "Linux / BSD",5 to "Instalador binario Linux / BSD / macOS",2 to "Apple macOS",6 to "Dispositivo móvil",7 to "Asistente MeshCentral",3 to "Windows (Desinstalar)",4 to "Linux / BSD (Desinstalar)",8 to "Apple macOS (Desinstalar)").getValue(v) else mapOf(0 to "Windows",1 to "Linux / BSD",5 to "Linux / BSD / macOS binary installer",2 to "Apple macOS",6 to "Mobile device",7 to "MeshCentral Assistant",3 to "Windows (Uninstall)",4 to "Linux / BSD (Uninstall)",8 to "Apple macOS (Uninstall)").getValue(v)
+          private fun assistantLabel(v:Int,es:Boolean)=if(es) mapOf(2 to "Aplicación, conectar a petición del usuario",3 to "Aplicación, siempre conectada",0 to "Bandeja del sistema, conectar con consentimiento del usuario",1 to "Bandeja del sistema, siempre conectada",4 to "Bandeja del sistema, solo monitorizar").getValue(v) else mapOf(2 to "Application, connect on user request",3 to "Application, always connected",0 to "System tray, connect on user request",1 to "System tray, always connected",4 to "System tray, monitor only").getValue(v)
+          @Composable internal fun AgentEnrollmentSelectors(o:AgentEnrollmentOptions,enabled:Boolean,es:Boolean,onChange:(AgentEnrollmentOptions)->Unit) {
+              InviteChoice(if(es) "Sistema operativo" else "Operating system","enroll-family",o.family,enrollmentFamilies,enabled,{familyLabel(it,es)}) {onChange(o.selectFamily(it))}
+              if(o.family==5) InviteChoice(if(es) "Tipo de sistema" else "System type","enroll-architecture",o.architecture,enrollmentArchitectures.keys.toList(),enabled,{enrollmentArchitectures.getValue(it)}) {onChange(o.copy(architecture=it))}
+              if(o.showsType) InviteChoice(if(es) "Tipo de instalación" else "Installation type","enroll-mode",o.mode,listOf(0,2,1),enabled,{modeLabel(it,es)}) {onChange(o.copy(mode=it))}
+              if(o.family==7) InviteChoice(if(es) "Tipo de instalación" else "Installation type","enroll-assistant",o.assistant,listOf(2,3,0,1,4),enabled,{assistantLabel(it,es)}) {onChange(o.copy(assistant=it))}
+          }
+          @Composable private fun enrollmentDownloader(source:MeshCentralClient):Triple<Boolean,String,(EnrollmentArtifact)->Unit> {
+              val context=LocalContext.current;val es=LocalConfiguration.current.locales[0].language=="es";val scope=rememberCoroutineScope()
+              var busy by remember {mutableStateOf(false)};var notice by remember {mutableStateOf("")}
+              var pending by remember {mutableStateOf<File?>(null)};var binding by remember {mutableStateOf<InvitationBinding?>(null)};var job by remember {mutableStateOf<Job?>(null)}
+              val call=remember {AtomicReference<Call?>(null)}
+              fun message(ok:Boolean)=if(es) {if(ok) "Archivo guardado." else "Descarga no completada. Comprueba conexión, permisos y disponibilidad del instalador."} else {if(ok) "File saved." else "Download not completed. Check connection, permissions and installer availability."}
+              DisposableEffect(source) {onDispose {call.getAndSet(null)?.cancel();job?.cancel();pending?.delete();pending=null}}
+              val picker=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) {uri->
+                  val file=pending;val identity=binding;pending=null
+                  if(uri==null) {file?.delete();busy=false} else job=scope.launch {
+                      var saved=false
+                      try {require(file!=null && identity!=null && identity.matches(source));withContext(Dispatchers.IO) {file.inputStream().use {input->(context.contentResolver.openOutputStream(uri,"wt") ?: error("output")).use {output->val b=ByteArray(65536);while(true) {ensureActive();check(identity.matches(source));val n=input.read(b);if(n<0) break;output.write(b,0,n)}}}};saved=true;notice=message(true)}
+                      catch(e:CancellationException) {throw e} catch(_:Exception) {notice=message(false)}
+                      finally {file?.delete();if(!saved) withContext(NonCancellable+Dispatchers.IO) {runCatching {DocumentsContract.deleteDocument(context.contentResolver,uri)}};busy=false}
+                  }
+              }
+              val start:(EnrollmentArtifact)->Unit={artifact->if(!busy) {
+                  busy=true;notice=""
+                  val server=source.serverUrl;val cookie=source.authCookie;val ssl=source.ignoreSsl;val actor=source.userInfo.value?.id.orEmpty();val identity=InvitationBinding(server,actor,cookie,ssl)
+                  job=scope.launch {
+                      var file:File?=null
+                      try {
+                          check(actor.isNotBlank() && identity.matches(source))
+                          val target=artifact.url.toHttpUrl();val origin=enrollmentBase(server).toHttpUrl();require(target.scheme==origin.scheme && target.host==origin.host && target.port==origin.port && target.username.isEmpty() && target.password.isEmpty())
+                          withContext(Dispatchers.IO) {
+                              val client=OkHttpHelper.createDownloadClient(ssl).newBuilder().followRedirects(false).followSslRedirects(false).build()
+                              val request=client.newCall(Request.Builder().url(target).header("Cookie",cookie).build());call.set(request)
+                              request.execute().use {response->require(response.code==200);val body=response.body ?: error("body");require(body.contentLength()<=enrollmentDownloadLimit);val mime=body.contentType()?.toString().orEmpty();require(!mime.startsWith("text/html") && !mime.startsWith("application/json"))
+                                  val f=File.createTempFile("agent-enrollment-",".part",context.cacheDir);file=f
+                                  body.byteStream().use {input->f.outputStream().use {output->val b=ByteArray(65536);var size=0L;while(true) {ensureActive();check(identity.matches(source));val n=input.read(b);if(n<0) break;size+=n;require(size<=enrollmentDownloadLimit);output.write(b,0,n)}}}
+                                  val head=ByteArray(4);require(f.inputStream().use {it.read(head)}==4 && enrollmentValidHeader(artifact.kind,head))
+                              }
+                          }
+                          ensureActive();check(identity.matches(source));binding=identity;pending=file;picker.launch(artifact.fileName)
+                      } catch(e:CancellationException) {throw e} catch(_:Exception) {notice=message(false)}
+                      finally {call.getAndSet(null)?.cancel();if(pending==null) {file?.delete();busy=false}}
+                  }
+              }}
+              return Triple(busy,notice,start)
+          }
+          @Composable internal fun AgentEnrollmentGroupButton(source:MeshCentralClient,id:String,enabled:Boolean) {
+              val es=LocalConfiguration.current.locales[0].language=="es";var open by remember(id) {mutableStateOf(false)}
+              ProfileGroupActionButton(if(es) "Agregar agente" else "Add agent",Icons.Default.AddCircle,enabled,onClick={open=true})
+              if(open) AgentInviteLinkDialog(source,id,false,enrollment=true) {open=false}
+          }
+          @Composable internal fun AgentEnrollmentContent(source:MeshCentralClient,group:JSONObject?,server:JSONObject?,enabled:Boolean) {
+              val es=LocalConfiguration.current.locales[0].language=="es";val context=LocalContext.current
+              fun t(a:String,b:String)=if(es) a else b
+              var options by remember {mutableStateOf(AgentEnrollmentOptions())};var notice by remember {mutableStateOf("")}
+              val download=enrollmentDownloader(source)
+              fun copy(value:String) {notice=if(runCatching {(context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("MeshCentral",value))}.isSuccess) t("Copiado.","Copied.") else t("No se ha podido copiar.","Could not copy.")}
+              AgentEnrollmentSelectors(options,enabled && !download.first,es) {options=it;notice=""}
+              Text(t("Los archivos y comandos incorporan este equipo al grupo seleccionado. La app no ejecuta instalaciones ni desinstalaciones.","Files and commands enroll the target computer into this group. The app does not run installation or uninstallation."),style=MaterialTheme.typography.bodySmall)
+              if(options.family in setOf(3,4,8)) Text(t("Desinstalación: revisa el equipo de destino antes de ejecutar estas instrucciones.","Uninstall: verify the target computer before running these instructions."),color=MaterialTheme.colorScheme.error)
+              val mesh=group?.optString("_id").orEmpty()
+              val artifacts=if(enabled) runCatching {enrollmentArtifacts(source.serverUrl,mesh,options)}.getOrNull() else emptyList()
+              if(enabled && artifacts==null) Text(t("No se han podido preparar enlaces seguros para este servidor.","Could not prepare safe links for this server."),color=MaterialTheme.colorScheme.error)
+              artifacts.orEmpty().forEach {item->
+                  Text(item.label,style=MaterialTheme.typography.titleSmall)
+                  Row {TextButton(enabled=enabled && !download.first,onClick={download.third(item)}) {Text(t("Descargar","Download"))};TextButton(enabled=enabled,onClick={copy(item.url)}) {Text(t("Copiar enlace","Copy link"))}}
+              }
+              if(enabled && options.family in setOf(1,4,5)) {
+                  val command=runCatching {if(options.family==5) "wget -O meshagent "+enrollmentQuote(artifacts.orEmpty().single().url) else enrollmentLinuxCommand(source.serverUrl,mesh,options.family==4,source.ignoreSsl)}.getOrNull()
+                  command?.let {SelectionContainer {Text(it,style=MaterialTheme.typography.bodySmall)};TextButton(onClick={copy(it)}) {Text(t("Copiar comando","Copy command"))}}
+                  Text(if(options.family==5) t("Ejecuta chmod +x meshagent y abre el binario. En macOS puede ser necesario xattr -r -d com.apple.quarantine meshagent.","Run chmod +x meshagent and open the binary. macOS may require xattr -r -d com.apple.quarantine meshagent.") else t("Se necesitan permisos de root. En BSD instala antes wget, sudo y bash.","Root permissions are required. On BSD install wget, sudo and bash first."),style=MaterialTheme.typography.bodySmall)
+                  if(source.ignoreSsl) Text(t("La conexión está configurada para ignorar errores de certificado.","This connection is configured to ignore certificate errors."),color=MaterialTheme.colorScheme.error)
+              }
+              if(options.family==3) Text(t("Ejecuta el instalador en el equipo de destino y elige Desinstalar.","Run the installer on the target computer and choose Uninstall."))
+              if(options.family==8) Text(t("Extrae el ZIP, pulsa con el botón derecho en Uninstall.command y elige Abrir.","Extract the ZIP, right-click Uninstall.command and choose Open."))
+              if(options.family==6) {
+                  val payload=if(enabled) runCatching {AgentInvitationContract.mobileConfiguration(server?.optString("magenturl").orEmpty(),server?.optString("agentCertHash").orEmpty(),mesh)}.getOrNull() else null
+                  val image by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null,payload) {value=null;if(payload!=null) value=withContext(Dispatchers.Default) {val matrix=enrollmentQr(payload);val pixels=IntArray(256*256) {i->if(matrix[i%256,i/256]) android.graphics.Color.BLACK else android.graphics.Color.WHITE};Bitmap.createBitmap(pixels,256,256,Bitmap.Config.ARGB_8888).asImageBitmap()}}
+                  image?.let {Image(it,t("Código QR de conexión al grupo","Device group connection QR code"),Modifier.size(220.dp))}
+                  if(payload!=null) TextButton(onClick={copy(payload)}) {Text(t("Copiar configuración móvil","Copy mobile configuration"))} else Text(t("No hay configuración móvil completa recibida del servidor. No se inventa un QR.","Complete mobile configuration has not been received. No QR is fabricated."))
+                  Row {for((label,url) in listOf("Google Play" to "https://play.google.com/store/apps/details?id=com.meshcentral.agent2","Amazon Appstore" to "https://www.amazon.co.uk/gp/product/B097Z4Q7SK/")) TextButton(onClick={runCatching {context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}}) {Text(label)}}
+              }
+              if(download.first) LinearProgressIndicator(Modifier.fillMaxWidth())
+              if(download.second.isNotBlank()) Text(download.second,style=MaterialTheme.typography.bodySmall)
+              if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)
+          }
+          KOTLIN
+          cat > app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          import okhttp3.HttpUrl.Companion.toHttpUrl
+          import com.google.zxing.*
+          import com.google.zxing.common.HybridBinarizer
+          import com.google.zxing.qrcode.QRCodeReader
+          class AgentEnrollmentTest {
+              private val base="https://example.test/proxy/domain";private val mesh="mesh//group"
+              @Test fun nineFamilies() {assertEquals(listOf(0,1,5,2,6,7,3,4,8),enrollmentFamilies)}
+              @Test fun fifteenBinaryArchitectures() {assertEquals(15,enrollmentArchitectures.size);for(id in enrollmentArchitectures.keys) assertEquals(id.toString(),enrollmentArtifacts(base,mesh,AgentEnrollmentOptions(5,id)).single().url.toHttpUrl().queryParameter("meshinstall"))}
+              @Test fun windowsArchitecturesAndMode() {val rows=enrollmentArtifacts(base,mesh,AgentEnrollmentOptions(mode=2));assertEquals(listOf("3","4","43"),rows.map {it.url.toHttpUrl().queryParameter("id")});assertTrue(rows.all {it.url.toHttpUrl().queryParameter("installflags")=="2"})}
+              @Test fun macArchitectures() {assertEquals(listOf("16","29","10005"),enrollmentArtifacts(base,mesh,AgentEnrollmentOptions(family=2)).map {it.url.toHttpUrl().queryParameter("id")})}
+              @Test fun assistantUsesFiveIndependentModes() {for(mode in 0..4) {val u=enrollmentArtifacts(base,mesh,AgentEnrollmentOptions(family=7,assistant=mode)).single().url.toHttpUrl();assertEquals(mode.toString(),u.queryParameter("ac"));assertNull(u.queryParameter("installflags"))}}
+              @Test fun typeVisibilityMatchesPlatform() {for(f in enrollmentFamilies) assertEquals(f in setOf(0,5),AgentEnrollmentOptions(family=f).showsType)}
+              @Test fun linuxCommandsHaveGroupAndNoCookie() {val c=enrollmentLinuxCommand(base,mesh,false,false);assertTrue(c.contains("/proxy/domain/meshagents?script=1"));assertTrue(c.contains("'group'"));assertFalse(c.contains("auth="));assertFalse(c.contains("--no-check-certificate"));assertTrue(enrollmentLinuxCommand(base,mesh,true,true).contains("uninstall"))}
+              @Test fun baseCannotCarryAuthenticationOrFragment() {for(b in listOf("https://user:pw@example.test","https://example.test?auth=secret","https://example.test/#secret")) assertThrows(IllegalArgumentException::class.java) {enrollmentBase(b)}}
+              @Test fun binaryHeaderValidation() {assertTrue(enrollmentValidHeader("pe",byteArrayOf(77,90,0,0)));assertTrue(enrollmentValidHeader("zip",byteArrayOf(80,75,3,4)));assertTrue(enrollmentValidHeader("bin",byteArrayOf(127,69,76,70)));assertFalse(enrollmentValidHeader("pe","<htm".toByteArray()))}
+              @Test fun qrRoundTripsExactMobilePayloadLocally() {val text="mc://agent.example/domain,"+"a".repeat(64)+",group";val m=enrollmentQr(text);val pixels=IntArray(256*256) {i->if(m[i%256,i/256]) 0xff000000.toInt() else 0xffffffff.toInt()};val result=QRCodeReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(256,256,pixels))));assertEquals(text,result.text)}
+          }
+          KOTLIN
+          cat > app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentEnrollmentFormTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import org.junit.Rule
+          import org.junit.Test
+          class AgentEnrollmentFormTest {
+              @get:Rule val compose=createComposeRule()
+              private fun show(family:Int=0) {compose.setContent {var o by remember {mutableStateOf(AgentEnrollmentOptions(family=family))};MaterialTheme {Column {AgentEnrollmentSelectors(o,true,true) {o=it}}}}}
+              @Test fun platformChoices() {show();compose.onNodeWithTag("enroll-family").performClick();for(f in enrollmentFamilies) compose.onNodeWithTag("enroll-family-"+f).assertExists()}
+              @Test fun binaryArchitectures() {show(5);compose.onNodeWithTag("enroll-architecture").performClick();for(a in enrollmentArchitectures.keys) compose.onNodeWithTag("enroll-architecture-"+a).assertExists()}
+              @Test fun windowsModes() {show();compose.onNodeWithTag("enroll-mode").performClick();for(m in listOf(0,2,1)) compose.onNodeWithTag("enroll-mode-"+m).assertExists()}
+              @Test fun linuxHasNoInteractiveSelector() {show(1);compose.onNodeWithTag("enroll-mode").assertDoesNotExist();compose.onNodeWithTag("enroll-assistant").assertDoesNotExist()}
+              @Test fun assistantHasFiveModes() {show(7);compose.onNodeWithTag("enroll-mode").assertDoesNotExist();compose.onNodeWithTag("enroll-assistant").performClick();for(m in listOf(2,3,0,1,4)) compose.onNodeWithTag("enroll-assistant-"+m).assertExists()}
+              @Test fun mobileHasNoInstallationMode() {show(6);compose.onNodeWithTag("enroll-mode").assertDoesNotExist();compose.onNodeWithTag("enroll-assistant").assertDoesNotExist()}
+          }
+          KOTLIN
+          mkdir -p docs/features
+          cat > docs/features/agent-enrollment.md <<'DOC'
+          # Native agent enrollment
+
+          Agregar agente provides Windows, Linux/BSD commands, binary installers, macOS, mobile QR/APK, Assistant and the reference uninstall options. Invitar remains a separate installation-link action, never temporary remote access.
+
+          Downloads use the current account cookie only against the configured origin. Redirects are not followed. The configured certificate policy is reused, not weakened automatically. Files are streamed to private temporary storage, limited to 128 MiB, checked for an appropriate binary header and saved only through the user's document picker. Partial files are not presented as complete downloads. The app does not execute installers or shell commands.
+
+          The mobile QR is encoded locally with pinned ZXing Core 3.5.4 and contains only server-provided mobile URL, agent certificate hash and received group identifier. Missing configuration is an explicit unavailable state.
+
+          Automated tests must pass before publication. Emulator tests do not replace visual APK review or validation against the user's real MeshCentral 1.3.1 server.
+          DOC
+      - name: Compile app and Android tests; execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Execute enrollment, invitation and navigation separately
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            for class in iecxiv.meshfabric.ui.management.AgentEnrollmentFormTest iecxiv.meshfabric.ui.management.AgentInviteLinkFormTest iecxiv.meshfabric.ui.navigation.NavigationRegressionTest; do
+              bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=$class --no-daemon --stacktrace
+              mkdir -p /tmp/agent-enrollment-android/$class
+              cp -a app/build/outputs/androidTest-results/connected/. /tmp/agent-enrollment-android/$class/
+            done
+      - name: Verify exact new tests and unchanged invitation regressions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast,xml.etree.ElementTree as E
+          source=Path('.github/workflows/publish-agent-invite-link.yml').read_text()
+          a=source.index('          expected={')+len('          expected=');b=source.index('          found=',a)
+          expected=ast.literal_eval('\n'.join(line[10:] if line.startswith('          ') else line for line in source[a:b].splitlines()))
+          expected['iecxiv.meshfabric.ui.management.AgentEnrollmentTest']={'nineFamilies','fifteenBinaryArchitectures','windowsArchitecturesAndMode','macArchitectures','assistantUsesFiveIndependentModes','typeVisibilityMatchesPlatform','linuxCommandsHaveGroupAndNoCookie','baseCannotCarryAuthenticationOrFragment','binaryHeaderValidation','qrRoundTripsExactMobilePayloadLocally'}
+          expected['iecxiv.meshfabric.ui.management.AgentEnrollmentFormTest']={'platformChoices','binaryArchitectures','windowsModes','linuxHasNoInteractiveSelector','assistantHasFiveModes','mobileHasNoInstallationMode'}
+          found={k:[] for k in expected}
+          paths=list(Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'))+list(Path('/tmp/agent-enrollment-android').rglob('TEST-*.xml'))
+          assert paths
+          for p in paths:
+              root=E.parse(p).getroot();assert not root.findall('.//failure') and not root.findall('.//error'),str(p)
+              for c in root.iter('testcase'):
+                  if c.get('classname') in found:
+                      assert c.find('skipped') is None,c.get('name');found[c.get('classname')].append(c.get('name'))
+          for name,methods in expected.items():
+              assert len(found[name])==len(methods) and set(found[name])==set(methods),(name,found[name])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-enrollment-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            /tmp/agent-enrollment-android/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish validated enrollment on unchanged branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=set(json.loads(Path('/tmp/agent-enrollment-files.json').read_text()))
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines());assert actual==expected,actual
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: add native agent enrollment installers commands and mobile QR'
+          git push origin HEAD:refs/heads/add-device-invite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-agent-enrollment-debug-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error

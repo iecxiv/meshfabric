@@ -1,4 +1,4 @@
-# My Account — MeshFabric 1.3.1
+# My Account — MeshFabric
 
 [Español](es/profile-native.md) | [Management](profile.md)
 

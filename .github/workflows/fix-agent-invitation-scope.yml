@@ -1,0 +1,180 @@
+name: Correct invitations to agent installation only
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/fix-agent-invitation-scope.yml]
+permissions:
+  contents: write
+concurrency:
+  group: fix-agent-invitation-scope
+  cancel-in-progress: false
+jobs:
+  correct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check approved base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 2a4253700eccd6f7ebd84ab8c9968de9719b8a36
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Correct production contract, candidate and scope regressions
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,re,subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric/data/remote')
+          tests=Path('app/src/test/java/iecxiv/meshfabric/data/remote')
+          candidate=Path('.github/payloads/agent-invitation-transport/AgentInvitationChannel.kt')
+          originals={root/'AgentInvitationContract.kt':'0f5f19e7b419f445ed8aa8ddcb26c707b3990b6f',root/'AgentInvitationReplies.kt':'8bb153982f6726c65a0742ba6749d740ed5390ee',tests/'AgentInvitationContractTest.kt':'70657ee9df56de5e1a045c15cd4a605bda7067e5',tests/'AgentInvitationRepliesTest.kt':'ba82fc4af592325d990355955c38412981db97ef',candidate:'5b8631c7316d81e4ba423c4faab5c94c8ac7f2ac'}
+          for p,sha in originals.items():
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,str(p)
+          def cut(s,start,end):
+              assert s.count(start)==1,start
+              a=s.index(start);b=s.index(end,a)
+              return s[:a]+s[b:]
+          def replace(s,old,new):
+              assert s.count(old)==1,old
+              return s.replace(old,new,1)
+          def write(p,s):
+              assert s.endswith('\n') and all(line==line.rstrip() for line in s.splitlines()),str(p)
+              p.parent.mkdir(parents=True,exist_ok=True);p.write_text(s)
+          p=root/'AgentInvitationContract.kt';s=p.read_text()
+          s=cut(s,'    fun sharingAllowed(','    private fun id(')
+          s=cut(s,'    fun temporaryShare(','    fun download(')
+          target='    fun installationTarget(actor:String,mesh:String):String {\n        id(mesh,"mesh")\n        val user=actor.split(\'/\');val group=mesh.split(\'/\')\n        require(user.size==3 && user[0]=="user" && user[2].isNotBlank() && user[1]==group[1] && actor.none {it.isISOControl()})\n        return mesh\n    }\n'
+          s=replace(s,'    fun groupAllowed(',target+'    fun groupAllowed(')
+          old=next(line for line in s.splitlines() if 'return rid==responseId' in line)
+          s=replace(s,old,'        return expectedAction in setOf("createInviteLink","inviteAgent") && rid==responseId && responseId.isNotBlank() && action==expectedAction && !result.equals("ok",true)')
+          write(p,s)
+          p=root/'AgentInvitationReplies.kt';s=p.read_text()
+          s=''.join(line for line in s.splitlines(True) if 'data class ShareCreated(' not in line and 'object ShareRemoved:' not in line)
+          s=replace(s,'    private var finished=false','    init {require(action in setOf("createInviteLink","inviteAgent") && target.startsWith("mesh/") && responseId.isNotBlank())}\n    private var finished=false')
+          s=replace(s,'        if(responseId.isBlank()','        if(expected !in setOf("createInviteLink","inviteAgent")) return AgentInvitationOutcome.Malformed\n        if(responseId.isBlank()')
+          s=''.join(line for line in s.splitlines(True) if 'val aliased=' not in line and 'if(aliased)' not in line)
+          s=replace(s,'        if(action!=expected && !aliased) return null','        if(action!=expected) return null')
+          s=cut(s,'            "createDeviceShareLink"->{','            else->AgentInvitationOutcome.Malformed')
+          write(p,s)
+          s=candidate.read_text()
+          s=''.join(line for line in s.splitlines(True) if not any(x in line for x in ['data class Shares(','object ReadFailed:','private var ack=','private var readNonce=','private var reads=','private var accepted:','private fun number(','private fun bool(']))
+          s=replace(s,'        if(a !in setOf("createInviteLink","inviteAgent","createDeviceShareLink","removeDeviceShare","deviceShares")) return false','        if(a !in setOf("createInviteLink","inviteAgent") || packet.has("nodeid")) return false')
+          a=s.index('        val kind=');b=s.index('        used=true;',a)
+          s=s[:a]+'        val t=text(packet,"meshid") ?: return false\n        if(runCatching {AgentInvitationContract.installationTarget(binding.actor,t)}.isFailure) return false\n'+s[b:]
+          s=replace(s,'        request=JsonObject();ack=JsonObject();accepted=null','        request=JsonObject()')
+          old=next(line for line in s.splitlines() if 'private fun fail()=' in line)
+          s=replace(s,old,'    private fun fail()=finish(if(sent) InvitationDelivery.Unconfirmed else InvitationDelivery.NotSent)')
+          s=cut(s,'    private fun sendRead()','    private fun receive(')
+          s=''.join(line for line in s.splitlines(True) if 'if(action=="deviceShares")' not in line)
+          a=s.index('        if(phase==2');b=s.index('    private val listener=',a)
+          s=s[:a]+'        if(phase!=1) return\n        val answer=AgentInvitationReplies.parse(action,target,nonce,p) ?: return\n        if(answer==AgentInvitationOutcome.Malformed || answer==AgentInvitationOutcome.Unknown) fail() else finish(InvitationDelivery.Reply(answer))\n    }\n'+s[b:]
+          write(candidate,s)
+          for p in [root/'AgentInvitationContract.kt',root/'AgentInvitationReplies.kt',candidate]:
+              assert not re.search(r'createDeviceShareLink|removeDeviceShare|deviceShares|temporaryShare|sharingAllowed|ShareCreated|ShareRemoved',p.read_text()),str(p)
+          contract={
+          'bothOriginsResolveTheSameGroup':'assertEquals(mesh,AgentInvitationContract.installationTarget("user//actor",mesh))',
+          'deviceIdentifierIsNotAGroup':'assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.installationTarget("user//actor","node//device")}',
+          'missingGroupIsNotGuessed':'assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.installationTarget("user//actor","")}',
+          'crossDomainInvitationIsRejected':'assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.installationTarget("user/other/actor",mesh)}',
+          'agentGroupTypeIsRequired':'assertFalse(AgentInvitationContract.groupAllowed(-1,-1,1,false,true))',
+          'accountRestrictionBlocksEnrollment':'assertFalse(AgentInvitationContract.groupAllowed(4096,4,2,false,false))',
+          'lanOnlySeparatesInstallFromInvitation':'assertTrue(AgentInvitationContract.groupAllowed(0,4,2,true,false));assertFalse(AgentInvitationContract.groupAllowed(0,4,2,true,true))',
+          'installationInvitationUsesHours':'val p=AgentInvitationContract.groupLink(mesh,24,2,16,"r");assertEquals(24,p.get("expire").asInt);assertEquals(mesh,p.get("meshid").asString);assertFalse(p.has("nodeid"))',
+          'emailHasDistinctPlatformAndModeFields':'val p=AgentInvitationContract.groupEmail(mesh,"guest@example.test","Guest","Welcome",4,2,24,"r");assertEquals("inviteAgent",p.get("action").asString);assertEquals("4",p.get("os").asString);assertEquals("2",p.get("flags").asString)',
+          'downloadPreservesDomainPrefix':'val u=AgentInvitationContract.download("https://example.test/proxy/domain",mesh,"windows",43,2).toHttpUrl();assertEquals("/proxy/domain/meshagents",u.encodedPath);assertEquals("43",u.queryParameter("id"));assertEquals("2",u.queryParameter("installflags"));assertNull(u.queryParameter("auth"))',
+          'assistantDoesNotUseInstallFlags':'val u=AgentInvitationContract.download("https://example.test",mesh,"assistant",10006,4).toHttpUrl();assertEquals("4",u.queryParameter("ac"));assertNull(u.queryParameter("installflags"))',
+          'binaryInstallerUsesArchitectureSelector':'val u=AgentInvitationContract.download("https://example.test",mesh,"binary",29,1).toHttpUrl();assertEquals("29",u.queryParameter("meshinstall"));assertEquals("group",u.queryParameter("id"))',
+          'mobilePayloadIncludesCertificateAndGroup':'assertEquals("mc://agent.example/domain,"+"a".repeat(64)+",group",AgentInvitationContract.mobileConfiguration("mc://agent.example/domain","a".repeat(64),mesh))',
+          'sharingIsNotAnInstallationFailureAlias':'val p=j("""{"action":"deviceShares","responseid":"r","result":"Access denied"}""");assertFalse(AgentInvitationContract.isCorrelatedFailure("createInviteLink","r",p));assertFalse(AgentInvitationContract.isCorrelatedFailure("createDeviceShareLink","r",p))'
+          }
+          replies={
+          'groupLinkContainsInstallationUrl':'assertEquals(AgentInvitationOutcome.GroupLink("https://example.test/agentinvite?c=secret",24),parse("createInviteLink",mesh,"r",link))',
+          'emailAcceptanceIsNotDelivery':'assertEquals(AgentInvitationOutcome.EmailAccepted,parse("inviteAgent",mesh,"r",ok))',
+          'wrongGroupIsMalformed':'assertEquals(AgentInvitationOutcome.Malformed,parse("createInviteLink","mesh//other","r",link))',
+          'oldResponseIdIsIgnored':'assertNull(parse("createInviteLink",mesh,"old",link))',
+          'sharingResponseCannotCompleteInstallation':'val p=j("""{"action":"deviceShares","responseid":"r","result":"Access denied"}""");assertNull(parse("createInviteLink",mesh,"r",p))',
+          'sharingOperationIsOutsideParserScope':'assertEquals(AgentInvitationOutcome.Malformed,parse("createDeviceShareLink","node//device","r",ok))',
+          'exchangeRejectsSharingOperations':'for(a in listOf("createDeviceShareLink","deviceShares","removeDeviceShare")) assertThrows(IllegalArgumentException::class.java) {AgentInvitationExchange(a,"node//device","r")}',
+          'exchangeCompletesOnlyOnce':'val e=AgentInvitationExchange("inviteAgent",mesh,"r");assertEquals(AgentInvitationOutcome.EmailAccepted,e.receive(ok));assertNull(e.receive(ok));assertNull(e.expire())',
+          'timeoutRemainsUnconfirmed':'val e=AgentInvitationExchange("inviteAgent",mesh,"r");assertEquals(AgentInvitationOutcome.Unknown,e.expire());assertNull(e.receive(ok))',
+          'unsafeInstallationLinksAreRejected':'for(u in listOf("http://example.test/agentinvite?c=x","https://user:pw@example.test/agentinvite?c=x","https://example.test/sharing?c=x","https://example.test/agentinvite")) assertEquals(AgentInvitationOutcome.Malformed,parse("createInviteLink",mesh,"r",link.deepCopy().apply {addProperty("url",u)}))'
+          }
+          prefix='package iecxiv.meshfabric.data.remote\n\nimport com.google.gson.JsonObject\nimport com.google.gson.JsonParser\nimport okhttp3.HttpUrl.Companion.toHttpUrl\nimport org.junit.Assert.*\nimport org.junit.Test\n\n'
+          fixture='    private val mesh="mesh//group"\n    private fun j(s:String):JsonObject=JsonParser.parseString(s).asJsonObject\n    private fun parse(a:String,t:String,r:String,p:JsonObject)=AgentInvitationReplies.parse(a,t,r,p)\n    private val link=j("""{"action":"createInviteLink","meshid":"mesh//group","responseid":"r","url":"https://example.test/agentinvite?c=secret","expire":24}""")\n    private val ok=j("""{"action":"inviteAgent","responseid":"r","result":"ok"}""")\n'
+          expected={}
+          for name,cases in [('AgentInvitationContractTest',contract),('AgentInvitationRepliesTest',replies)]:
+              expected['iecxiv.meshfabric.data.remote.'+name]=list(cases)
+              write(tests/(name+'.kt'),prefix+'class '+name+' {\n'+fixture+''.join('    @Test fun '+method+'() {'+body+'}\n' for method,body in cases.items())+'}\n')
+          assert len(contract)==14 and len(replies)==10
+          Path('/tmp/installation-scope-tests.json').write_text(json.dumps(expected))
+          doc=Path('docs/features/add-device-invite-scope.md')
+          assert not doc.exists()
+          write(doc,'# Agent installation scope\n\nAgregar agente prepares installers, commands and mobile configuration for a received agent device group.\n\nInvitar from a group and Invitar from a device are the same agent-installation invitation. The device entry point must resolve its received meshid in the current actor domain; nodeid is never an invitation target. A missing or ambiguous group disables the action.\n\nOnly createInviteLink and inviteAgent are invitation mutations in this feature. No temporary desktop, terminal or file access is created, listed or revoked.\n\nThis correction removes sharing helpers and outcomes introduced under the superseded interpretation. Historical audit extracts are retained unchanged. The replacement test cases cover the corrected scope; no failures are ignored and no baseline is introduced.\n\nThe corrected transport remains a candidate outside app. Dialogs and navigation are not yet implemented. Kotlin compilation and unit checks are not emulator execution or a real-server validation.\n')
+          temp=root/'AgentInvitationChannel.kt'
+          assert not temp.exists()
+          temp.write_bytes(candidate.read_bytes())
+          paths=[str(p) for p in originals]+[str(doc)]
+          Path('/tmp/installation-scope-paths.json').write_text(json.dumps(paths))
+          PY
+      - name: Compile corrected app and candidate; execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Verify every corrected scope test executed without omissions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,xml.etree.ElementTree as E
+          expected=json.loads(Path('/tmp/installation-scope-tests.json').read_text());found={k:[] for k in expected}
+          for p in Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              root=E.parse(p).getroot()
+              assert not root.findall('.//failure') and not root.findall('.//error'),str(p)
+              for c in root.iter('testcase'):
+                  if c.get('classname') in found:
+                      assert c.find('skipped') is None,c.get('name')
+                      found[c.get('classname')].append(c.get('name'))
+          for name,methods in expected.items():
+              assert len(found[name])==len(methods) and set(found[name])==set(methods),(name,found[name])
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-installation-scope-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish only corrected scope on unchanged branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          rm -- app/src/main/java/iecxiv/meshfabric/data/remote/AgentInvitationChannel.kt
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=set(json.loads(Path('/tmp/installation-scope-paths.json').read_text()))
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,actual
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: scope invitations exclusively to agent installation'
+          git push origin HEAD:refs/heads/add-device-invite

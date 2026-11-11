@@ -1,0 +1,170 @@
+name: Fix agent invitation authentication
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/fix-agent-invitation-authentication.yml]
+permissions:
+  contents: write
+concurrency:
+  group: fix-agent-invitation-authentication
+  cancel-in-progress: false
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare authenticated invitation handshake and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = c32bc233222fe34d36adc9932ca0ec171b37018b
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path('app/src/main/java/iecxiv/meshfabric/data/remote/AgentInvitationChannel.kt')
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='159061930fd5567477ab3d16d7f9f07496661273'
+          def change(p,a,b):
+              s=p.read_text();assert s.count(a)==1,(str(p),a);p.write_text(s.replace(a,b,1))
+          change(p,'    private val clock:InvitationScheduler=InvitationTimer()','    private val clock:InvitationScheduler=InvitationTimer(),\n    private var authToken:String')
+          change(p,'    val diagnosticCode:String get()=if(phase==0) "INVITE_WAITING_USERINFO" else "INVITE_WAITING_LINK_REPLY"','    private var handshakeSent=false\n    @Volatile var diagnosticCode:String="INVITE_CONNECTING"\n        private set')
+          change(p,'        if(used || done || !live()) return false','        if(used || done || !live()) return false\n        if(authToken.isBlank()) {diagnosticCode="INVITE_AUTH_MISSING";return false}')
+          change(p,'if(!done) fail()}};watch()}','if(!done) fail("INVITE_TIMEOUT_"+if(!handshakeSent) "CONNECTING" else if(phase==0) "USERINFO" else "LINK_REPLY")}};watch()}')
+          change(p,'        } catch(_:Exception) {fail()}','        } catch(_:Exception) {fail("INVITE_CONNECT_FAILURE")}')
+          change(p,'        done=true;clock.close();socket?.cancel();socket=null','        if(value==InvitationDelivery.ContextChanged) diagnosticCode="INVITE_CONTEXT_CHANGED"\n        done=true;authToken="";clock.close();socket?.cancel();socket=null')
+          change(p,'    private fun fail()=finish(if(sent) InvitationDelivery.Unconfirmed else InvitationDelivery.NotSent)','    private fun fail(code:String?=null) {if(code!=null) diagnosticCode=code;finish(if(sent) InvitationDelivery.Unconfirmed else InvitationDelivery.NotSent)}')
+          change(p,'        if(a=="userinfo") {','        if(a=="userinfo") {\n            if(!handshakeSent) return')
+          change(p,'            phase=1;sent=true','            phase=1;sent=true;diagnosticCode="INVITE_WAITING_LINK_REPLY"')
+          change(p,'            try {if(socket?.send(request.toString())!=true) {sent=false;fail()}} catch(_:Exception) {fail()}','            try {if(socket?.send(request.toString())!=true) {sent=false;fail("INVITE_LINK_SEND_FAILED")}} catch(_:Exception) {fail("INVITE_LINK_SEND_EXCEPTION")}')
+          old='            if(!webSocket.send("{\\"action\\":\\"userinfo\\"}")) fail()'
+          new='''            try {
+                          diagnosticCode="INVITE_AUTH_SENDING"
+                          val auth=JsonObject().apply {addProperty("action","urlargs");add("args",JsonObject().apply {addProperty("auth",authToken)})}
+                          if(!webSocket.send(auth.toString())) {fail("INVITE_AUTH_SEND_FAILED");return}
+                          authToken="";handshakeSent=true;diagnosticCode="INVITE_WAITING_USERINFO"
+                          if(!webSocket.send("{\\"action\\":\\"userinfo\\"}")) fail("INVITE_USERINFO_SEND_FAILED")
+                      } catch(_:Exception) {fail("INVITE_HANDSHAKE_SEND_EXCEPTION")}'''
+          change(p,old,new)
+          for callback in ['onClosing(webSocket:WebSocket,code:Int,reason:String)','onClosed(webSocket:WebSocket,code:Int,reason:String)','onFailure(webSocket:WebSocket,t:Throwable,response:Response?)']:
+              old='override fun '+callback+' {synchronized(this@AgentInvitationChannel) {if(!done) fail()}}'
+              code='INVITE_SOCKET_FAILURE' if callback.startswith('onFailure') else 'INVITE_SOCKET_CLOSED'
+              change(p,old,'override fun '+callback+' {synchronized(this@AgentInvitationChannel) {if(!done) fail("'+code+'_"+if(phase==0) "BEFORE_IDENTITY" else "AFTER_MUTATION")}}')
+          change(p,'            val binding=InvitationBinding(source.serverUrl,actor,source.authCookie,source.ignoreSsl)','            val cookie=source.authCookie\n            val binding=InvitationBinding(source.serverUrl,actor,cookie,source.ignoreSsl)')
+          change(p,'return AgentInvitationChannel(binding,OkHttpHelper.createClient(binding.ignoreSsl),{binding.matches(source)},result)','return AgentInvitationChannel(binding,OkHttpHelper.createClient(binding.ignoreSsl),{binding.matches(source)},result,authToken=source.extractRawToken(cookie))')
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/management/AgentInviteLinks.kt')
+          change(p,'if(!created.start(payload)) {version++;channel=null;created.close();busy=false;notice=t("La solicitud no se ha enviado.","The request was not sent.")}','if(!created.start(payload)) {version++;channel=null;created.close();busy=false;notice=t("La solicitud no se ha enviado.","The request was not sent.")+" ["+created.diagnosticCode+"]"}')
+          p=Path('app/src/test/java/iecxiv/meshfabric/data/remote/AgentInviteLinkChannelTest.kt')
+          change(p,',clock)',',clock,"synthetic-token")')
+          change(p,'assertEquals(1,f.socket.sent.size)','assertEquals(2,f.socket.sent.size)')
+          change(p,'assertEquals(2,f.socket.sent.size);val p=','assertEquals(3,f.socket.sent.size);val p=')
+          assert not Path('app/src/test/java/iecxiv/meshfabric/data/remote/AgentInvitationAuthenticationTest.kt').exists()
+          PY
+          cat > app/src/test/java/iecxiv/meshfabric/data/remote/AgentInvitationAuthenticationTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.data.remote
+          import com.google.gson.JsonObject
+          import com.google.gson.JsonParser
+          import okhttp3.*
+          import okio.ByteString
+          import org.junit.Assert.*
+          import org.junit.Test
+          class AgentInvitationAuthenticationTest {
+              private class Clock:InvitationScheduler {val tasks=mutableListOf<Pair<Long,()->Unit>>();override fun later(delay:Long,task:()->Unit) {tasks.add(delay to task)};override fun close() {};fun expire() {tasks.first {it.first==20000L}.second()}}
+              private class Socket:WebSocket {var req=Request.Builder().url("https://example.test").build();val sent=mutableListOf<JsonObject>();var reject="";override fun request()=req;override fun queueSize()=0L;override fun send(text:String):Boolean {val p=JsonParser.parseString(text).asJsonObject;sent.add(p);return p.get("action").asString!=reject};override fun send(bytes:ByteString)=true;override fun close(code:Int,reason:String?)=true;override fun cancel() {}}
+              private class Fixture(token:String="synthetic-token") {
+                  val socket=Socket();val clock=Clock();val results=mutableListOf<InvitationDelivery>();lateinit var listener:WebSocketListener;var opens=0;var current=true
+                  val factory=object:WebSocket.Factory {override fun newWebSocket(request:Request,listener:WebSocketListener):WebSocket {opens++;socket.req=request;this@Fixture.listener=listener;return socket}}
+                  val channel=AgentInvitationChannel(InvitationBinding("https://example.test/domain","user//actor","cookie=synthetic",false),factory,{current},{results.add(it)},clock,token)
+                  fun start()=channel.start(AgentInvitationContract.groupLink("mesh//group",1,0,0,"old"))
+                  fun open() {listener.onOpen(socket,Response.Builder().request(socket.req).protocol(Protocol.HTTP_1_1).code(101).message("Switching").build())}
+                  fun login(id:String="user//actor") {listener.onMessage(socket,JsonObject().apply {addProperty("action","userinfo");add("userinfo",JsonObject().apply {addProperty("_id",id)})}.toString())}
+                  fun actions()=socket.sent.map {it.get("action").asString}
+              }
+              @Test fun authenticationPrecedesUserInfo() {val f=Fixture();assertTrue(f.start());f.open();assertEquals(listOf("urlargs","userinfo"),f.actions());assertEquals("synthetic-token",f.socket.sent.first().getAsJsonObject("args").get("auth").asString);assertEquals("INVITE_WAITING_USERINFO",f.channel.diagnosticCode);f.channel.close()}
+              @Test fun invitationWaitsForAuthenticatedIdentityAndSendsOnce() {val f=Fixture();f.start();f.login();assertTrue(f.actions().isEmpty());f.open();assertFalse("createInviteLink" in f.actions());f.login();f.login();assertEquals(listOf("urlargs","userinfo","createInviteLink"),f.actions());f.channel.close()}
+              @Test fun failedAuthenticationSendNeverSendsInvitation() {val f=Fixture();f.socket.reject="urlargs";f.start();f.open();f.login();assertEquals(listOf("urlargs"),f.actions());assertEquals(listOf(InvitationDelivery.NotSent),f.results);assertEquals("INVITE_AUTH_SEND_FAILED",f.channel.diagnosticCode)}
+              @Test fun failedUserInfoSendNeverSendsInvitation() {val f=Fixture();f.socket.reject="userinfo";f.start();f.open();f.login();assertEquals(listOf("urlargs","userinfo"),f.actions());assertEquals(listOf(InvitationDelivery.NotSent),f.results);assertEquals("INVITE_USERINFO_SEND_FAILED",f.channel.diagnosticCode)}
+              @Test fun wrongIdentityNeverSendsInvitation() {val f=Fixture();f.start();f.open();f.login("user//other");assertFalse("createInviteLink" in f.actions());assertEquals(listOf(InvitationDelivery.ContextChanged),f.results)}
+              @Test fun identityTimeoutDoesNotReplay() {val f=Fixture();f.start();f.open();f.clock.expire();f.login();assertEquals(listOf("urlargs","userinfo"),f.actions());assertEquals(listOf(InvitationDelivery.NotSent),f.results);assertEquals("INVITE_TIMEOUT_USERINFO",f.channel.diagnosticCode);assertEquals(1,f.opens)}
+              @Test fun replyTimeoutDoesNotReplay() {val f=Fixture();f.start();f.open();f.login();f.clock.expire();f.login();assertEquals(1,f.actions().count {it=="createInviteLink"});assertEquals(listOf(InvitationDelivery.Unconfirmed),f.results);assertEquals("INVITE_TIMEOUT_LINK_REPLY",f.channel.diagnosticCode);assertEquals(1,f.opens)}
+              @Test fun missingTokenNeverOpensSocket() {val f=Fixture("");assertFalse(f.start());assertEquals(0,f.opens);assertEquals("INVITE_AUTH_MISSING",f.channel.diagnosticCode);f.channel.close()}
+              @Test fun changedSessionBeforeOpenSendsNoCredentials() {val f=Fixture();f.start();f.current=false;f.open();assertTrue(f.actions().isEmpty());assertEquals(listOf(InvitationDelivery.ContextChanged),f.results)}
+          }
+          KOTLIN
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Clean build; execute all unit tests and lint
+        run: bash ./gradlew :app:clean :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete reports and all 62 feature methods
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import textwrap
+          source=Path('.github/workflows/fix-agent-management-runtime.yml').read_text()
+          section=source.split('      - name: Require all 53 feature regressions and complete passing reports\n',1)[1].split('      - uses:',1)[0]
+          script=textwrap.dedent(section.split("python3 - <<'PY'\n",1)[1].split('\n          PY',1)[0])
+          marker='expected={};found={}'
+          assert script.count(marker)==1 and script.count('==53')==1 and script.count("'verified_feature_methods':53")==1
+          script=script.replace(marker,"entries += [('app/src/test/java/iecxiv/meshfabric/data/remote/AgentInvitationAuthenticationTest.kt','iecxiv.meshfabric.data.remote.AgentInvitationAuthenticationTest',9)]\n"+marker,1).replace('==53','==62',1).replace("'verified_feature_methods':53","'verified_feature_methods':62",1)
+          exec(compile(script,'verify-invitation-authentication','exec'))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-invitation-authentication-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            validation/agent-runtime/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Publish only validated authentication correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/data/remote/AgentInvitationChannel.kt','app/src/main/java/iecxiv/meshfabric/ui/management/AgentInviteLinks.kt','app/src/test/java/iecxiv/meshfabric/data/remote/AgentInviteLinkChannelTest.kt','app/src/test/java/iecxiv/meshfabric/data/remote/AgentInvitationAuthenticationTest.kt'}
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: authenticate invitation channel before requesting user identity'
+          git push origin HEAD:refs/heads/add-device-invite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-agent-invitation-authentication-debug-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error

@@ -1,0 +1,234 @@
+name: Validate and publish agent invitation contract
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/publish-agent-invitation-contract.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-agent-invitation-contract
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check approved base
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 8eed21b7ce120b95b233611d326e337d69a790c6
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare protocol implementation and regression tests
+        run: |
+          set -euo pipefail
+          production=app/src/main/java/iecxiv/meshfabric/data/remote/AgentInvitationContract.kt
+          tests=app/src/test/java/iecxiv/meshfabric/data/remote/AgentInvitationContractTest.kt
+          test ! -e "$production"
+          test ! -e "$tests"
+          mkdir -p "$(dirname "$production")" "$(dirname "$tests")"
+          cat > "$production" <<'KOTLIN'
+          package iecxiv.meshfabric.data.remote
+
+          import com.google.gson.JsonObject
+          import okhttp3.HttpUrl.Companion.toHttpUrl
+
+          internal object AgentInvitationContract {
+              private const val FULL = 0xffffffffL
+              private val binaryIds = setOf(6,5,10005,25,26,28,30,32,36,37,40,41,45,16,29)
+              fun normalized(rights:Long)=rights and FULL
+              fun groupAllowed(site:Long,rights:Long,type:Int,lanOnly:Boolean,invitation:Boolean):Boolean {
+                  val s=normalized(site)
+                  return type==2 && (!invitation || !lanOnly) && (s==FULL || (s and 4096L==0L && normalized(rights) and 4L!=0L))
+              }
+              fun sharingAllowed(rights:Long,protocols:Int,enabled:Boolean=true):Boolean {
+                  if(!enabled || protocols !in 1..7) return false
+                  val r=normalized(rights)
+                  if(r==FULL) return true
+                  if(r and 8L==0L || r and 524288L==0L || r and 4096L!=0L) return false
+                  return !(protocols and 1!=0 && r and 512L!=0L) && !(protocols and 2!=0 && r and 65536L!=0L) && !(protocols and 4!=0 && r and 1024L!=0L)
+              }
+              private fun id(value:String,kind:String):String {
+                  val parts=value.split('/')
+                  require(parts.size==3 && parts[0]==kind && parts[2].isNotEmpty() && value.length<=if(kind=="node") 128 else 134)
+                  require(parts[1].matches(Regex("[A-Za-z0-9_.-]*")) && parts[2].matches(Regex("[A-Za-z0-9_@+${'$'}=-]+")))
+                  return parts[2]
+              }
+              private fun packet(action:String,target:String,kind:String,responseId:String):JsonObject {
+                  id(target,kind); require(responseId.isNotBlank() && responseId.length<=128)
+                  return JsonObject().apply {addProperty("action",action);addProperty(if(kind=="mesh") "meshid" else "nodeid",target);addProperty("responseid",responseId)}
+              }
+              fun groupLink(mesh:String,hours:Int,flags:Int,agents:Int,responseId:String):JsonObject {
+                  require(hours in 0..99999 && flags in setOf(0,1,2) && agents in setOf(0,1,2,4,8,16))
+                  return packet("createInviteLink",mesh,"mesh",responseId).apply {addProperty("expire",hours);addProperty("flags",flags);addProperty("agents",agents)}
+              }
+              fun groupEmail(mesh:String,email:String,name:String,message:String,os:Int,flags:Int,hours:Int,responseId:String):JsonObject {
+                  require(email.length in 4..1024 && email.count {it=='@'}==1 && email.none {it.isWhitespace() || it.isISOControl()})
+                  require(email.substringBefore('@').isNotEmpty() && email.substringAfter('@').isNotEmpty())
+                  require(name.length<=64 && message.length<=1024 && os in 0..5 && flags in setOf(0,1,2) && hours in 0..99999)
+                  return packet("inviteAgent",mesh,"mesh",responseId).apply {addProperty("email",email);addProperty("name",name);addProperty("msg",message);addProperty("os",os.toString());addProperty("flags",flags.toString());addProperty("expire",hours)}
+              }
+              fun temporaryShare(node:String,guest:String,minutes:Int,protocols:Int,rights:Long,maxMinutes:Int?,prompt:Boolean,viewOnly:Boolean,responseId:String):JsonObject {
+                  require(guest.isNotBlank() && guest.length<=128 && guest.none {it.isISOControl()})
+                  require(minutes>0 && (maxMinutes==null || maxMinutes<=0 || minutes<=maxMinutes))
+                  require(sharingAllowed(rights,protocols))
+                  var consent=0
+                  if(protocols and 1!=0) consent=consent or if(prompt) 18 else 2
+                  if(protocols and 2!=0) consent=consent or if(prompt) 73 else 65
+                  if(protocols and 4!=0) consent=consent or if(prompt) 36 else 4
+                  val forcedViewOnly=normalized(rights)!=FULL && normalized(rights) and 256L!=0L
+                  return packet("createDeviceShareLink",node,"node",responseId).apply {addProperty("guestname",guest.trim());addProperty("expire",minutes);addProperty("p",protocols);addProperty("consent",consent);addProperty("viewOnly",viewOnly || forcedViewOnly)}
+              }
+              fun listShares(node:String,responseId:String)=packet("deviceShares",node,"node",responseId)
+              fun revoke(node:String,publicId:String,responseId:String):JsonObject {
+                  require(publicId.length in 1..128 && publicId.none {it.isISOControl()})
+                  return packet("removeDeviceShare",node,"node",responseId).apply {addProperty("publicid",publicId)}
+              }
+              fun download(base:String,mesh:String,platform:String,architecture:Int,mode:Int=0):String {
+                  val mid=id(mesh,"mesh");require(mode in 0..4)
+                  val url=(base.trimEnd('/')+"/").toHttpUrl().newBuilder()
+                  when(platform) {
+                      "windows"->{require(architecture in setOf(3,4,43) && mode in 0..2);url.addPathSegment("meshagents").addQueryParameter("id",architecture.toString()).addQueryParameter("meshid",mid).addQueryParameter("installflags",mode.toString())}
+                      "macos"->{require(architecture in setOf(16,29,10005));url.addPathSegment("meshosxagent").addQueryParameter("id",architecture.toString()).addQueryParameter("meshid",mid)}
+                      "binary"->{require(architecture in binaryIds && mode in 0..2);url.addPathSegment("meshagents").addQueryParameter("id",mid).addQueryParameter("meshinstall",architecture.toString()).addQueryParameter("installflags",mode.toString())}
+                      "assistant"->url.addPathSegment("meshagents").addQueryParameter("id","10006").addQueryParameter("meshid",mid).addQueryParameter("ac",mode.toString())
+                      "android"->url.addPathSegment("meshagents").addQueryParameter("id","14")
+                      else->error("Unsupported platform")
+                  }
+                  return url.build().toString()
+              }
+              fun mobileConfiguration(agentUrl:String,certificateHash:String,mesh:String):String {
+                  val mid=id(mesh,"mesh")
+                  require(agentUrl.startsWith("mc://") && agentUrl.length<=2048 && agentUrl.none {it==',' || it.isWhitespace() || it.isISOControl()})
+                  require(certificateHash.matches(Regex("[A-Za-z0-9@${'$'}+/=_-]+")) && certificateHash.length in 32..256)
+                  return "$agentUrl,$certificateHash,$mid"
+              }
+              fun isCorrelatedFailure(expectedAction:String,responseId:String,reply:JsonObject):Boolean {
+                  val action=reply.get("action")?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString ?: return false
+                  val rid=reply.get("responseid")?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString ?: return false
+                  val result=reply.get("result")?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString ?: return false
+                  return rid==responseId && responseId.isNotBlank() && (action==expectedAction || (expectedAction in setOf("createDeviceShareLink","removeDeviceShare") && action=="deviceShares")) && !result.equals("ok",true)
+              }
+          }
+          KOTLIN
+          cat > "$tests" <<'KOTLIN'
+          package iecxiv.meshfabric.data.remote
+
+          import com.google.gson.JsonObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          import okhttp3.HttpUrl.Companion.toHttpUrl
+
+          class AgentInvitationContractTest {
+              private val mesh="mesh//abc@${'$'}def"
+              private val node="node//device"
+              private val rights=524296L
+              @Test fun groupAndDeviceUseDifferentUnits() {
+                  assertEquals(24,AgentInvitationContract.groupLink(mesh,24,0,0,"g").get("expire").asInt)
+                  assertEquals(60,AgentInvitationContract.temporaryShare(node,"Guest",60,2,rights,null,true,false,"d").get("expire").asInt)
+              }
+              @Test fun temporaryAccessCannotBeUnlimited() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.temporaryShare(node,"Guest",0,2,rights,null,true,false,"d")}}
+              @Test fun serverDurationLimitIsNotSilentlyChanged() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.temporaryShare(node,"Guest",61,2,rights,60,true,false,"d")}}
+              @Test fun permissionsRespectRestrictionsAndFullMask() {
+                  assertFalse(AgentInvitationContract.sharingAllowed(8,2))
+                  assertFalse(AgentInvitationContract.sharingAllowed(rights or 4096,2))
+                  assertFalse(AgentInvitationContract.sharingAllowed(rights or 512,1))
+                  assertFalse(AgentInvitationContract.sharingAllowed(rights or 1024,4))
+                  assertFalse(AgentInvitationContract.sharingAllowed(rights or 65536,2))
+                  assertTrue(AgentInvitationContract.sharingAllowed(-1,7))
+                  assertFalse(AgentInvitationContract.sharingAllowed(-1,2,false))
+              }
+              @Test fun fileSharingUsesBitFourNotTunnelProtocolFive() {assertEquals(4,AgentInvitationContract.temporaryShare(node,"Guest",5,4,rights,null,true,false,"d").get("p").asInt)}
+              @Test fun restrictedDesktopForcesViewOnly() {assertTrue(AgentInvitationContract.temporaryShare(node,"Guest",5,2,rights or 256,null,true,false,"d").get("viewOnly").asBoolean)}
+              @Test fun groupPolicySeparatesLanInvitesAndAgentTypes() {
+                  assertTrue(AgentInvitationContract.groupAllowed(0,4,2,true,false))
+                  assertFalse(AgentInvitationContract.groupAllowed(0,4,2,true,true))
+                  assertFalse(AgentInvitationContract.groupAllowed(4096,4,2,false,false))
+                  assertFalse(AgentInvitationContract.groupAllowed(-1,-1,1,false,false))
+              }
+              @Test fun aliasFailureNeedsExactRequestIdentity() {
+                  val p=JsonObject().apply {addProperty("action","deviceShares");addProperty("responseid","r");addProperty("result","Access denied")}
+                  assertTrue(AgentInvitationContract.isCorrelatedFailure("createDeviceShareLink","r",p))
+                  assertFalse(AgentInvitationContract.isCorrelatedFailure("createDeviceShareLink","old",p))
+                  assertFalse(AgentInvitationContract.isCorrelatedFailure("createInviteLink","r",p))
+              }
+              @Test fun downloadsPreserveDomainPathAndParameterValues() {
+                  val url=AgentInvitationContract.download("https://example.test/proxy/domain",mesh,"windows",43,2).toHttpUrl()
+                  assertEquals("/proxy/domain/meshagents",url.encodedPath)
+                  assertEquals("abc@${'$'}def",url.queryParameter("meshid"))
+                  assertEquals("43",url.queryParameter("id"))
+                  assertEquals("2",url.queryParameter("installflags"))
+                  assertNull(url.queryParameter("auth"))
+              }
+              @Test fun assistantAndBinaryHaveSeparateSelectors() {
+                  val a=AgentInvitationContract.download("https://example.test",mesh,"assistant",10006,4).toHttpUrl()
+                  assertEquals("4",a.queryParameter("ac"));assertNull(a.queryParameter("installflags"))
+                  val b=AgentInvitationContract.download("https://example.test",mesh,"binary",29,1).toHttpUrl()
+                  assertEquals("29",b.queryParameter("meshinstall"));assertEquals("abc@${'$'}def",b.queryParameter("id"))
+              }
+              @Test fun mobilePayloadHasServerCertificateAndGroup() {assertEquals("mc://agent.example/domain,"+"a".repeat(64)+",abc@${'$'}def",AgentInvitationContract.mobileConfiguration("mc://agent.example/domain","a".repeat(64),mesh))}
+              @Test fun rejectsInjectedIdentifiers() {assertThrows(IllegalArgumentException::class.java) {AgentInvitationContract.groupLink("mesh//a&auth=secret",24,0,0,"r")}}
+              @Test fun emailPacketIsDistinctFromLinkPacket() {
+                  val p=AgentInvitationContract.groupEmail(mesh,"guest@example.test","Guest","Welcome",4,2,24,"r")
+                  assertEquals("inviteAgent",p.get("action").asString);assertEquals("4",p.get("os").asString);assertEquals("2",p.get("flags").asString)
+              }
+              @Test fun revokeTargetsExactPublicIdentifier() {val p=AgentInvitationContract.revoke(node,"public-id","r");assertEquals(node,p.get("nodeid").asString);assertEquals("public-id",p.get("publicid").asString)}
+          }
+          KOTLIN
+      - name: Compile application and Android tests; execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Verify all fourteen contract tests actually ran
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as E
+          expected={'groupAndDeviceUseDifferentUnits','temporaryAccessCannotBeUnlimited','serverDurationLimitIsNotSilentlyChanged','permissionsRespectRestrictionsAndFullMask','fileSharingUsesBitFourNotTunnelProtocolFive','restrictedDesktopForcesViewOnly','groupPolicySeparatesLanInvitesAndAgentTypes','aliasFailureNeedsExactRequestIdentity','downloadsPreserveDomainPathAndParameterValues','assistantAndBinaryHaveSeparateSelectors','mobilePayloadHasServerCertificateAndGroup','rejectsInjectedIdentifiers','emailPacketIsDistinctFromLinkPacket','revokeTargetsExactPublicIdentifier'}
+          cases=[]
+          for p in Path('app/build/test-results/testDebugUnitTest').glob('TEST-*.xml'):
+              root=E.parse(p).getroot()
+              assert not root.findall('.//failure') and not root.findall('.//error'),str(p)
+              cases += [c for c in root.iter('testcase') if c.get('classname')=='iecxiv.meshfabric.data.remote.AgentInvitationContractTest']
+          assert len(cases)==len(expected) and {c.get('name') for c in cases}==expected
+          assert all(c.find('skipped') is None for c in cases)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-invitation-contract-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish only validated contract sources on unchanged branch
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          git add -- app/src/main/java/iecxiv/meshfabric/data/remote/AgentInvitationContract.kt app/src/test/java/iecxiv/meshfabric/data/remote/AgentInvitationContractTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/data/remote/AgentInvitationContract.kt','app/src/test/java/iecxiv/meshfabric/data/remote/AgentInvitationContractTest.kt'}
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: add validated agent enrollment and invitation contract'
+          git push origin HEAD:refs/heads/add-device-invite
