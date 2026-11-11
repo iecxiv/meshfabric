@@ -33,7 +33,8 @@ val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(s:String,e:String)=if(es) s else e
 val lifecycle=LocalLifecycleOwner.current.lifecycle
 val session=remember(source) { ProfileSession(source) }
-val state by session.state.collectAsState()
+val liveState by session.state.collectAsState()
+val state=rememberProfileDialogPresentation(liveState,agentIdentity,agentActor?.id.orEmpty())
 val displayNames=rememberProfileDisplayNames(state,session.broadcastServerLabel())
 val connected by source.connectionState.collectAsState()
 val profileDeviceGroups by source.groupedDevices.collectAsState()
@@ -61,9 +62,10 @@ DisposableEffect(session) { onDispose { session.close() } }
 LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
 if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation() } finally { session.stop() } } else session.stop()
 } }
-LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null } }
+LaunchedEffect(agentIdentity) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null }
 Column(modifier) {
 ProfileRefreshHeader(tab,state,header) {performProfileHeaderRefresh(tab,session)}
+if(!state.ready && state.id.isNotBlank()) Text(t("Datos anteriores; acciones bloqueadas hasta actualizar la conexión y los permisos.","Previous data; actions blocked until connection and permissions are refreshed."),Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.bodySmall)
 ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { ownAccountRequest=null;section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false }
 if(tab!=0) ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null}) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
