@@ -1,47 +1,38 @@
 # Aceptación de Agregar agente e Invitar
 
-## Versión que se debe revisar
+## Identificar la evidencia
 
-- Rama: `add-device-invite`.
-- Código de la app: `2f50fd4a9940fe6c5ba8f54addcec52d0af9c347`.
-- Workflow de suite completa: `e4ca5dd102d45a2adf284bfc5ba4fa676a294700`.
-- APK previsto de esa ejecución: artefacto `meshfabric-add-device-invite-full-debug-<run_id>`. El identificador de ejecución concreto no se ha registrado todavía aquí.
+Registrar rama, commit funcional, ejecución de validación, artefacto probado, entorno Android, servidor y cuenta de prueba sin credenciales. Utilizar el APK construido desde el código que se está revisando. El commit de un workflow no sustituye al commit funcional. No confundir los métodos de regresión exigidos con el total real de pruebas ejecutadas.
 
-El propietario informó de que la suite completa terminó correctamente. Eso no acredita por sí solo una revisión visual ni una instalación o invitación comprobada contra el servidor real. Este documento no marca esas comprobaciones como realizadas.
+Se notificaron fallos reales de generación de enlaces y guardado de archivos vacíos. Hay correcciones publicadas de autenticación, propiedad de diálogos y verificación del guardado; la publicación no acredita por sí sola que hayan superado una nueva prueba en el servidor real. Las casillas siguientes permanecen pendientes hasta registrar evidencia concreta.
 
-## Revisión visual pendiente
+## Interfaz y navegación
 
-- [ ] Agregar agente e Invitar aparecen en el grupo de dispositivos con agente; el resto de acciones mantiene su disposición.
-- [ ] Invitar aparece en el menú del dispositivo y abre el mismo diálogo de instalación para su grupo, no un diálogo de acceso temporal.
-- [ ] Invitar muestra los seis vencimientos y los seis tipos de agente solicitados. Un mes se identifica como 30 días cuando se selecciona.
-- [ ] El tipo de instalación tiene las tres opciones; desaparece para Asistente MeshCentral y Android MeshAgent. Una selección anterior no reaparece al volver a Windows.
-- [ ] Cada menú respeta la anchura de su botón; textos largos, desplazamiento, orientación y teclado no ocultan los controles.
-- [ ] Agregar agente presenta las plataformas, arquitecturas, modos de Assistant y opciones de desinstalación de la referencia.
-- [ ] Android muestra un QR legible cuando llegan todos los datos de configuración; si faltan, muestra un aviso en lugar de un QR inventado.
+- [ ] Agregar agente e Invitar aparecen en Gestión dentro de un grupo con agente.
+- [ ] Invitar no aparece en el menú de tres puntos de tarjetas de Equipos/Dispositivos; las demás acciones mantienen su comportamiento.
+- [ ] Se presentan seis caducidades y seis tipos de agente. Un mes se explica como 30 días.
+- [ ] Los tres modos se muestran donde corresponde; Assistant y Android los ocultan y reinician sin restaurar una selección anterior.
+- [ ] Menús, textos largos, fuente ampliada y orientación no ocultan controles.
+- [ ] Plataformas, arquitecturas, Assistant y desinstalación se presentan según los datos disponibles; no se inventa un QR con información incompleta.
 
-## Comprobación funcional pendiente con MeshCentral 1.3.1
+## Servidor y archivos
 
-- [ ] Generar un enlace desde un grupo de prueba y comprobar sus opciones. Abrirlo en otro navegador o equipo y verificar que ofrece la instalación para ese grupo.
-- [ ] Generar otro enlace desde un dispositivo del grupo de prueba y verificar que el destino vuelve a ser ese grupo, no el equipo existente. No se exige que ambos enlaces tengan el mismo token.
-- [ ] Con un equipo de prueba, comprobar que el agente instalado mediante la invitación se incorpora al grupo correcto.
-- [ ] Descargar al menos un instalador desde Agregar agente y comprobar el selector de guardado, el archivo recibido y el grupo incorporado en el instalador. Ampliar la comprobación a las plataformas disponibles que se vayan a usar.
-- [ ] Revisar el comando Linux/BSD: servidor, prefijo de dominio, identificador del grupo y modo instalación/desinstalación. Probar la instalación solo en un equipo de prueba apropiado.
-- [ ] Escanear el QR con MeshAgent en un móvil de prueba y comprobar servidor y grupo de destino.
-- [ ] Comprobar con una cuenta de permisos limitados que un grupo no autorizado o datos incompletos no permiten generar una invitación ni descargar como otra cuenta.
-- [ ] Cambiar de cuenta o servidor, interrumpir la conexión y cerrar el diálogo durante una petición: no deben aparecer enlaces de la sesión anterior ni reenvíos automáticos.
-- [ ] Cancelar una descarga o el guardado y comprobar que no se presenta un archivo parcial como una descarga correcta.
+- [ ] Generar un enlace desde Gestión y verificar las opciones y el grupo de destino al abrirlo en otro equipo.
+- [ ] Instalar el agente en un equipo de prueba y comprobar su incorporación al grupo correcto.
+- [ ] Descargar un instalador, elegir destino y volver desde el selector externo sin perder el diálogo ni su archivo pendiente.
+- [ ] Verificar que el destino no está vacío y coincide con el contenido descargado. No confundir esta comprobación con la firma del instalador.
+- [ ] Cancelar descarga/guardado y simular errores de proveedor: no debe anunciarse éxito ni conservarse deliberadamente un parcial como válido; registrar fallos de limpieza.
+- [ ] Revisar servidor, dominio y grupo de los comandos Linux/BSD. Instalación y desinstalación incluyen la alternativa directa con argumentos iguales en ambas invocaciones.
+- [ ] Escanear el QR en un móvil de prueba y comprobar servidor y grupo.
+- [ ] Probar cuenta con permisos limitados, información ausente, cambio de cuenta/servidor, pérdida de conexión y cierre del diálogo: sin enlaces de otra sesión ni reenvíos automáticos.
+- [ ] Distinguir errores de conexión, autenticación, espera de identidad y respuesta del enlace. No presentar un resultado desconocido como éxito.
 
-No es necesario ejecutar desinstalaciones para completar la revisión visual. Si se prueban funcionalmente, deben realizarse únicamente sobre un equipo de prueba elegido expresamente.
+No es necesario ejecutar desinstalaciones para la revisión visual. Toda instalación o desinstalación funcional requiere un equipo de prueba elegido expresamente.
 
-## Evidencia que falta registrar
+## Registro e integración
 
-- Identificador de la ejecución de la suite completa y su `summary.json`.
-- Totales reales de unitarios e instrumentación del informe, sin confundirlos con los 39 métodos de regresión específicamente exigidos.
-- Resultado de la revisión visual del APK.
-- Resultado de las comprobaciones contra el servidor real y plataformas probadas.
+Conservar informes reales de unitarios, lint e instrumentación cuando correspondan, sus totales, el resultado visual y las plataformas probadas. No marcar comprobaciones como realizadas basándose solo en que un APK se publicó. No adjuntar cookies, enlaces completos, QR de conexión ni configuración sensible; ocultarlos en capturas.
 
-Al comunicar resultados, basta con indicar cada comprobación y cualquier error. No adjuntar cookies, enlaces completos de invitación, QR de conexión ni archivos de configuración del agente. Si se comparten capturas, ocultar esos datos.
+No fusionar automáticamente en dev ni main. Tras cambios de código, ejecutar las comprobaciones pertinentes. Los cambios exclusivamente documentales requieren revisión documental y de enlaces, no compilación ni emulador.
 
-## Integración
-
-No fusionar automáticamente en `dev` ni en `main`. Si se modifica código tras la validación, ejecutar las comprobaciones pertinentes para ese cambio. Los cambios exclusivamente documentales no requieren volver a compilar ni ejecutar el emulador.
+Guía: [Instalación de agentes e invitaciones](../es/agent-installation.md).

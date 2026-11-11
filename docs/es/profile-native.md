@@ -1,4 +1,4 @@
-# Mi cuenta — MeshFabric 1.3.1
+# Mi cuenta — MeshFabric
 
 [English](../profile-native.md) | [Gestión](profile.md)
 

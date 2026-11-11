@@ -2,8 +2,6 @@
 
 [English](README.md) | Español
 
-Versión actual de desarrollo: `1.3.2`.
-
 MeshFabric es un cliente Android nativo no oficial para MeshCentral. Ofrece escritorio remoto, terminal interactivo, gestión de archivos, notas de dispositivos, acciones remotas y Registro con pestañas Actividad y Eventos sin integrar la interfaz web de administración de MeshCentral. El terminal utiliza recursos de xterm.js incluidos localmente dentro de un WebView de Android.
 
 La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, el agente remoto, el sistema operativo y la sesión. MeshFabric no sustituye la consola completa de administración de MeshCentral.
@@ -18,7 +16,7 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Navegación inferior entre Gestión, Servidor, Dispositivos, Registro y Avisos.
 - Acceso al escritorio, terminal, archivos y acciones desde cada tarjeta de dispositivo.
 
-### Gestión nativa y seguridad de cuenta (1.3.2)
+### Gestión nativa y seguridad de cuenta
 
 - Gestión ofrece Mi cuenta, Grupos de dispositivos, Usuarios y Grupos (de usuarios).
 - Administra usuarios, grupos de usuarios, membresías individuales y accesos a grupos de dispositivos según los permisos del servidor.
@@ -30,6 +28,16 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - El inicio de sesión FIDO2 nativo y el alta de nuevas claves siguen pendientes. Las claves existentes se pueden consultar y eliminar.
 
 Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
+
+### Instalación de agentes e invitaciones
+
+- Abre un grupo con agente en Gestión para utilizar Agregar agente o Invitar. Invitar no está en el menú de tres puntos de las tarjetas de Equipos/Dispositivos.
+- Agregar agente ofrece instaladores admitidos, arquitecturas, comandos Linux/BSD, opciones de Assistant y configuración Android mediante APK/QR. La app no ejecuta instaladores ni comandos.
+- Invitar genera un enlace para instalar un agente e incorporarlo al grupo seleccionado; no concede acceso temporal a un dispositivo existente ni envía correo.
+- La generación es explícita. Los resultados desconocidos no se presentan como éxito ni se reintentan automáticamente. El guardado exige una copia no vacía y verificada mediante relectura.
+- Las pruebas automatizadas no sustituyen comprobar la incorporación al grupo previsto contra el servidor real.
+
+Guía: [Instalación de agentes e invitaciones](docs/es/agent-installation.md).
 
 ### Escritorio remoto
 
@@ -169,7 +177,7 @@ Enviar o aceptar una solicitud no equivale a ejecutarla. MeshFabric informa de r
 - Identificadores de solicitud, actor, fecha/hora y detalles de resultado cuando están disponibles.
 - Hasta 200 entradas en memoria: es una vista de la sesión, no un archivo persistente ni completo de auditoría del servidor.
 
-### Eventos (1.3.2)
+### Eventos
 
 - Registro separa las pestañas Actividad y Eventos. Actividad conserva el diario local de la sesión; Eventos consulta el historial visible para la cuenta del servidor actual. No es un archivo completo de auditoría.
 - Los selectores de tipo y cantidad consultan al servidor: 60, 120, 250, 500, 1000 o Sin límite. Sin límite omite el máximo solicitado y no impone topes artificiales de registros, trama o descripción en la app; siguen aplicándose permisos, disponibilidad de respuesta, plazos de espera y recursos del dispositivo. No hay recorte silencioso.
@@ -180,7 +188,7 @@ Enviar o aceptar una solicitud no equivale a ejecutarla. MeshFabric informa de r
 - Los historiales de acceso comparten colores de resultado y presentación de Edición de usuario; solo el historial de Mi cuenta adopta sus dimensiones de referencia. Los listados de Gestión y Estadísticas del servidor ofrecen refresco en cabecera.
 - Las fuentes de rastreo aceptan un null explícito como ninguna fuente activa, distinguen datos ausentes o incompatibles y limitan la espera inicial. Abrir o reconectar no envía escrituras traceinfo que puedan cambiar las fuentes globales. Siguen vigentes las restricciones de administrador y dominio.
 
-Guía técnica: [Registro y Eventos](docs/log.md) (en inglés). Referencia de protocolo: [Fuentes de MeshCentral 1.3.1](docs/reference/meshcentral-1.3.1-trace-sources.md) (en inglés). La versión 1.3.2 de la app no es la versión 1.3.1 de MeshCentral usada como referencia de protocolo.
+Guía técnica: [Registro y Eventos](docs/log.md) (en inglés). Referencia de protocolo: [Fuentes de rastreo](docs/reference/meshcentral-1.3.1-trace-sources.md) (en inglés).
 
 ### Sesiones en segundo plano y notificación
 

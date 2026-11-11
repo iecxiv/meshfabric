@@ -2,8 +2,6 @@
 
 English | [Español](README_ES.md)
 
-Current development version: `1.3.2`.
-
 MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and a Log view with Activity and Events tabs without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
 Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
@@ -18,7 +16,7 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Use the bottom navigation bar for Management, Server, Devices, Log and Notices.
 - Access desktop, terminal, file sessions, and device actions from each device card.
 
-### Native management and account security (1.3.2)
+### Native management and account security
 
 - Management provides My Account, Device Groups, Users and Groups (user groups) tabs.
 - Manage users, user groups, individual memberships and device-group access, subject to server permissions.
@@ -30,6 +28,16 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Native FIDO2 sign-in and new security-key registration remain pending. Existing keys can be listed and removed.
 
 Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
+
+### Agent installation and invitations
+
+- Open an agent device group in Management to use Add agent or Invite. Invite is not in the three-dot menu of device cards in Devices.
+- Add agent provides supported installers, architecture choices, Linux/BSD commands, Assistant options and Android APK/QR configuration. The app does not execute installers or commands.
+- Invite generates a link to install an agent into the selected group; it does not grant temporary access to an existing device or send email.
+- Generation is explicit. Unknown results are not success and are not automatically retried. Saving an installer requires a non-empty copy verified by readback.
+- Automated checks do not replace confirming installation into the intended group against the actual server.
+
+Guide: [Agent installation and invitations](docs/agent-installation.md).
 
 ### Remote desktop
 
@@ -177,7 +185,7 @@ A request being sent or accepted is not the same as an action being executed. Me
 - Inspect request identifiers, actor information, timestamps, and result details when available.
 - The activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.
 
-### Events (1.3.2)
+### Events
 
 - Log has separate Activity and Events tabs. Activity remains the local session journal; Events queries the historical records visible to the current server account. It is not a complete audit archive.
 - Server-side type and quantity selectors offer 60, 120, 250, 500, 1000 or Unlimited. Unlimited omits the requested maximum and imposes no artificial app record/frame/message ceiling; server permissions, response availability, timeouts and device resources still apply. Results are not silently truncated.
@@ -188,7 +196,7 @@ A request being sent or accepted is not the same as an action being executed. Me
 - Previous-login histories share outcome colors and the user-editor presentation; only the My Account history dialog adopts its reference dimensions. Management directory tabs and Server Statistics provide header refresh actions.
 - Trace source state accepts an explicit null as no active sources, distinguishes malformed/missing data, and bounds the initial wait. Opening or reconnecting does not send traceinfo writes that could change global sources. Administrator/domain restrictions remain authoritative.
 
-Guide: [Log and Events](docs/log.md). Protocol reference: [MeshCentral 1.3.1 trace sources](docs/reference/meshcentral-1.3.1-trace-sources.md). The app version 1.3.2 is distinct from the MeshCentral 1.3.1 protocol reference.
+Guide: [Log and Events](docs/log.md). Protocol reference: [Trace sources](docs/reference/meshcentral-1.3.1-trace-sources.md).
 
 ### Background sessions and notification
 

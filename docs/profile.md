@@ -1,10 +1,12 @@
-# Management — MeshFabric 1.3.1
+# Management — MeshFabric
 
 [Español](es/profile.md) | [Project README](../README.md)
 
 Management replaces the former Profile label. Its four tabs are My Account, Device Groups, Users and Groups (user groups). Device groups and user groups are different entities.
 
 ## Available functionality
+
+- Agent-group actions provide Add agent and installation-link invitations: see [Agent installation and invitations](agent-installation.md).
 
 - Native account-security and preference controls: see [My Account](profile-native.md).
 - Native users, user groups, memberships and device-group access: see [User and access administration](profile-user-administration.md).

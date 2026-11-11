@@ -1,4 +1,4 @@
-# Administración de usuarios y accesos — MeshFabric 1.3.1
+# Administración de usuarios y accesos — MeshFabric
 
 [English](../profile-user-administration.md) | [Gestión](profile.md)
 
