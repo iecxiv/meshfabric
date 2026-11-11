@@ -5,7 +5,7 @@ internal const val SERVER_EVENTS_LIMIT=200
 internal data class ServerEventsScope(val server:String,val actor:String,val session:Long,val authority:String)
 internal data class ServerEventRecord(val action:String,val message:String,val actor:String,val nodeId:String,val nodeName:String,val time:Long?,val details:Map<String,String> = emptyMap(),val meshId:String="",val groupName:String="",val inventoryResolved:Boolean=false)
 internal enum class ServerEventsPhase { IDLE, LOADING, READY, DENIED, ERROR, INVALID, TIMEOUT, INVALIDATED }
-internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null,val selection:ServerEventsQuery?=null)
+internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null,val selection:ServerEventsQuery?=null,val lifecyclePause:Boolean=false)
 internal fun serverEventsRequest(tag:String,selection:ServerEventsQuery=legacyServerEventsQuery):JsonObject {
     require(tag.isNotBlank() && tag.length<=128)
     return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);if(selection.limit!=null) addProperty("limit",selection.limit);if(selection.type!=ServerEventType.ALL) addProperty("filter",selection.type.wire)}
