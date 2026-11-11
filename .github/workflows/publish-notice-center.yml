@@ -2,6 +2,11 @@ name: Validate and integrate notice center
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - notifications-broadcast-messages
+    paths:
+      - .github/workflows/publish-notice-center.yml
 
 permissions:
   contents: write
