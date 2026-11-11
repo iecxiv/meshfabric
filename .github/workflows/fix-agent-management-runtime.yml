@@ -1,0 +1,227 @@
+name: Fix management agent dialogs and verified saves
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/fix-agent-management-runtime.yml]
+permissions:
+  contents: write
+concurrency:
+  group: fix-agent-management-runtime
+  cancel-in-progress: false
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare targeted lifecycle and save corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 20ff54d861d48896a3d6ecec2bdf4242b91e5e6f
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric');ui=root/'ui/management'
+          touched=[]
+          def change(p,a,b):
+              s=p.read_text();assert s.count(a)==1,(str(p),a);p.write_text(s.replace(a,b,1));touched.append(str(p))
+          p=ui/'MeshFabricHome.kt'
+          change(p,'DeviceActionMenu(viewModel.meshClient,node,state.ready,hasActiveSessions,','DeviceActionMenu(node,state.ready,hasActiveSessions,')
+          change(p,'private fun DeviceActionMenu(inviteSource:MeshCentralClient,node:MeshNode,','private fun DeviceActionMenu(node:MeshNode,')
+          for text in ['    var inviteOpen by remember(node.id) {mutableStateOf(false)}\n','    if(inviteOpen) AgentInviteLinkDialog(inviteSource,node.id,true) {inviteOpen=false}\n','            MenuEntry(if(configuration.locales[0].language=="es") "Invitar" else "Invite",Icons.Default.PersonAdd,ready) {expanded=false;inviteOpen=true}\n']:
+              change(p,text,'')
+          assert 'AgentInviteLinkDialog' not in p.read_text() and 'inviteOpen' not in p.read_text()
+          p=ui/'ProfileScreen.kt'
+          old='val es=LocalConfiguration.current.locales[0].language=="es"'
+          prefix='val agentActor by source.userInfo.collectAsState()\nval agentIdentity=remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,agentActor?.id) {Any()}\nAgentGroupDialogsHost(agentIdentity,render={target,close->AgentInviteLinkDialog(source,target.mesh,false,enrollment=target.enrollment,onDismiss=close)}) {\n'
+          change(p,old,prefix+old)
+          s=p.read_text();assert s.rstrip().endswith('}');p.write_text(s.rstrip()+'\n}\n')
+          p=ui/'AgentInviteLinks.kt'
+          change(p,'    var open by remember(id) {mutableStateOf(false)}\n    ProfileGroupActionButton(if(es) "Invitar" else "Invite",Icons.Default.PersonAdd,enabled,onClick={open=true})\n    if(open) AgentInviteLinkDialog(source,id,false) {open=false}', '    val opener=LocalAgentGroupDialogOpener.current\n    ProfileGroupActionButton(if(es) "Invitar" else "Invite",Icons.Default.PersonAdd,enabled && opener!=null,onClick={opener?.invoke(AgentGroupDialog(id,false))})')
+          change(p,'                busy=false;channel=null','                val diagnostic=channel?.diagnosticCode.orEmpty()\n                busy=false;channel=null')
+          change(p,'                    InvitationDelivery.Unconfirmed->notice=t("Resultado sin confirmar. No se reenviará automáticamente.","Outcome unconfirmed. No automatic resend.")\n                }','                    InvitationDelivery.Unconfirmed->notice=t("Resultado sin confirmar. No se reenviará automáticamente.","Outcome unconfirmed. No automatic resend.")\n                }\n                if(link==null && diagnostic.isNotBlank()) notice+=" ["+diagnostic+"]"')
+          change(p,'if(!foreground) invalidate()}','if(!foreground) {if(busy) notice=t("Petición interrumpida; resultado sin confirmar.","Request interrupted; outcome unconfirmed.");invalidate()}}')
+          change(p,'        LaunchedEffect(group?.toString(),s.id,connected) {invalidate()}','        LaunchedEffect(group?.optString("_id"),group?.opt("mtype"),group?.optJSONObject("links")?.toString(),s.user?.optJSONObject("links")?.toString(),s.site,s.id,connected) {val wasBusy=busy;invalidate();if(wasBusy) notice=t("Contexto de permisos actualizado; resultado sin confirmar.","Authority context updated; outcome unconfirmed.")}')
+          line=next(x for x in p.read_text().splitlines() if 'if(!enabled) Text(t("Esperando un grupo' in x)
+          extra='                if(!enabled) Text("INVITE_CONTEXT_"+when { !connected->"DISCONNECTED"; !foreground->"BACKGROUND"; !s.ready->"NOT_READY"; s.loading->"LOADING"; s.readError->"READ_FAILED"; s.detailsBusy->"DETAILS_LOADING"; s.id!=binding.actor->"ACTOR_MISMATCH"; else->"GROUP_OR_RIGHTS" },style=MaterialTheme.typography.bodySmall)'
+          change(p,line,line+'\n'+extra)
+          p=root/'data/remote/AgentInvitationChannel.kt'
+          change(p,'    private var phase=0','    private var phase=0\n    val diagnosticCode:String get()=if(phase==0) "INVITE_WAITING_USERINFO" else "INVITE_WAITING_LINK_REPLY"')
+          p=ui/'AgentEnrollment.kt'
+          change(p,'val es=LocalConfiguration.current.locales[0].language=="es";var open by remember(id) {mutableStateOf(false)}\n    ProfileGroupActionButton(if(es) "Agregar agente" else "Add agent",Icons.Default.AddCircle,enabled,onClick={open=true})\n    if(open) AgentInviteLinkDialog(source,id,false,enrollment=true) {open=false}','val es=LocalConfiguration.current.locales[0].language=="es";val opener=LocalAgentGroupDialogOpener.current\n    ProfileGroupActionButton(if(es) "Agregar agente" else "Add agent",Icons.Default.AddCircle,enabled && opener!=null,onClick={opener?.invoke(AgentGroupDialog(id,true))})')
+          old=next(x for x in p.read_text().splitlines() if 'try {require(file!=null && identity!=null && identity.matches(source))' in x)
+          new='            try {val f=file ?: throw EnrollmentSaveFailure("SAVE_NO_PENDING_FILE");val identityRequired=identity ?: throw EnrollmentSaveFailure("SAVE_NO_IDENTITY");val coroutine=currentCoroutineContext();withContext(Dispatchers.IO) {val guard={coroutine.ensureActive();identityRequired.matches(source)};val receipt=copyEnrollmentSave(f,{context.contentResolver.openOutputStream(uri,"wt") ?: throw EnrollmentSaveFailure("SAVE_NO_OUTPUT")},guard);verifyEnrollmentSave(receipt,{context.contentResolver.openInputStream(uri) ?: throw EnrollmentSaveFailure("SAVE_NO_READBACK")},guard)};saved=true;notice=message(true)}'
+          change(p,old,new)
+          old='            catch(e:CancellationException) {throw e} catch(_:Exception) {notice=message(false)}'
+          change(p,old,'            catch(e:CancellationException) {throw e} catch(e:Exception) {notice=message(false)+" ["+((e as? EnrollmentSaveFailure)?.code ?: "SAVE_IO")+"]"}')
+          change(p,'            var file:File?=null','            var file:File?=null\n            var handedToPicker=false')
+          change(p,'binding=identity;pending=file;picker.launch(artifact.fileName)','binding=identity;pending=file;picker.launch(artifact.fileName);handedToPicker=true')
+          change(p,'            } catch(e:CancellationException) {throw e} catch(_:Exception) {notice=message(false)}','            } catch(e:CancellationException) {if(!handedToPicker) pending=null;throw e} catch(_:Exception) {if(!handedToPicker) pending=null;notice=message(false)+" [DOWNLOAD_OR_PICKER_FAILED]"}')
+          change(p,'if(pending==null) {file?.delete();busy=false}','if(!handedToPicker) {file?.delete();busy=false}')
+          files=list(dict.fromkeys(touched))+[str(ui/'AgentRuntimeFixes.kt'),'app/src/test/java/iecxiv/meshfabric/ui/management/EnrollmentSaveTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentGroupDialogsHostTest.kt']
+          assert all(not Path(x).exists() for x in files[-3:])
+          Path('/tmp/agent-runtime-files.json').write_text(json.dumps(files))
+          PY
+          cat > app/src/main/java/iecxiv/meshfabric/ui/management/AgentRuntimeFixes.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.*
+          import java.io.File
+          import java.io.IOException
+          import java.io.InputStream
+          import java.io.OutputStream
+          import java.security.MessageDigest
+
+          internal data class AgentGroupDialog(val mesh:String,val enrollment:Boolean)
+          internal val LocalAgentGroupDialogOpener=staticCompositionLocalOf<((AgentGroupDialog)->Unit)?> {null}
+          @Composable internal fun AgentGroupDialogsHost(identity:Any,render:@Composable (AgentGroupDialog,()->Unit)->Unit,content:@Composable ()->Unit) {
+              var target by remember(identity) {mutableStateOf<AgentGroupDialog?>(null)}
+              CompositionLocalProvider(LocalAgentGroupDialogOpener provides {value->target=value}) {content()}
+              target?.let {value->render(value) {target=null}}
+          }
+          internal class EnrollmentSaveFailure(val code:String):IOException(code)
+          internal data class EnrollmentSaveReceipt(val size:Long,val sha256:List<Byte>)
+          private fun saveGuard(current:()->Boolean) {if(!current()) throw EnrollmentSaveFailure("SAVE_IDENTITY_CHANGED")}
+          internal fun copyEnrollmentSave(file:File,open:()->OutputStream,current:()->Boolean):EnrollmentSaveReceipt {
+              if(!file.isFile || file.length()<=0) throw EnrollmentSaveFailure("SAVE_SOURCE_MISSING_OR_EMPTY")
+              val expected=file.length();saveGuard(current)
+              val digest=MessageDigest.getInstance("SHA-256");var count=0L
+              file.inputStream().use {input->open().use {output->
+                  val bytes=ByteArray(65536)
+                  while(true) {saveGuard(current);val n=input.read(bytes);if(n<0) break;count+=n;if(count>expected) throw EnrollmentSaveFailure("SAVE_SOURCE_CHANGED");output.write(bytes,0,n);digest.update(bytes,0,n)}
+                  output.flush()
+              }}
+              saveGuard(current)
+              if(count<=0 || count!=expected || file.length()!=expected) throw EnrollmentSaveFailure("SAVE_BYTE_COUNT")
+              return EnrollmentSaveReceipt(count,digest.digest().toList())
+          }
+          internal fun verifyEnrollmentSave(receipt:EnrollmentSaveReceipt,open:()->InputStream,current:()->Boolean) {
+              saveGuard(current);val digest=MessageDigest.getInstance("SHA-256");var count=0L
+              open().use {input->val bytes=ByteArray(65536);while(true) {saveGuard(current);val n=input.read(bytes);if(n<0) break;count+=n;if(count>receipt.size) throw EnrollmentSaveFailure("SAVE_VERIFY_SIZE");digest.update(bytes,0,n)}}
+              saveGuard(current)
+              if(receipt.size<=0 || count!=receipt.size || digest.digest().toList()!=receipt.sha256) throw EnrollmentSaveFailure("SAVE_VERIFY_CONTENT")
+          }
+          KOTLIN
+          cat > app/src/test/java/iecxiv/meshfabric/ui/management/EnrollmentSaveTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import java.io.*
+          import org.junit.Assert.*
+          import org.junit.Test
+          class EnrollmentSaveTest {
+              private fun file(bytes:ByteArray)=File.createTempFile("enrollment-test-",".bin").apply {writeBytes(bytes);deleteOnExit()}
+              @Test fun nonEmptySaveIsReadBackAndVerified() {val bytes=ByteArray(131073) {(it%251).toByte()};val f=file(bytes);try {val out=ByteArrayOutputStream();val receipt=copyEnrollmentSave(f,{out},{true});assertEquals(bytes.size.toLong(),receipt.size);assertArrayEquals(bytes,out.toByteArray());verifyEnrollmentSave(receipt,{ByteArrayInputStream(out.toByteArray())},{true})} finally {f.delete()}}
+              @Test fun missingSourceNeverOpensDestination() {val f=file(byteArrayOf(1));f.delete();var opened=false;assertThrows(EnrollmentSaveFailure::class.java) {copyEnrollmentSave(f,{opened=true;ByteArrayOutputStream()},{true})};assertFalse(opened)}
+              @Test fun emptySourceNeverOpensDestination() {val f=file(byteArrayOf());var opened=false;try {assertThrows(EnrollmentSaveFailure::class.java) {copyEnrollmentSave(f,{opened=true;ByteArrayOutputStream()},{true})};assertFalse(opened)} finally {f.delete()}}
+              @Test fun identityMismatchNeverOpensDestination() {val f=file(byteArrayOf(1,2,3));var opened=false;try {assertThrows(EnrollmentSaveFailure::class.java) {copyEnrollmentSave(f,{opened=true;ByteArrayOutputStream()},{false})};assertFalse(opened)} finally {f.delete()}}
+              @Test fun zeroByteReadbackIsRejected() {val f=file(byteArrayOf(1,2,3));try {val r=copyEnrollmentSave(f,{ByteArrayOutputStream()},{true});assertThrows(EnrollmentSaveFailure::class.java) {verifyEnrollmentSave(r,{ByteArrayInputStream(byteArrayOf())},{true})}} finally {f.delete()}}
+              @Test fun outputFailureDoesNotProduceReceipt() {val f=file(byteArrayOf(1,2,3));try {assertThrows(IOException::class.java) {copyEnrollmentSave(f,{object:OutputStream() {override fun write(b:Int) {throw IOException("inert output failure")}}},{true})}} finally {f.delete()}}
+          }
+          KOTLIN
+          cat > app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentGroupDialogsHostTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import org.junit.Rule
+          import org.junit.Test
+          class AgentGroupDialogsHostTest {
+              @get:Rule val compose=createComposeRule()
+              private fun show(enrollment:Boolean) {compose.setContent {var parent by remember {mutableStateOf(true)};var identity by remember {mutableStateOf("first")};MaterialTheme {Column {TextButton(onClick={parent=false},modifier=Modifier.testTag("hide-parent")) {Text("Hide parent")};TextButton(onClick={identity="second"},modifier=Modifier.testTag("identity")) {Text("Change identity")};AgentGroupDialogsHost(identity,render={target,_->Text(target.mesh+":"+target.enrollment,Modifier.testTag("agent-dialog"))}) {if(parent) {val opener=LocalAgentGroupDialogOpener.current;TextButton(onClick={opener?.invoke(AgentGroupDialog("mesh//group",enrollment))},modifier=Modifier.testTag("open")) {Text("Open")}}}}}}}
+              @Test fun inviteSurvivesRemovalOfGroupContent() {show(false);compose.onNodeWithTag("open").performClick();compose.onNodeWithTag("hide-parent").performClick();compose.onNodeWithTag("open").assertDoesNotExist();compose.onNodeWithTag("agent-dialog").assertTextEquals("mesh//group:false")}
+              @Test fun enrollmentSurvivesRemovalOfGroupContent() {show(true);compose.onNodeWithTag("open").performClick();compose.onNodeWithTag("hide-parent").performClick();compose.onNodeWithTag("agent-dialog").assertTextEquals("mesh//group:true")}
+              @Test fun identityChangeClearsDialog() {show(false);compose.onNodeWithTag("open").performClick();compose.onNodeWithTag("identity").performClick();compose.onNodeWithTag("agent-dialog").assertDoesNotExist()}
+          }
+          KOTLIN
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Clean build; execute all unit tests and lint
+        run: bash ./gradlew :app:clean :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Execute full Android suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Require all 53 feature regressions and complete passing reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast,json,re,xml.etree.ElementTree as E
+          source=Path('.github/workflows/validate-add-device-invite-full.yml').read_text();a=source.index('          entries=[')+len('          entries=');b=source.index('          expected={}',a)
+          entries=ast.literal_eval('\n'.join(x[10:] if x.startswith('          ') else x for x in source[a:b].splitlines()))
+          entries += [('app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentCommandTest.kt','iecxiv.meshfabric.ui.management.AgentEnrollmentCommandTest',5),('app/src/test/java/iecxiv/meshfabric/ui/management/EnrollmentSaveTest.kt','iecxiv.meshfabric.ui.management.EnrollmentSaveTest',6),('app/src/androidTest/java/iecxiv/meshfabric/ui/management/AgentGroupDialogsHostTest.kt','iecxiv.meshfabric.ui.management.AgentGroupDialogsHostTest',3)]
+          expected={};found={}
+          for path,name,count in entries:
+              methods=re.findall(r'@Test\s+fun\s+(\w+)\s*\(',Path(path).read_text());assert len(methods)==count and len(set(methods))==count,(path,methods);expected[name]=set(methods);found[name]=[]
+          assert sum(map(len,expected.values()))==53
+          totals={}
+          for kind,path in [('unit','app/build/test-results/testDebugUnitTest'),('android','app/build/outputs/androidTest-results/connected')]:
+              reports=list(Path(path).rglob('TEST-*.xml'));assert reports,kind;total=0
+              for p in reports:
+                  root=E.parse(p).getroot();assert not root.findall('.//failure') and not root.findall('.//error') and not root.findall('.//skipped'),str(p)
+                  for c in root.iter('testcase'):
+                      total+=1
+                      if c.get('classname') in found:found[c.get('classname')].append(c.get('name'))
+              assert total>0;totals[kind]=total
+          for name,methods in expected.items():assert len(found[name])==len(methods) and set(found[name])==methods,(name,found[name])
+          out=Path('validation/agent-runtime');out.mkdir(parents=True,exist_ok=True);(out/'tests.json').write_text(json.dumps({'executed_cases':totals,'verified_feature_methods':53,'real_server_retest':'pending'},indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-management-runtime-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            validation/agent-runtime/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Publish only validated targeted runtime corrections
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,subprocess
+          expected=set(json.loads(Path('/tmp/agent-runtime-files.json').read_text()));subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines());assert actual==expected,actual
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: hoist management agent dialogs and verify saved installer bytes'
+          git push origin HEAD:refs/heads/add-device-invite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-agent-management-runtime-debug-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error

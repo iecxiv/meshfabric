@@ -1,0 +1,192 @@
+name: Fix Linux agent command fallback
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/fix-agent-linux-command-fallback.yml]
+permissions:
+  contents: write
+concurrency:
+  group: fix-agent-linux-command-fallback
+  cancel-in-progress: false
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check base and restore direct fallback
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 6497ac00f679dd3ecf19d8c14ca8cfb665f64648
+          printf 'AGENT_COMMAND_FIXTURES=%s/agent-command-fixtures.json\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/management/AgentEnrollment.kt')
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='39d48069d05e628ebc57517f2bac8e50a77f1de5'
+          s=p.read_text();lines=[line for line in s.splitlines() if line.startswith('    return "(wget "+')]
+          assert len(lines)==1
+          old=lines[0];assert 'sudo -E ./meshinstall.sh ' in old and ' || ./meshinstall.sh ' not in old and old.endswith('enrollmentQuote(mid)')
+          new=old+'+" || ./meshinstall.sh "+prefix+enrollmentQuote(b)+" "+enrollmentQuote(mid)'
+          assert s.count(old)==1
+          p.write_text(s.replace(old,new,1))
+          PY
+          test ! -e app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentCommandTest.kt
+          cat > app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentCommandTest.kt <<'KOTLIN'
+          package iecxiv.meshfabric.ui.management
+          import com.google.gson.JsonArray
+          import com.google.gson.JsonObject
+          import java.io.File
+          import org.junit.Assert.*
+          import org.junit.Test
+          class AgentEnrollmentCommandTest {
+              private val base="https://example.test/domain"
+              private fun expected(uninstall:Boolean):String {val args=(if(uninstall) "uninstall " else "")+"'https://example.test/domain' 'group'";return "(wget 'https://example.test/domain/meshagents?script=1' -O ./meshinstall.sh || wget 'https://example.test/domain/meshagents?script=1' --no-proxy -O ./meshinstall.sh) && chmod 755 ./meshinstall.sh && sudo -E ./meshinstall.sh "+args+" || ./meshinstall.sh "+args}
+              @Test fun installHasCompleteUpstreamFallback() {assertEquals(expected(false),enrollmentLinuxCommand(base,"mesh//group",false,false))}
+              @Test fun uninstallHasCompleteUpstreamFallback() {assertEquals(expected(true),enrollmentLinuxCommand(base,"mesh//group",true,false))}
+              @Test fun fallbackReceivesIdenticalArguments() {for(u in listOf(false,true)) for(ssl in listOf(false,true)) {val c=enrollmentLinuxCommand(base,"mesh//group",u,ssl);val parts=c.substringAfter("sudo -E ./meshinstall.sh ").split(" || ./meshinstall.sh ");assertEquals(2,parts.size);assertEquals(parts[0],parts[1]);assertEquals(u,parts[1].startsWith("uninstall "))}}
+              @Test fun certificateAndProxyOptionsArePreserved() {for(ssl in listOf(false,true)) {val c=enrollmentLinuxCommand(base,"mesh//group",false,ssl);assertEquals(if(ssl) 2 else 0,Regex("--no-check-certificate").findAll(c).count());assertEquals(1,Regex("--no-proxy").findAll(c).count())}}
+              @Test fun literalGroupArgumentsAndExecutionFixtures() {
+                  val group="abc@${'$'}def";val rows=JsonArray()
+                  for(u in listOf(false,true)) for(ssl in listOf(false,true)) {
+                      val command=enrollmentLinuxCommand(base,"mesh//"+group,u,ssl)
+                      assertTrue(command.endsWith(" || ./meshinstall.sh "+(if(u) "uninstall " else "")+"'https://example.test/domain' 'abc@${'$'}def'"))
+                      rows.add(JsonObject().apply {addProperty("command",command);addProperty("server",base);addProperty("group",group);addProperty("uninstall",u)})
+                  }
+                  val target=System.getenv("AGENT_COMMAND_FIXTURES") ?: File(System.getProperty("java.io.tmpdir"),"meshfabric-agent-command-fixtures.json").path
+                  File(target).writeText(rows.toString())
+              }
+          }
+          KOTLIN
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and Android tests; execute all unit tests and lint
+        run: bash ./gradlew :app:clean :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Execute generated commands against inert shell stubs only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,os,subprocess,sys,tempfile
+          fixtures=json.loads(Path(os.environ['AGENT_COMMAND_FIXTURES']).read_text())
+          assert len(fixtures)==4
+          logger='import json,os,sys\nfrom pathlib import Path\nwith open(os.environ["TRACE"],"a") as f:f.write(json.dumps([Path(sys.argv[0]).name]+sys.argv[1:])+chr(10))\n'
+          scenarios=[('sudo-success',0,0),('sudo-failure',1,0),('download-failure-with-inert-existing-script',0,1)]
+          checked=[]
+          for fixture in fixtures:
+              assert 'example.test' in fixture['command']
+              for scenario,sudo_status,wget_status in scenarios:
+                  with tempfile.TemporaryDirectory() as d:
+                      root=Path(d);bin=root/'bin';bin.mkdir();trace=root/'trace.jsonl'
+                      def stub(path,body):
+                          program='#!'+sys.executable+'\n'+logger+body
+                          compile(program,str(path),'exec')
+                          path.write_text(program);path.chmod(0o755)
+                      stub(bin/'wget','sys.exit(int(os.environ["WGET_STATUS"]))\n')
+                      stub(bin/'chmod','sys.exit(0)\n')
+                      stub(bin/'sudo','import subprocess\nstatus=int(os.environ["SUDO_STATUS"])\nif status:sys.exit(status)\nassert sys.argv[1]=="-E"\nsys.exit(subprocess.run(sys.argv[2:],check=False).returncode)\n')
+                      stub(root/'meshinstall.sh','sys.exit(0)\n')
+                      env=os.environ.copy();env.update(PATH=str(bin)+':/usr/bin:/bin',TRACE=str(trace),SUDO_STATUS=str(sudo_status),WGET_STATUS=str(wget_status))
+                      result=subprocess.run(['/bin/sh','-c',fixture['command']],cwd=root,env=env,capture_output=True,text=True,timeout=10)
+                      assert result.returncode==0,(scenario,result.stderr)
+                      calls=[json.loads(line) for line in trace.read_text().splitlines()]
+                      installs=[call[1:] for call in calls if call[0]=='meshinstall.sh']
+                      args=(['uninstall'] if fixture['uninstall'] else [])+[fixture['server'],fixture['group']]
+                      assert installs==[args],(scenario,calls)
+                      assert sum(call[0]=='wget' for call in calls)==(2 if wget_status else 1),calls
+                      assert sum(call[0]=='sudo' for call in calls)==(0 if wget_status else 1),calls
+                      assert sum(call[0]=='chmod' for call in calls)==(0 if wget_status else 1),calls
+                      checked.append({'scenario':scenario,'uninstall':fixture['uninstall'],'exit_code':result.returncode})
+          assert len(checked)==12
+          out=Path('validation/agent-command');out.mkdir(parents=True,exist_ok=True)
+          (out/'shell-stub-results.json').write_text(json.dumps({'real_installers_executed':False,'checked_cases':checked},indent=2)+'\n')
+          PY
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Execute entire Android suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Require complete reports and all 44 feature regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast,json,re,xml.etree.ElementTree as E
+          source=Path('.github/workflows/validate-add-device-invite-full.yml').read_text()
+          a=source.index('          entries=[')+len('          entries=');b=source.index('          expected={}',a)
+          entries=ast.literal_eval('\n'.join(line[10:] if line.startswith('          ') else line for line in source[a:b].splitlines()))
+          entries.append(('app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentCommandTest.kt','iecxiv.meshfabric.ui.management.AgentEnrollmentCommandTest',5))
+          expected={};found={}
+          for path,name,count in entries:
+              methods=re.findall(r'@Test\s+fun\s+(\w+)\s*\(',Path(path).read_text());assert len(methods)==count and len(set(methods))==count,(path,methods)
+              expected[name]=set(methods);found[name]=[]
+          assert sum(len(v) for v in expected.values())==44
+          totals={}
+          for kind,path in [('unit','app/build/test-results/testDebugUnitTest'),('android','app/build/outputs/androidTest-results/connected')]:
+              reports=list(Path(path).rglob('TEST-*.xml'));assert reports,kind;total=0
+              for p in reports:
+                  root=E.parse(p).getroot();assert not root.findall('.//failure') and not root.findall('.//error') and not root.findall('.//skipped'),str(p)
+                  for c in root.iter('testcase'):
+                      total+=1
+                      if c.get('classname') in found:found[c.get('classname')].append(c.get('name'))
+              assert total>0;totals[kind]=total
+          for name,methods in expected.items():assert len(found[name])==len(methods) and set(found[name])==methods,(name,found[name])
+          Path('validation/agent-command/tests.json').write_text(json.dumps({'executed_cases':totals,'verified_feature_methods':44,'test_filters':None},indent=2)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-linux-fallback-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            validation/agent-command/
+          retention-days: 14
+          if-no-files-found: error
+      - name: Publish only corrected generator and new regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          git add -- app/src/main/java/iecxiv/meshfabric/ui/management/AgentEnrollment.kt app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentCommandTest.kt
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/AgentEnrollment.kt','app/src/test/java/iecxiv/meshfabric/ui/management/AgentEnrollmentCommandTest.kt'}
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines());assert actual==expected,actual
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix: preserve MeshCentral direct execution fallback in Linux agent commands'
+          git push origin HEAD:refs/heads/add-device-invite
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-agent-linux-fallback-debug-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error

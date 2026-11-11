@@ -26,6 +26,9 @@ import org.json.JSONObject
 internal data class ProfileForm(val users:Boolean,val operation:String,val id:String="",val name:String="",val email:String="",val description:String="")
 
 @Composable internal fun ProfileScreen(source:MeshCentralClient,modifier:Modifier=Modifier,header:@Composable (@Composable ()->Unit)->Unit={}) {
+val agentActor by source.userInfo.collectAsState()
+val agentIdentity=remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,agentActor?.id) {Any()}
+AgentGroupDialogsHost(agentIdentity,render={target,close->AgentInviteLinkDialog(source,target.mesh,false,enrollment=target.enrollment,onDismiss=close)}) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(s:String,e:String)=if(es) s else e
 val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -150,4 +153,5 @@ if(session.submit(p)) form=null else error=t("No se ha enviado. Comprueba conexi
 userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}
 deviceAssignment?.let {(gid,mid)->GroupMeshAssignmentReview(session,state,gid,mid) {deviceAssignment=null}}
 deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}
+}
 }

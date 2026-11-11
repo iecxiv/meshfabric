@@ -1,0 +1,26 @@
+{
+  "package": "meshcentral",
+  "version": "1.3.1",
+  "npm_integrity": "sha512-adf9wyq+78RK6HTRNlF0OO9sPs6dzDaYlScaHRqs2w8xefm/QmS/zdrwuV2UuWWiOqh1RWPxgGNVwF/qvjL0Xg==",
+  "npm_shasum": "ce04bd23194cf9fc2f698c25be460629fef405fb",
+  "archive_sha256": "e23892965c9437e4392f455648111c8f89652732564a8fd475858934c461fd5f",
+  "repository_commit": "20d681ce6166e97e9074b86026d9bd478ed512a5",
+  "sources": {
+    "package/package.json": {
+      "sha256": "28d4ed683e838b3b7752a1d04f167184e632dccafaec2b44aa03baa9b2973b4d",
+      "bytes": 1540
+    },
+    "package/meshuser.js": {
+      "sha256": "2683d9902631e4b0393a6391d4ae4ce0b6949dfeadd3384e5be7b9f09c36732b",
+      "bytes": 643556
+    },
+    "package/webserver.js": {
+      "sha256": "46afba73577aa380cdc3a2edefc7c2ac4c1c3a4c50f020aefb1a3ce0f4c6420c",
+      "bytes": 787615
+    },
+    "package/views/default.handlebars": {
+      "sha256": "9f1e0f7b80c18b1d243394849661eb502e5b1a6eaf7ca7ecfe82e2706ebf6247",
+      "bytes": 1557120
+    }
+  }
+}

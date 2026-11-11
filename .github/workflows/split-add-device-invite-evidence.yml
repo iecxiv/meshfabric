@@ -1,0 +1,73 @@
+name: Split invitation audit evidence
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/split-add-device-invite-evidence.yml]
+permissions:
+  contents: write
+concurrency:
+  group: split-add-device-invite-evidence
+  cancel-in-progress: false
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Split verified originals into lossless JSON envelopes
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          python3 - <<'PY'
+          import hashlib,json,re,subprocess
+          from pathlib import Path
+          sources={'meshuser.js.excerpts.md':'fd0bd343e9d1835f60f12c25252bac937223661b','webserver.js.excerpts.md':'1ea4011423845eaf5ae68b7fc788fd7835695a17','default.handlebars.excerpts.md':'35cd30cbbaca141cb5a84a8f98c6bda99e2da349'}
+          root=Path('tools/tests'); out=root/'add-device-invite-chunks'
+          assert not out.exists(), 'Refuse to overwrite an existing split'
+          out.mkdir()
+          index={'description':'Each fragment is a JSON envelope with a text field. Decode JSON, concatenate text fields in listed order, then UTF-8 encode to recover the exact original bytes. Excerpt line numbers are not upstream source line numbers.','sources':[]}
+          for name,expected in sources.items():
+              path=root/name
+              assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()==expected, 'Original changed: '+name
+              raw=path.read_bytes(); text=raw.decode('utf-8')
+              assert text.encode('utf-8')==raw
+              fragments=[]; rebuilt=[]
+              for number,start in enumerate(range(0,len(text),6000),1):
+                  part=text[start:start+6000]
+                  target=f'{name}.{number:03d}.json'
+                  encoded=json.dumps({'text':part},ensure_ascii=True,indent=2)+'\n'
+                  assert all(line==line.rstrip() for line in encoded.splitlines())
+                  (out/target).write_bytes(encoded.encode('ascii'))
+                  decoded=json.loads((out/target).read_text(encoding='ascii'))['text']
+                  assert decoded==part
+                  rebuilt.append(decoded.encode('utf-8'))
+                  topics=[]
+                  for label,pattern in [('group-invite',r'inviteAgent|createInviteLink|agentinvite|invitationLink'),('device-share',r'createDeviceShareLink|removeDeviceShare|deviceShares|guestsharing|guestdevicesharing'),('add-agent',r'showAddMeshAgent|meshagents|meshsettings|installflags|magenturl|agentCertHash')]:
+                      if re.search(pattern,part,re.I): topics.append(label)
+                  fragments.append({'file':target,'excerpt_line_start':text.count('\n',0,start)+1,'topics':topics})
+              assert b''.join(rebuilt)==raw, 'Split is not lossless: '+name
+              index['sources'].append({'file':name,'git_blob':expected,'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),'fragments':fragments})
+          (out/'index.json').write_text(json.dumps(index,indent=2)+'\n',encoding='utf-8')
+          PY
+          git diff --check
+      - name: Publish fragments only if work branch is unchanged
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          git fetch origin add-device-invite
+          test "$(git rev-parse origin/add-device-invite)" = "$GITHUB_SHA"
+          git add -- tools/tests/add-device-invite-chunks/
+          python3 - <<'PY'
+          import subprocess
+          paths=subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
+          assert paths and all(p.startswith('tools/tests/add-device-invite-chunks/') for p in paths)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: publish lossless invitation audit fragments'
+          git push origin HEAD:refs/heads/add-device-invite

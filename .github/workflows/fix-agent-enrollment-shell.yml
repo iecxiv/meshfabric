@@ -1,0 +1,94 @@
+name: Validate agent enrollment with explicit Bash runner
+on:
+  push:
+    branches: [add-device-invite]
+    paths: [.github/workflows/fix-agent-enrollment-shell.yml]
+permissions:
+  contents: write
+concurrency:
+  group: publish-agent-enrollment
+  cancel-in-progress: false
+jobs:
+  enrollment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check fixed base and recover unchanged approved scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = add-device-invite
+          test "$(git rev-parse HEAD^)" = 234726c9d422753b3e387aa3c99ee6ddc9f828c2
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          path='.github/workflows/publish-agent-enrollment.yml'
+          original=subprocess.check_output(['git','show','234726c9d422753b3e387aa3c99ee6ddc9f828c2:'+path])
+          assert Path(path).read_bytes()==original,'Original enrollment workflow changed'
+          text=original.decode('utf-8')
+          def extract(name,target):
+              marker='      - name: '+name+'\n        run: |\n'
+              assert text.count(marker)==1,name
+              start=text.index(marker)+len(marker)
+              end=text.find('\n      - ',start)
+              assert end!=-1,name
+              lines=text[start:end].splitlines()
+              assert lines and all(not line or line.startswith('          ') for line in lines),name
+              script='\n'.join(line[10:] if line else '' for line in lines)+'\n'
+              Path(target).write_text(script)
+              subprocess.run(['bash','-n',target],check=True)
+          extract('Prepare integration and dependency','/tmp/agent-enrollment-prepare.sh')
+          extract('Verify exact new tests and unchanged invitation regressions','/tmp/agent-enrollment-verify.sh')
+          extract('Publish validated enrollment on unchanged branch','/tmp/agent-enrollment-publish.sh')
+          subprocess.run(['bash','-n','.github/scripts/run-agent-enrollment-android.sh'],check=True)
+          PY
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare original enrollment candidate without changing expectations
+        run: bash -euo pipefail /tmp/agent-enrollment-prepare.sh
+      - name: Compile app and Android tests; execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - name: Execute enrollment, invitation and navigation under Bash
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/run-agent-enrollment-android.sh
+      - name: Require original exact test methods without omissions
+        run: bash -euo pipefail /tmp/agent-enrollment-verify.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-enrollment-bash-validation-${{ github.run_id }}
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            /tmp/agent-enrollment-android/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish original seven validated files on unchanged branch
+        run: bash -euo pipefail /tmp/agent-enrollment-publish.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-agent-enrollment-debug-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+          if-no-files-found: error
