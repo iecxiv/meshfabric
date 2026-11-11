@@ -34,13 +34,16 @@ internal class AgentInvitationChannel(
     private val factory:WebSocket.Factory,
     private val current:()->Boolean,
     private val result:(InvitationDelivery)->Unit,
-    private val clock:InvitationScheduler=InvitationTimer()
+    private val clock:InvitationScheduler=InvitationTimer(),
+    private var authToken:String
 ) {
     private var used=false
     private var done=false
     private var sent=false
     private var phase=0
-    val diagnosticCode:String get()=if(phase==0) "INVITE_WAITING_USERINFO" else "INVITE_WAITING_LINK_REPLY"
+    private var handshakeSent=false
+    @Volatile var diagnosticCode:String="INVITE_CONNECTING"
+        private set
     private var socket:WebSocket?=null
     private var request=JsonObject()
     private var action=""
@@ -50,6 +53,7 @@ internal class AgentInvitationChannel(
     private fun live()=runCatching {current()}.getOrDefault(false)
     @Synchronized fun start(packet:JsonObject):Boolean {
         if(used || done || !live()) return false
+        if(authToken.isBlank()) {diagnosticCode="INVITE_AUTH_MISSING";return false}
         val a=text(packet,"action") ?: return false
         if(a!="createInviteLink" || packet.has("nodeid")) return false
         val t=text(packet,"meshid") ?: return false
@@ -59,18 +63,19 @@ internal class AgentInvitationChannel(
         try {
             val created=factory.newWebSocket(binding.request(),listener)
             if(done) created.cancel() else socket=created
-            if(!done) {clock.later(20_000) {synchronized(this) {if(!done) fail()}};watch()}
-        } catch(_:Exception) {fail()}
+            if(!done) {clock.later(20_000) {synchronized(this) {if(!done) fail("INVITE_TIMEOUT_"+if(!handshakeSent) "CONNECTING" else if(phase==0) "USERINFO" else "LINK_REPLY")}};watch()}
+        } catch(_:Exception) {fail("INVITE_CONNECT_FAILURE")}
         return true
     }
     private fun watch() {clock.later(250) {synchronized(this) {if(!done) {if(!live()) finish(InvitationDelivery.ContextChanged) else watch()}}}}
     private fun finish(value:InvitationDelivery) {
         if(done) return
-        done=true;clock.close();socket?.cancel();socket=null
+        if(value==InvitationDelivery.ContextChanged) diagnosticCode="INVITE_CONTEXT_CHANGED"
+        done=true;authToken="";clock.close();socket?.cancel();socket=null
         request=JsonObject()
         result(value)
     }
-    private fun fail()=finish(if(sent) InvitationDelivery.Unconfirmed else InvitationDelivery.NotSent)
+    private fun fail(code:String?=null) {if(code!=null) diagnosticCode=code;finish(if(sent) InvitationDelivery.Unconfirmed else InvitationDelivery.NotSent)}
     @Synchronized fun close() {if(!done) fail()}
     private fun receive(p:JsonObject) {
         val a=text(p,"action") ?: return
@@ -82,12 +87,13 @@ internal class AgentInvitationChannel(
             return
         }
         if(a=="userinfo") {
+            if(!handshakeSent) return
             val user=p.get("userinfo")?.takeIf {it.isJsonObject}?.asJsonObject
             if(user==null || text(user,"_id")!=binding.actor) {finish(InvitationDelivery.ContextChanged);return}
             if(phase!=0) return
             if(!live()) {finish(InvitationDelivery.ContextChanged);return}
-            phase=1;sent=true
-            try {if(socket?.send(request.toString())!=true) {sent=false;fail()}} catch(_:Exception) {fail()}
+            phase=1;sent=true;diagnosticCode="INVITE_WAITING_LINK_REPLY"
+            try {if(socket?.send(request.toString())!=true) {sent=false;fail("INVITE_LINK_SEND_FAILED")}} catch(_:Exception) {fail("INVITE_LINK_SEND_EXCEPTION")}
             return
         }
         if(phase!=1) return
@@ -98,7 +104,13 @@ internal class AgentInvitationChannel(
         override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@AgentInvitationChannel) {
             if(done || !live()) {webSocket.cancel();if(!done) finish(InvitationDelivery.ContextChanged);return}
             socket=webSocket
-            if(!webSocket.send("{\"action\":\"userinfo\"}")) fail()
+            try {
+                diagnosticCode="INVITE_AUTH_SENDING"
+                val auth=JsonObject().apply {addProperty("action","urlargs");add("args",JsonObject().apply {addProperty("auth",authToken)})}
+                if(!webSocket.send(auth.toString())) {fail("INVITE_AUTH_SEND_FAILED");return}
+                authToken="";handshakeSent=true;diagnosticCode="INVITE_WAITING_USERINFO"
+                if(!webSocket.send("{\"action\":\"userinfo\"}")) fail("INVITE_USERINFO_SEND_FAILED")
+            } catch(_:Exception) {fail("INVITE_HANDSHAKE_SEND_EXCEPTION")}
         }}
         override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@AgentInvitationChannel) {
             if(done) return
@@ -109,16 +121,17 @@ internal class AgentInvitationChannel(
             receive(p)
         }}
         override fun onMessage(webSocket:WebSocket,bytes:ByteString) {synchronized(this@AgentInvitationChannel) {if(!done) fail()}}
-        override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@AgentInvitationChannel) {if(!done) fail()}}
-        override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@AgentInvitationChannel) {if(!done) fail()}}
-        override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {synchronized(this@AgentInvitationChannel) {if(!done) fail()}}
+        override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@AgentInvitationChannel) {if(!done) fail("INVITE_SOCKET_CLOSED_"+if(phase==0) "BEFORE_IDENTITY" else "AFTER_MUTATION")}}
+        override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@AgentInvitationChannel) {if(!done) fail("INVITE_SOCKET_CLOSED_"+if(phase==0) "BEFORE_IDENTITY" else "AFTER_MUTATION")}}
+        override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {synchronized(this@AgentInvitationChannel) {if(!done) fail("INVITE_SOCKET_FAILURE_"+if(phase==0) "BEFORE_IDENTITY" else "AFTER_MUTATION")}}
     }
     companion object {
         fun fromSource(source:MeshCentralClient,result:(InvitationDelivery)->Unit):AgentInvitationChannel? {
             val actor=source.userInfo.value?.id ?: return null
-            val binding=InvitationBinding(source.serverUrl,actor,source.authCookie,source.ignoreSsl)
+            val cookie=source.authCookie
+            val binding=InvitationBinding(source.serverUrl,actor,cookie,source.ignoreSsl)
             if(actor.isBlank() || !binding.matches(source)) return null
-            return AgentInvitationChannel(binding,OkHttpHelper.createClient(binding.ignoreSsl),{binding.matches(source)},result)
+            return AgentInvitationChannel(binding,OkHttpHelper.createClient(binding.ignoreSsl),{binding.matches(source)},result,authToken=source.extractRawToken(cookie))
         }
     }
 }
