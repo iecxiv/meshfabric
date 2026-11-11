@@ -244,7 +244,6 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     LaunchedEffect(connected,viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie) { if(connected) management.connect() else management.pause() }
     LaunchedEffect(nodes) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
-        topBar={ if(page==4) MeshFabricAppBar(viewModel,onOpenSettings) },
         bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
             if(next in 0..4 && next!=page) {
                 if(next==2 && page in 0..1) returnPage=page
@@ -270,7 +269,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             } else if(page==3) {
                 ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
             } else if(page==4) {
-                NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),onDeviceMessage={node->
+                NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},onDeviceMessage={node->
                     operationNode=node.id
                     operation=Operation("Notificación remota · ${node.name}",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications) {values->
                         val title=values.getValue("title")

@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.management
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,23 +27,24 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
 
 @Composable internal fun NoticeCenterScreen(source:MeshCentralClient,inbox:NoticeInbox,
     actionsReady:Boolean,nodes:List<MeshNode>,modifier:Modifier=Modifier,
-    onDeviceMessage:(MeshNode)->Unit) {
+    onDeviceMessage:(MeshNode)->Unit,header:@Composable (@Composable ()->Unit)->Unit) {
     val actor by source.userInfo.collectAsState()
     val connected by source.connectionState.collectAsState()
     key(source,source.serverUrl,source.authCookie,source.ignoreSsl,actor?.id,connected) {
-        NoticeCenterContent(source,inbox,actionsReady,nodes,modifier,onDeviceMessage)
+        NoticeCenterContent(source,inbox,actionsReady,nodes,modifier,onDeviceMessage,header)
     }
 }
 
 @Composable private fun NoticeCenterContent(source:MeshCentralClient,inbox:NoticeInbox,
     actionsReady:Boolean,nodes:List<MeshNode>,modifier:Modifier,
-    onDeviceMessage:(MeshNode)->Unit) {
+    onDeviceMessage:(MeshNode)->Unit,header:@Composable (@Composable ()->Unit)->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var section by remember {mutableStateOf(NoticeSection.INBOX)}
     var broadcast by remember {mutableStateOf(false)}
     var recipient by remember {mutableStateOf<String?>(null)}
-    var search by remember {mutableStateOf("")}
+    var searchState by remember {mutableStateOf(NoticeSearchState())}
+    val search=searchState.query
     var devices by remember {mutableStateOf(false)}
     val recipientGroups by source.groupedDevices.collectAsState()
     val groupNames=recipientGroups.flatMap { (group,members)->members.map {it.id to group.name} }.toMap()
@@ -60,9 +62,11 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
         }
     }
     LaunchedEffect(state.ready) {if(!state.ready) {broadcast=false;recipient=null}}
+    BackHandler(enabled=section==NoticeSection.MESSAGES && searchState.open) {searchState=searchState.cleared()}
     Column(modifier) {
+        header {if(section==NoticeSection.MESSAGES) NoticeSearchAction(searchState) {searchState=searchState.toggle()}}
         NoticeCenterTabs(section) {
-            broadcast=false;recipient=null;search="";section=it
+            broadcast=false;recipient=null;searchState=searchState.cleared();section=it
         }
         when(section) {
             NoticeSection.INBOX->NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())
@@ -78,11 +82,11 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
             NoticeSection.MESSAGES->Column(Modifier.weight(1f).fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 ProfileManagementConnectionStatus(state,Modifier.fillMaxWidth(),session::start)
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected=!devices,onClick={devices=false;recipient=null;search=""},label={Text(t("Usuarios","Users"))})
-                    FilterChip(selected=devices,onClick={devices=true;recipient=null;search=""},label={Text(t("Dispositivos","Devices"))})
+                    FilterChip(selected=!devices,onClick={devices=false;recipient=null;searchState=searchState.cleared()},label={Text(t("Usuarios","Users"))})
+                    FilterChip(selected=devices,onClick={devices=true;recipient=null;searchState=searchState.cleared()},label={Text(t("Dispositivos","Devices"))})
                 }
                 Text(if(devices) t("Notificación en un dispositivo con agente conectado. El servidor valida los permisos.","Notification on a device with a connected agent. The server validates permissions.") else t("Notificación individual a un usuario; no es chat. No hay confirmación de entrega ni lectura.","Individual user notification; not chat. No delivery or read confirmation."),style=MaterialTheme.typography.bodySmall)
-                OutlinedTextField(search,{search=it.take(256)},label={Text(t("Buscar destinatario","Search recipients"))},singleLine=true,modifier=Modifier.fillMaxWidth())
+                NoticeSearchField(searchState,{searchState=searchState.edit(it)})
                 NoticeSubmissionStatus(state.notice,es)
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     if(devices) {
