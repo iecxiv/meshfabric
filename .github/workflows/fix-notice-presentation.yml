@@ -1,0 +1,160 @@
+name: Fix notice tabs and recipient labels
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/fix-notice-presentation.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply guarded presentation changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('app/src')
+          base=Path('java/iecxiv/meshfabric/ui/management')
+          p=root/'main'/base/'NoticeCenterScreen.kt'
+          raw=p.read_bytes()
+          blob=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+          if blob!='924f8fc4d480f075bb622a5ac306275e37b07054':
+              raise SystemExit('NoticeCenterScreen changed; refusing automatic patch')
+          text=raw.decode()
+          start=text.index('@Composable internal fun NoticeCenterTabs(')
+          end=text.index('@Composable internal fun NoticeCenterScreen(',start)
+          tabs='''@Composable internal fun NoticeCenterTabs(section:NoticeSection,onSelect:(NoticeSection)->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              ManagementSectionTabs(listOf(if(es) "Avisos" else "Notices", "Broadcast", if(es) "Mensajes" else "Messages"),section.ordinal) {
+                  NoticeSection.entries.getOrNull(it)?.let(onSelect)
+              }
+          }
+
+          '''
+          text=text[:start]+tabs+text[end:]
+          text=text.replace('import androidx.compose.ui.platform.testTag\n','')
+          def replace(old,new):
+              global text
+              if text.count(old)!=1:
+                  raise SystemExit('Missing or ambiguous anchor: '+old)
+              text=text.replace(old,new)
+          replace('    var devices by remember {mutableStateOf(false)}','    var devices by remember {mutableStateOf(false)}\n    val recipientGroups by source.groupedDevices.collectAsState()\n    val groupNames=recipientGroups.flatMap { (group,members)->members.map {it.id to group.name} }.toMap()')
+          replace('(it.name.contains(search,true) || it.id.contains(search,true))','noticeDeviceRecipientLabel(it.name,groupNames[it.id].orEmpty(),es).contains(search,true)')
+          replace('Text(node.name,style=MaterialTheme.typography.titleSmall)\n                            Text(node.id,style=MaterialTheme.typography.bodySmall)','NoticeRecipientName(noticeDeviceRecipientLabel(node.name,groupNames[node.id].orEmpty(),es))')
+          replace('(it.optString("name").contains(search,true) || it.optString("_id").contains(search,true))','noticeUserRecipientLabel(it.optString("name"),es).contains(search,true)')
+          replace('ProfileUserListIdentity(user,state.users)\n                            Text(user.optString("_id"),style=MaterialTheme.typography.bodySmall)','NoticeRecipientName(noticeUserRecipientLabel(user.optString("name"),es))')
+          p.write_text(text)
+          (root/'main'/base/'NoticeRecipientPresentation.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          internal fun noticeUserRecipientLabel(name:String,es:Boolean)=name.trim().ifBlank {if(es) "Usuario sin nombre" else "Unnamed user"}
+          internal fun noticeDeviceRecipientLabel(name:String,group:String,es:Boolean):String {
+              val device=name.trim().ifBlank {if(es) "Dispositivo sin nombre" else "Unnamed device"}
+              val mesh=group.trim().ifBlank {if(es) "Grupo no disponible" else "Group unavailable"}
+              return "$device ($mesh)"
+          }
+          @Composable internal fun NoticeRecipientName(label:String) {Text(label,style=MaterialTheme.typography.titleSmall)}
+          ''')
+          ui=root/'androidTest'/base/'NoticeCenterTabsUiTest.kt'
+          content=ui.read_text().replace('import androidx.compose.ui.test.onNodeWithTag','import androidx.compose.ui.test.hasText\nimport androidx.compose.ui.test.onNodeWithText\nimport androidx.compose.ui.test.assertIsDisplayed')
+          for key,matcher in [('INBOX','hasText("Avisos") or hasText("Notices")'),('BROADCAST','hasText("Broadcast")'),('MESSAGES','hasText("Mensajes") or hasText("Messages")')]:
+              old='onNodeWithTag("notice-tab-'+key+'")'
+              if old not in content:
+                  raise SystemExit('Missing UI test anchor: '+old)
+              content=content.replace(old,'onNode('+matcher+')')
+          extra='''
+              @Test fun recipientNamesUseReadableLabelsOnly() {
+                  compose.setContent {
+                      MaterialTheme {
+                          androidx.compose.foundation.layout.Column {
+                              NoticeRecipientName(noticeUserRecipientLabel("Ana",true))
+                              NoticeRecipientName(noticeDeviceRecipientLabel("Portatil","Oficina",true))
+                          }
+                      }
+                  }
+                  compose.onNodeWithText("Ana").assertIsDisplayed()
+                  compose.onNodeWithText("Portatil (Oficina)").assertIsDisplayed()
+                  compose.onNodeWithText("user//ana").assertDoesNotExist()
+                  compose.onNodeWithText("node//portatil").assertDoesNotExist()
+              }
+          '''
+          pos=content.rfind('}')
+          ui.write_text(content[:pos]+extra+content[pos:])
+          (root/'test'/base/'NoticeRecipientPresentationTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.assertEquals
+          import org.junit.Test
+          class NoticeRecipientPresentationTest {
+              @Test fun userShowsNameOnly() {assertEquals("Ana",noticeUserRecipientLabel(" Ana ",true))}
+              @Test fun deviceShowsGroup() {assertEquals("Portatil (Oficina)",noticeDeviceRecipientLabel("Portatil","Oficina",true))}
+              @Test fun homonymousDevicesKeepTheirGroup() {assertEquals("PC (A)",noticeDeviceRecipientLabel("PC","A",true));assertEquals("PC (B)",noticeDeviceRecipientLabel("PC","B",true))}
+              @Test fun missingNamesNeverFallBackToIdentifiers() {assertEquals("Usuario sin nombre",noticeUserRecipientLabel("",true));assertEquals("Dispositivo sin nombre (Grupo no disponible)",noticeDeviceRecipientLabel("","",true))}
+              @Test fun englishFallbacks() {assertEquals("Unnamed user",noticeUserRecipientLabel("",false));assertEquals("Unnamed device (Group unavailable)",noticeDeviceRecipientLabel("","",false))}
+          }
+          ''')
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish only reviewed files on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          suffix='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+suffix+'NoticeCenterScreen.kt','app/src/main/'+suffix+'NoticeRecipientPresentation.kt','app/src/test/'+suffix+'NoticeRecipientPresentationTest.kt','app/src/androidTest/'+suffix+'NoticeCenterTabsUiTest.kt'}
+          tracked=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          untracked=set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if tracked|untracked!=allowed:
+              raise SystemExit('Unexpected file set: '+repr(tracked|untracked))
+          for path in sorted(allowed):
+              subprocess.run(['git','add','--',path],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Align notice tabs and show recipient names with device groups"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: notice-presentation-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
