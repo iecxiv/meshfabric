@@ -31,133 +31,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Prepare guarded shared spacing changes
+      - name: Prepare approved compact layout with corrected measurement reference
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          from pathlib import Path
-          import hashlib
-          base='java/iecxiv/meshfabric/ui/management/';root=Path('app/src')
-          hashes={'main/ManagementConnectionStatus.kt':'e391d5b1294f70a5ff4126f75c0afb218cd7804f','main/ManagementConnectionSpacing.kt':'47d76455ca8b961f4147fff3398457153798d648','main/NoticeCenterScreen.kt':'9647522cf43d15c3b8feb889cb9052ee028162fb','androidTest/ManagementConnectionStatusTest.kt':'1224c35bb1441fa32d35635c368d98facabfcf78','androidTest/ManagementConnectionSpacingTest.kt':'b0ec4c45f0f02abab8c8afa97af6657bce15fd24'}
-          for name,sha in hashes.items():
-              kind,file=name.split('/',1);raw=(root/kind/base/file).read_bytes()
-              if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!=sha: raise SystemExit(name+' changed; review required')
-          (root/'main'/base/'ManagementConnectionStatus.kt').write_text('''package iecxiv.meshfabric.ui.management
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.material3.*
-          import androidx.compose.runtime.Composable
-          import androidx.compose.ui.Alignment
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.platform.LocalConfiguration
-          import androidx.compose.ui.platform.testTag
-          import androidx.compose.ui.semantics.LiveRegionMode
-          import androidx.compose.ui.semantics.liveRegion
-          import androidx.compose.ui.semantics.semantics
-          import androidx.compose.ui.unit.dp
-          @Composable internal fun ManagementConnectionStatus(ready:Boolean,connecting:Boolean,reconnectEnabled:Boolean=true,modifier:Modifier=Modifier,onReconnect:()->Unit) {
-              val es=LocalConfiguration.current.locales[0].language=="es"
-              val text=when {
-                  ready->if(es) "Canal de gestión conectado. El servidor valida los permisos." else "Management channel connected. The server validates permissions."
-                  connecting->if(es) "Conectando con el canal de gestión..." else "Connecting to the management channel..."
-                  else->if(es) "Canal de gestión desconectado." else "Management channel disconnected."
-              }
-              val showReconnect=!ready && !connecting
-              Row(modifier.fillMaxWidth().testTag("management-connection-row").padding(vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
-                  Text(text,Modifier.weight(1f).testTag("management-connection-label").semantics {liveRegion=LiveRegionMode.Polite},style=MaterialTheme.typography.bodySmall,color=if(showReconnect) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                  if(showReconnect) TextButton(onClick=onReconnect,enabled=reconnectEnabled,modifier=Modifier.testTag("management-reconnect").heightIn(min=48.dp)) {Text(if(es) "Reconectar" else "Reconnect")}
-              }
-          }
-          ''')
-          p=root/'main'/base/'ManagementConnectionSpacing.kt';text=p.read_text()
-          if text.count('top=4.dp')!=1: raise SystemExit('Content padding anchor changed')
-          p.write_text(text.replace('top=4.dp','top=0.dp'))
-          p=root/'main'/base/'NoticeCenterScreen.kt';text=p.read_text()
-          old='Column(Modifier.weight(1f).fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {\n                ProfileManagementConnectionStatus(state,Modifier.fillMaxWidth(),session::start)'
-          if text.count(old)!=2: raise SystemExit('Notice layouts changed')
-          text=text.replace(old,'NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {')
-          marker='@Composable private fun NoticeSubmissionStatus'
-          helper='''@Composable private fun NoticeManagementBody(state:ProfileState,onReconnect:()->Unit,modifier:Modifier,content:@Composable ColumnScope.()->Unit) {
-              Column(modifier) {
-                  ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),onReconnect)
-                  Column(Modifier.weight(1f).fillMaxWidth().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
-              }
-          }
-          
-          '''
-          if text.count(marker)!=1: raise SystemExit('Notice helper anchor changed')
-          p.write_text(text.replace(marker,helper+marker))
-          (root/'androidTest'/base/'ManagementConnectionStatusTest.kt').write_text('''package iecxiv.meshfabric.ui.management
-          import android.content.res.Configuration
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.material3.*
-          import androidx.compose.runtime.*
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.platform.LocalConfiguration
-          import androidx.compose.ui.platform.LocalDensity
-          import androidx.compose.ui.platform.testTag
-          import androidx.compose.ui.test.*
-          import androidx.compose.ui.test.junit4.createComposeRule
-          import androidx.compose.ui.unit.Density
-          import androidx.compose.ui.unit.dp
-          import org.junit.Assert.*
-          import org.junit.Rule
-          import org.junit.Test
-          import java.util.Locale
-          class ManagementConnectionStatusTest {
-              @get:Rule val compose=createComposeRule()
-              private val connectedText="Canal de gestión conectado. El servidor valida los permisos."
-              private fun compact(scale:Float,width:Int) {
-                  compose.setContent {
-                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
-                      val density=Density(LocalDensity.current.density,scale)
-                      CompositionLocalProvider(LocalConfiguration provides config,LocalDensity provides density) {MaterialTheme {Column(Modifier.width(width.dp)) {
-                          ManagementConnectionStatus(true,false,onReconnect={})
-                          Text(connectedText,Modifier.fillMaxWidth().padding(vertical=8.dp).testTag("event-style-reference"),style=MaterialTheme.typography.bodySmall)
-                      }}}
-                  }
-                  val actual=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
-                  val expected=compose.onNodeWithTag("event-style-reference").fetchSemanticsNode().boundsInRoot
-                  assertEquals(expected.height,actual.height,0.5f)
-                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
-                  compose.onNodeWithTag("management-reconnect-slot").assertDoesNotExist()
-                  compose.onAllNodesWithText("Reconectar").assertCountEquals(0)
-              }
-              @Test fun connectedUsesOnlyTextAndEventStyleVerticalPadding()=compact(1f,320)
-              @Test fun largeTextWrapsNaturallyWithoutHiddenButtonReservation()=compact(1.8f,240)
-              @Test fun reconnectOnlyAppearsWhenDisconnected() {
-                  val ready=mutableStateOf(false);val connecting=mutableStateOf(true);var retries=0
-                  compose.setContent {MaterialTheme {ManagementConnectionStatus(ready.value,connecting.value,onReconnect={retries++})}}
-                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
-                  compose.runOnIdle {connecting.value=false}
-                  compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp).assertIsEnabled().performClick()
-                  assertEquals(1,retries)
-                  compose.runOnIdle {ready.value=true}
-                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
-              }
-              @Test fun reconnectCanRemainDisabledForUncertainDeletion() {
-                  var retries=0
-                  compose.setContent {MaterialTheme {ManagementConnectionStatus(false,false,false,onReconnect={retries++})}}
-                  compose.onNodeWithTag("management-reconnect").assertIsNotEnabled();assertEquals(0,retries)
-              }
-              @Test fun channelsAndOperationalWarningRemainIndependent() {
-                  compose.setContent {MaterialTheme {Column {ManagementConnectionStatus(true,false,onReconnect={});ManagementConnectionStatus(false,false,onReconnect={});Text("Resultado sin confirmar",Modifier.testTag("operation-warning"))}}}
-                  compose.onAllNodesWithTag("management-reconnect").assertCountEquals(1)
-                  compose.onNodeWithTag("operation-warning").assertIsDisplayed()
-              }
-              @Test fun englishReadyTakesPrecedenceWithoutReconnectSlot() {
-                  compose.setContent {
-                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("en"))}
-                      CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {ManagementConnectionStatus(true,true,onReconnect={})}}
-                  }
-                  compose.onNodeWithText("Management channel connected. The server validates permissions.").assertIsDisplayed()
-                  compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
-              }
-          }
-          ''')
-          p=root/'androidTest'/base/'ManagementConnectionSpacingTest.kt';text=p.read_text()
-          text=text.replace('assertEquals(4f*density,content.top-row.bottom,0.5f)','assertEquals(0f,content.top-row.bottom,0.5f)')
-          text=text.replace('val before=verifyBounds()','verifyBounds()').replace('assertEquals(before,verifyBounds(),0.5f)','verifyBounds()')
-          p.write_text(text)
+          import subprocess,textwrap
+          template=subprocess.check_output(['git','show','04005222b62c21577f679589d04f2d02cacbc873:.github/workflows/compact-connection-status.yml'],text=True)
+          marker='      - name: Prepare guarded shared spacing changes\n        run: |\n'
+          end='\n      - name: Build, all unit tests and lint'
+          if template.count(marker)!=1 or template.count(end)!=1:
+              raise SystemExit('Unexpected approved preparation structure')
+          script=textwrap.dedent(template.split(marker,1)[1].split(end,1)[0])
+          old='Modifier.fillMaxWidth().padding(vertical=8.dp).testTag("event-style-reference")'
+          new='Modifier.fillMaxWidth().testTag("event-style-reference").padding(vertical=8.dp)'
+          if script.count(old)!=1:
+              raise SystemExit('Expected exactly one measurement reference')
+          script=script.replace(old,new,1)
+          subprocess.run(['bash','-euo','pipefail','-c',script],check=True)
           PY
       - name: Build, all unit tests and lint
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
@@ -200,7 +90,7 @@ jobs:
           PY
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git commit -m "Compact shared connection status and align notice section spacing"
+          git commit -m "Compact shared connection status with corrected layout measurement tests"
           git push origin "HEAD:refs/heads/$branch"
       - uses: actions/upload-artifact@v4
         if: always()
