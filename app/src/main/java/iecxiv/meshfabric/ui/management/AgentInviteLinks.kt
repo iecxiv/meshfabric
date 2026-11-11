@@ -103,7 +103,7 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
         LaunchedEffect(group?.optString("_id"),group?.opt("mtype"),group?.optJSONObject("links")?.toString(),s.user?.optJSONObject("links")?.toString(),s.site,s.id,connected) {val wasBusy=busy;invalidate();if(wasBusy) notice=t("Contexto de permisos actualizado; resultado sin confirmar.","Authority context updated; outcome unconfirmed.")}
         val enabled=connected && foreground && binding.matches(source) && s.id==binding.actor && group!=null
         fun generate() {
-            if(!enabled || busy || group==null) return
+            if(!enabled || busy) return
             invalidate();notice="";version++;val ticket=version;val selected=options
             val payload=selected.packet(group.optString("_id"))
             val created=AgentInvitationChannel.fromSource(source) {delivery->scope.launch {
