@@ -1,0 +1,197 @@
+name: Validate and publish notice header search
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/publish-notice-header-search.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare header search and regression tests
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          base='java/iecxiv/meshfabric/ui/management/'
+          root=Path('app/src')
+          p=root/'main'/base/'NoticeCenterScreen.kt'
+          raw=p.read_bytes()
+          if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!='4f00f10831f3d9cfdf051d6933da64f7f7eec743':
+              raise SystemExit('Notice center changed; review required')
+          text=raw.decode()
+          def change(old,new,count=1):
+              global text
+              if text.count(old)!=count:
+                  raise SystemExit('Missing or ambiguous anchor: '+old)
+              text=text.replace(old,new)
+          change('import androidx.compose.foundation.layout.*','import androidx.activity.compose.BackHandler\nimport androidx.compose.foundation.layout.*')
+          change('onDeviceMessage:(MeshNode)->Unit) {','onDeviceMessage:(MeshNode)->Unit,header:@Composable (@Composable ()->Unit)->Unit) {',2)
+          change('NoticeCenterContent(source,inbox,actionsReady,nodes,modifier,onDeviceMessage)','NoticeCenterContent(source,inbox,actionsReady,nodes,modifier,onDeviceMessage,header)')
+          change('    var search by remember {mutableStateOf("")}','    var searchState by remember {mutableStateOf(NoticeSearchState())}\n    val search=searchState.query')
+          change('    Column(modifier) {','    BackHandler(enabled=section==NoticeSection.MESSAGES && searchState.open) {searchState=searchState.cleared()}\n    Column(modifier) {\n        header {if(section==NoticeSection.MESSAGES) NoticeSearchAction(searchState) {searchState=searchState.toggle()}}')
+          change('search=""','searchState=searchState.cleared()',3)
+          change('OutlinedTextField(search,{search=it.take(256)},label={Text(t("Buscar destinatario","Search recipients"))},singleLine=true,modifier=Modifier.fillMaxWidth())','NoticeSearchField(searchState,{searchState=searchState.edit(it)})')
+          p.write_text(text)
+          home=root/'main'/base/'MeshFabricHome.kt'
+          text=home.read_text()
+          change('        topBar={ if(page==4) MeshFabricAppBar(viewModel,onOpenSettings) },\n','')
+          change('NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),onDeviceMessage=','NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},onDeviceMessage=')
+          home.write_text(text)
+          (root/'main'/base/'NoticeHeaderSearch.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Close
+          import androidx.compose.material.icons.filled.Search
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+          import androidx.compose.ui.platform.testTag
+          internal data class NoticeSearchState(val open:Boolean=false,val query:String="") {
+              fun cleared()=NoticeSearchState()
+              fun toggle()=if(open) cleared() else NoticeSearchState(open=true)
+              fun edit(value:String)=if(open) copy(query=value.take(256)) else cleared()
+          }
+          @Composable internal fun NoticeSearchAction(state:NoticeSearchState,onToggle:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              val keyboard=LocalSoftwareKeyboardController.current
+              IconButton(onClick={if(state.open) keyboard?.hide();onToggle()},modifier=Modifier.testTag("notice-search-toggle")) {
+                  Icon(if(state.open) Icons.Default.Close else Icons.Default.Search,
+                      contentDescription=if(state.open) {if(es) "Cerrar búsqueda" else "Close search"} else {if(es) "Buscar destinatario" else "Search recipients"})
+              }
+          }
+          @Composable internal fun NoticeSearchField(state:NoticeSearchState,onQuery:(String)->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              if(state.open) OutlinedTextField(state.query,onQuery,label={Text(if(es) "Buscar destinatario" else "Search recipients")},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("notice-search-input"))
+          }
+          ''')
+          (root/'test'/base/'NoticeHeaderSearchTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class NoticeHeaderSearchTest {
+              @Test fun startsHiddenAndEmpty() {assertEquals(NoticeSearchState(false,""),NoticeSearchState())}
+              @Test fun opensOnToggle() {assertTrue(NoticeSearchState().toggle().open)}
+              @Test fun closingClearsFilter() {assertEquals(NoticeSearchState(),NoticeSearchState(true,"Ana").toggle())}
+              @Test fun switchingContextClearsSearch() {assertEquals(NoticeSearchState(),NoticeSearchState(true,"Oficina").cleared())}
+              @Test fun closedSearchCannotFilter() {assertEquals(NoticeSearchState(),NoticeSearchState().edit("Ana"))}
+              @Test fun boundsInput() {assertEquals(256,NoticeSearchState(true).edit("x".repeat(300)).query.length)}
+              @Test fun reopeningStartsEmpty() {assertEquals(NoticeSearchState(true,""),NoticeSearchState(true,"Ana").toggle().toggle())}
+          }
+          ''')
+          (root/'androidTest'/base/'NoticeHeaderSearchUiTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import org.junit.Rule
+          import org.junit.Test
+          class NoticeHeaderSearchUiTest {
+              @get:Rule val compose=createComposeRule()
+              @Composable private fun Harness() {
+                  var state by remember {mutableStateOf(NoticeSearchState())}
+                  var devices by remember {mutableStateOf(false)}
+                  MaterialTheme {Column {
+                      NoticeSearchAction(state) {state=state.toggle()}
+                      TextButton(onClick={devices=!devices;state=state.cleared()},modifier=Modifier.testTag("switch-recipient-type")) {Text(if(devices) "Devices" else "Users")}
+                      NoticeSearchField(state) {state=state.edit(it)}
+                      val labels=if(devices) listOf("PC (Oficina)","PC (Casa)") else listOf("Ana","Luis")
+                      labels.filter {it.contains(state.query,true)}.forEach {Text(it)}
+                  }}
+              }
+              @Test fun hiddenUntilHeaderActionAndClosingRestoresList() {
+                  compose.setContent {Harness()}
+                  compose.onNodeWithTag("notice-search-input").assertDoesNotExist()
+                  compose.onNodeWithTag("notice-search-toggle").performClick()
+                  compose.onNodeWithTag("notice-search-input").performTextInput("Ana")
+                  compose.onNodeWithText("Luis").assertDoesNotExist()
+                  compose.onNodeWithTag("notice-search-toggle").performClick()
+                  compose.onNodeWithTag("notice-search-input").assertDoesNotExist()
+                  compose.onNodeWithText("Luis").assertIsDisplayed()
+                  compose.onNodeWithTag("notice-search-toggle").performClick()
+                  compose.onNodeWithTag("notice-search-input").assertTextEquals("")
+              }
+              @Test fun changingRecipientTypeResetsSearchAndDeviceGroupIsSearchable() {
+                  compose.setContent {Harness()}
+                  compose.onNodeWithTag("notice-search-toggle").performClick()
+                  compose.onNodeWithTag("notice-search-input").performTextInput("Ana")
+                  compose.onNodeWithTag("switch-recipient-type").performClick()
+                  compose.onNodeWithTag("notice-search-input").assertDoesNotExist()
+                  compose.onNodeWithText("PC (Casa)").assertIsDisplayed()
+                  compose.onNodeWithTag("notice-search-toggle").performClick()
+                  compose.onNodeWithTag("notice-search-input").performTextInput("Oficina")
+                  compose.onNodeWithText("PC (Oficina)").assertIsDisplayed()
+                  compose.onNodeWithText("PC (Casa)").assertDoesNotExist()
+              }
+          }
+          ''')
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated source changes on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+name for name in ['NoticeCenterScreen.kt','MeshFabricHome.kt','NoticeHeaderSearch.kt']}
+          allowed|={'app/src/test/'+base+'NoticeHeaderSearchTest.kt','app/src/androidTest/'+base+'NoticeHeaderSearchUiTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed:
+              raise SystemExit('Unexpected file set: '+repr(changed))
+          for path in sorted(allowed):
+              subprocess.run(['git','add','--',path],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Show notice recipient search only through header action"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: notice-header-search-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
