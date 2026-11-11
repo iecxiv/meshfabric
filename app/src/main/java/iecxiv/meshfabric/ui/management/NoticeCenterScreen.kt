@@ -7,7 +7,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -20,16 +19,8 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
 
 @Composable internal fun NoticeCenterTabs(section:NoticeSection,onSelect:(NoticeSection)->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
-    TabRow(selectedTabIndex=section.ordinal) {
-        NoticeSection.entries.forEach { destination->
-            Tab(selected=destination==section,onClick={onSelect(destination)},
-                modifier=Modifier.testTag("notice-tab-${destination.name}"),
-                text={Text(when(destination) {
-                    NoticeSection.INBOX->if(es) "Avisos" else "Notices"
-                    NoticeSection.BROADCAST->"Broadcast"
-                    NoticeSection.MESSAGES->if(es) "Mensajes" else "Messages"
-                })})
-        }
+    ManagementSectionTabs(listOf(if(es) "Avisos" else "Notices", "Broadcast", if(es) "Mensajes" else "Messages"),section.ordinal) {
+        NoticeSection.entries.getOrNull(it)?.let(onSelect)
     }
 }
 
@@ -53,6 +44,8 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
     var recipient by remember {mutableStateOf<String?>(null)}
     var search by remember {mutableStateOf("")}
     var devices by remember {mutableStateOf(false)}
+    val recipientGroups by source.groupedDevices.collectAsState()
+    val groupNames=recipientGroups.flatMap { (group,members)->members.map {it.id to group.name} }.toMap()
     val session=remember(source) {ProfileSession(source)}
     val state by session.state.collectAsState()
     val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -93,19 +86,17 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
                 NoticeSubmissionStatus(state.notice,es)
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     if(devices) {
-                        val matches=nodes.filter {it.conn and 1!=0 && (it.name.contains(search,true) || it.id.contains(search,true))}.distinctBy {it.id}
+                        val matches=nodes.filter {it.conn and 1!=0 && noticeDeviceRecipientLabel(it.name,groupNames[it.id].orEmpty(),es).contains(search,true)}.distinctBy {it.id}
                         if(matches.isEmpty()) item {Text(t("No hay dispositivos con agente conectado que coincidan.","No matching devices with a connected agent."))}
                         items(matches,key={it.id}) {node->ManagementCard {
-                            Text(node.name,style=MaterialTheme.typography.titleSmall)
-                            Text(node.id,style=MaterialTheme.typography.bodySmall)
+                            NoticeRecipientName(noticeDeviceRecipientLabel(node.name,groupNames[node.id].orEmpty(),es))
                             TextButton(enabled=actionsReady && !source.isUserLogout,onClick={onDeviceMessage(node)}) {Text(t("Redactar notificación","Compose notification"))}
                         }}
                     } else {
-                        val matches=state.users.filter {it.optString("_id")!=state.id && canAdministerUser(state,it) && (it.optString("name").contains(search,true) || it.optString("_id").contains(search,true))}
+                        val matches=state.users.filter {it.optString("_id")!=state.id && canAdministerUser(state,it) && noticeUserRecipientLabel(it.optString("name"),es).contains(search,true)}
                         if(matches.isEmpty()) item {Text(t("No hay usuarios disponibles que coincidan con tus permisos y búsqueda.","No available users matching your permissions and search."))}
                         items(matches,key={it.optString("_id")}) {user->ManagementCard {
-                            ProfileUserListIdentity(user,state.users)
-                            Text(user.optString("_id"),style=MaterialTheme.typography.bodySmall)
+                            NoticeRecipientName(noticeUserRecipientLabel(user.optString("name"),es))
                             TextButton(enabled=state.canWrite,onClick={recipient=user.optString("_id")}) {Text(t("Redactar mensaje","Compose message"))}
                         }}
                     }
