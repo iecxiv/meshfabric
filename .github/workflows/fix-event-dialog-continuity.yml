@@ -1,0 +1,209 @@
+name: Validate event dialog continuity
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/fix-event-dialog-continuity.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare guarded event continuity
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('app/src');base='java/iecxiv/meshfabric/ui/management/'
+          hashes={'ServerEventsReadPolicy.kt':'8f2300689860d308b4b8462af40553880c34090c','LogEventsReader.kt':'e2b47584d1888def7250e5dac6ca7800738fbe97','LogScreen.kt':'db74e9d7e43a508fb13f3e8a64760565389453c8'}
+          texts={}
+          for name,sha in hashes.items():
+              raw=(root/'main'/base/name).read_bytes()
+              if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!=sha: raise SystemExit(name+' changed; review required')
+              texts[name]=raw.decode()
+          def change(name,old,new):
+              if texts[name].count(old)!=1: raise SystemExit('Missing or ambiguous anchor: '+old)
+              texts[name]=texts[name].replace(old,new)
+          change('ServerEventsReadPolicy.kt','val selection:ServerEventsQuery?=null)','val selection:ServerEventsQuery?=null,val lifecyclePause:Boolean=false)')
+          change('LogEventsReader.kt','    private var requested=legacyServerEventsQuery','    private var pausedBinding:LogEventsBinding?=null\n    private var pausedAuthority:String?=null\n    private var resumeAuthority:String?=null\n    private var requested=legacyServerEventsQuery')
+          change('LogEventsReader.kt','        requested=selection\n        stop(ServerEventsPhase.IDLE)','        val resume=mutable.value.lifecyclePause && selection==requested && current()==pausedBinding\n        val authority=if(resume) pausedAuthority else null\n        requested=selection\n        stop(ServerEventsPhase.IDLE)\n        resumeAuthority=authority')
+          change('LogEventsReader.kt','mutable.value=ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=requested)','mutable.value=ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=requested,lifecyclePause=authority!=null)')
+          change('LogEventsReader.kt','                val previous=queryScope','                if(resumeAuthority!=null && resumeAuthority!=authority) {stop(ServerEventsPhase.INVALIDATED);return}\n                val previous=queryScope')
+          change('LogEventsReader.kt','        epoch++;timer?.cancel();timer=null;binding=null;queryScope=null;gate.invalidate()','        epoch++;timer?.cancel();timer=null;binding=null;queryScope=null;gate.invalidate()\n        pausedBinding=null;pausedAuthority=null;resumeAuthority=null')
+          change('LogEventsReader.kt','    @Synchronized fun pause(selection:ServerEventsQuery?=null) {if(selection==null || selection==requested) stop(ServerEventsPhase.INVALIDATED)}','''    @Synchronized fun pause(selection:ServerEventsQuery?=null) {
+                  if(selection!=null && selection!=requested) return
+                  val b=binding
+                  val authority=queryScope?.authority ?: resumeAuthority
+                  val preserve=b!=null && current()==b && authority!=null && (mutable.value.phase==ServerEventsPhase.READY || (mutable.value.lifecyclePause && mutable.value.phase==ServerEventsPhase.LOADING))
+                  stop(ServerEventsPhase.INVALIDATED)
+                  if(preserve) {pausedBinding=b;pausedAuthority=authority;mutable.value=mutable.value.copy(lifecyclePause=true)}
+              }''')
+          change('LogScreen.kt','key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,actor?.id)','key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,viewModel.meshClient.ignoreSsl,viewModel.meshClient.isUserLogout,actor?.id,actor?.siteadmin)')
+          change('LogScreen.kt','remember(source,source.serverUrl,source.authCookie,actor?.id,actor?.siteadmin,connected)','remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,actor?.id,actor?.siteadmin,connected)')
+          change('LogScreen.kt','    var detail by remember(state.records,state.phase,selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}','''    var detail by remember(selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}
+              LaunchedEffect(state,enabled,selection,inventory) {
+                  detail=detail?.takeIf {opened->
+                      val matches=state.records.count {it.withInventory(inventory)==opened}
+                      retainEventDialog(state.phase,state.lifecyclePause,enabled,matches)
+                  }
+              }''')
+          for name,text in texts.items(): (root/'main'/base/name).write_text(text)
+          (root/'main'/base/'EventDialogContinuity.kt').write_text('''package iecxiv.meshfabric.ui.management
+          internal fun retainEventDialog(phase:ServerEventsPhase,lifecyclePause:Boolean,enabled:Boolean,matches:Int):Boolean {
+              if(!enabled) return false
+              return when(phase) {
+                  ServerEventsPhase.READY->matches==1
+                  ServerEventsPhase.INVALIDATED,ServerEventsPhase.LOADING->lifecyclePause
+                  else->false
+              }
+          }
+          ''')
+          (root/'test'/base/'EventDialogContinuityTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class EventDialogContinuityTest {
+              @Test fun verifiedPauseIsRetained() {assertTrue(retainEventDialog(ServerEventsPhase.INVALIDATED,true,true,0))}
+              @Test fun verifiedResumeIsRetained() {assertTrue(retainEventDialog(ServerEventsPhase.LOADING,true,true,0))}
+              @Test fun ordinaryInvalidationCloses() {assertFalse(retainEventDialog(ServerEventsPhase.INVALIDATED,false,true,0))}
+              @Test fun ordinaryReloadCloses() {assertFalse(retainEventDialog(ServerEventsPhase.LOADING,false,true,0))}
+              @Test fun freshUniqueMatchIsRetained() {assertTrue(retainEventDialog(ServerEventsPhase.READY,false,true,1))}
+              @Test fun missingOrAmbiguousMatchCloses() {for(n in listOf(0,2)) assertFalse(retainEventDialog(ServerEventsPhase.READY,false,true,n))}
+              @Test fun lossOfMainConnectionCloses() {assertFalse(retainEventDialog(ServerEventsPhase.INVALIDATED,true,false,0))}
+              @Test fun errorsAndDenialsAlwaysClose() {for(p in listOf(ServerEventsPhase.DENIED,ServerEventsPhase.ERROR,ServerEventsPhase.INVALID,ServerEventsPhase.TIMEOUT,ServerEventsPhase.IDLE)) assertFalse(retainEventDialog(p,true,true,1))}
+          }
+          ''')
+          (root/'androidTest'/base/'EventDialogContinuityUiTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import com.google.gson.JsonArray
+          import com.google.gson.JsonObject
+          import com.google.gson.JsonParser
+          import okhttp3.*
+          import okio.ByteString
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class EventDialogContinuityUiTest {
+              @get:Rule val compose=createComposeRule()
+              private val row=ServerEventRecord("runcommands","Command received","Admin","node//pc","PC",1000L,mapOf("cmds" to "whoami"))
+              private fun ready()=ServerEventsSnapshot(ServerEventsPhase.READY,listOf(row),selection=legacyServerEventsQuery)
+              @Test fun detailsSurviveVerifiedPauseResumeAndCloseOnRevocation() {
+                  val state=mutableStateOf(ready())
+                  compose.setContent {MaterialTheme {ServerEventsPanel(state.value,"",{},true,{},Modifier.fillMaxSize())}}
+                  compose.onNodeWithTag("log-event-row-0").performClick()
+                  compose.onNodeWithTag("log-event-command").assertTextEquals("whoami")
+                  compose.runOnIdle {state.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED,selection=legacyServerEventsQuery,lifecyclePause=true)}
+                  compose.onNodeWithTag("log-event-command").assertTextEquals("whoami")
+                  compose.runOnIdle {state.value=ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=legacyServerEventsQuery,lifecyclePause=true)}
+                  compose.onNodeWithTag("log-event-details").assertExists()
+                  compose.runOnIdle {state.value=ready()}
+                  compose.onNodeWithTag("log-event-details").assertExists()
+                  compose.runOnIdle {state.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED)}
+                  compose.onNodeWithTag("log-event-details").assertDoesNotExist()
+              }
+              @Test fun removedEventDoesNotKeepOldDetails() {
+                  val state=mutableStateOf(ready())
+                  compose.setContent {MaterialTheme {ServerEventsPanel(state.value,"",{},true,{},Modifier.fillMaxSize())}}
+                  compose.onNodeWithTag("log-event-row-0").performClick()
+                  compose.runOnIdle {state.value=ready().copy(records=emptyList())}
+                  compose.onNodeWithTag("log-event-details").assertDoesNotExist()
+              }
+              private class Socket:WebSocket {
+                  val sent=mutableListOf<String>()
+                  override fun request()=Request.Builder().url("https://example.invalid/").build()
+                  override fun queueSize()=0L
+                  override fun send(text:String):Boolean {sent.add(text);return true}
+                  override fun send(bytes:ByteString)=false
+                  override fun close(code:Int,reason:String?)=true
+                  override fun cancel() {}
+              }
+              @Test fun readerRevalidatesAuthorityBeforeKeepingPausedDetails() {
+                  val b=LogEventsBinding("https://example.invalid","user//admin","cookie",false,2,"auth")
+                  var listener:WebSocketListener?=null
+                  val socket=Socket()
+                  val reader=LogEventsReader(current={b},open={_,l->listener=l;socket})
+                  fun user(links:JsonObject)=JsonObject().apply {addProperty("action","userinfo");add("userinfo",JsonObject().apply {addProperty("_id",b.actor);addProperty("siteadmin",2);add("links",links)})}.toString()
+                  try {
+                      reader.load()
+                      listener!!.onMessage(socket,user(JsonObject()))
+                      val tag=JsonParser.parseString(socket.sent.last()).asJsonObject.get("tag").asString
+                      val reply=JsonObject().apply {addProperty("action","events");addProperty("tag",tag);add("events",JsonArray())}
+                      listener!!.onMessage(socket,reply.toString())
+                      assertEquals(ServerEventsPhase.READY,reader.state.value.phase)
+                      reader.pause();assertTrue(reader.state.value.lifecyclePause)
+                      reader.load();assertTrue(reader.state.value.lifecyclePause)
+                      listener!!.onMessage(socket,user(JsonObject().apply {add("mesh//new",JsonObject())}))
+                      assertEquals(ServerEventsPhase.INVALIDATED,reader.state.value.phase)
+                      assertFalse(reader.state.value.lifecyclePause)
+                  } finally {reader.close()}
+              }
+          }
+          ''')
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated source on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+n for n in ['ServerEventsReadPolicy.kt','LogEventsReader.kt','LogScreen.kt','EventDialogContinuity.kt']}
+          allowed|={'app/src/test/'+base+'EventDialogContinuityTest.kt','app/src/androidTest/'+base+'EventDialogContinuityUiTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Preserve event details only across authority-verified lifecycle pauses"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: event-dialog-continuity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
