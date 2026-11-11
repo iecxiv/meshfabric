@@ -65,7 +65,7 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
         Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
     }
 }
-@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onReviewUserGroupAssignment:((String)->Unit)?=null) {
+@Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onReviewUserGroupAssignment:((String)->Unit)?=null,onLoadDetails:()->Unit={session.loadGroupDetails()}) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
@@ -73,7 +73,8 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
     var advanced by remember(id) { mutableStateOf(false) }
     if(advanced) { DeviceGroupAdvancedEditor(session,s,id) {advanced=false}; return }
     val group=s.groups.firstOrNull { it.optString("_id")==id }
-    LaunchedEffect(session,id,s.ready,s.busy) { if(group!=null && s.ready && !s.busy) session.loadGroupDetails() }
+    val live by session.state.collectAsState()
+    GroupDetailsAutoLoad(session,id,session.connectionGeneration(),live.ready,live.loading,live.busy,live.readError,live.groups.count {it.optString("_id")==id}==1,onLoadDetails)
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(group?.optString("name")?.ifBlank { t("Grupo sin nombre","Unnamed group") } ?: t("Grupo no disponible","Group unavailable"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(s.busy || s.detailsBusy || s.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -119,5 +120,5 @@ if(presentation.usable && onReviewUserGroupAssignment!=null && profileAccessAssi
             }
             if(s.readError) Text(t("Datos incompletos: no se habilitan modificaciones.","Incomplete data: changes remain disabled."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
         }
-    },confirmButton={TextButton(enabled=s.ready && !s.busy && !s.detailsBusy,onClick={session.loadGroupDetails()}){Text(t("Actualizar","Refresh"))}},dismissButton={TextButton(onClick=onDismiss){Text(if(returningToUser) t("Volver al usuario","Back to user") else t("Cerrar","Close"))}})
+    },confirmButton={TextButton(enabled=s.ready && !s.busy && !s.detailsBusy,onClick={onLoadDetails()}){Text(t("Actualizar","Refresh"))}},dismissButton={TextButton(onClick=onDismiss){Text(if(returningToUser) t("Volver al usuario","Back to user") else t("Cerrar","Close"))}})
 }

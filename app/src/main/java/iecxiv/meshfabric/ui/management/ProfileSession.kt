@@ -28,6 +28,7 @@ fun rights(group:JSONObject):Long=group.optJSONObject("links")?.optJSONObject(id
 
 internal class ProfileSession(private val source:MeshCentralClient) {
 internal fun invitationSource()=source
+@Synchronized internal fun connectionGeneration():Long=generation
 val state=MutableStateFlow(ProfileState())
 private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
 private var socket:WebSocket?=null
