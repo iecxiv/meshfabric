@@ -270,7 +270,16 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             } else if(page==3) {
                 ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
             } else if(page==4) {
-                NoticeInboxScreen(management.inbox,state.ready,Modifier.fillMaxSize())
+                NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),onDeviceMessage={node->
+                    operationNode=node.id
+                    operation=Operation("Notificación remota · ${node.name}",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications) {values->
+                        val title=values.getValue("title")
+                        val message=values.getValue("msg")
+                        require(title.isNotBlank() && title.length<=160 && !title.contains('\u0000')) { "Escribe un título válido (máximo 160 caracteres)" }
+                        require(userMessageValid(message)) { "Escribe un mensaje válido (máximo 512 caracteres)" }
+                        json("action" to "toast","nodeids" to JSONArray(listOf(node.id)),"title" to title,"msg" to message)
+                    }
+                })
             } else LogScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
                 actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
         }
