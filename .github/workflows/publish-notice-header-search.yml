@@ -107,6 +107,8 @@ jobs:
           import androidx.compose.runtime.*
           import androidx.compose.ui.Modifier
           import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.semantics.SemanticsProperties
+          import androidx.compose.ui.text.AnnotatedString
           import androidx.compose.ui.test.*
           import androidx.compose.ui.test.junit4.createComposeRule
           import org.junit.Rule
@@ -134,7 +136,7 @@ jobs:
                   compose.onNodeWithTag("notice-search-input").assertDoesNotExist()
                   compose.onNodeWithText("Luis").assertIsDisplayed()
                   compose.onNodeWithTag("notice-search-toggle").performClick()
-                  compose.onNodeWithTag("notice-search-input").assertTextEquals("")
+                  compose.onNodeWithTag("notice-search-input").assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText,AnnotatedString("")))
               }
               @Test fun changingRecipientTypeResetsSearchAndDeviceGroupIsSearchable() {
                   compose.setContent {Harness()}
