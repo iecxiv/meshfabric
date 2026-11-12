@@ -199,19 +199,19 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment=Alignment.CenterVertically) {
                         Text(node.name.ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f,fill=false),
-                            style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else LocalContentColor.current)
                         Spacer(Modifier.width(8.dp))
                         Surface(shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
                             Text(if(node.isOnline) "ONLINE" else "OFFLINE",Modifier.padding(horizontal=6.dp,vertical=2.dp),color=Color.White,fontSize=9.sp,fontWeight=FontWeight.Bold)
                         }
                         DeviceDetailsButton(node)
                     }
-                    if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
                     val networkText = DeviceNetworkDisplay.text(node.networkIpv4.orEmpty(), hidden = !showNetworkInfo)
                     if (networkText != null) Text(
                         text = networkText,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
                 LocalDeviceActionMenu.current(node)
