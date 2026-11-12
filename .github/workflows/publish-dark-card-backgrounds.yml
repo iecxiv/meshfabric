@@ -1,0 +1,123 @@
+name: Validate and publish dark card backgrounds
+on:
+  push:
+    branches: [dev]
+    paths:
+      - .github/workflows/publish-dark-card-backgrounds.yml
+      - tools/ui/dark-card-backgrounds/**
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-dark-card-backgrounds-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Inventory all Compose cards and apply dark-only backgrounds
+        run: |
+          set -euo pipefail
+          python3 tools/ui/dark-card-backgrounds/apply.py
+          git diff --check
+          git diff > validation/dark-card-backgrounds.diff
+      - name: Install Android SDK
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, execute all unit tests, compile instrumentation and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android instrumentation suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Require unit and instrumentation evidence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          out = Path("validation")
+          out.mkdir(exist_ok=True)
+          summary = {}
+          errors = []
+          for kind, root, target, required in [
+              ("unit", "app/build/test-results", "iecxiv.meshfabric.ui.theme.AppCardAppearanceTest", 7),
+              ("android", "app/build/outputs/androidTest-results", "iecxiv.meshfabric.ui.theme.AppCardAppearanceUiTest", 8),
+          ]:
+              cases = {}
+              failures = []
+              for path in Path(root).rglob("*.xml"):
+                  for case in ET.parse(path).getroot().iter("testcase"):
+                      name = (case.get("classname", ""), case.get("name", ""))
+                      bad = list(case.findall("failure")) + list(case.findall("error"))
+                      skipped = case.find("skipped") is not None
+                      cases[name] = (bool(bad), skipped)
+                      for issue in bad:
+                          failures.append(".".join(name) + "\n" + issue.get("message", "") + "\n" + (issue.text or ""))
+              target_cases = {name: result for name, result in cases.items() if name[0] == target}
+              summary[kind] = {"cases": len(cases), "new_cases": len(target_cases), "failures": failures,
+                  "skipped": [".".join(name) for name, result in cases.items() if result[1]]}
+              if not cases or failures or len(target_cases) != required or any(any(v) for v in target_cases.values()):
+                  errors.append(kind + " suite lacks successful required evidence")
+          (out / "test-evidence.json").write_text(json.dumps(summary, indent=2))
+          print(json.dumps(summary, indent=2))
+          if errors:
+              raise SystemExit("; ".join(errors))
+          PY
+      - name: Upload inventory, changes, evidence and debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dark-card-backgrounds-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish only after validation and only to unchanged dev
+        run: |
+          set -euo pipefail
+          test "${{ github.ref }}" = refs/heads/dev
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          allowed = set(json.loads(Path("validation/dark-card-inventory.json").read_text())["changed_files"])
+          subprocess.run(["git", "add", "--", *sorted(allowed)], check=True)
+          staged = set(subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True).splitlines())
+          unstaged = subprocess.check_output(["git", "diff", "--name-only"], text=True).strip()
+          extra = [p for p in subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard"], text=True).splitlines() if not p.startswith("validation/")]
+          if staged != allowed or unstaged or extra:
+              raise RuntimeError("Unexpected repository changes; refusing publication")
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): use event card backgrounds throughout dark mode only'
+          git push origin HEAD:dev
