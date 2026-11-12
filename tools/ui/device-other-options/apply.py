@@ -1,5 +1,10 @@
 from pathlib import Path
 import subprocess,shutil
+import xml.etree.ElementTree as ET
+resources=Path('app/src/main/res')
+def keys(folder):
+    return {e.attrib['name'] for e in ET.parse(resources/folder/'device_other_options.xml').getroot() if e.tag=='string'}
+assert keys('values')==keys('values-en')==keys('values-es'),'Device option translations incomplete'
 p=Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt')
 assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='06fc8e05c8d558a467d9fb4bc5b9fd0cec84d8a8','Source changed'
 s=p.read_text()
