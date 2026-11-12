@@ -1,0 +1,54 @@
+name: Audit dialog title typography
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/audit-dialog-title-typography.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Inventory dialog declarations, title slots and custom headings
+        run: |
+          python3 - <<'PY'
+          import json,re,subprocess
+          from pathlib import Path
+          expected='542a17e342acd25c89c3aa58d8b492aa129684ec'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==expected,'dev base changed; review required'
+          output=Path('dialog-title-audit');output.mkdir()
+          report=[]
+          patterns={
+              'dialog':re.compile(r'\b[A-Za-z_]*Dialog\s*\('),
+              'custom_container':re.compile(r'\bAppDialog(?:Surface|Card)\s*\('),
+              'title_slot':re.compile(r'\btitle\s*=\s*\{'),
+              'heading_style':re.compile(r'fontSize\s*=|fontWeight\s*=|typography\.(?:title|headline)')
+          }
+          for path in sorted(Path('app/src/main').rglob('*.kt')):
+              text=path.read_text();lines=text.splitlines()
+              hits={name:[i+1 for i,line in enumerate(lines) if pattern.search(line)] for name,pattern in patterns.items()}
+              if not any(hits[name] for name in ('dialog','custom_container','title_slot')):continue
+              destination=output/'sources'/path
+              destination.parent.mkdir(parents=True,exist_ok=True);destination.write_text(text)
+              report.append({'path':str(path),'hits':hits,'contexts':[{'line':i,'text':'\n'.join(lines[max(0,i-5):min(len(lines),i+10)])} for i in sorted(set(sum(hits.values(),[])))]})
+          assert report,'Empty inventory'
+          data={'commit':subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),'files':report,'status':'inventory_only_requires_manual_review','scope':'all application Kotlin sources; dialog call sites, shared wrappers and custom containers; matches are candidates, not confirmed titles'}
+          (output/'inventory.json').write_text(json.dumps(data,ensure_ascii=False,indent=2))
+          with open(output/'summary.md','w') as summary:
+              summary.write('# Dialog title inventory\n\nManual review is required. No typography changes have been applied.\n\n')
+              for row in report:summary.write('- '+row['path']+' — '+str(row['hits'])+'\n')
+          PY
+          test -z "$(git status --porcelain --untracked-files=no)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dialog-title-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dialog-title-audit/
+          if-no-files-found: error
+          retention-days: 7
