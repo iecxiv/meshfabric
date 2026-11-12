@@ -237,11 +237,11 @@ androidx.compose.ui.unit.Dp(0f)
     var font by remember(raw,action) { mutableIntStateOf(12) }
     val title=stringResource(when(action) { "serverconfig"->R.string.my_server_config; "servererrors"->R.string.my_server_errors; "serverversion"->R.string.my_server_version; else->R.string.my_server_result })
     if(result.noErrorLog) {
-        ManagementDialog(onDismissRequest=onClose,title={ Text(title) },text={ Text(label("El servidor no tiene registro de errores.","The server has no error log.")) },
+        ManagementDialog(onDismissRequest=onClose,title={ if(action=="serverconfig" || action=="servererrors") ServerGeneralActionTitle(title) else Text(title,style=MaterialTheme.typography.headlineSmall) },text={ Text(label("El servidor no tiene registro de errores.","The server has no error log.")) },
             confirmButton={ TextButton(onClick=onClose) { Text(stringResource(R.string.my_server_close)) } })
         return
     }
-    ManagementDialog(onDismissRequest=onClose,title={ Text(title) },text={
+    ManagementDialog(onDismissRequest=onClose,title={ if(action=="serverconfig" || action=="servererrors") ServerGeneralActionTitle(title) else Text(title,style=MaterialTheme.typography.headlineSmall) },text={
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(result.missing) Text(label("Respuesta inesperada: falta el contenido solicitado. Se muestra la respuesta recibida.","Unexpected response: requested content missing. Showing the received response."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(result.invalidJson) Text(label("El contenido recibido no es una configuración JSON válida.","Received content is not a valid JSON configuration."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
