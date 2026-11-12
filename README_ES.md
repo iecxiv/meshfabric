@@ -41,6 +41,14 @@ Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), 
 
 Guía y lista de aceptación: [Avisos y continuidad](docs/es/notices.md). Siguen pendientes las comprobaciones en dispositivo y de entrega contra el servidor real.
 
+### Estado de conexión y estabilidad de diálogos
+
+- Los indicadores compartidos del canal de gestión conservan las mismas dimensiones entre conectando, conectado y desconectado para un mismo ancho disponible y escala de fuente. Reconectar se integra en el texto desconectado, sin añadir un botón lateral. Los textos de estados ocultos quedan fuera de la semántica de accesibilidad.
+- Broadcast y Mensajes utilizan el espaciado compartido entre estado y contenido, sin añadir un margen vertical propio alrededor del indicador.
+- Gestión ya no inserta un aviso temporal de datos anteriores por encima de sus pestañas. El estado se muestra en el indicador existente y las acciones permanecen bloqueadas si faltan datos actuales o autorización.
+- La ficha de grupo de dispositivos realiza una carga automática por grupo abierto y generación real de conexión, cuando están disponibles los datos necesarios. Terminar esa carga no dispara otra; Actualizar sigue siendo una acción explícita.
+- La continuidad no es restauración ilimitada: cambios de identidad, permisos, inventario o selección pueden invalidar el contexto. Las confirmaciones sensibles mantienen sus reglas y los diálogos no se restauran tras morir el proceso.
+
 ### Instalación de agentes e invitaciones
 
 - Abre un grupo con agente en Gestión para utilizar Agregar agente o Invitar. Invitar no está en el menú de tres puntos de las tarjetas de Equipos/Dispositivos.
@@ -188,6 +196,7 @@ Enviar o aceptar una solicitud no equivale a ejecutarla. MeshFabric informa de r
 - Búsqueda y filtros por categoría o dispositivo, con agrupación por fecha.
 - Identificadores de solicitud, actor, fecha/hora y detalles de resultado cuando están disponibles.
 - Hasta 200 entradas en memoria: es una vista de la sesión, no un archivo persistente ni completo de auditoría del servidor.
+- Una interrupción del canal conserva las entradas recibidas y marca resultados pendientes como desconocidos, sin reenviar automáticamente. Cerrar sesión, destruir su propietario o terminar el proceso puede borrar este diario; los avisos recibidos persistentes pertenecen a la bandeja independiente de Avisos.
 
 ### Eventos
 
@@ -288,6 +297,9 @@ Las pruebas instrumentadas del panel comprueban contenido oculto, etiquetas dupl
 Algunos cambios usan workflows de publicación: el commit del workflow no es el cambio funcional. Comprueba que el commit funcional se publicó y revisa el resultado de validación.
 
 Superar pruebas automatizadas no garantiza compatibilidad universal con Hacker's Keyboard, teclados físicos, IME, entornos Android ni todos los equipos Windows/Linux. Comprueba escritura, atajos, idiomas/acentos, composición, repeticiones, cambios de foco, reconexión, tamaño de fuente y orientación horizontal en los dispositivos previstos.
+
+
+La aceptación de Avisos y continuidad de diálogos sigue requiriendo comprobación manual en dispositivo/servidor: lectura y no leídos al reabrir, separación de cuentas/servidores, descarte de alertas Android, persistencia del borrado, navegación al volver de segundo plano y transiciones de estado sin desplazamientos. El éxito automatizado no demuestra esos escenarios físicos ni la entrega.
 
 ## Tecnología
 

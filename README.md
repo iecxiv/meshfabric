@@ -41,6 +41,14 @@ Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [Us
 
 Guide and acceptance checklist: [Notices and continuity](docs/notices.md). Real-device lifecycle, persistence and live-server delivery checks remain required.
 
+### Connection status and dialog stability
+
+- Shared management-channel indicators keep the same bounds across connecting, connected and disconnected states at the same available width and font scale. Reconnect is integrated into the disconnected text rather than added as a separate side button. Hidden state labels are excluded from accessibility semantics.
+- Broadcast and Messages use the shared status/content spacing rather than adding a separate vertical inset around the status.
+- Management no longer inserts a temporary previous-data banner above its section tabs. Connection state remains in the existing indicator, and actions remain blocked when current data or authorization is unavailable.
+- Device-group details load automatically once per open group and real connection generation after the required state is available. Completing that load does not start another load; Refresh remains an explicit action.
+- Continuity is not unlimited restoration: changing identity, permissions, inventory or selection can invalidate context. Sensitive confirmations keep their own safety rules, and dialog state is not restored after process death.
+
 ### Agent installation and invitations
 
 - Open an agent device group in Management to use Add agent or Invite. Invite is not in the three-dot menu of device cards in Devices.
@@ -196,6 +204,7 @@ A request being sent or accepted is not the same as an action being executed. Me
 - Search activity and filter by category or device, with entries grouped by date.
 - Inspect request identifiers, actor information, timestamps, and result details when available.
 - The activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.
+- A control-channel interruption preserves received entries and marks pending action results unknown without automatic resending. Logout, owner destruction or process death can clear this journal; persistent received notices belong to the separate Notices inbox.
 
 ### Events
 
@@ -298,6 +307,9 @@ History-panel instrumentation tests cover hidden content, duplicate primary-acti
 Some feature changes use CI publication workflows; a workflow commit is not itself the functional change. Check that the functional commit was published and inspect the outcome of its validation run.
 
 Passing automated tests does not establish universal compatibility with Hacker's Keyboard, every physical keyboard, every IME, all Android environments, or all Windows/Linux hosts. Test real typing, shortcuts, locale/accents, composition, repeats, focus changes, reconnection, font scaling, and landscape/keyboard layouts on the intended devices.
+
+
+The Notices and dialog-continuity acceptance checklist remains a manual device/server check: verify saved unread/read state after reopening, account/server isolation, Android-alert dismissal, deletion persistence, background/resume navigation and stable status transitions. Automated success is not proof of these physical-device or delivery scenarios.
 
 ## Technology
 
