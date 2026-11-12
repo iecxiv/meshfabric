@@ -58,7 +58,8 @@ private class Management(private val source:MeshCentralClient,private val deskto
     private val notesReads=mutableSetOf<String>()
     val activity=ActivityJournal(
         resolveName={ id->source.groupedDevices.value.asSequence().flatMap { it.second.asSequence() }.firstOrNull { it.id==id }?.name.orEmpty() },
-        currentActor={ source.userInfo.value?.name.orEmpty() })
+        currentActor={ source.userInfo.value?.name.orEmpty() },
+        inventory={ serverEventInventory(source.groupedDevices.value) })
     val feedback=RemoteActionFeedback(scope,
         sendPacket={ packet->state.value.ready && same() && socket?.send(packet.toString())==true },
         nativeClipboard={ id,text->
@@ -242,7 +243,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     var operationNode by remember { mutableStateOf("") }
     BackHandler(enabled=page in 2..4) { page=when(page) { 4->noticeReturnPage.coerceIn(0,3); 3->profileReturnPage.coerceIn(0,2); else->returnPage.coerceIn(0,1) } }
     LaunchedEffect(connected,viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie) { if(connected) management.connect() else management.pause() }
-    LaunchedEffect(nodes) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
+    LaunchedEffect(groups) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
         bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
             if(next in 0..4 && next!=page) {
