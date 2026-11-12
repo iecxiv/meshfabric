@@ -5,9 +5,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.platform.app.InstrumentationRegistry
 import iecxiv.meshfabric.R
 import iecxiv.meshfabric.data.model.MeshNode
@@ -19,6 +20,14 @@ import org.junit.Test
 class DeviceGeneralLayoutUiTest {
     @get:Rule val compose=createComposeRule()
     private val node=MeshNode(id="node//layout",name="Equipo de prueba",osdesc="Linux")
+    private fun textLayout(target:SemanticsNodeInteraction):TextLayoutResult {
+        val results=mutableListOf<TextLayoutResult>()
+        target.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { action ->
+            assertTrue("Text layout must be available",action(results))
+        }
+        assertEquals("Exactly one text layout expected",1,results.size)
+        return results.single()
+    }
     private fun compare(dark:Boolean) {
         val details=mutableStateOf(true)
         compose.setContent { MaterialTheme(colorScheme=if(dark) darkColorScheme() else lightColorScheme()) {
@@ -29,12 +38,17 @@ class DeviceGeneralLayoutUiTest {
         val reference=compose.onNode(isDialog()).fetchSemanticsNode().boundsInRoot.width
         val titleHeight=compose.onNodeWithText(node.name).fetchSemanticsNode().boundsInRoot.height
         val subtitle=InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.device_details_title)
-        val subtitleHeight=compose.onNodeWithText(subtitle).fetchSemanticsNode().boundsInRoot.height
+        val referenceLayout=textLayout(compose.onNodeWithText(subtitle,useUnmergedTree=true))
         compose.runOnIdle { details.value=false }
         assertEquals(reference,compose.onNode(isDialog()).fetchSemanticsNode().boundsInRoot.width,1f)
         assertEquals(titleHeight,compose.onNodeWithText(node.name).fetchSemanticsNode().boundsInRoot.height,1f)
-        assertEquals(subtitleHeight,compose.onNodeWithTag("device_general_subtitle").fetchSemanticsNode().boundsInRoot.height,1f)
-        compose.onNodeWithTag("device_general_subtitle").assertTextEquals("General")
+        val general=compose.onNodeWithTag("device_general_subtitle",useUnmergedTree=true)
+        val generalLayout=textLayout(general)
+        assertEquals("Subtitle text style must match Details",referenceLayout.layoutInput.style,generalLayout.layoutInput.style)
+        assertEquals("Subtitle density must match Details",referenceLayout.layoutInput.density,generalLayout.layoutInput.density)
+        assertFalse("Details subtitle must not overflow vertically",referenceLayout.didOverflowHeight)
+        assertFalse("General subtitle must not overflow vertically",generalLayout.didOverflowHeight)
+        general.assertTextEquals("General").assertIsDisplayed()
         compose.onNodeWithTag("general_save").assertIsDisplayed().assertIsNotEnabled()
         compose.onNodeWithTag("device_general_close").assertIsDisplayed()
     }
