@@ -179,6 +179,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 @Composable fun DeviceCard(node:MeshNode,desktopStatus:SessionStatus=SessionStatus.NONE,terminalStatus:SessionStatus=SessionStatus.NONE,
     fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit,showNetworkInfo:Boolean=true) {
     val os=node.osDisplayName.ifEmpty { stringResource(R.string.device_os_unknown) }
+    var otherExpanded by androidx.compose.runtime.saveable.rememberSaveable(node.id) { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
         border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
         colors= iecxiv.meshfabric.ui.theme.appCardColors(
@@ -215,8 +216,10 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                         color = if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                DeviceOptionsToggle(otherExpanded) { otherExpanded = !otherExpanded }
                 LocalDeviceActionMenu.current(node)
             }
+            AnimatedVisibility(otherExpanded) { DeviceOptionsRow(node) }
             if(node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE }) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
