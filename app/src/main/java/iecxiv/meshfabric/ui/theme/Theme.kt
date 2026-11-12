@@ -34,7 +34,7 @@ private val DarkColorScheme = darkColorScheme(
     surfaceContainerHigh = DarkSurfaceContainerHigh,
     surfaceContainerHighest = DarkSurfaceContainerHighest,
     outline = DarkOutline,
-    outlineVariant = DarkOutline
+    outlineVariant = DarkOutlineVariant
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -60,7 +60,7 @@ fun MeshCentralTheme(
     }
 
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = darkContrastScheme(colorScheme,darkTheme),
         content = { CompositionLocalProvider(LocalAppDarkTheme provides darkTheme, content = content) }
     )
 }

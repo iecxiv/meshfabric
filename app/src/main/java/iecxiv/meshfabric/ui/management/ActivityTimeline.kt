@@ -182,7 +182,7 @@ CardDefaults.cardColors(containerColor=scheme.surfaceVariant)
                             Row(verticalAlignment=Alignment.CenterVertically) {
                                 Text(entry.target,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(8.dp))
-                                Text((if(entry.receivedTime) "Recibido " else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall,color=scheme.onSurfaceVariant)
+                                Text((if(entry.receivedTime) "Recibido " else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant))
                             }
                             Row(verticalAlignment=Alignment.CenterVertically) {
                                 Text(entry.title,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
@@ -191,10 +191,10 @@ CardDefaults.cardColors(containerColor=scheme.surfaceVariant)
                                     Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp),color=color,style=MaterialTheme.typography.labelSmall)
                                 }
                             }
-                            Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=scheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
-                            if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=2,overflow=TextOverflow.Ellipsis)
+                            if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(LocalContentColor.current),maxLines=1,overflow=TextOverflow.Ellipsis)
                             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                                Text(if(entry.actor.isNotBlank()) "Por ${entry.actor}" else "",Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=scheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                Text(if(entry.actor.isNotBlank()) "Por ${entry.actor}" else "",Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=1,overflow=TextOverflow.Ellipsis)
                                 if(remote.commands.any { it.id==entry.requestId }) TextButton(onClick={ feedback.openCommand(entry.requestId) },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text("Ver salida",style=MaterialTheme.typography.labelLarge) }
                                 TextButton(onClick={ details=!details },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(if(details) "Ocultar" else "Detalles",style=MaterialTheme.typography.labelLarge) }
                             }

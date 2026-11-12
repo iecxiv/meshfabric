@@ -30,7 +30,8 @@ val DarkOnSecondary = Color(0xFF0C4A6E)
 
 val DarkTextPrimary = Color(0xFFF1F5F9)  // Soft off-white (reduces glare)
 val DarkTextSecondary = Color(0xFF94A3B8)// Muted subtext
-val DarkOutline = Color(0xFF334155)      // Soft borders
+val DarkOutline = Color(0xFF94A3B8)
+val DarkOutlineVariant = Color(0xFF7C899D)
 
 val TerminalBackground = Color(0xFF0D1117)
 val TerminalGreenText = Color(0xFF3FB950)
