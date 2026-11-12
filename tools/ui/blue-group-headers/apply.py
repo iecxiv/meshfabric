@@ -1,6 +1,6 @@
 from pathlib import Path
 import subprocess
-BASE = '90b2d2d4a8e91874792d5cd16a897d4d654805ff'
+BASE = '2e357f8457a4c055e6858ddaafbd6c68fb6562a2'
 assert subprocess.check_output(['git', 'rev-parse', 'HEAD^'], text=True).strip() == BASE, 'Source base changed'
 p = Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt')
 assert subprocess.check_output(['git', 'hash-object', str(p)], text=True).strip() == 'd4eed0ee26bf1d31ba394a7b7d5bdae2a11f2dc5', 'Device source changed'

@@ -17,6 +17,7 @@ import iecxiv.meshfabric.data.model.MeshGroup
 import iecxiv.meshfabric.data.model.MeshNode
 import iecxiv.meshfabric.ui.devices.DeviceCard
 import iecxiv.meshfabric.ui.devices.GroupHeaderCard
+import kotlin.math.abs
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -69,6 +70,17 @@ class GroupHeaderAppearanceUiTest {
         assertEquals(expected.blue, actual.blue, 0.015f)
         assertEquals(expected.alpha, actual.alpha, 0.015f)
     }
+    private fun awaitRestingHeader() {
+        compose.mainClock.advanceTimeBy(1_000L)
+        compose.waitForIdle()
+        compose.waitUntil(timeoutMillis = 3_000L) {
+            val actual = pixel("closed")
+            abs(groupColor.red - actual.red) <= 0.015f &&
+                abs(groupColor.green - actual.green) <= 0.015f &&
+                abs(groupColor.blue - actual.blue) <= 0.015f &&
+                abs(groupColor.alpha - actual.alpha) <= 0.015f
+        }
+    }
     private fun verify(dark: Boolean) {
         compose.waitForIdle()
         close(groupColor, pixel("closed"))
@@ -98,9 +110,11 @@ class GroupHeaderAppearanceUiTest {
         content(AppThemeMode.DARK, false); verify(true)
         compose.onNodeWithText("Grupo cerrado").performClick()
         compose.runOnIdle { assertTrue(expanded.value) }
+        awaitRestingHeader()
         verify(true)
         compose.onNodeWithText("Grupo cerrado").performClick()
         compose.runOnIdle { assertFalse(expanded.value) }
+        awaitRestingHeader()
         verify(true)
     }
 }
