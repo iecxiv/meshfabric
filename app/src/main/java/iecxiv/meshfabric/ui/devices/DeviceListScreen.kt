@@ -161,9 +161,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 }
 @Composable fun GroupHeaderCard(group:MeshGroup,onlineCount:Int,offlineCount:Int,isExpanded:Boolean,onToggleExpand:()->Unit) {
     Card(Modifier.fillMaxWidth().padding(vertical=6.dp).clip(CardDefaults.shape).clickable(onClick=onToggleExpand),
-        colors= iecxiv.meshfabric.ui.theme.appCardColors(
-CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)
-)) {
+        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)) {
         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(group.name.ifEmpty { stringResource(R.string.unnamed_group) },style=MaterialTheme.typography.titleMedium,
