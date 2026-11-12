@@ -56,17 +56,7 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
         }
     }
     if(details) DeviceDetailsDialog(node) { details=false }
-    if(general) iecxiv.meshfabric.ui.components.AppAlertDialog(
-        onDismissRequest={ general=false },
-        title={ Text(node.name, fontSize=18.sp,fontWeight=FontWeight.Bold) },
-        text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text(if(es) "General" else "General",style=MaterialTheme.typography.titleSmall)
-            Text((if(es) "Nombre: " else "Name: ")+node.name)
-            Text((if(es) "Sistema: " else "OS: ")+node.osdesc.orEmpty().ifBlank { if(es) "Sin datos" else "No data" })
-            Text(if(node.isOnline) { if(es) "Conectado" else "Connected" } else { if(es) "Desconectado" else "Disconnected" })
-            Text(if(es) "Vista inicial de consulta. Energía, etiquetas y edición aún no disponibles." else "Initial read-only view. Power history, tags and editing are not available yet.",style=MaterialTheme.typography.bodySmall)
-        } },
-        confirmButton={ TextButton(onClick={ general=false }) { Text(if(es) "Cerrar" else "Close") } })
+    if(general) DeviceGeneralDialog(node) { general=false }
 }
 
 @Composable private fun DeviceOptionButton(label:String,icon:ImageVector,key:String,width:androidx.compose.ui.unit.Dp,enabled:Boolean,onClick:()->Unit) {
