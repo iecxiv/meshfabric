@@ -53,7 +53,7 @@ jobs:
               assert not any(c.find('failure') is not None or c.find('error') is not None for c in cases),root
               if 'androidTest' in root:
                   new=[c for c in cases if c.get('classname','').endswith('.DeviceOptionsVisualUiTest')]
-                  assert len(new)==3 and all(c.find('skipped') is None for c in new)
+                  assert len(new)==4 and all(c.find('skipped') is None for c in new)
           PY
       - uses: actions/upload-artifact@v4
         if: always()

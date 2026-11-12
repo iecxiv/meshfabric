@@ -14,14 +14,19 @@ s=s.replace(old,'Modifier.width(width).testTag("device_option_$key")',1)
 old='modifier=Modifier.testTag("device_options_toggle")'
 assert s.count(old)==1
 s=s.replace(old,'modifier=Modifier.size(38.dp).testTag("device_options_toggle")',1)
+old='    OutlinedButton(onClick=onClick,enabled=enabled,modifier=Modifier.width(width)'
+assert s.count(old)==1
+s=s.replace(old,'    val contentColor=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onSurface\n'+old,1)
+old='        contentPadding=PaddingValues(horizontal=2.dp,vertical=4.dp)) {'
+assert s.count(old)==1
+s=s.replace(old,'        colors=ButtonDefaults.outlinedButtonColors(contentColor=contentColor,disabledContentColor=contentColor.copy(alpha=0.38f)),\n'+old,1)
 old='                DeviceOptionsToggle(otherExpanded) { otherExpanded = !otherExpanded }\n                LocalDeviceActionMenu.current(node)'
 new='''                Row(horizontalArrangement=Arrangement.spacedBy((-6).dp),verticalAlignment=Alignment.CenterVertically) {
                     DeviceOptionsToggle(otherExpanded) { otherExpanded = !otherExpanded }
-                    Box(Modifier.size(38.dp).then(androidx.compose.ui.platform.testTag(Modifier, "device_options_menu_slot")),contentAlignment=Alignment.Center) {
+                    Box(Modifier.size(38.dp),contentAlignment=Alignment.Center) {
                         LocalDeviceActionMenu.current(node)
                     }
                 }'''
-new=new.replace('Modifier.size(38.dp).then(androidx.compose.ui.platform.testTag(Modifier, "device_options_menu_slot"))','Modifier.size(38.dp)')
 assert t.count(old)==1
 t=t.replace(old,new,1)
 assert t.split('@Composable fun SessionActionButton',1)[1]==original_session
