@@ -24,7 +24,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Apply only the two server title overrides
+      - name: Match only the five server action titles to keyboard shortcuts
         run: |
           set -euo pipefail
           mkdir -p validation
@@ -60,9 +60,9 @@ jobs:
               cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
               failed=[c.get('classname','')+'.'+c.get('name','') for c in cases if c.find('failure') is not None or c.find('error') is not None]
               new=[c for c in cases if c.get('classname','').endswith('.ServerDialogTitleTypographyUiTest')]
-              report[root]={'count':len(cases),'failures':failed,'new_tests':len(new)}
+              report[root]={'count':len(cases),'failures':failed,'scoped_title_tests':len(new)}
               if not cases or failed:errors.append(root)
-              if 'androidTest' in root and (len(new)!=8 or any(c.find('skipped') is not None for c in new)):errors.append('New tests missing or skipped')
+              if 'androidTest' in root and (len(new)!=14 or any(c.find('skipped') is not None for c in new)):errors.append('Title tests missing or skipped')
           Path('validation').mkdir(exist_ok=True)
           Path('validation/test-evidence.json').write_text(json.dumps(report,indent=2))
           assert not errors,errors
@@ -85,12 +85,14 @@ jobs:
           test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev advanced; refusing publication'; exit 1; }
           python3 - <<'PY'
           import subprocess
-          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/ServerGeneralPresentation.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/ServerDialogTitleTypographyUiTest.kt'}
+          root='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          expected={root+name for name in ['ServerGeneralPresentation.kt','ServerBackupPanel.kt','ServerRestorePanel.kt','ServerVersionDialog.kt','MyServerScreen.kt','ServerGeneralActionTitle.kt']}
+          expected.add('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ServerDialogTitleTypographyUiTest.kt')
           assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
           assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
           assert not [p for p in subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines() if not p.startswith('validation/')]
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'fix(ui): match server config and error titles to AlertDialog typography'
+          git commit -m 'fix(ui): match five server action titles to keyboard shortcuts'
           git push origin HEAD:dev
