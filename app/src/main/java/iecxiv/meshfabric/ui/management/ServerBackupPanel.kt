@@ -250,7 +250,7 @@ private data class BackupRequest(val password:String,val override:Boolean) { ove
         is BackupPhase.Failed->Text(if(state.message==R.string.my_server_backup_failed_http) stringResource(state.message,state.code) else stringResource(state.message),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
     }
     ServerRestorePanel(source,enabled=!backupBusy,onBusy={ restoring=it })
-    if(dialog) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ dialog=false; password="" },title={ Text(stringResource(R.string.my_server_backup_dialog_title)) },
+    if(dialog) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ dialog=false; password="" },title={ ServerGeneralActionTitle(stringResource(R.string.my_server_backup_dialog_title)) },
         text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.my_server_backup_dialog_text))
             OutlinedTextField(value=password,onValueChange={ if(it.length<=256) password=it },label={ Text(stringResource(R.string.my_server_backup_password)) },singleLine=true,enabled=!override,

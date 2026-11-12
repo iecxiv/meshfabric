@@ -163,7 +163,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
     TextButton(enabled=enabled && source!=null && !intro && !busy && !selecting && candidate==null && proposal==null,onClick={
         note=""; intro=true
     }) { Text(label("Restaurar servidor desde copia…","Restore server from backup…")) }
-    if(intro) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ intro=false },title={ Text(label("Restaurar servidor desde copia","Restore server from backup")) },
+    if(intro) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ intro=false },title={ ServerGeneralActionTitle(label("Restaurar servidor desde copia","Restore server from backup")) },
         text={ Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(label("Restauración web de copias NeDB con config.json y meshcentral.db. No es una restauración de MongoDB/SQL. Límite: 256 MiB ZIP, 1 GiB expandido, 20 000 entradas.","Web restore of NeDB backups containing config.json and meshcentral.db. Not MongoDB/SQL restore. Limits: 256 MiB ZIP, 1 GiB expanded, 20,000 entries."))
             Text(label("Continuar abre el selector de archivos. La restauración se confirmará después de validar la copia.","Continue opens the file picker. Restore will be confirmed after validating the backup."))

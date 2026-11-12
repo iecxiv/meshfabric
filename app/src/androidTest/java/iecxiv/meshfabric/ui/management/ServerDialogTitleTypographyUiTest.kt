@@ -8,8 +8,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
 import iecxiv.meshfabric.ui.components.AppAlertDialog
+import iecxiv.meshfabric.ui.components.AppDialogSurface
 import iecxiv.meshfabric.ui.theme.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -31,17 +33,25 @@ class ServerDialogTitleTypographyUiTest {
         assertEquals(expected.letterSpacing,actual.letterSpacing)
         assertEquals(expected.fontFeatureSettings,actual.fontFeatureSettings)
     }
-    private fun verify(action:String,dark:Boolean,empty:Boolean=false,management:Boolean=false) {
+    private fun verify(action:String,dark:Boolean,empty:Boolean=false,management:Boolean=false,kind:Int=0) {
         val reference=mutableStateOf(true)
         var title=""
         var managementExpected:TextStyle?=null
         compose.setContent {
             MeshCentralTheme(if(dark) AppThemeMode.DARK else AppThemeMode.LIGHT,dynamicColor=false) {
                 val context=LocalContext.current
-                title=if(management) "Other management dialog" else context.getString(if(action=="serverconfig") R.string.my_server_config else R.string.my_server_errors)
+                title=when {
+                    management->"Other management dialog"
+                    kind==1->context.getString(R.string.my_server_backup_dialog_title)
+                    kind==2->"Restore server from backup"
+                    kind==3->context.getString(R.string.my_server_version)
+                    else->context.getString(if(action=="serverconfig") R.string.my_server_config else R.string.my_server_errors)
+                }
                 managementExpected=MaterialTheme.typography.titleMedium.copy(fontWeight=FontWeight.SemiBold)
-                if(reference.value) AppAlertDialog(onDismissRequest={},title={Text("Reference title")},confirmButton={TextButton(onClick={}) {Text("OK")}})
+                if(reference.value) AppDialogSurface {Text("Reference title",fontWeight=FontWeight.Bold,fontSize=18.sp)}
                 else if(management) ManagementDialog(onDismissRequest={},title={Text(title)},confirmButton={TextButton(onClick={}) {Text("OK")}})
+                else if(kind==3) ServerVersionDialog(null,{})
+                else if(kind!=0) AppAlertDialog(onDismissRequest={},title={ServerGeneralActionTitle(title)},confirmButton={TextButton(onClick={}) {Text("OK")}})
                 else {
                     val raw=if(empty) "{\"action\":\"servererrors\"}" else if(action=="serverconfig") "{\"action\":\"serverconfig\",\"data\":{}}" else "{\"action\":\"servererrors\",\"data\":\"Example log\"}"
                     ServerReadResultDialog(raw,action,{})
@@ -53,7 +63,7 @@ class ServerDialogTitleTypographyUiTest {
         compose.runOnIdle {reference.value=false}
         compose.waitForIdle()
         same(if(management) managementExpected!! else expected,style(title))
-        if(!management && !empty) {
+        if(!management && !empty && kind==0) {
             compose.onNodeWithText("A+").performClick()
             same(expected,style(title))
         }
@@ -66,4 +76,10 @@ class ServerDialogTitleTypographyUiTest {
     @Test fun absentLogDark()=verify("servererrors",true,true)
     @Test fun otherManagementLightUnchanged()=verify("",false,management=true)
     @Test fun otherManagementDarkUnchanged()=verify("",true,management=true)
+    @Test fun backupTitleComponentLight()=verify("",false,kind=1)
+    @Test fun backupTitleComponentDark()=verify("",true,kind=1)
+    @Test fun restoreTitleComponentLight()=verify("",false,kind=2)
+    @Test fun restoreTitleComponentDark()=verify("",true,kind=2)
+    @Test fun actualVersionLight()=verify("",false,kind=3)
+    @Test fun actualVersionDark()=verify("",true,kind=3)
 }
