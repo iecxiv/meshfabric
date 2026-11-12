@@ -1,0 +1,219 @@
+name: Validate version and notice documentation
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/update-notice-docs-version.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  update:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare guarded version and documentation changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          hashes={'app/build.gradle.kts':'3e12d28097a88a29eb3937997ad50ee619a8895a','README.md':'a3a9bf43d887472fa186fe38e5c0fa8e5fe79f40','README_ES.md':'6a7085d42d20c50b086ac3c882b78ccfb23482b0','docs/profile-native.md':'ee6c4e878382de28256b359a81be47e140113dc8','docs/es/profile-native.md':'9922ae79c9c49df9e20c2e6dec7e0f678ae2444e','docs/profile.md':'37fc41e5c35eb4e76d031b79f6296f94ef1e0a02','docs/es/profile.md':'01e5c309b83f8f8319de5dbf2e7427a7463d1e2e','docs/log.md':'91ba6fdce9b447164502aac35c90fa8bb65d5ccf'}
+          texts={}
+          for name,sha in hashes.items():
+              raw=Path(name).read_bytes()
+              if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!=sha: raise SystemExit(name+' changed; review required')
+              texts[name]=raw.decode()
+          def change(name,old,new):
+              if texts[name].count(old)!=1: raise SystemExit('Missing or ambiguous anchor in '+name+': '+old)
+              texts[name]=texts[name].replace(old,new)
+          change('app/build.gradle.kts','versionName = "1.3.3"','versionName = "1.3.4"')
+          if 'versionCode = 1' not in texts['app/build.gradle.kts']: raise SystemExit('Unexpected versionCode')
+          change('README.md','- Use a session notice inbox, optional Android background alerts and notification preferences synchronized with the server web settings.','- Use an encrypted persistent notice inbox per server/account, optional Android background alerts and notification preferences synchronized with the server web settings. Unread notices are not automatically evicted; local read state is saved.')
+          change('README_ES.md','- Utiliza la bandeja de avisos de la sesión, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web del servidor.','- Utiliza una bandeja de avisos persistente cifrada por servidor/cuenta, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web. Los no leídos no se eliminan automáticamente y se guarda el estado local de lectura.')
+          en='''### Notices, Broadcast and Messages
+          
+          - Notices retains received entries; Broadcast and Messages reuse reviewed server-authorized sending flows. Messages distinguishes users from devices and is not a chat history.
+          - User recipients show names; devices show device (group), without visible internal IDs. Message search starts hidden, opens from the header and matches visible names/groups. Closing search, switching section or changing recipient type clears its filter.
+          - The local inbox restores unread notices and read state after reopening and authenticating the same account/server. Opening the inbox or dismissing an Android alert does not mark entries read. Restoration does not replay alerts.
+          - All unread entries and up to 200 read entries are retained. Storage uses AES-GCM with an Android Keystore key, atomic files and app-private no-backup storage. There is no plaintext fallback for this inbox.
+          - The per-account/server storage limit is 16 MiB. A failed or oversized save is shown as unconfirmed and preserves the previous file; pending changes can remain only in memory. Wait for saving to finish before closing. Explicitly clearing the inbox also deletes unread entries after confirmation.
+          - Management dialog navigation and eligible server result dialogs survive temporary channel pauses. Event details survive verified lifecycle pauses and require matching authority and a unique matching event after reload. This is not process-death restoration of dialogs, and sensitive confirmations can still be invalidated.
+          - Activity remains a separate in-memory journal. Console/Trace buffers still clear on backgrounding. Server acceptance does not prove delivery/reading; a stopped process is not guaranteed to receive notices.
+          
+          Guide and acceptance checklist: [Notices and continuity](docs/notices.md). Real-device lifecycle, persistence and live-server delivery checks remain required.
+          
+          '''
+          es='''### Avisos, Broadcast y Mensajes
+          
+          - Avisos conserva entradas recibidas; Broadcast y Mensajes reutilizan los flujos revisados y sujetos a permisos. Mensajes distingue usuarios y dispositivos y no es un historial de chat.
+          - Los destinatarios muestran el nombre del usuario o dispositivo (grupo), sin IDs internos visibles. La búsqueda de Mensajes empieza oculta, se abre con la lupa y filtra nombres/grupos visibles. Cerrar la búsqueda, cambiar de pestaña o de tipo de destinatario limpia el filtro.
+          - La bandeja restaura no leídos y estado de lectura al abrir de nuevo y autenticar la misma cuenta/servidor. Entrar en Avisos o descartar una alerta Android no marca como leído. Restaurar no vuelve a emitir alertas.
+          - Se conservan todos los no leídos y hasta 200 leídos. El almacenamiento usa AES-GCM con clave de Android Keystore, archivos atómicos y almacenamiento privado excluido de backups. Esta bandeja no tiene alternativa en texto plano.
+          - El límite por cuenta/servidor es de 16 MiB. Si falla o se supera, el guardado queda sin confirmar y conserva el archivo anterior; puede haber cambios solo en memoria. Espera a que termine el guardado antes de cerrar. Vaciar la bandeja también elimina los no leídos tras confirmar.
+          - La navegación de diálogos de Gestión y los resultados de Servidor admitidos sobreviven a pausas temporales. Los detalles de Eventos sobreviven a pausas de ciclo de vida verificadas y exigen autorización coincidente y un evento inequívoco al recargar. No restaura diálogos tras morir el proceso; las confirmaciones sensibles pueden invalidarse.
+          - Actividad sigue siendo un diario independiente en memoria. Consola/Seguimiento siguen borrando sus búferes al pasar a segundo plano. La aceptación del servidor no demuestra entrega/lectura y no se garantiza recepción con el proceso detenido.
+          
+          Guía y lista de aceptación: [Avisos y continuidad](docs/es/notices.md). Siguen pendientes las comprobaciones en dispositivo y de entrega contra el servidor real.
+          
+          '''
+          change('README.md','### Agent installation and invitations',en+'### Agent installation and invitations')
+          change('README_ES.md','### Instalación de agentes e invitaciones',es+'### Instalación de agentes e invitaciones')
+          change('docs/profile-native.md','The session inbox and optional Android alerts support received notices','The persistent encrypted local inbox and optional Android alerts support received notices')
+          change('docs/es/profile-native.md','La bandeja de sesión y las alertas Android opcionales muestran avisos recibidos','La bandeja local persistente cifrada y las alertas Android opcionales muestran avisos recibidos')
+          texts['docs/profile-native.md']+='\n## Persistent inbox\n\nUnread notices and local read state are restored only after binding the same server/account. Closing the process or signing out does not delete saved notices; other accounts cannot display them through this inbox. Storage is separate from remembered-session preferences and has no plaintext fallback. It retains all unread and up to 200 read entries, within a 16 MiB save limit; errors preserve the previous file and are shown explicitly. Saving is asynchronous: pending writes are not guaranteed after abrupt process termination. See [Notices](notices.md) for deletion, limitations and acceptance checks.\n'
+          texts['docs/es/profile-native.md']+='\n## Bandeja persistente\n\nLos no leídos y el estado local de lectura se restauran tras vincular la misma cuenta/servidor. Cerrar el proceso o la sesión no elimina los avisos guardados; otras cuentas no los muestran en esta bandeja. El almacenamiento es independiente de las preferencias de sesión y no tiene alternativa en texto plano. Conserva todos los no leídos y hasta 200 leídos, con límite de guardado de 16 MiB; los errores conservan el archivo anterior y se muestran explícitamente. El guardado es asíncrono: una terminación abrupta puede perder escrituras pendientes. Consulta [Avisos](notices.md) para borrado, límites y aceptación.\n'
+          texts['docs/profile.md']+='\n## Background/resume continuity\n\nTemporary loss of readiness no longer clears the parent dialog navigation solely for that reason. Previous presentation data can remain visible with actions blocked until fresh matching account data is available. Identity changes clear the navigation context; sensitive reviews can still invalidate permanently on interruption. This does not promise survival of every nested dialog or restore dialogs after process death. The account-security dialogs keep their own safety rules. See [Notices and continuity](notices.md).\n'
+          texts['docs/es/profile.md']+='\n## Continuidad al volver de segundo plano\n\nLa pérdida temporal de disponibilidad ya no borra por sí sola la navegación del diálogo principal. Pueden mostrarse datos anteriores con acciones bloqueadas hasta recibir datos actuales de la cuenta coincidente. Los cambios de identidad borran el contexto; las revisiones sensibles pueden invalidarse permanentemente al interrumpirse. No garantiza conservar todos los diálogos anidados ni restaurarlos tras morir el proceso. Los diálogos de seguridad de cuenta mantienen sus reglas. Consulta [Avisos y continuidad](notices.md).\n'
+          change('docs/log.md','Account/server changes, pause and observed access changes clear data.','Account/server changes and observed access changes invalidate data. A verified lifecycle pause retires the transport and list snapshot, but may retain an already-open read-only detail during same-binding reload; ordinary invalidation does not permit this.')
+          change('docs/log.md','Details are reset with snapshot/selection invalidation and account/server changes.','Details reset on selection/inventory changes, loss of the main connection, account/server/credential/TLS/role changes and ordinary invalidation. A dedicated lifecycle-pause marker permits retaining an open detail through a same-binding reload, subject to fresh authorization and exactly one equal resolved event.')
+          texts['docs/log.md']+='\n## Activity is not the persistent notice inbox\n\nActivity retains up to 200 session entries in memory. An interruption changes pending action results to unknown without automatically clearing received entries or resending commands. Logout, owner destruction or process death can clear this journal. Only the separate Notices inbox has encrypted local persistence. Console/Trace output keeps its own background-clearing policy.\n\nEvent continuity is conservative: denial, invalid replies, timeouts, errors, missing/ambiguous matches or changed authorization retire open details. Reader tests and simulated UI state transitions do not replace actual background/resume checks on the intended device. See [Notices and continuity](notices.md).\n'
+          for name,text in texts.items(): Path(name).write_text(text)
+          guides={'docs/notices.md':'''# Notices, Broadcast, Messages and continuity
+          
+          [Español](es/notices.md) | [README](../README.md) | [Management](profile.md) | [Log](log.md)
+          
+          ## Sections and recipients
+          
+          Notices is the received local inbox. Broadcast targets the effective server-authorized scope shown by its review dialog. Messages offers individual user notifications and notifications on devices with connected agents; this is not email, temporary device sharing or a chat history. User labels contain the name only; device labels contain device (group). Internal identifiers remain internal to routing.
+          
+          Message search is hidden initially and toggled from the header. It matches visible labels, including group names. Closing it, changing section or switching Users/Devices closes and clears the filter. Sending remains subject to current connection, account permissions and device capabilities. Review the target and message; acceptance is not delivery or reading, and unknown results are not retried automatically.
+          
+          ## Persistent received notices
+          
+          The inbox saves received entries, local read state and the corresponding unread count. It restores them after authenticating and binding the same server and account. The storage key uses a hash of the server URL and actor ID, not the session cookie. Other accounts/servers use separate files. Signing out hides and clears the current in-memory view, not its saved file. Restored entries are not posted again as Android alerts. Opening the inbox or dismissing an Android notification does not mark an entry read. Reading is local to this installation and is not a server read receipt.
+          
+          All unread notices are retained; automatic retention keeps at most 200 read notices. Marking read does not necessarily delete the entry immediately. Individual deletion is explicit; clearing the inbox requires confirmation and also removes unread notices. Deletion affects only this local account/server inbox, not server events or messages. Previously discarded in-memory notices cannot be recovered retroactively.
+          
+          ## Storage and failure handling
+          
+          NoticeInboxDisk uses AES-GCM with a key generated by Android Keystore, scope-bound authenticated data, atomic file replacement and app-private no-backup storage. This inbox does not fall back to plaintext. It is separate from remembered-login preferences and from unencrypted terminal archives. Clearing app data or uninstalling is not a supported way to retain this local inbox. Missing/unavailable keys or damaged ciphertext are reported rather than silently replaced with an empty inbox.
+          
+          Reads and writes run on a serialized storage executor. Loading merges notices already received into memory; the UI reports loading, pending saves and errors. The plaintext payload limit is 16 MiB per server/account. Oversized/failed saves preserve the previous stored file rather than automatically deleting unread entries. New changes may exist only in memory. Wait until saving finishes before closing; abrupt process death can lose pending writes. Retry is explicit. Clearing after an error is destructive and requires the same clear-inbox confirmation.
+          
+          Persistence preserves received data; it does not create push delivery, replay missed server messages or guarantee reception with a stopped process. Android notification permission and the account reception setting remain distinct.
+          
+          ## Background/resume boundaries
+          
+          - Management preserves parent dialog navigation and cached presentation while blocking writes until current matching data is available. Identity changes clear context. Sensitive confirmations can invalidate; not every nested dialog is guaranteed to remain open.
+          - Server retains eligible open result dialogs independently of its paused reader and keeps their presentation state while still composed. Identity/observed-role changes retire them. Server-version updates keep their own authorization and confirmation flow; no update is replayed. Console/Trace output is still cleared on backgrounding.
+          - Events retains an open detail only for a verified lifecycle pause and same-binding reload. Fresh user authority must match. After reload there must be exactly one equal resolved record. Selection/inventory changes, main-connection loss, denial, errors or changed identity/authority close it.
+          - Activity is still a memory-only session journal, not the persistent Notices inbox. These continuity changes do not restore dialogs or live remote sessions after process death.
+          
+          ## Acceptance checks still required
+          
+          Automated build, unit, lint and instrumentation runs are not proof of live-server delivery or physical-device lifecycle behavior. On the intended device: receive unread notices; wait for saving; close and reopen; verify unread/read state and count; switch accounts/servers and back; dismiss Android alerts without marking read; delete and clear then reopen; and background/resume each relevant dialog. Check real Broadcast/user/device delivery separately, including disconnection and insufficient permissions. No such manual scenario is declared complete here.
+          ''','docs/es/notices.md':'''# Avisos, Broadcast, Mensajes y continuidad
+          
+          [English](../notices.md) | [README](../../README_ES.md) | [Gestión](profile.md) | [Registro](../log.md)
+          
+          ## Pestañas y destinatarios
+          
+          Avisos es la bandeja local recibida. Broadcast utiliza el alcance efectivo autorizado por el servidor y mostrado en su revisión. Mensajes ofrece notificaciones individuales a usuarios o a dispositivos con agente conectado; no es correo, acceso temporal ni historial de chat. El usuario muestra solo su nombre y el dispositivo muestra dispositivo (grupo). Los IDs quedan en el enrutamiento interno.
+          
+          La búsqueda de Mensajes empieza oculta y se alterna desde la cabecera. Filtra etiquetas visibles, incluido el grupo. Cerrar, cambiar de pestaña o alternar Usuarios/Dispositivos oculta y limpia el filtro. El envío depende de conexión, permisos y capacidades actuales. Revisa destinatario y contenido: aceptar una solicitud no confirma entrega ni lectura, y los resultados desconocidos no se reenvían automáticamente.
+          
+          ## Persistencia de avisos recibidos
+          
+          La bandeja guarda entradas, estado local de lectura y contador de no leídos. Se restauran tras autenticar y vincular la misma cuenta y servidor. La clave de almacenamiento es un hash de URL del servidor e ID del actor, no de la cookie de sesión. Otras cuentas/servidores utilizan archivos separados. Cerrar sesión oculta y vacía la vista en memoria, no su archivo guardado. Restaurar no vuelve a publicar alertas Android. Entrar en Avisos o descartar la notificación Android no marca como leído. La lectura es local a esta instalación, no un acuse al servidor.
+          
+          Se conservan todos los no leídos; la retención automática mantiene hasta 200 leídos. Marcar como leído no implica eliminar inmediatamente. El borrado individual es explícito; vaciar exige confirmación e incluye no leídos. Solo afecta a esta bandeja local, no a eventos o mensajes del servidor. No recupera avisos que ya se hubieran perdido con el almacenamiento anterior en memoria.
+          
+          ## Almacenamiento y fallos
+          
+          NoticeInboxDisk usa AES-GCM con clave generada por Android Keystore, autenticación ligada al ámbito, sustitución atómica de archivos y almacenamiento privado excluido de backups. No tiene alternativa en texto plano. Es independiente de las preferencias de inicio de sesión y de los historiales de terminal sin cifrar. Borrar datos de la app o desinstalar no permite conservar esta bandeja local. Las claves no disponibles o el contenido cifrado dañado se notifican; no se sustituyen silenciosamente por una bandeja vacía.
+          
+          Lecturas y escrituras usan un ejecutor serializado. La restauración combina los avisos que ya hayan llegado a memoria; la interfaz informa de carga, guardados pendientes y errores. El contenido previo al cifrado se limita a 16 MiB por servidor/cuenta. Si falla o se supera, se conserva el archivo anterior sin eliminar automáticamente no leídos. Puede haber cambios solo en memoria. Espera a que termine el guardado antes de cerrar; una terminación abrupta puede perder escrituras pendientes. El reintento es explícito. Vaciar tras un error es destructivo y exige la misma confirmación de borrado.
+          
+          Persistir conserva datos recibidos; no añade push, no recupera mensajes omitidos del servidor ni garantiza recepción con el proceso detenido. El permiso Android y la activación de recepción de la cuenta son independientes.
+          
+          ## Límites al volver de segundo plano
+          
+          - Gestión conserva la navegación principal del diálogo y datos de presentación, bloqueando escrituras hasta disponer de datos actuales de la misma cuenta. La identidad invalida el contexto. Las confirmaciones sensibles pueden invalidarse y no se garantiza conservar todos los diálogos anidados.
+          - Servidor conserva resultados abiertos admitidos independientemente del lector pausado y mantiene su presentación mientras sigan compuestos. Los cambios de identidad/rol observado los retiran. La actualización del servidor mantiene autorización y confirmación propias, sin reenvíos. Consola/Seguimiento siguen borrando su salida al pasar a segundo plano.
+          - Eventos conserva el detalle solo durante una pausa verificada y recarga con la misma vinculación. La autorización recibida debe coincidir y, tras recargar, debe existir exactamente un registro resuelto igual. Cambios de selección/inventario, pérdida de conexión principal, denegación, errores o cambios de identidad/autorización cierran el detalle.
+          - Actividad sigue siendo un diario de sesión solo en memoria, no la bandeja persistente de Avisos. Estos cambios no restauran diálogos ni sesiones remotas vivas tras morir el proceso.
+          
+          ## Aceptación real pendiente
+          
+          Compilación, unitarios, lint e instrumentación no demuestran entrega real ni comportamiento del dispositivo. En el móvil previsto: recibir no leídos; esperar al guardado; cerrar y abrir; verificar lectura y contador; cambiar de cuenta/servidor y volver; descartar alertas Android sin marcar leído; borrar/vaciar y abrir de nuevo; y pasar a segundo plano con cada diálogo relevante. Comprobar aparte Broadcast y mensajes a usuario/dispositivo, incluyendo desconexión y permisos insuficientes. No se declara completado aquí ninguno de esos escenarios manuales.
+          '''}
+          for name,text in guides.items():
+              if Path(name).exists(): raise SystemExit(name+' already exists; review required')
+              Path(name).write_text(text)
+          import re
+          for name in [n for n in texts if n.endswith('.md')]+list(guides):
+              for target in re.findall(r'\]\(([^)]+)\)',Path(name).read_text()):
+                  if '://' in target or target.startswith('#'): continue
+                  relative=target.split('#',1)[0]
+                  if relative and not (Path(name).parent/relative).exists(): raise SystemExit('Broken documentation link: '+name+' -> '+target)
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Run all standalone JavaScript test scripts
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          tests=sorted(Path('app/src/test/js').rglob('*.test.js'))
+          if not tests: raise SystemExit('No JavaScript test scripts found')
+          for p in tests: subprocess.run(['node',str(p)],check=True)
+          PY
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated files only on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          allowed={'app/build.gradle.kts','README.md','README_ES.md','docs/profile-native.md','docs/es/profile-native.md','docs/profile.md','docs/es/profile.md','docs/log.md','docs/notices.md','docs/es/notices.md'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Set app versionName to 1.3.4 and document notices and dialog continuity"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: version-notice-docs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn

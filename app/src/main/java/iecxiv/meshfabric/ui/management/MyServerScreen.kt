@@ -190,12 +190,15 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
 @Composable internal fun MyServerScreen(source:MeshCentralClient?,modifier:Modifier=Modifier,header:@Composable (@Composable ()->Unit)->Unit={}) {
     val context=LocalContext.current.applicationContext
     val preferences=remember(context) { ServerHistoryPreferences(context.getSharedPreferences("server_history",Context.MODE_PRIVATE)) }
-    val reader=remember(source,preferences) { source?.let { ServerReader(it,preferences.hours()) } }
+    val actor=source?.userInfo?.collectAsState()?.value
+    val readIdentity=remember(source,source?.serverUrl,source?.authCookie,source?.ignoreSsl,source?.isUserLogout,actor?.id,actor?.siteadmin) {Any()}
+    val reader=remember(source,preferences,readIdentity) { source?.let { ServerReader(it,preferences.hours()) } }
     val state=reader?.state?.collectAsState()?.value ?: ServerReadState(failed=true,hours=preferences.hours())
+    val resultDialog=rememberServerReadDialog(state.result,state.resultKind,readIdentity)
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var retry by remember { mutableIntStateOf(0) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    var confirmConfig by remember { mutableStateOf(false) }
+    var confirmConfig by remember(readIdentity) { mutableStateOf(false) }
     LaunchedEffect(reader,lifecycle,retry) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
         try { reader?.connect(); awaitCancellation() } finally { reader?.close() }
     } }
@@ -230,7 +233,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     }
     if(confirmConfig) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ confirmConfig=false },title={ Text(stringResource(R.string.my_server_config)) },text={ Text(stringResource(R.string.my_server_sensitive)) },
         confirmButton={ TextButton(onClick={ confirmConfig=false; reader?.request("serverconfig") }) { Text(stringResource(R.string.my_server_view)) } },dismissButton={ TextButton(onClick={ confirmConfig=false }) { Text(stringResource(R.string.my_server_cancel)) } })
-    if(state.result.isNotEmpty()) ServerReadResultDialog(state.result,state.resultKind) { reader?.dismiss() }
+    key(readIdentity) { resultDialog.value?.let { result->ServerReadResultDialog(result.raw,result.action) {resultDialog.value=null;reader?.dismiss()} } }
 }
 
 @Composable private fun HistoryPanel(raw:String,hours:Int,ready:Boolean,busy:Boolean,onLoad:(Int)->Unit) {

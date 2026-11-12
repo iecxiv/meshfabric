@@ -1,0 +1,182 @@
+name: Validate stable compact connection status
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/stable-compact-connection-status.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare stable text-sized status and transition tests
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('app/src');base='java/iecxiv/meshfabric/ui/management/'
+          hashes={'main/ManagementConnectionStatus.kt':'04ec1ead96ade22c1429e45f9166981e40fe4d38','androidTest/ManagementConnectionStatusTest.kt':'5217b5e2fa70940a7ed250ce29acf43236128bcc','androidTest/ManagementConnectionSpacingTest.kt':'de6a8a040311bfcce025e61bb47974acf1f69427','androidTest/ProfileManagementConnectionStatusTest.kt':'f5c87f2aff5276bb25aca853ae94a242a8064d9d'}
+          for name,sha in hashes.items():
+              kind,file=name.split('/',1);raw=(root/kind/base/file).read_bytes()
+              if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!=sha: raise SystemExit(name+' changed; review required')
+          (root/'main'/base/'ManagementConnectionStatus.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.alpha
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.semantics.*
+          import androidx.compose.ui.text.SpanStyle
+          import androidx.compose.ui.text.buildAnnotatedString
+          import androidx.compose.ui.text.style.TextDecoration
+          import androidx.compose.ui.text.withStyle
+          import androidx.compose.ui.unit.dp
+          internal fun managementConnectionTexts(es:Boolean)=if(es) listOf("Conectando con el canal de gestión...","Canal de gestión conectado. El servidor valida los permisos.","Canal de gestión desconectado. Reconectar") else listOf("Connecting to the management channel...","Management channel connected. The server validates permissions.","Management channel disconnected. Reconnect")
+          @Composable internal fun ManagementConnectionStatus(ready:Boolean,connecting:Boolean,reconnectEnabled:Boolean=true,modifier:Modifier=Modifier,onReconnect:()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              val labels=managementConnectionTexts(es)
+              val active=if(ready) 1 else if(connecting) 0 else 2
+              val reconnect=if(es) "Reconectar" else "Reconnect"
+              Box(modifier.fillMaxWidth().testTag("management-connection-row").padding(vertical=8.dp)) {
+                  Box(Modifier.fillMaxWidth().testTag("management-connection-label").semantics {liveRegion=LiveRegionMode.Polite}) {
+                      labels.forEachIndexed {index,label->
+                          val visible=index==active
+                          var textModifier=Modifier.fillMaxWidth()
+                          textModifier=if(visible) textModifier else textModifier.alpha(0f).clearAndSetSemantics {}
+                          if(visible && index==2) textModifier=textModifier.testTag("management-reconnect").clickable(enabled=reconnectEnabled,onClickLabel=reconnect,role=Role.Button,onClick=onReconnect)
+                          val content=buildAnnotatedString {
+                              if(index==2) {
+                                  append(label.removeSuffix(reconnect))
+                                  withStyle(SpanStyle(color=if(reconnectEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,textDecoration=TextDecoration.Underline)) {append(reconnect)}
+                              } else append(label)
+                          }
+                          Text(content,textModifier,style=MaterialTheme.typography.bodySmall,color=if(active==2) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                      }
+                  }
+              }
+          }
+          ''')
+          p=root/'androidTest'/base/'ManagementConnectionStatusTest.kt';text=p.read_text()
+          start=text.index('    private fun compact(scale:Float,width:Int) {')
+          end=text.index('    @Test fun connectedUsesOnlyTextAndEventStyleVerticalPadding()',start)
+          replacement='''    private fun compact(scale:Float,width:Int,es:Boolean=true) {
+                  val ready=mutableStateOf(true);val connecting=mutableStateOf(false);var retries=0
+                  compose.setContent {
+                      val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(if(es) "es" else "en"))}
+                      val density=Density(LocalDensity.current.density,scale)
+                      CompositionLocalProvider(LocalConfiguration provides config,LocalDensity provides density) {MaterialTheme {Column(Modifier.width(width.dp)) {
+                          ManagementConnectionStatus(ready.value,connecting.value,onReconnect={retries++})
+                          Box(Modifier.fillMaxWidth().height(20.dp).testTag("following-content"))
+                          Box(Modifier.fillMaxWidth().testTag("text-sized-reference").padding(vertical=8.dp)) {
+                              managementConnectionTexts(es).forEach {Text(it,Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodySmall)}
+                          }
+                      }}}
+                  }
+                  val initial=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
+                  val following=compose.onNodeWithTag("following-content").fetchSemanticsNode().boundsInRoot
+                  val reference=compose.onNodeWithTag("text-sized-reference").fetchSemanticsNode().boundsInRoot
+                  assertEquals(reference.height,initial.height,0.5f)
+                  for((r,c) in listOf(false to true,false to false,true to false,true to true)) {
+                      compose.runOnIdle {ready.value=r;connecting.value=c}
+                      val actual=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
+                      val next=compose.onNodeWithTag("following-content").fetchSemanticsNode().boundsInRoot
+                      assertEquals(initial.height,actual.height,0.5f);assertEquals(initial.width,actual.width,0.5f)
+                      assertEquals(following.top,next.top,0.5f)
+                      if(!r && !c) compose.onNodeWithTag("management-reconnect").assertHasClickAction().assertIsEnabled().performClick()
+                      else compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+                  }
+                  assertEquals(1,retries)
+                  compose.onNodeWithTag("management-reconnect-slot").assertDoesNotExist()
+              }
+          '''
+          text=text[:start]+replacement+text[end:]
+          text=text.replace('.assertHeightIsAtLeast(48.dp).assertIsEnabled().performClick()','.assertHasClickAction().assertIsEnabled().performClick()')
+          text=text.replace('    @Test fun reconnectOnlyAppearsWhenDisconnected()', '    @Test fun englishTransitionsKeepTheSameBounds()=compact(1f,320,false)\n    @Test fun englishLargeFontTransitionsKeepTheSameBounds()=compact(1.8f,240,false)\n    @Test fun reconnectOnlyAppearsWhenDisconnected()')
+          p.write_text(text)
+          p=root/'androidTest'/base/'ManagementConnectionSpacingTest.kt';text=p.read_text()
+          text=text.replace('        verifyBounds()\n        compose.runOnIdle {ready.value=false}','        val before=verifyBounds()\n        compose.runOnIdle {ready.value=false}')
+          text=text.replace('compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp)\n        verifyBounds()','compose.onNodeWithTag("management-reconnect").assertHasClickAction()\n        assertEquals(before,verifyBounds(),0.5f)')
+          p.write_text(text)
+          p=root/'androidTest'/base/'ProfileManagementConnectionStatusTest.kt';text=p.read_text()
+          text=text.replace('onNodeWithText("Canal de gestión desconectado.")','onNodeWithText("Canal de gestión desconectado.",substring=true)')
+          text=text.replace('.assertHeightIsAtLeast(48.dp).assertIsEnabled().performClick()','.assertHasClickAction().assertIsEnabled().performClick()')
+          p.write_text(text)
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Run all standalone JavaScript tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          tests=sorted(Path('app/src/test/js').rglob('*.test.js'))
+          if not tests: raise SystemExit('No JavaScript tests found')
+          for p in tests: subprocess.run(['node',str(p)],check=True)
+          PY
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated stable status on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+'ManagementConnectionStatus.kt'}
+          allowed|={'app/src/androidTest/'+base+n for n in ['ManagementConnectionStatusTest.kt','ManagementConnectionSpacingTest.kt','ProfileManagementConnectionStatusTest.kt']}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Keep compact connection status bounds stable with inline reconnect"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stable-compact-status-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn

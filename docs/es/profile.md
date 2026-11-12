@@ -21,3 +21,7 @@ El servidor conserva la autoridad sobre permisos y políticas. Datos ausentes o 
 Los cambios sensibles de acceso separan revisión y confirmación. Cambios de identidad, datos, permisos o conexión pueden invalidar la revisión. Un resultado desconocido no es éxito y no se reenvía automáticamente. Consultas y escrituras no son atómicas: siguen siendo posibles modificaciones concurrentes.
 
 El inicio de sesión FIDO2 nativo y el alta de claves nuevas siguen pendientes; las claves existentes se pueden consultar y eliminar. Las pruebas automatizadas no sustituyen la validación de cada operación en un servidor y dispositivo reales.
+
+## Continuidad al volver de segundo plano
+
+La pérdida temporal de disponibilidad ya no borra por sí sola la navegación del diálogo principal. Pueden mostrarse datos anteriores con acciones bloqueadas hasta recibir datos actuales de la cuenta coincidente. Los cambios de identidad borran el contexto; las revisiones sensibles pueden invalidarse permanentemente al interrumpirse. No garantiza conservar todos los diálogos anidados ni restaurarlos tras morir el proceso. Los diálogos de seguridad de cuenta mantienen sus reglas. Consulta [Avisos y continuidad](notices.md).

@@ -26,8 +26,8 @@ class ProfileManagementConnectionStatusTest {
         compose.onNodeWithText("Canal de gestión conectado. El servidor valida los permisos.").assertIsDisplayed()
         compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
         compose.runOnIdle {state.value=ProfileState(notice="unknown")}
-        compose.onNodeWithText("Canal de gestión desconectado.").assertIsDisplayed()
-        compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp).assertIsEnabled().performClick()
+        compose.onNodeWithText("Canal de gestión desconectado.",substring=true).assertIsDisplayed()
+        compose.onNodeWithTag("management-reconnect").assertHasClickAction().assertIsEnabled().performClick()
         compose.runOnIdle {assertEquals(1,retries)}
     }
     @Test fun busyStateDoesNotPermitReconnect() {

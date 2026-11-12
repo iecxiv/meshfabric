@@ -20,10 +20,14 @@ Tu propia ficha de Usuarios ofrece dos acciones: Cambiar contraseña abre direct
 
 Las preferencias se sincronizan con el estado web de la cuenta, conservando ajustes ajenos y bits desconocidos. Guardar se bloquea si falta ese estado. El idioma de la cuenta del servidor es distinto del idioma Android de la aplicación.
 
-La bandeja de sesión y las alertas Android opcionales muestran avisos recibidos, incluidos los eventos de conectividad y AMT configurados. Recepción, permiso Android, configuración del canal y políticas del servidor son independientes. No se garantiza entrega con el proceso detenido. Sonido y nombre del grupo son preferencias de presentación, no tipos adicionales de aviso.
+La bandeja local persistente cifrada y las alertas Android opcionales muestran avisos recibidos, incluidos los eventos de conectividad y AMT configurados. Recepción, permiso Android, configuración del canal y políticas del servidor son independientes. No se garantiza entrega con el proceso detenido. Sonido y nombre del grupo son preferencias de presentación, no tipos adicionales de aviso.
 
 ## Límites operativos
 
 Las solicitudes se procesan de una en una y no se reintentan automáticamente. Cada acción exige su acuse o relectura; no todas las respuestas antiguas están correlacionadas transaccionalmente. El cambio de contraseña distingue notificaciones conocidas de éxito y rechazo. El borrado de cuenta exige confirmación y HTTPS: una redirección no demuestra eliminación. Un intento ambiguo requiere comprobar la cuenta y cerrar sesión según las indicaciones.
 
 Estos diálogos no guardan ni registran deliberadamente secretos o borradores. La copia es explícita y marca el portapapeles como sensible; no lo cifra. Los diálogos de seguridad solicitan protección de ventana. El ciclo de vida pausa o cierra el canal. Las pruebas no demuestran que todas las modificaciones de cuenta se hayan verificado contra un servidor real.
+
+## Bandeja persistente
+
+Los no leídos y el estado local de lectura se restauran tras vincular la misma cuenta/servidor. Cerrar el proceso o la sesión no elimina los avisos guardados; otras cuentas no los muestran en esta bandeja. El almacenamiento es independiente de las preferencias de sesión y no tiene alternativa en texto plano. Conserva todos los no leídos y hasta 200 leídos, con límite de guardado de 16 MiB; los errores conservan el archivo anterior y se muestran explícitamente. El guardado es asíncrono: una terminación abrupta puede perder escrituras pendientes. Consulta [Avisos](notices.md) para borrado, límites y aceptación.

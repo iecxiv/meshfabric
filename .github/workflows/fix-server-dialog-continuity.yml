@@ -1,0 +1,156 @@
+name: Validate server dialog continuity
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/fix-server-dialog-continuity.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare guarded server result continuity
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          base='java/iecxiv/meshfabric/ui/management/'
+          root=Path('app/src')
+          p=root/'main'/base/'MyServerScreen.kt'
+          raw=p.read_bytes()
+          if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!='bf882a097228789972db7602ac0dc5e6eab3564a':
+              raise SystemExit('MyServerScreen changed; review required')
+          text=raw.decode()
+          def replace(old,new):
+              global text
+              if text.count(old)!=1: raise SystemExit('Missing or ambiguous anchor: '+old)
+              text=text.replace(old,new)
+          replace('    val reader=remember(source,preferences)', '    val actor=source?.userInfo?.collectAsState()?.value\n    val readIdentity=remember(source,source?.serverUrl,source?.authCookie,source?.ignoreSsl,source?.isUserLogout,actor?.id,actor?.siteadmin) {Any()}\n    val reader=remember(source,preferences,readIdentity)')
+          replace('    val lifecycle=LocalLifecycleOwner.current.lifecycle\n    var retry', '    val resultDialog=rememberServerReadDialog(state.result,state.resultKind,readIdentity)\n    val lifecycle=LocalLifecycleOwner.current.lifecycle\n    var retry')
+          replace('    var confirmConfig by remember { mutableStateOf(false) }','    var confirmConfig by remember(readIdentity) { mutableStateOf(false) }')
+          replace('    if(state.result.isNotEmpty()) ServerReadResultDialog(state.result,state.resultKind) { reader?.dismiss() }','    key(readIdentity) { resultDialog.value?.let { result->ServerReadResultDialog(result.raw,result.action) {resultDialog.value=null;reader?.dismiss()} } }')
+          p.write_text(text)
+          (root/'main'/base/'ServerDialogContinuity.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.*
+          internal data class ServerReadDialogResult(val raw:String,val action:String)
+          internal fun nextServerReadDialog(previous:ServerReadDialogResult?,raw:String,action:String):ServerReadDialogResult?=
+              if(raw.isNotBlank() && action in setOf("serverversion","servererrors","serverconfig")) ServerReadDialogResult(raw,action) else previous
+          @Composable internal fun rememberServerReadDialog(raw:String,action:String,identity:Any):MutableState<ServerReadDialogResult?> {
+              val result=remember(identity) {mutableStateOf<ServerReadDialogResult?>(null)}
+              LaunchedEffect(identity,raw,action) {result.value=nextServerReadDialog(result.value,raw,action)}
+              return result
+          }
+          ''')
+          (root/'test'/base/'ServerDialogContinuityTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class ServerDialogContinuityTest {
+              @Test fun pauseDoesNotEraseOpenedResult() {val old=ServerReadDialogResult("old","servererrors");assertEquals(old,nextServerReadDialog(old,"",""))}
+              @Test fun freshReadReplacesSnapshot() {assertEquals(ServerReadDialogResult("new","serverconfig"),nextServerReadDialog(ServerReadDialogResult("old","servererrors"),"new","serverconfig"))}
+              @Test fun noResultDoesNotOpenDialog() {assertNull(nextServerReadDialog(null,"",""))}
+              @Test fun unsupportedReplyDoesNotOpenDialog() {assertNull(nextServerReadDialog(null,"data","serverstats"))}
+              @Test fun versionOpensExistingProtectedFlow() {assertEquals("serverversion",nextServerReadDialog(null,"data","serverversion")?.action)}
+          }
+          ''')
+          (root/'androidTest'/base/'ServerDialogContinuityUiTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import org.junit.Rule
+          import org.junit.Test
+          class ServerDialogContinuityUiTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun realResultDialogKeepsWrapSettingThroughPauseAndResume() {
+                  val raw=mutableStateOf("{}");val identity=mutableStateOf("same-session")
+                  compose.setContent {MaterialTheme {
+                      val result=rememberServerReadDialog(raw.value,if(raw.value.isEmpty()) "" else "serverconfig",identity.value)
+                      key(identity.value) {result.value?.let {opened->ServerReadResultDialog(opened.raw,opened.action) {result.value=null;raw.value=""}}}
+                  }}
+                  compose.onNode(isToggleable()).assertIsOn().performClick().assertIsOff()
+                  compose.runOnIdle {raw.value=""}
+                  compose.onNode(isToggleable()).assertIsOff()
+                  compose.runOnIdle {raw.value="{}"}
+                  compose.onNode(isToggleable()).assertIsOff()
+              }
+              @Test fun identityChangeClearsResultAndExplicitCloseStaysClosed() {
+                  val raw=mutableStateOf("{}");val identity=mutableStateOf("a")
+                  compose.setContent {MaterialTheme {
+                      val result=rememberServerReadDialog(raw.value,if(raw.value.isEmpty()) "" else "serverconfig",identity.value)
+                      key(identity.value) {result.value?.let {opened->ServerReadResultDialog(opened.raw,opened.action) {result.value=null;raw.value=""}}}
+                  }}
+                  compose.onNode(isToggleable()).assertExists()
+                  compose.runOnIdle {raw.value="";identity.value="b"}
+                  compose.onNode(isToggleable()).assertDoesNotExist()
+                  compose.runOnIdle {raw.value="{}"}
+                  compose.onNode(isToggleable()).assertIsOn()
+                  compose.onNodeWithText("A+").performClick()
+                  compose.onNode(hasText("Cerrar") or hasText("Close")).performClick()
+                  compose.onNode(isToggleable()).assertDoesNotExist()
+              }
+          }
+          ''')
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated source on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+n for n in ['MyServerScreen.kt','ServerDialogContinuity.kt']}
+          allowed|={'app/src/test/'+base+'ServerDialogContinuityTest.kt','app/src/androidTest/'+base+'ServerDialogContinuityUiTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Preserve open server result dialogs across lifecycle pauses"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-dialog-continuity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn

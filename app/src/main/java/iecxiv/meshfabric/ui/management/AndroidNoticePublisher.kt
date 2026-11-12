@@ -60,7 +60,6 @@ internal class AndroidNoticePublisher(context: Context) {
     @Synchronized fun post(scope: String, entry: NoticeInboxEntry, options: AccountNoticeOptions) {
         if (NoticeVisibility.visible || !allowed()) return
         val note = entry.notice
-        if (note.serial !in 1..Int.MAX_VALUE.toLong()) return
         val es = app.resources.configuration.locales[0].language == "es"
         val title = entry.title.ifBlank {
             when (note.kind) {
@@ -78,7 +77,8 @@ internal class AndroidNoticePublisher(context: Context) {
             data = android.net.Uri.Builder().scheme("meshfabric-notice").authority("inbox").appendPath(scope).appendPath(note.serial.toString()).build()
         }
         val pending = PendingIntent.getActivity(app, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val id = note.serial.toInt()
+        val id = 0
+        val notificationTag = scope + ":" + note.serial
         val notification = NotificationCompat.Builder(app, channel(options.sound))
             .setSmallIcon(R.drawable.ic_stat_remote)
             .setContentTitle(title).setContentText(text)
@@ -88,12 +88,11 @@ internal class AndroidNoticePublisher(context: Context) {
             .setPublicVersion(NotificationCompat.Builder(app, "meshfabric_notices_silent_v1")
                 .setSmallIcon(R.drawable.ic_stat_remote).setContentTitle("MeshFabric").build())
             .build()
-        runCatching { manager.notify(scope, id, notification) }.onSuccess { posted.add(scope to id) }
+        runCatching { manager.notify(notificationTag, id, notification) }.onSuccess { posted.add(notificationTag to id) }
     }
 
     @Synchronized fun cancel(scope: String, serial: Long) {
-        if (serial !in 1..Int.MAX_VALUE.toLong()) return
-        val key = scope to serial.toInt()
+        val key = (scope + ":" + serial) to 0
         runCatching { manager.cancel(key.first, key.second) }
         posted.remove(key)
     }

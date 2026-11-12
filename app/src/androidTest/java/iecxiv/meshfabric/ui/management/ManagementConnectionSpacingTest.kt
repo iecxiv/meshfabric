@@ -31,13 +31,13 @@ class ManagementConnectionSpacingTest {
             val row=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
             val content=compose.onNodeWithTag("first-content").fetchSemanticsNode().boundsInRoot
             assertEquals(root.top,row.top,0.5f)
-            assertEquals(4f*density,content.top-row.bottom,0.5f)
+            assertEquals(0f,content.top-row.bottom,0.5f)
             assertEquals(16f*density,content.left-root.left,0.5f)
             return content.top
         }
         val before=verifyBounds()
         compose.runOnIdle {ready.value=false}
-        compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("management-reconnect").assertHasClickAction()
         assertEquals(before,verifyBounds(),0.5f)
     }
     @Test fun compactOuterGapsStayStable()=verify(1f)

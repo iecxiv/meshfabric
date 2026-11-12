@@ -1,0 +1,223 @@
+name: Validate group details load loop fix
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/fix-group-details-load-loop.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Complete previously approved version and docs preparation if pending
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess,textwrap
+          config=Path('app/build.gradle.kts').read_text()
+          if 'versionName = "1.3.3"' in config:
+              workflow=subprocess.check_output(['git','show','d052065974923d2f5f678b288339d3664657b19d:.github/workflows/update-notice-docs-version.yml'],text=True)
+              marker='      - name: Prepare guarded version and documentation changes\n        run: |\n'
+              if workflow.count(marker)!=1: raise SystemExit('Previous preparation changed')
+              script=workflow.split(marker,1)[1].split('\n      - name: Build, all unit tests and lint',1)[0]
+              subprocess.run(['bash','-euo','pipefail','-c',textwrap.dedent(script)],check=True)
+          elif 'versionName = "1.3.4"' not in config:
+              raise SystemExit('Unexpected app version; review required')
+          PY
+      - name: Prepare guarded group load fix and regression tests
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('app/src');base='java/iecxiv/meshfabric/ui/management/'
+          hashes={'CompactProfileGroups.kt':'befad3f2b77a26679a9690fb2be19939badf49e0','ProfileSession.kt':'4c6d92ebb7494f8394fa6c66677637b3bcfe0362'}
+          texts={}
+          for name,sha in hashes.items():
+              raw=(root/'main'/base/name).read_bytes()
+              if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!=sha: raise SystemExit(name+' changed; review required')
+              texts[name]=raw.decode()
+          def change(name,old,new):
+              if texts[name].count(old)!=1: raise SystemExit('Missing or ambiguous anchor: '+old)
+              texts[name]=texts[name].replace(old,new)
+          change('ProfileSession.kt','internal fun invitationSource()=source','internal fun invitationSource()=source\n@Synchronized internal fun connectionGeneration():Long=generation')
+          change('CompactProfileGroups.kt','onReviewUserGroupAssignment:((String)->Unit)?=null) {','onReviewUserGroupAssignment:((String)->Unit)?=null,onLoadDetails:()->Unit={session.loadGroupDetails()}) {')
+          change('CompactProfileGroups.kt','    LaunchedEffect(session,id,s.ready,s.busy) { if(group!=null && s.ready && !s.busy) session.loadGroupDetails() }','''    val live by session.state.collectAsState()
+              GroupDetailsAutoLoad(session,id,session.connectionGeneration(),live.ready,live.loading,live.busy,live.readError,live.groups.count {it.optString("_id")==id}==1,onLoadDetails)''')
+          change('CompactProfileGroups.kt','onClick={session.loadGroupDetails()})','onClick={onLoadDetails()})')
+          for name,text in texts.items(): (root/'main'/base/name).write_text(text)
+          (root/'main'/base/'GroupDetailsAutoLoad.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.*
+          internal class GroupDetailsLoadGate {
+              private var requestedGeneration:Long?=null
+              fun claim(generation:Long,ready:Boolean,loading:Boolean,busy:Boolean,readError:Boolean,available:Boolean):Boolean {
+                  if(!ready || loading || busy || readError || !available || requestedGeneration==generation) return false
+                  requestedGeneration=generation
+                  return true
+              }
+          }
+          @Composable internal fun GroupDetailsAutoLoad(owner:Any,id:String,generation:Long,ready:Boolean,loading:Boolean,busy:Boolean,readError:Boolean,available:Boolean,onLoad:()->Unit) {
+              val gate=remember(owner,id) {GroupDetailsLoadGate()}
+              val callback by rememberUpdatedState(onLoad)
+              LaunchedEffect(gate,generation,ready,loading,busy,readError,available) {
+                  if(gate.claim(generation,ready,loading,busy,readError,available)) callback()
+              }
+          }
+          ''')
+          (root/'test'/base/'GroupDetailsLoadGateTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class GroupDetailsLoadGateTest {
+              private fun claim(g:GroupDetailsLoadGate,epoch:Long=1,ready:Boolean=true,loading:Boolean=false,busy:Boolean=false,error:Boolean=false,available:Boolean=true)=g.claim(epoch,ready,loading,busy,error,available)
+              @Test fun firstReadyLoadIsClaimedOnce() {val g=GroupDetailsLoadGate();assertTrue(claim(g));repeat(20) {assertFalse(claim(g))}}
+              @Test fun ownLoadCompletionCannotRetrigger() {val g=GroupDetailsLoadGate();assertTrue(claim(g));assertFalse(claim(g,loading=true));assertFalse(claim(g));assertFalse(claim(g,busy=true));assertFalse(claim(g))}
+              @Test fun realNewConnectionCanLoadOnce() {val g=GroupDetailsLoadGate();assertTrue(claim(g));assertFalse(claim(g,ready=false));assertTrue(claim(g,epoch=2));assertFalse(claim(g,epoch=2))}
+              @Test fun loadingWaitsWithoutConsumingClaim() {val g=GroupDetailsLoadGate();assertFalse(claim(g,loading=true));assertTrue(claim(g))}
+              @Test fun busyWaitsWithoutConsumingClaim() {val g=GroupDetailsLoadGate();assertFalse(claim(g,busy=true));assertTrue(claim(g))}
+              @Test fun failedReadCannotStartLoad() {val g=GroupDetailsLoadGate();assertFalse(claim(g,error=true));assertTrue(claim(g))}
+              @Test fun missingOrAmbiguousGroupCannotStartLoad() {val g=GroupDetailsLoadGate();assertFalse(claim(g,available=false));assertTrue(claim(g))}
+              @Test fun notReadyCannotStartLoad() {val g=GroupDetailsLoadGate();assertFalse(claim(g,ready=false));assertTrue(claim(g))}
+          }
+          ''')
+          (root/'androidTest'/base/'GroupDetailsLoadLoopUiTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import java.util.Locale
+          class GroupDetailsLoadLoopUiTest {
+              @get:Rule val compose=createComposeRule()
+              @Test fun realGroupDialogDoesNotReloadWhenItsOwnRequestCompletes() {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val actor=JSONObject().put("_id","user//admin").put("siteadmin",4294967295L)
+                  val group=JSONObject().put("_id","mesh//office").put("name","Oficina").put("mtype",2)
+                  val ready=ProfileState(ready=true,user=actor,groups=listOf(group),nodes=emptyList())
+                  session.state.value=ready
+                  var requests=0
+                  try {
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              val live by session.state.collectAsState()
+                              val display=rememberProfileDialogPresentation(live,"same-session","user//admin")
+                              DeviceGroupDetailsDialog(session,display,"mesh//office",false,onDismiss={},onEdit={},onDelete={},onLoadDetails={
+                                  requests++;session.state.value=session.state.value.copy(loading=true,detailsBusy=true)
+                              })
+                          }}
+                      }
+                      compose.waitForIdle();compose.runOnIdle {assertEquals(1,requests)}
+                      repeat(5) {
+                          compose.runOnIdle {session.state.value=ready}
+                          compose.waitForIdle();compose.runOnIdle {assertEquals(1,requests)}
+                          compose.onNodeWithText("Oficina").assertExists()
+                      }
+                      compose.onNodeWithText("Dispositivos",useUnmergedTree=true).performClick()
+                      compose.onNodeWithText("Buscar dispositivo").assertExists()
+                      compose.onNodeWithText("Actualizar").performClick()
+                      compose.runOnIdle {assertEquals(2,requests);session.state.value=ready}
+                      compose.waitForIdle();compose.runOnIdle {assertEquals(2,requests)}
+                      compose.onNodeWithText("Buscar dispositivo").assertExists()
+                  } finally {
+                      session.close()
+                      val f=client.javaClass.getDeclaredField("scope").apply {isAccessible=true}
+                      (f.get(client) as CoroutineScope).cancel()
+                  }
+              }
+              @Test fun newGenerationLoadsOnceButPresentationChangesDoNot() {
+                  var epoch by mutableLongStateOf(1)
+                  var loading by mutableStateOf(false)
+                  var requests=0
+                  compose.setContent {GroupDetailsAutoLoad("owner","group",epoch,true,loading,false,false,true) {requests++;loading=true}}
+                  compose.waitForIdle();compose.runOnIdle {assertEquals(1,requests);loading=false}
+                  compose.waitForIdle();compose.runOnIdle {assertEquals(1,requests);epoch=2}
+                  compose.waitForIdle();compose.runOnIdle {assertEquals(2,requests);loading=false}
+                  compose.waitForIdle();compose.runOnIdle {assertEquals(2,requests)}
+              }
+          }
+          ''')
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Run all standalone JavaScript tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          tests=sorted(Path('app/src/test/js').rglob('*.test.js'))
+          if not tests: raise SystemExit('No JavaScript tests found')
+          for p in tests: subprocess.run(['node',str(p)],check=True)
+          PY
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated correction on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          fix={'app/src/main/'+base+n for n in ['CompactProfileGroups.kt','ProfileSession.kt','GroupDetailsAutoLoad.kt']}
+          fix|={'app/src/test/'+base+'GroupDetailsLoadGateTest.kt','app/src/androidTest/'+base+'GroupDetailsLoadLoopUiTest.kt'}
+          docs={'app/build.gradle.kts','README.md','README_ES.md','docs/profile-native.md','docs/es/profile-native.md','docs/profile.md','docs/es/profile.md','docs/log.md','docs/notices.md','docs/es/notices.md'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=fix and changed!=fix|docs: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(changed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Prevent group details refresh loops and complete approved pending preparation"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-load-loop-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn

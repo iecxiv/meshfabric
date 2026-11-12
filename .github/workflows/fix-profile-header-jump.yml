@@ -1,0 +1,167 @@
+name: Validate stable management header
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/fix-profile-header-jump.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Remove transient header row and prepare geometry tests
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('app/src');base='java/iecxiv/meshfabric/ui/management/'
+          p=root/'main'/base/'ProfileScreen.kt';raw=p.read_bytes()
+          if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!='b48e2ba04ccab6211d6c5a324fe894b8181e2e81': raise SystemExit('ProfileScreen changed; review required')
+          text=raw.decode()
+          banner='if(!state.ready && state.id.isNotBlank()) Text(t("Datos anteriores; acciones bloqueadas hasta actualizar la conexión y los permisos.","Previous data; actions blocked until connection and permissions are refreshed."),Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.bodySmall)\n'
+          header='ProfileRefreshHeader(tab,state,header) {performProfileHeaderRefresh(tab,session)}'
+          tabs='ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { ownAccountRequest=null;section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false }'
+          for anchor in [banner,header,tabs]:
+              if text.count(anchor)!=1: raise SystemExit('Header anchor changed')
+          text=text.replace(banner,'',1)
+          text=text.replace(header+'\n'+tabs,'ProfileStableSectionHeader(header={'+header+'},tabs={\n'+tabs+'\n})',1)
+          if 'Datos anteriores; acciones bloqueadas' in text or 'Previous data; actions blocked' in text: raise SystemExit('Unexpected duplicate banner')
+          p.write_text(text)
+          (root/'main'/base/'ProfileStableSectionHeader.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.Composable
+          @Composable internal fun ProfileStableSectionHeader(header:@Composable ()->Unit,tabs:@Composable ()->Unit) {
+              header()
+              tabs()
+          }
+          ''')
+          (root/'androidTest'/base/'ProfileHeaderContinuityUiTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalDensity
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.compose.ui.unit.Density
+          import androidx.compose.ui.unit.dp
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import java.util.Locale
+          class ProfileHeaderContinuityUiTest {
+              @get:Rule val compose=createComposeRule()
+              private fun verify(scale:Float) {
+                  val ready=ProfileState(ready=true,user=JSONObject().put("_id","user//admin"))
+                  val live=mutableStateOf(ready)
+                  compose.setContent {
+                      val configuration=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                      val density=Density(LocalDensity.current.density,scale)
+                      CompositionLocalProvider(LocalConfiguration provides configuration,LocalDensity provides density) {MaterialTheme {
+                          val state=rememberProfileDialogPresentation(live.value,"same-identity","user//admin")
+                          Column(Modifier.width(320.dp)) {
+                              ProfileStableSectionHeader(header={Box(Modifier.fillMaxWidth().height(56.dp).testTag("profile-header"))},tabs={
+                                  Box(Modifier.fillMaxWidth().testTag("profile-tabs")) {ManagementSectionTabs(listOf("Mi cuenta","Grupos de dispositivos","Usuarios","Grupos"),1) {}}
+                              })
+                              ProfileManagementConnectionStatus(state,onReconnect={})
+                              Box(Modifier.fillMaxWidth().height(20.dp).testTag("write-availability").semantics {disabledForTest=!state.canWrite})
+                          }
+                      }}
+                  }
+                  val header=compose.onNodeWithTag("profile-header").fetchSemanticsNode().boundsInRoot
+                  val before=compose.onNodeWithTag("profile-tabs").fetchSemanticsNode().boundsInRoot
+                  assertEquals(header.bottom,before.top,0.5f)
+                  for(next in listOf(ready.copy(loading=true),ProfileState(notice="disconnected"),ProfileState(notice="connecting"),ready.copy(loading=true),ready)) {
+                      compose.runOnIdle {live.value=next}
+                      val after=compose.onNodeWithTag("profile-tabs").fetchSemanticsNode().boundsInRoot
+                      assertEquals(before.top,after.top,0.5f);assertEquals(before.bottom,after.bottom,0.5f)
+                      compose.onNodeWithText("Datos anteriores; acciones bloqueadas",substring=true).assertDoesNotExist()
+                  }
+              }
+              @Test fun tabsStayDirectlyBelowHeaderAcrossReconnect()=verify(1f)
+              @Test fun largeFontDoesNotIntroduceTransientHeaderRows()=verify(1.8f)
+          }
+          ''')
+          test=root/'androidTest'/base/'ProfileHeaderContinuityUiTest.kt'
+          source=test.read_text().replace('import androidx.compose.ui.test.*','import androidx.compose.ui.test.*\nimport androidx.compose.ui.semantics.semantics\nimport androidx.compose.ui.semantics.disabled')
+          source=source.replace('disabledForTest=!state.canWrite','if(!state.canWrite) disabled()')
+          source=source.replace('compose.onNodeWithText("Datos anteriores; acciones bloqueadas",substring=true).assertDoesNotExist()','compose.onNodeWithText("Datos anteriores; acciones bloqueadas",substring=true).assertDoesNotExist()\n                      if(!next.ready || next.loading) compose.onNodeWithTag("write-availability").assertIsNotEnabled() else compose.onNodeWithTag("write-availability").assertIsEnabled()')
+          test.write_text(source)
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Run all standalone JavaScript tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          tests=sorted(Path('app/src/test/js').rglob('*.test.js'))
+          if not tests: raise SystemExit('No JavaScript tests found')
+          for p in tests: subprocess.run(['node',str(p)],check=True)
+          PY
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated header fix only on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+'ProfileScreen.kt','app/src/main/'+base+'ProfileStableSectionHeader.kt','app/src/androidTest/'+base+'ProfileHeaderContinuityUiTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Remove transient banner above management tabs and verify header stability"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-header-stability-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn

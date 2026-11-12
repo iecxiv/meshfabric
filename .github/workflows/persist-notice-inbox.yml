@@ -1,0 +1,306 @@
+name: Validate persistent notice inbox
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/persist-notice-inbox.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  persist:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare guarded persistent inbox
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          root=Path('app/src');base='java/iecxiv/meshfabric/ui/management/'
+          hashes={'NoticeInbox.kt':'6d6e633a1f552162cf8e25bd51b4b63c76efe1f9','AndroidNoticePublisher.kt':'93f6b8cc74b9a7ff6a08aef99ee7a150f3de612e'}
+          texts={}
+          for name,sha in hashes.items():
+              raw=(root/'main'/base/name).read_bytes()
+              if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!=sha: raise SystemExit(name+' changed; review required')
+              texts[name]=raw.decode()
+          def change(name,old,new,count=1):
+              if texts[name].count(old)!=count: raise SystemExit('Missing or ambiguous anchor: '+old)
+              texts[name]=texts[name].replace(old,new)
+          n='NoticeInbox.kt';a='AndroidNoticePublisher.kt'
+          change(n,'val hours24:Boolean=true) {','val hours24:Boolean=true,val storageLoading:Boolean=false,val storageSaving:Boolean=false,val storageError:Boolean=false) {')
+          change(n,'internal fun noticeInboxAppend(entries:List<NoticeInboxEntry>,entry:NoticeInboxEntry)=(listOf(entry)+entries).take(200)','''internal fun noticeInboxRetain(entries:List<NoticeInboxEntry>):List<NoticeInboxEntry> {
+              var read=0
+              return entries.filter { !it.read || ++read<=200 }
+          }
+          internal fun noticeInboxAppend(entries:List<NoticeInboxEntry>,entry:NoticeInboxEntry)=noticeInboxRetain(listOf(entry)+entries)''')
+          change(n,'private var serial=0L','''private val disk=NoticeInboxDisk(context.applicationContext)
+          private var persistentScope=""
+          private var storageEpoch=0L
+          private var saveVersion=0L
+          private var storageReady=false
+          private fun persistInbox() {
+              if(!storageReady || !matchesCurrentSource()) return
+              val key=persistentScope;val epoch=storageEpoch;val ticket=++saveVersion
+              val rows=noticeInboxRetain(data.value.entries)
+              data.value=data.value.copy(entries=rows,storageSaving=true,storageError=false)
+              NoticeInboxDisk.execute {
+                  val result=runCatching {disk.save(key,rows)}
+                  synchronized(this@NoticeInbox) {
+                      if(!closed && persistentScope==key && storageEpoch==epoch && saveVersion==ticket)
+                          data.value=data.value.copy(storageSaving=false,storageError=result.isFailure)
+                  }
+              }
+          }
+          private fun restoreInbox() {
+              if(!matchesCurrentSource()) return
+              val key=persistentScope;val epoch=++storageEpoch
+              storageReady=false
+              data.value=data.value.copy(storageLoading=true,storageSaving=false,storageError=false)
+              NoticeInboxDisk.execute {
+                  val result=runCatching {disk.load(key)}
+                  synchronized(this@NoticeInbox) {
+                      if(!closed && persistentScope==key && storageEpoch==epoch && matchesCurrentSource()) {
+                          result.onSuccess {saved->
+                              val incoming=data.value.entries
+                              val merged=noticeInboxRetain((incoming+saved).distinctBy {it.notice.serial}.sortedByDescending {it.notice.time})
+                              storageReady=true
+                              data.value=data.value.copy(entries=merged,storageLoading=false,storageError=false)
+                              if(incoming.isNotEmpty()) persistInbox()
+                          }.onFailure {data.value=data.value.copy(storageLoading=false,storageError=true)}
+                      }
+                  }
+              }
+          }
+          @Synchronized fun retryStorage() {if(!data.value.storageLoading && !data.value.storageSaving) restoreInbox()}''')
+          change(n,'identity=connection; actor=userId; account=null; webMask=null; data.value=NoticeInboxState(); connectivity.clear()','''identity=connection; actor=userId; account=null; webMask=null; data.value=NoticeInboxState(); connectivity.clear()
+          persistentScope=noticeInboxStorageKey(connection.first,userId);notificationScope=persistentScope
+          restoreInbox()''')
+          change(n,'AccountNotice(++serial,kind,body,name,group,channels)','AccountNotice(java.util.UUID.randomUUID().mostSignificantBits.and(Long.MAX_VALUE).coerceAtLeast(1L),kind,body,name,group,channels)')
+          change(n,'data.value=s.copy(entries=updated)\npublisher.post','data.value=s.copy(entries=updated)\npersistInbox()\npublisher.post')
+          change(n,'@Synchronized fun setRead(id:Long?=null,read:Boolean=true) {\nif(!matchesCurrentSource()) return','@Synchronized fun setRead(id:Long?=null,read:Boolean=true) {\nif(!matchesCurrentSource() || !storageReady) return')
+          change(n,'data.value=data.value.copy(entries=noticeInboxRead(data.value.entries,id,read))','data.value=data.value.copy(entries=noticeInboxRead(data.value.entries,id,read))\npersistInbox()')
+          change(n,'@Synchronized fun removeEntry(id:Long) {\nif(!matchesCurrentSource()) return','@Synchronized fun removeEntry(id:Long) {\nif(!matchesCurrentSource() || !storageReady) return')
+          change(n,'data.value=data.value.copy(entries=noticeInboxRemove(data.value.entries,id))','data.value=data.value.copy(entries=noticeInboxRemove(data.value.entries,id))\npersistInbox()')
+          change(n,'@Synchronized fun clearEntries() { if(matchesCurrentSource()) { publisher.clear(); data.value=data.value.copy(entries=emptyList()) } }','@Synchronized fun clearEntries() { if(matchesCurrentSource()) { storageEpoch++;storageReady=true;publisher.clear();data.value=data.value.copy(entries=emptyList(),storageLoading=false);persistInbox() } }')
+          change(n,'@Synchronized fun clear() { webStateReader.cancel();','@Synchronized fun clear() { storageEpoch++;saveVersion++;storageReady=false;persistentScope="";webStateReader.cancel();')
+          change(n,'Text("${entries.count { !it.read }} "','NoticeInboxStorageStatus(s,es,inbox::retryStorage)\nText("${entries.count { !it.read }} "')
+          change(n,'Últimos 200 avisos recibidos durante esta sesión, en memoria. No es un historial del servidor ni push; no garantiza recepción con la app cerrada. Se borra al cambiar de cuenta/servidor/sesión o cerrar el proceso.','Bandeja local cifrada por cuenta y servidor. Conserva todos los no leídos y hasta 200 leídos; solo los leídos antiguos se limpian automáticamente. No es historial del servidor ni garantiza recepción con el proceso detenido.')
+          change(n,'Latest 200 notices received during this session, in memory. Not server history or push; reception with the app closed is not guaranteed. Cleared on account/server/session change or process exit.','Encrypted local inbox per account and server. Keeps all unread and up to 200 read notices; only old read notices are removed automatically. Not server history; reception with the process stopped is not guaranteed.')
+          change(n,'TextButton(enabled=entries.any { !it.read },','TextButton(enabled=!s.storageLoading && !s.storageError && entries.any { !it.read },')
+          change(n,'TextButton(enabled=entries.isNotEmpty(),onClick={ confirmClear=true })','TextButton(enabled=!s.storageLoading && (entries.isNotEmpty() || s.storageError),onClick={ confirmClear=true })')
+          change(n,'IconButton(onClick={ inbox.removeEntry(n.serial) })','IconButton(enabled=!s.storageLoading && !s.storageError,onClick={ inbox.removeEntry(n.serial) })')
+          change(n,'TextButton(onClick={ inbox.setRead(n.serial,!entry.read) })','TextButton(enabled=!s.storageLoading && !s.storageError,onClick={ inbox.setRead(n.serial,!entry.read) })')
+          change(n,'No hay avisos recibidos en esta sesión.','No hay avisos guardados para esta cuenta y servidor.')
+          change(n,'No notices received during this session.','No saved notices for this account and server.')
+          change(n,'Solo se vacía esta bandeja local de la sesión. No se borran eventos ni mensajes del servidor.','Se borrarán todos los avisos locales de esta cuenta y servidor, incluidos los no leídos. No se puede deshacer. No se borran eventos ni mensajes del servidor.')
+          change(n,'Only this local session inbox is cleared. Server events and messages are not deleted.','All local notices for this account and server, including unread notices, will be deleted. This cannot be undone. Server events and messages are not deleted.')
+          change(a,'        if (note.serial !in 1..Int.MAX_VALUE.toLong()) return\n','')
+          change(a,'        val id = note.serial.toInt()','        val id = 0\n        val notificationTag = scope + ":" + note.serial')
+          change(a,'manager.notify(scope, id, notification) }.onSuccess { posted.add(scope to id) }','manager.notify(notificationTag, id, notification) }.onSuccess { posted.add(notificationTag to id) }')
+          change(a,'        if (serial !in 1..Int.MAX_VALUE.toLong()) return\n        val key = scope to serial.toInt()','        val key = (scope + ":" + serial) to 0')
+          for name,text in texts.items(): (root/'main'/base/name).write_text(text)
+          (root/'main'/base/'NoticeInboxDisk.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.Context
+          import android.security.keystore.KeyGenParameterSpec
+          import android.security.keystore.KeyProperties
+          import android.util.AtomicFile
+          import org.json.JSONArray
+          import org.json.JSONObject
+          import java.io.File
+          import java.nio.ByteBuffer
+          import java.security.KeyStore
+          import java.security.MessageDigest
+          import java.util.concurrent.Executors
+          import javax.crypto.Cipher
+          import javax.crypto.KeyGenerator
+          import javax.crypto.SecretKey
+          import javax.crypto.spec.GCMParameterSpec
+          internal fun noticeInboxStorageKey(server:String,actor:String):String {
+              require(server.isNotBlank() && actor.startsWith("user/"))
+              return MessageDigest.getInstance("SHA-256").digest((server.trim().trimEnd('/')+"\u0000"+actor).toByteArray(Charsets.UTF_8)).joinToString("") {"%02x".format(it)}
+          }
+          internal class NoticeInboxDisk(context:Context,private val alias:String="meshfabric.notice.inbox.v1") {
+              private val directory=File(context.noBackupFilesDir,"notice-inbox-v1")
+              private fun file(scope:String):AtomicFile {require(scope.matches(Regex("[0-9a-f]{64}")));return AtomicFile(File(directory,scope+".bin"))}
+              private fun key(create:Boolean):SecretKey {
+                  val ks=KeyStore.getInstance("AndroidKeyStore").apply {load(null)}
+                  (ks.getKey(alias,null) as? SecretKey)?.let {return it}
+                  check(create) {"Notice key unavailable"}
+                  val generator=KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES,"AndroidKeyStore")
+                  generator.init(KeyGenParameterSpec.Builder(alias,KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).setRandomizedEncryptionRequired(true).build())
+                  return generator.generateKey()
+              }
+              fun load(scope:String):List<NoticeInboxEntry> {
+                  val atomic=file(scope)
+                  if(!atomic.baseFile.exists() && !File(atomic.baseFile.path+".bak").exists()) return emptyList()
+                  val bytes=atomic.openRead().use {input->val out=java.io.ByteArrayOutputStream();val chunk=ByteArray(8192);while(true) {val n=input.read(chunk);if(n<0) break;require(out.size()+n<=MAX_BYTES+128);out.write(chunk,0,n)};out.toByteArray()}
+                  val b=ByteBuffer.wrap(bytes);require(b.remaining()>36 && b.int==1 && b.int==12)
+                  val iv=ByteArray(12);b.get(iv);val encrypted=ByteArray(b.remaining());b.get(encrypted)
+                  val cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.DECRYPT_MODE,key(false),GCMParameterSpec(128,iv));cipher.updateAAD(scope.toByteArray(Charsets.UTF_8))
+                  val body=JSONObject(String(cipher.doFinal(encrypted),Charsets.UTF_8));require(body.getInt("schema")==1)
+                  val array=body.getJSONArray("entries");val rows=(0 until array.length()).map {i->
+                      val e=array.getJSONObject(i);val id=e.getLong("id");val time=e.getLong("time");val kind=e.getString("kind")
+                      require(id>0 && time>0 && kind in setOf("general","connect","disconnect","amt"))
+                      val text=e.getString("text");val node=e.getString("node");val group=e.getString("group");val title=e.getString("title")
+                      require(text.length<=1000 && node.length<=200 && group.length<=200 && title.length<=160)
+                      NoticeInboxEntry(AccountNotice(id,kind,text,node,group,e.getInt("channels"),time),title,e.getBoolean("read"))
+                  }
+                  require(rows.map {it.notice.serial}.distinct().size==rows.size)
+                  return noticeInboxRetain(rows)
+              }
+              fun save(scope:String,entries:List<NoticeInboxEntry>) {
+                  val atomic=file(scope);val rows=noticeInboxRetain(entries)
+                  val array=JSONArray();rows.forEach {entry->val n=entry.notice;array.put(JSONObject().put("id",n.serial).put("kind",n.kind).put("text",n.text).put("node",n.nodeName).put("group",n.groupName).put("channels",n.channels).put("time",n.time).put("title",entry.title).put("read",entry.read))}
+                  val plaintext=JSONObject().put("schema",1).put("entries",array).toString().toByteArray(Charsets.UTF_8)
+                  require(plaintext.size<=MAX_BYTES) {"Notice storage limit reached; no unread notices were discarded"}
+                  check(directory.isDirectory || directory.mkdirs())
+                  val cipher=Cipher.getInstance("AES/GCM/NoPadding");cipher.init(Cipher.ENCRYPT_MODE,key(true));cipher.updateAAD(scope.toByteArray(Charsets.UTF_8))
+                  val iv=cipher.iv;require(iv.size==12);val encrypted=cipher.doFinal(plaintext)
+                  val bytes=ByteBuffer.allocate(8+iv.size+encrypted.size).putInt(1).putInt(iv.size).put(iv).put(encrypted).array()
+                  val output=atomic.startWrite()
+                  try {output.write(bytes);atomic.finishWrite(output)} catch(t:Throwable) {atomic.failWrite(output);throw t}
+              }
+              companion object {
+                  private const val MAX_BYTES=16*1024*1024
+                  private val executor=Executors.newSingleThreadExecutor {r->Thread(r,"notice-inbox-storage").apply {isDaemon=true}}
+                  fun execute(block:()->Unit) {executor.execute(block)}
+              }
+          }
+          ''')
+          (root/'main'/base/'NoticeInboxStorageStatus.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          @Composable internal fun NoticeInboxStorageStatus(state:NoticeInboxState,es:Boolean,onRetry:()->Unit) {
+              if(state.storageLoading) {LinearProgressIndicator();Text(if(es) "Restaurando avisos guardados…" else "Restoring saved notices…")}
+              if(state.storageSaving) Text(if(es) "Guardando avisos en el dispositivo…" else "Saving notices on this device…",style=MaterialTheme.typography.bodySmall)
+              if(state.storageError) {
+                  Text(if(es) "No se ha confirmado el almacenamiento local (error, clave no disponible o límite de 16 MiB). El archivo anterior se conserva. Puede haber cambios solo en memoria: no cierres la app hasta resolverlo." else "Local storage is unconfirmed (error, unavailable key or 16 MiB limit). The previous file is preserved. Some changes may exist only in memory: resolve this before closing the app.",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                  TextButton(enabled=!state.storageLoading && !state.storageSaving,onClick=onRetry) {Text(if(es) "Reintentar almacenamiento" else "Retry storage")}
+              }
+          }
+          ''')
+          p=root/'test'/base/'NoticeInboxPolicyTest.kt';text=p.read_text()
+          old='assertEquals(200,rows.size); assertEquals(205L,rows.first().notice.serial); assertEquals(6L,rows.last().notice.serial)'
+          if text.count(old)!=1: raise SystemExit('Retention test anchor changed')
+          p.write_text(text.replace(old,'assertEquals(205,rows.size); assertEquals(205L,rows.first().notice.serial); assertEquals(1L,rows.last().notice.serial)').replace('fun boundedNewestFirst()','fun unreadNoticesAreNeverAutomaticallyEvicted()'))
+          (root/'test'/base/'NoticePersistencePolicyTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class NoticePersistencePolicyTest {
+              private fun entry(id:Long,read:Boolean=false)=NoticeInboxEntry(AccountNotice(id,"general","text","",""),read=read)
+              @Test fun moreThan200UnreadAreRetained() {assertEquals(500,noticeInboxRetain((1L..500L).map {entry(it)}).size)}
+              @Test fun onlyOldReadEntriesAreTrimmed() {val rows=noticeInboxRetain((1L..250L).map {entry(it,true)}+entry(999));assertEquals(201,rows.size);assertEquals(999L,rows.last().notice.serial)}
+              @Test fun scopeIsStableWithoutACookie() {assertEquals(noticeInboxStorageKey("https://server/","user//a"),noticeInboxStorageKey("https://server","user//a"))}
+              @Test fun accountsAndServersAreSeparated() {val a=noticeInboxStorageKey("https://server","user//a");assertNotEquals(a,noticeInboxStorageKey("https://other","user//a"));assertNotEquals(a,noticeInboxStorageKey("https://server","user//b"))}
+              @Test fun readStateChangesOnlyExplicitly() {val rows=listOf(entry(1));assertFalse(rows.single().read);assertTrue(noticeInboxRead(rows,1).single().read)}
+          }
+          ''')
+          (root/'androidTest'/base/'NoticePersistenceTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.ContextWrapper
+          import androidx.test.platform.app.InstrumentationRegistry
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import java.io.File
+          import java.security.KeyStore
+          import java.util.UUID
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class NoticePersistenceTest {
+              @get:Rule val compose=createComposeRule()
+              private fun fixture(block:(NoticeInboxDisk,ContextWrapper,File,String)->Unit) {
+                  val app=InstrumentationRegistry.getInstrumentation().targetContext
+                  val dir=File(app.cacheDir,"notice-test-"+UUID.randomUUID());dir.mkdirs()
+                  val alias="notice-test-"+UUID.randomUUID()
+                  val context=object:ContextWrapper(app) {override fun getNoBackupFilesDir()=dir}
+                  try {block(NoticeInboxDisk(context,alias),context,dir,alias)} finally {dir.deleteRecursively();KeyStore.getInstance("AndroidKeyStore").apply {load(null);deleteEntry(alias)}}
+              }
+              @Test fun reopeningRestoresUnreadAndReadStateWithoutPlaintext()=fixture {disk,context,dir,alias->
+                  val scope=noticeInboxStorageKey("https://server","user//a")
+                  val rows=(1L..250L).map {NoticeInboxEntry(AccountNotice(it,"general","private notice content","Device","Group"))}
+                  disk.save(scope,rows)
+                  val reopened=NoticeInboxDisk(context,alias)
+                  assertEquals(rows,reopened.load(scope))
+                  assertFalse(String(File(dir,"notice-inbox-v1/$scope.bin").readBytes(),Charsets.ISO_8859_1).contains("private notice content"))
+                  disk.save(scope,noticeInboxRead(rows,1));assertTrue(reopened.load(scope).single {it.notice.serial==1L}.read)
+                  assertTrue(reopened.load(noticeInboxStorageKey("https://server","user//b")).isEmpty())
+                  disk.save(scope,emptyList());assertTrue(reopened.load(scope).isEmpty())
+              }
+              @Test fun damagedCiphertextIsNotSilentlyReplaced()=fixture {disk,_,dir,_->
+                  val scope=noticeInboxStorageKey("https://server","user//a")
+                  disk.save(scope,listOf(NoticeInboxEntry(AccountNotice(1,"general","secret","",""))))
+                  val file=File(dir,"notice-inbox-v1/$scope.bin");val bytes=file.readBytes();bytes[bytes.lastIndex]=(bytes.last().toInt() xor 1).toByte();file.writeBytes(bytes)
+                  assertTrue(runCatching {disk.load(scope)}.isFailure);assertArrayEquals(bytes,file.readBytes())
+              }
+              @Test fun storageErrorIsVisibleAndRetryIsExplicit() {
+                  var retries=0
+                  compose.setContent {MaterialTheme {NoticeInboxStorageStatus(NoticeInboxState(storageError=true),false) {retries++}}}
+                  compose.onNodeWithText("Local storage is unconfirmed",substring=true).assertExists()
+                  compose.onNodeWithText("Retry storage").performClick();assertEquals(1,retries)
+              }
+          }
+          ''')
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated source on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+n for n in ['NoticeInbox.kt','AndroidNoticePublisher.kt','NoticeInboxDisk.kt','NoticeInboxStorageStatus.kt']}
+          allowed|={'app/src/test/'+base+n for n in ['NoticeInboxPolicyTest.kt','NoticePersistencePolicyTest.kt']}
+          allowed|={'app/src/androidTest/'+base+'NoticePersistenceTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Persist encrypted notices by account and server without evicting unread entries"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: notice-persistence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn

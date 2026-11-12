@@ -24,10 +24,22 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Gestiona de forma nativa contraseña, autenticador, claves de seguridad existentes, códigos de respaldo, historial de accesos y tokens.
 - Tu propia ficha ofrece dos acciones de contraseña y MFA. Contraseña abre directamente su diálogo de Mi cuenta; MFA abre un selector de opciones. Mensajes, bloqueo/desbloqueo y eliminación administrativa se ocultan para tu propia cuenta.
 - Envía Broadcast o notificaciones individuales con revisión; la aceptación del servidor no garantiza entrega ni lectura.
-- Utiliza la bandeja de avisos de la sesión, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web del servidor.
+- Utiliza una bandeja de avisos persistente cifrada por servidor/cuenta, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web. Los no leídos no se eliminan automáticamente y se guarda el estado local de lectura.
 - El inicio de sesión FIDO2 nativo y el alta de nuevas claves siguen pendientes. Las claves existentes se pueden consultar y eliminar.
 
 Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
+
+### Avisos, Broadcast y Mensajes
+
+- Avisos conserva entradas recibidas; Broadcast y Mensajes reutilizan los flujos revisados y sujetos a permisos. Mensajes distingue usuarios y dispositivos y no es un historial de chat.
+- Los destinatarios muestran el nombre del usuario o dispositivo (grupo), sin IDs internos visibles. La búsqueda de Mensajes empieza oculta, se abre con la lupa y filtra nombres/grupos visibles. Cerrar la búsqueda, cambiar de pestaña o de tipo de destinatario limpia el filtro.
+- La bandeja restaura no leídos y estado de lectura al abrir de nuevo y autenticar la misma cuenta/servidor. Entrar en Avisos o descartar una alerta Android no marca como leído. Restaurar no vuelve a emitir alertas.
+- Se conservan todos los no leídos y hasta 200 leídos. El almacenamiento usa AES-GCM con clave de Android Keystore, archivos atómicos y almacenamiento privado excluido de backups. Esta bandeja no tiene alternativa en texto plano.
+- El límite por cuenta/servidor es de 16 MiB. Si falla o se supera, el guardado queda sin confirmar y conserva el archivo anterior; puede haber cambios solo en memoria. Espera a que termine el guardado antes de cerrar. Vaciar la bandeja también elimina los no leídos tras confirmar.
+- La navegación de diálogos de Gestión y los resultados de Servidor admitidos sobreviven a pausas temporales. Los detalles de Eventos sobreviven a pausas de ciclo de vida verificadas y exigen autorización coincidente y un evento inequívoco al recargar. No restaura diálogos tras morir el proceso; las confirmaciones sensibles pueden invalidarse.
+- Actividad sigue siendo un diario independiente en memoria. Consola/Seguimiento siguen borrando sus búferes al pasar a segundo plano. La aceptación del servidor no demuestra entrega/lectura y no se garantiza recepción con el proceso detenido.
+
+Guía y lista de aceptación: [Avisos y continuidad](docs/es/notices.md). Siguen pendientes las comprobaciones en dispositivo y de entrega contra el servidor real.
 
 ### Instalación de agentes e invitaciones
 

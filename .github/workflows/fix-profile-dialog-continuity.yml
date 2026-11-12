@@ -1,0 +1,188 @@
+name: Validate management dialog continuity
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/fix-profile-dialog-continuity.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  fix:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare guarded management-only change
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          base='java/iecxiv/meshfabric/ui/management/'
+          root=Path('app/src')
+          p=root/'main'/base/'ProfileScreen.kt'
+          raw=p.read_bytes()
+          if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!='e23cbe10e912cbff5937fc89723d77f140356e3a':
+              raise SystemExit('ProfileScreen changed; review required')
+          text=raw.decode()
+          old='val state by session.state.collectAsState()'
+          new='val liveState by session.state.collectAsState()\nval state=rememberProfileDialogPresentation(liveState,agentIdentity,agentActor?.id.orEmpty())'
+          if text.count(old)!=1: raise SystemExit('State anchor changed')
+          text=text.replace(old,new)
+          old='LaunchedEffect(state.ready) { if(!state.ready) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null } }'
+          new='LaunchedEffect(agentIdentity) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null }'
+          if text.count(old)!=1: raise SystemExit('Navigation anchor changed')
+          text=text.replace(old,new)
+          old='ProfileRefreshHeader(tab,state,header) {performProfileHeaderRefresh(tab,session)}'
+          new=old+'\nif(!state.ready && state.id.isNotBlank()) Text(t("Datos anteriores; acciones bloqueadas hasta actualizar la conexión y los permisos.","Previous data; actions blocked until connection and permissions are refreshed."),Modifier.padding(horizontal=16.dp),style=MaterialTheme.typography.bodySmall)'
+          if text.count(old)!=1: raise SystemExit('Header anchor changed')
+          p.write_text(text.replace(old,new))
+          (root/'main'/base/'ProfileDialogContinuity.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.*
+          internal fun profileDialogSnapshotAllowed(ready:Boolean,loading:Boolean,readError:Boolean,actor:String,receivedActor:String)=ready && !loading && !readError && actor.isNotBlank() && actor==receivedActor
+          internal fun profileDialogPresentation(current:ProfileState,previous:ProfileState?,actor:String):ProfileState {
+              if(profileDialogSnapshotAllowed(current.ready,current.loading,current.readError,actor,current.id)) return current
+              if(actor.isBlank() || (current.id.isNotBlank() && current.id!=actor)) return ProfileState(notice=current.notice)
+              val snapshot=previous?.takeIf {it.id==actor} ?: return current.copy(ready=false)
+              return snapshot.copy(ready=false,loading=true,busy=current.busy,readError=true,notice=current.notice,detailsBusy=false,historyBusy=false)
+          }
+          @Composable internal fun rememberProfileDialogPresentation(current:ProfileState,identity:Any,actor:String):ProfileState {
+              var previous by remember(identity,actor) {mutableStateOf<ProfileState?>(null)}
+              SideEffect {
+                  if(profileDialogSnapshotAllowed(current.ready,current.loading,current.readError,actor,current.id)) previous=current
+                  else if(current.id.isNotBlank() && current.id!=actor) previous=null
+              }
+              return profileDialogPresentation(current,previous,actor)
+          }
+          ''')
+          (root/'test'/base/'ProfileDialogContinuityTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class ProfileDialogContinuityTest {
+              @Test fun freshMatchingIdentityIsEligible() {assertTrue(profileDialogSnapshotAllowed(true,false,false,"a","a"))}
+              @Test fun disconnectedCannotAuthorize() {assertFalse(profileDialogSnapshotAllowed(false,false,false,"a","a"))}
+              @Test fun loadingCannotAuthorize() {assertFalse(profileDialogSnapshotAllowed(true,true,false,"a","a"))}
+              @Test fun readFailureCannotAuthorize() {assertFalse(profileDialogSnapshotAllowed(true,false,true,"a","a"))}
+              @Test fun changedActorCannotAuthorize() {assertFalse(profileDialogSnapshotAllowed(true,false,false,"a","b"))}
+              @Test fun missingActorCannotAuthorize() {assertFalse(profileDialogSnapshotAllowed(true,false,false,"",""))}
+          }
+          ''')
+          (root/'androidTest'/base/'ProfileDialogContinuityUiTest.kt').write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.cancel
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          import java.util.Locale
+          class ProfileDialogContinuityUiTest {
+              @get:Rule val compose=createComposeRule()
+              private fun ready()=ProfileState(ready=true,user=JSONObject().put("_id","user//admin").put("siteadmin",2),users=listOf(JSONObject().put("_id","user//alice").put("name","Alicia").put("email","alice@example.invalid")))
+              @Test fun cachedDataNeverAuthorizesAndFreshRemovalWins() {
+                  val previous=ready()
+                  val paused=profileDialogPresentation(ProfileState(),previous,"user//admin")
+                  assertEquals("Alicia",paused.users.single().getString("name"));assertFalse(paused.ready);assertFalse(paused.canWrite)
+                  val loading=profileDialogPresentation(previous.copy(loading=true),previous,"user//admin")
+                  assertFalse(loading.canWrite)
+                  val fresh=previous.copy(users=emptyList())
+                  assertTrue(profileDialogPresentation(fresh,previous,"user//admin").users.isEmpty())
+                  assertTrue(profileDialogPresentation(ProfileState(),previous,"user//other").users.isEmpty())
+                  assertTrue(profileDialogPresentation(previous,previous,"user//other").users.isEmpty())
+              }
+              @Test fun realUserDialogKeepsDisclosureAndDraftThroughPause() {
+                  val client=MeshCentralClient();val session=ProfileSession(client)
+                  val live=mutableStateOf(ready())
+                  try {
+                      compose.setContent {
+                          val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                          CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
+                              val display=rememberProfileDialogPresentation(live.value,"same-server","user//admin")
+                              UserAdministrationDialog(session,display,ProfileForm(true,"edit","user//alice","Alicia","alice@example.invalid"),onDismiss={})
+                          }}
+                      }
+                      compose.onNodeWithText("Nombre real").performTextInput("Draft")
+                      compose.onNodeWithText("Información adicional").performScrollTo().performClick()
+                      compose.onNodeWithText("Dominio").assertExists()
+                      compose.runOnIdle {live.value=ProfileState()}
+                      compose.onNodeWithText("Dominio").assertExists()
+                      compose.onNodeWithText("Draft",substring=true).assertExists()
+                      compose.runOnIdle {live.value=ready().copy(loading=true)}
+                      compose.onNodeWithText("Dominio").assertExists()
+                      compose.runOnIdle {live.value=ready()}
+                      compose.onNodeWithText("Dominio").assertExists()
+                      compose.onNodeWithText("Draft",substring=true).assertExists()
+                  } finally {
+                      session.close()
+                      val f=client.javaClass.getDeclaredField("scope").apply {isAccessible=true}
+                      (f.get(client) as CoroutineScope).cancel()
+                  }
+              }
+          }
+          ''')
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated source only on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+n for n in ['ProfileScreen.kt','ProfileDialogContinuity.kt']}
+          allowed|={'app/src/test/'+base+'ProfileDialogContinuityTest.kt','app/src/androidTest/'+base+'ProfileDialogContinuityUiTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Preserve management dialog presentation across reconnects"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-dialog-continuity-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn
