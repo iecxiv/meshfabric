@@ -71,6 +71,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                     modifier=Modifier.fillMaxWidth().testTag("general_tags"))
                 if(meta.rights and 4L==0L) Text(text("Solo consulta: sin permiso para administrar dispositivos.","Read-only: no permission to manage devices."))
             }
+            DevicePowerSection(node.id)
             if(state.phase in setOf("loading","saving")) {
                 LinearProgressIndicator(Modifier.fillMaxWidth())
                 Text(if(state.phase=="saving") text("Verificando guardado…","Verifying save…") else text("Cargando datos y permisos…","Loading device data and permissions…"))
