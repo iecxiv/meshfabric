@@ -216,8 +216,12 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                         color = if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                DeviceOptionsToggle(otherExpanded) { otherExpanded = !otherExpanded }
-                LocalDeviceActionMenu.current(node)
+                Row(horizontalArrangement=Arrangement.spacedBy((-6).dp),verticalAlignment=Alignment.CenterVertically) {
+                    DeviceOptionsToggle(otherExpanded) { otherExpanded = !otherExpanded }
+                    Box(Modifier.size(38.dp),contentAlignment=Alignment.Center) {
+                        LocalDeviceActionMenu.current(node)
+                    }
+                }
             }
             AnimatedVisibility(otherExpanded) { DeviceOptionsRow(node) }
             if(node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE }) {

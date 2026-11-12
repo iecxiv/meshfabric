@@ -30,7 +30,7 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
 
 @Composable internal fun DeviceOptionsToggle(expanded:Boolean,onToggle:()->Unit) {
     val es=spanish()
-    IconButton(onClick=onToggle,modifier=Modifier.testTag("device_options_toggle")) {
+    IconButton(onClick=onToggle,modifier=Modifier.size(38.dp).testTag("device_options_toggle")) {
         Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
             if(es) { if(expanded) "Ocultar otras opciones" else "Mostrar otras opciones" }
             else { if(expanded) "Hide other options" else "Show other options" },
@@ -70,8 +70,10 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
 }
 
 @Composable private fun DeviceOptionButton(label:String,icon:ImageVector,key:String,width:androidx.compose.ui.unit.Dp,enabled:Boolean,onClick:()->Unit) {
-    OutlinedButton(onClick=onClick,enabled=enabled,modifier=Modifier.width(width).heightIn(min=48.dp).testTag("device_option_$key"),
+    val contentColor=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onSurface
+    OutlinedButton(onClick=onClick,enabled=enabled,modifier=Modifier.width(width).testTag("device_option_$key"),
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=contentColor,disabledContentColor=contentColor.copy(alpha=0.38f)),
         contentPadding=PaddingValues(horizontal=2.dp,vertical=4.dp)) {
         Icon(icon,null,Modifier.size(14.dp))
         Spacer(Modifier.width(2.dp))
