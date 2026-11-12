@@ -21,7 +21,9 @@ import iecxiv.meshfabric.data.remote.WindowsDriveEntry
 /** Navigation-only drive row: no file mutation context menu. */
 @Composable internal fun WindowsDriveRow(drive: WindowsDriveEntry, onOpen: () -> Unit) {
     val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onOpen), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(onClick = onOpen), colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(when (drive.type) { "REMOVABLE" -> Icons.Default.Usb; "CDROM" -> Icons.Default.Album; else -> Icons.Default.Storage }, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

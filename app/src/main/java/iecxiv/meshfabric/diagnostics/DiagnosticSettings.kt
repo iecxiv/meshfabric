@@ -16,7 +16,11 @@ import iecxiv.meshfabric.R
 @Composable internal fun DiagnosticSettings() {
     val active by AppDiagnostics.active.collectAsState()
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth(),
+    colors = iecxiv.meshfabric.ui.theme.appCardColors(
+androidx.compose.material3.CardDefaults.cardColors()
+)
+) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)

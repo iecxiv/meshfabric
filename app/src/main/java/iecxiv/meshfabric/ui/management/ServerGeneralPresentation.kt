@@ -89,8 +89,18 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun ServerGeneralActions(content:@Composable ColumnScope.()->Unit) {
     Text(stringResource(R.string.my_server_actions),style=MaterialTheme.typography.titleMedium)
-    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surface
+),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surface
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
             Column(Modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
                 content()
@@ -112,8 +122,18 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
     }
 }
 @Composable private fun ServerMetricCard(modifier:Modifier,title:String,fraction:Double?,icon:ImageVector,description:String,body:@Composable ()->Unit) {
-    Surface(modifier,shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(modifier,shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surfaceVariant
+),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surfaceVariant
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Row(Modifier.padding(8.dp),horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically) {
             ServerMetricRing(fraction,icon,description)
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -179,8 +199,18 @@ private fun generalMemory(value:Double?)=value?.let { generalDecimal(it/1048576.
         Triple("ConnectedIntelAMT",stringResource(R.string.my_server_amt),Icons.Default.Memory),
         Triple("ConnectedIntelAMTCira",stringResource(R.string.my_server_cira),Icons.Default.Router))+
         if(stats?.counts?.containsKey("RelayErrors")==true) listOf(Triple("RelayErrors",label("Errores de relé","Relay errors"),Icons.Default.ErrorOutline)) else emptyList()
-    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surface
+),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surface
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Column(Modifier.padding(horizontal=12.dp)) {
             rows.forEachIndexed { index,(key,title,icon)->
                 Row(Modifier.fillMaxWidth().padding(vertical=10.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically) {

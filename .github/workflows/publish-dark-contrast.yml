@@ -1,0 +1,102 @@
+name: Validate and publish dark contrast
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/publish-dark-contrast.yml, 'tools/ui/dark-contrast/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-dark-contrast-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply scoped dark contrast changes
+        run: |
+          set -euo pipefail
+          python3 tools/ui/dark-contrast/apply.py
+          git diff --cached --check
+          git diff --cached > validation/dark-contrast.diff
+      - name: Install SDK
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, all unit tests, instrumentation compilation and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Execute complete Android test suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify executed tests and record precise failures
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,xml.etree.ElementTree as ET
+          results={};errors=[]
+          for root,target,required in [('app/build/test-results','DarkContrastTest',6),('app/build/outputs/androidTest-results','DarkContrastUiTest',5)]:
+              cases={};failures=[]
+              for p in Path(root).rglob('*.xml'):
+                  for c in ET.parse(p).getroot().iter('testcase'):
+                      name=c.get('classname','')+'.'+c.get('name','')
+                      issues=list(c.findall('failure'))+list(c.findall('error'))
+                      cases[name]=(bool(issues),c.find('skipped') is not None)
+                      failures.extend(name+'\n'+x.get('message','')+'\n'+(x.text or '') for x in issues)
+              new={k:v for k,v in cases.items() if k.rsplit('.',2)[-2]==target}
+              results[target]={'cases':len(cases),'new_cases':len(new),'failures':failures,'skipped':[k for k,v in cases.items() if v[1]]}
+              if not cases or failures or len(new)!=required or any(any(v) for v in new.values()):errors.append(target)
+          Path('validation').mkdir(exist_ok=True)
+          Path('validation/test-evidence.json').write_text(json.dumps(results,indent=2));print(json.dumps(results,indent=2))
+          assert not errors,errors
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dark-contrast-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish validated code only to unchanged dev
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev moved; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          import json,subprocess
+          allowed=set(json.load(open('validation/contrast-files.json')))
+          staged=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert staged==allowed
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          extra=subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines()
+          assert not [p for p in extra if not p.startswith('validation/')]
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): brighten dark outlines and activity card text'
+          git push origin HEAD:dev

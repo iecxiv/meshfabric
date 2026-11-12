@@ -65,9 +65,16 @@ internal fun TerminalSessionPopup(
     if (showBar) Surface(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp
-    ) {
+        color = iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surface
+),
+        tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+2.dp
+),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surface
+)
+) {
         Column(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.terminal_session_popup_summary, summary, history.size), modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)

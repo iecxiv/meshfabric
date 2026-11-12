@@ -34,21 +34,22 @@ internal enum class ActivityKind { ACTION, SERVER, MESSAGE }
 internal enum class ActivityStatus { SENT, ACCEPTED, OUTPUT, CONFIRMED, ERROR, UNKNOWN, INFO }
 internal data class ActivityEntry(val id:String,val nodeId:String,val deviceName:String,val title:String,val description:String,
     val status:ActivityStatus,val summary:String,val time:Long=System.currentTimeMillis(),val updated:Long=time,
-    val actor:String="",val requestId:String="",val kind:ActivityKind=ActivityKind.ACTION,val action:String="",val receivedTime:Boolean=false) {
-    val target:String get()=deviceName.ifBlank { if(nodeId.isNotBlank()) "Equipo no identificado" else if(kind==ActivityKind.SERVER) "Servidor" else "Origen no identificado" }
+    val actor:String="",val requestId:String="",val kind:ActivityKind=ActivityKind.ACTION,val action:String="",val receivedTime:Boolean=false,val meshId:String="",val groupName:String="") {
+    val target:String get()=if(deviceName.isNotBlank()) deviceName+if(groupName.isBlank()) "" else " ($groupName)" else if(nodeId.isNotBlank()) "Equipo no identificado" else groupName.ifBlank { if(kind==ActivityKind.SERVER) "Servidor" else "Origen no identificado" }
 }
 private fun JSONObject.str(key:String):String=opt(key) as? String ?: ""
-internal class ActivityJournal(private val resolveName:(String)->String,private val currentActor:()->String) {
+internal class ActivityJournal(private val resolveName:(String)->String,private val currentActor:()->String,private val inventory:()->ServerEventInventory={ ServerEventInventory() }) {
     private val data=MutableStateFlow<List<ActivityEntry>>(emptyList())
     val entries=data.asStateFlow()
     private val names=ConcurrentHashMap<String,String>()
-    fun rememberDevices(devices:Map<String,String>) { names.putAll(devices.filterValues { it.isNotBlank() }) }
+    fun rememberDevices(devices:Map<String,String>) { names.putAll(devices.filterValues { it.isNotBlank() }); data.update { rows->rows.map(::resolve) } }
     private fun name(id:String):String {
         val found=resolveName(id)
         if(id.isNotBlank() && found.isNotBlank()) names[id]=found
         return found.ifBlank { names[id].orEmpty() }
     }
-    private fun put(entry:ActivityEntry) { data.update { (listOf(entry)+it.filterNot { old->old.id==entry.id }).take(200) } }
+    private fun resolve(entry:ActivityEntry)=resolveActivityEntry(entry,inventory())
+    private fun put(entry:ActivityEntry) { data.update { (listOf(resolve(entry))+it.filterNot { old->old.id==entry.id }).take(200) } }
     fun sent(title:String,j:JSONObject,sent:Boolean) {
         val id=j.str("responseid").ifBlank { UUID.randomUUID().toString() }
         val node=j.str("nodeid").ifBlank { j.optJSONArray("nodeids")?.optString(0).orEmpty() }.ifBlank { j.str("id").takeIf { it.startsWith("node/") }.orEmpty() }
@@ -82,10 +83,10 @@ internal class ActivityJournal(private val resolveName:(String)->String,private 
         data.update { rows->rows.map { if(it.requestId==id && (node.isBlank() || it.nodeId==node)) it.copy(status=status,summary=message,updated=System.currentTimeMillis()) else it } }
     }
     fun event(j:JSONObject) {
-        val node=j.str("nodeid").ifBlank { (j.opt("node") as? String) ?: j.optJSONObject("node")?.str("_id").orEmpty() }
+        val device=activityEventDevice(j)
+        val node=device.nodeId
         val action=j.str("action")
-        val title=mapOf("nodeconnect" to "Equipo conectado","nodedisconnect" to "Equipo desconectado","changenode" to "Datos del equipo actualizados",
-            "removenode" to "Equipo eliminado","meshchange" to "Grupo actualizado","accountchange" to "Cuenta actualizada")[action] ?: "Evento del servidor"
+        val title=activityEventTitle(action)
         val raw=j.opt("time")
         val parsed=when(raw) {
             is Number->raw.toLong().takeIf { it>0 }?.let { if(it<100000000000L) it*1000 else it }
@@ -93,9 +94,9 @@ internal class ActivityJournal(private val resolveName:(String)->String,private 
             else->null
         }
         val id=j.str("eventid").ifBlank { j.str("_id") }.ifBlank { UUID.randomUUID().toString() }
-        put(ActivityEntry("event-$id",node,name(node).ifBlank { j.str("nodename").ifBlank { j.optJSONObject("node")?.str("name").orEmpty() } },
-            title,"",ActivityStatus.INFO,j.str("msg").ifBlank { "El servidor no incluyó una descripción adicional." }.take(1000),
-            time=parsed ?: System.currentTimeMillis(),actor=j.str("username"),kind=ActivityKind.SERVER,action=action,receivedTime=parsed==null))
+        put(ActivityEntry("event-$id",node,device.name.ifBlank { name(node) },
+            title,"",ActivityStatus.INFO,activityEventMessage(j),
+            time=parsed ?: System.currentTimeMillis(),actor=j.str("username"),kind=ActivityKind.SERVER,action=action,receivedTime=parsed==null,meshId=device.meshId,groupName=device.group))
     }
     fun unmatched(j:JSONObject) {
         val rid=j.str("responseid")
@@ -175,24 +176,28 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
                 items(group,key={ it.id }) { entry->
                     var details by remember(entry.id) { mutableStateOf(false) }
                     val color=when(entry.status) { ActivityStatus.ERROR->scheme.error; ActivityStatus.UNKNOWN->scheme.tertiary; ActivityStatus.CONFIRMED,ActivityStatus.OUTPUT->scheme.primary; else->scheme.onSurfaceVariant }
-                    Card(Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=scheme.surfaceVariant),elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
+                    Card(Modifier.fillMaxWidth(),colors= iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(containerColor=scheme.surfaceVariant)
+),elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
                         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment=Alignment.CenterVertically) {
                                 Text(entry.target,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(8.dp))
-                                Text((if(entry.receivedTime) "Recibido " else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall,color=scheme.onSurfaceVariant)
+                                Text((if(entry.receivedTime) "Recibido " else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant))
                             }
                             Row(verticalAlignment=Alignment.CenterVertically) {
+                                ActivityEntryIcon(entry)
+                                Spacer(Modifier.width(8.dp))
                                 Text(entry.title,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(6.dp))
                                 Surface(shape=MaterialTheme.shapes.small,color=color.copy(alpha=0.12f)) {
                                     Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp),color=color,style=MaterialTheme.typography.labelSmall)
                                 }
                             }
-                            Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=scheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
-                            if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis)
+                            Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=2,overflow=TextOverflow.Ellipsis)
+                            if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(LocalContentColor.current),maxLines=1,overflow=TextOverflow.Ellipsis)
                             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                                Text(if(entry.actor.isNotBlank()) "Por ${entry.actor}" else "",Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=scheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
+                                Text(if(entry.actor.isNotBlank()) "Por ${entry.actor}" else "",Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=1,overflow=TextOverflow.Ellipsis)
                                 if(remote.commands.any { it.id==entry.requestId }) TextButton(onClick={ feedback.openCommand(entry.requestId) },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text("Ver salida",style=MaterialTheme.typography.labelLarge) }
                                 TextButton(onClick={ details=!details },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(if(details) "Ocultar" else "Detalles",style=MaterialTheme.typography.labelLarge) }
                             }

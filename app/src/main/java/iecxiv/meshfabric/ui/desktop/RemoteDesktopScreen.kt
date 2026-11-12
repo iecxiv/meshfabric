@@ -603,9 +603,19 @@ drawDiagnostics[0]++
                             }
                         },
                     shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    color = iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+),
                     shadowElevation = 8.dp
-                ) {
+                ,
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
                     Row(
                         modifier = Modifier
                             .padding(horizontal = 4.dp, vertical = 4.dp)
