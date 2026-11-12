@@ -28,7 +28,7 @@ jobs:
           set -euo pipefail
           python3 tools/ui/device-other-options/apply.py
           git diff --cached --check
-      - name: Build unit tests and lint
+      - name: Build all unit tests and lint
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
       - name: Enable KVM
         run: sudo chmod a+rw /dev/kvm
@@ -40,7 +40,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
-      - name: Verify evidence
+      - name: Verify test evidence
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -51,7 +51,7 @@ jobs:
               assert not any(c.find('failure') is not None or c.find('error') is not None for c in cases),root
               if 'androidTest' in root:
                   new=[c for c in cases if c.get('classname','').endswith('.DeviceOtherOptionsUiTest')]
-                  assert len(new)==2 and all(c.find('skipped') is None for c in new),'Missing new UI tests'
+                  assert len(new)==4 and all(c.find('skipped') is None for c in new),'New tests missing or skipped'
           PY
       - uses: actions/upload-artifact@v4
         if: always()
@@ -62,7 +62,7 @@ jobs:
             app/build/test-results/
             app/build/outputs/androidTest-results/
           retention-days: 7
-      - name: Publish validated changes only to unchanged feature branch
+      - name: Publish only to unchanged feature branch
         run: |
           set -euo pipefail
           git fetch origin device-other-options
@@ -75,5 +75,5 @@ jobs:
           PY
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'feat(ui): expand device cards with other options above session buttons'
+          git commit -m 'feat(ui): add compact expandable device options above session actions'
           git push origin HEAD:device-other-options
