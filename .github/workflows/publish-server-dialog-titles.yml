@@ -1,0 +1,96 @@
+name: Validate and publish scoped server dialog titles
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/publish-server-dialog-titles.yml', 'tools/ui/server-dialog-titles/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: publish-server-dialog-titles-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply only the two server title overrides
+        run: |
+          set -euo pipefail
+          mkdir -p validation
+          python3 tools/ui/server-dialog-titles/apply.py
+          git diff --cached --check
+          git diff --cached > validation/server-dialog-titles.diff
+      - name: Install SDK
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, all unit tests, instrumented test compilation and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: |
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Run entire instrumented test suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify test evidence
+        if: always()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,xml.etree.ElementTree as ET
+          errors=[];report={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              failed=[c.get('classname','')+'.'+c.get('name','') for c in cases if c.find('failure') is not None or c.find('error') is not None]
+              new=[c for c in cases if c.get('classname','').endswith('.ServerDialogTitleTypographyUiTest')]
+              report[root]={'count':len(cases),'failures':failed,'new_tests':len(new)}
+              if not cases or failed:errors.append(root)
+              if 'androidTest' in root and (len(new)!=8 or any(c.find('skipped') is not None for c in new)):errors.append('New tests missing or skipped')
+          Path('validation').mkdir(exist_ok=True)
+          Path('validation/test-evidence.json').write_text(json.dumps(report,indent=2))
+          assert not errors,errors
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-dialog-titles-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Publish only validated changes to unchanged dev
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/ServerGeneralPresentation.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/ServerDialogTitleTypographyUiTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert not [p for p in subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines() if not p.startswith('validation/')]
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): match server config and error titles to AlertDialog typography'
+          git push origin HEAD:dev
