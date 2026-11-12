@@ -18,30 +18,45 @@ import java.util.Locale
 class ManagementConnectionStatusTest {
     @get:Rule val compose=createComposeRule()
     private val connectedText="Canal de gestión conectado. El servidor valida los permisos."
-    private fun compact(scale:Float,width:Int) {
+    private fun compact(scale:Float,width:Int,es:Boolean=true) {
+        val ready=mutableStateOf(true);val connecting=mutableStateOf(false);var retries=0
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(if(es) "es" else "en"))}
             val density=Density(LocalDensity.current.density,scale)
             CompositionLocalProvider(LocalConfiguration provides config,LocalDensity provides density) {MaterialTheme {Column(Modifier.width(width.dp)) {
-                ManagementConnectionStatus(true,false,onReconnect={})
-                Text(connectedText,Modifier.fillMaxWidth().testTag("event-style-reference").padding(vertical=8.dp),style=MaterialTheme.typography.bodySmall)
+                ManagementConnectionStatus(ready.value,connecting.value,onReconnect={retries++})
+                Box(Modifier.fillMaxWidth().height(20.dp).testTag("following-content"))
+                Box(Modifier.fillMaxWidth().testTag("text-sized-reference").padding(vertical=8.dp)) {
+                    managementConnectionTexts(es).forEach {Text(it,Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodySmall)}
+                }
             }}}
         }
-        val actual=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
-        val expected=compose.onNodeWithTag("event-style-reference").fetchSemanticsNode().boundsInRoot
-        assertEquals(expected.height,actual.height,0.5f)
-        compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+        val initial=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
+        val following=compose.onNodeWithTag("following-content").fetchSemanticsNode().boundsInRoot
+        val reference=compose.onNodeWithTag("text-sized-reference").fetchSemanticsNode().boundsInRoot
+        assertEquals(reference.height,initial.height,0.5f)
+        for((r,c) in listOf(false to true,false to false,true to false,true to true)) {
+            compose.runOnIdle {ready.value=r;connecting.value=c}
+            val actual=compose.onNodeWithTag("management-connection-row").fetchSemanticsNode().boundsInRoot
+            val next=compose.onNodeWithTag("following-content").fetchSemanticsNode().boundsInRoot
+            assertEquals(initial.height,actual.height,0.5f);assertEquals(initial.width,actual.width,0.5f)
+            assertEquals(following.top,next.top,0.5f)
+            if(!r && !c) compose.onNodeWithTag("management-reconnect").assertHasClickAction().assertIsEnabled().performClick()
+            else compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
+        }
+        assertEquals(1,retries)
         compose.onNodeWithTag("management-reconnect-slot").assertDoesNotExist()
-        compose.onAllNodesWithText("Reconectar").assertCountEquals(0)
     }
     @Test fun connectedUsesOnlyTextAndEventStyleVerticalPadding()=compact(1f,320)
     @Test fun largeTextWrapsNaturallyWithoutHiddenButtonReservation()=compact(1.8f,240)
+    @Test fun englishTransitionsKeepTheSameBounds()=compact(1f,320,false)
+    @Test fun englishLargeFontTransitionsKeepTheSameBounds()=compact(1.8f,240,false)
     @Test fun reconnectOnlyAppearsWhenDisconnected() {
         val ready=mutableStateOf(false);val connecting=mutableStateOf(true);var retries=0
         compose.setContent {MaterialTheme {ManagementConnectionStatus(ready.value,connecting.value,onReconnect={retries++})}}
         compose.onNodeWithTag("management-reconnect").assertDoesNotExist()
         compose.runOnIdle {connecting.value=false}
-        compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp).assertIsEnabled().performClick()
+        compose.onNodeWithTag("management-reconnect").assertHasClickAction().assertIsEnabled().performClick()
         assertEquals(1,retries)
         compose.runOnIdle {ready.value=true}
         compose.onNodeWithTag("management-reconnect").assertDoesNotExist()

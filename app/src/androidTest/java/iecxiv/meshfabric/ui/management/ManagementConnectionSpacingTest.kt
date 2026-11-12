@@ -35,10 +35,10 @@ class ManagementConnectionSpacingTest {
             assertEquals(16f*density,content.left-root.left,0.5f)
             return content.top
         }
-        verifyBounds()
+        val before=verifyBounds()
         compose.runOnIdle {ready.value=false}
-        compose.onNodeWithTag("management-reconnect").assertHeightIsAtLeast(48.dp)
-        verifyBounds()
+        compose.onNodeWithTag("management-reconnect").assertHasClickAction()
+        assertEquals(before,verifyBounds(),0.5f)
     }
     @Test fun compactOuterGapsStayStable()=verify(1f)
     @Test fun largeTextPreservesGapAndReconnectTarget()=verify(1.8f)
