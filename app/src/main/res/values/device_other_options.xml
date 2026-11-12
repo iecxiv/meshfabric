@@ -1,0 +1,8 @@
+<resources>
+    <string name="device_other_options_expand">Show other device options</string>
+    <string name="device_other_options_collapse">Hide other device options</string>
+    <string name="device_other_options_events">Events</string>
+    <string name="device_other_options_details">Details</string>
+    <string name="device_other_options_console">Console</string>
+    <string name="device_other_options_pending">Events and agent console are not available yet.</string>
+</resources>
