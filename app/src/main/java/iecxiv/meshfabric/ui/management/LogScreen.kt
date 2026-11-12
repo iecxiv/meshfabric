@@ -103,7 +103,11 @@ import java.util.Date
                     itemsIndexed(group.entries) {_,entry->
                         val index=entry.index
                         val row=entry.value
-                Card(Modifier.fillMaxWidth().testTag("log-event-row-$index").clickable {detail=row}) {Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Card(Modifier.fillMaxWidth().testTag("log-event-row-$index").clickable {detail=row},
+    colors = iecxiv.meshfabric.ui.theme.appCardColors(
+androidx.compose.material3.CardDefaults.cardColors()
+)
+) {Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     ServerEventIcon(row.action)
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(row.message.ifBlank {stringResource(R.string.log_event)},style=MaterialTheme.typography.bodyMedium)

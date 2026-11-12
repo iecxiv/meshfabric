@@ -161,10 +161,11 @@ fun SettingsScreen(
             // Section 1: App Name
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            ) {
+)) {
                 Column(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -235,10 +236,11 @@ fun SettingsScreen(
             // Section 2: App Icon
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            ) {
+)) {
                 Column(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -333,10 +335,11 @@ fun SettingsScreen(
             // Info Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
                 )
-            ) {
+)) {
                 Row(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.Top
@@ -359,10 +362,11 @@ fun SettingsScreen(
             // Section 3: Theme
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            ) {
+)) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -415,10 +419,11 @@ fun SettingsScreen(
             // Section 4: Hide Settings Icon
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            ) {
+)) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -468,10 +473,11 @@ fun SettingsScreen(
             // Section 5: Save Terminal Buffers Setting
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
+                colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
-            ) {
+)) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -517,8 +523,9 @@ fun SettingsScreen(
             if (onLogout != null) {
                 Card(
                     modifier = Modifier.align(Alignment.CenterHorizontally).clickable { showLogout = true },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                ) {
+                    colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+)) {
                     Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(8.dp))

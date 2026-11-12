@@ -176,7 +176,17 @@ internal class ServerAdminChannel(private val source:MeshCentralClient,private v
         val options=availableTraceOptions(current.orEmpty())
         val allSelected=options.isNotEmpty() && options.all { it in current.orEmpty() }
         val allState=when { allSelected->ToggleableState.On; current.isNullOrEmpty()->ToggleableState.Off; else->ToggleableState.Indeterminate }
-        Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+        Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surfaceVariant
+),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surfaceVariant
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
             Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(label("Fuentes de rastreo","Trace sources"),style=MaterialTheme.typography.titleSmall)
                 Box {
@@ -233,7 +243,17 @@ internal class ServerAdminChannel(private val source:MeshCentralClient,private v
             ServerCsvDownload(enabled=enabled && exportable,fileName="servertrace.csv",create={ serverTraceCsv(output,selectedSources) })
         }
         Text(label("Más recientes primero","Newest received first"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+        Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surface
+),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surface
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
             SelectionContainer {
                 Column(Modifier.fillMaxWidth().heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     if(output.isEmpty()) Text(label("Sin salida recibida.","No output received."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)

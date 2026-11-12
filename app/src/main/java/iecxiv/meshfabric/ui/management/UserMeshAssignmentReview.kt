@@ -40,7 +40,17 @@ import org.json.JSONObject
     val observed=submitted && s.notice=="userMeshRevokedObserved" && s.revokedDirectUser==uid && s.revokedDirectMesh==mid
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar acceso directo","Review direct access"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-            Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceVariant) {
+            Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surfaceVariant
+),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surfaceVariant
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
                 Column(Modifier.padding(8.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
             Text(beforeServer,style=MaterialTheme.typography.bodySmall)
             Text(t("Usuario: ","User: ")+identityA.label)

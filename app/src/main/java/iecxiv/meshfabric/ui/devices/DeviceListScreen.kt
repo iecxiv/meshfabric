@@ -161,7 +161,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 }
 @Composable fun GroupHeaderCard(group:MeshGroup,onlineCount:Int,offlineCount:Int,isExpanded:Boolean,onToggleExpand:()->Unit) {
     Card(Modifier.fillMaxWidth().padding(vertical=6.dp).clip(CardDefaults.shape).clickable(onClick=onToggleExpand),
-        colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)) {
+        colors= iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.primaryContainer)
+)) {
         Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(group.name.ifEmpty { stringResource(R.string.unnamed_group) },style=MaterialTheme.typography.titleMedium,
@@ -180,7 +182,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
     fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit,showNetworkInfo:Boolean=true) {
     val os=node.osDisplayName.ifEmpty { stringResource(R.string.device_os_unknown) }
     Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
-        colors=CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface),
+        colors= iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
+),
         elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {

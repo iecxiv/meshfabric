@@ -257,9 +257,11 @@ fun LoginScreen(
             // Error message
             errorMessage?.let { error ->
                 Card(
-                    colors = CardDefaults.cardColors(
+                    colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.errorContainer
-                    ),
+                    )
+),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp)

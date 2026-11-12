@@ -175,7 +175,9 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
                 items(group,key={ it.id }) { entry->
                     var details by remember(entry.id) { mutableStateOf(false) }
                     val color=when(entry.status) { ActivityStatus.ERROR->scheme.error; ActivityStatus.UNKNOWN->scheme.tertiary; ActivityStatus.CONFIRMED,ActivityStatus.OUTPUT->scheme.primary; else->scheme.onSurfaceVariant }
-                    Card(Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=scheme.surfaceVariant),elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
+                    Card(Modifier.fillMaxWidth(),colors= iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(containerColor=scheme.surfaceVariant)
+),elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
                         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment=Alignment.CenterVertically) {
                                 Text(entry.target,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)

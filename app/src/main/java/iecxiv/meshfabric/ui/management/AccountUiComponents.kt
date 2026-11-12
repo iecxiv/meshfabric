@@ -43,8 +43,18 @@ import org.json.JSONObject
         titleContentColor=titleContentColor,textContentColor=textContentColor,tonalElevation=tonalElevation,properties=properties)
 }
 @Composable internal fun AccountActionsCard(content:@Composable ColumnScope.()->Unit) {
-    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surface
+),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surface
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Column(Modifier.padding(horizontal=12.dp,vertical=2.dp),verticalArrangement=Arrangement.spacedBy(0.dp),content=content)
     }
 }
@@ -70,7 +80,13 @@ import org.json.JSONObject
         false->if(dark) Color(0xFFFFDADD) else Color(0xFF64232B)
         null->MaterialTheme.colorScheme.onSurfaceVariant
     }
-    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=background,contentColor=foreground) {
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+background
+),contentColor=foreground,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Icon(when(outcome) { true->Icons.Default.CheckCircle; false->Icons.Default.ErrorOutline; null->Icons.Default.Info },null,Modifier.size(18.dp))
@@ -82,7 +98,17 @@ import org.json.JSONObject
     }
 }
 @Composable internal fun AccountCredentialRow(label:String,value:String,copyLabel:String,onCopy:()->Unit) {
-    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceVariant) {
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surfaceVariant
+),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surfaceVariant
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Row(Modifier.fillMaxWidth().padding(start=12.dp,end=4.dp,top=4.dp,bottom=4.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 Text(label,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -96,8 +122,18 @@ import org.json.JSONObject
     val id=token.optString("tokenUser")
     val name=token.optString("name").ifBlank { if(es) "Sin nombre" else "Unnamed" }
     var confirm by remember(id) { mutableStateOf(false) }
-    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.surfaceVariant,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surfaceVariant
+),
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surfaceVariant
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Row(Modifier.padding(start=12.dp,end=4.dp,top=8.dp,bottom=8.dp),verticalAlignment=Alignment.CenterVertically,
             horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {

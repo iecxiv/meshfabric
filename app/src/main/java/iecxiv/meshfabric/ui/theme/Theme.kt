@@ -8,6 +8,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 
 enum class AppThemeMode {
@@ -47,11 +48,7 @@ fun MeshCentralTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val darkTheme = when (themeMode) {
-        AppThemeMode.LIGHT -> false
-        AppThemeMode.DARK -> true
-        AppThemeMode.SYSTEM -> isSystemInDarkTheme()
-    }
+    val darkTheme = resolveAppDarkTheme(themeMode, isSystemInDarkTheme())
 
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
@@ -64,6 +61,6 @@ fun MeshCentralTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        content = content
+        content = { CompositionLocalProvider(LocalAppDarkTheme provides darkTheme, content = content) }
     )
 }

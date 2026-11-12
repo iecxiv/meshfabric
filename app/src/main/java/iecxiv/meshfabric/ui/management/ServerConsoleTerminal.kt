@@ -312,7 +312,17 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
         }
         if(active && !loaded && !failed) LinearProgressIndicator(Modifier.fillMaxWidth())
         TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
-        if(showText || failed) Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+        if(showText || failed) Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surfaceVariant
+),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surfaceVariant
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
             SelectionContainer {
                 Text(snapshot.ifBlank { label("Sin salida recibida.","No output received.") },Modifier.fillMaxWidth().heightIn(max=320.dp).verticalScroll(rememberScrollState()).padding(12.dp),fontFamily=FontFamily.Monospace,
                     style=MaterialTheme.typography.bodySmall.copy(fontSize=font.sp,lineHeight=(font+5).sp))

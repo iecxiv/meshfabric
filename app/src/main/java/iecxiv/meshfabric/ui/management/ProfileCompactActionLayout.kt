@@ -13,7 +13,17 @@ import androidx.compose.ui.unit.dp
     Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(0.dp),content=content)
 }
 @Composable internal fun ProfileActionCard(content:@Composable ColumnScope.()->Unit) {
-    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surface,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+    Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.surface
+),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.surface
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Column(Modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(0.dp),content=content)
     }
 }

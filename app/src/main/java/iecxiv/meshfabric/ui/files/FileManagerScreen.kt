@@ -865,10 +865,11 @@ LinearProgressIndicator(
                                             handleInitiateDownload(item)
                                         }
                                     },
-                                colors = CardDefaults.cardColors(
+                                colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surface
                                 )
-                            ) {
+)) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1022,9 +1023,11 @@ LinearProgressIndicator(
                             modifier = Modifier
                                 .padding(24.dp)
                                 .fillMaxWidth(0.9f),
-                            colors = CardDefaults.cardColors(
+                            colors = iecxiv.meshfabric.ui.theme.appCardColors(
+CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                            ),
+                            )
+),
                             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                         ) {
                             Column(

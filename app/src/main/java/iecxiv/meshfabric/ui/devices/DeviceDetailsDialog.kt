@@ -163,7 +163,17 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                         }
                     }
                     if (inventory.errors.isNotEmpty()) item(key = "errors") {
-                        Surface(Modifier.fillMaxWidth().padding(vertical = 6.dp), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.errorContainer) {
+                        Surface(Modifier.fillMaxWidth().padding(vertical = 6.dp), shape = RoundedCornerShape(10.dp), color = iecxiv.meshfabric.ui.theme.appCardBackground(
+MaterialTheme.colorScheme.errorContainer
+),
+    contentColor = androidx.compose.material3.contentColorFor(
+MaterialTheme.colorScheme.errorContainer
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 inventory.errors.forEach { (action, error) ->
                                     val title = when (action) {
@@ -250,7 +260,17 @@ private fun InventoryHeading(title: String, icon: ImageVector, expanded: Boolean
     val state = if (expanded) { if (es) "Expandido" else "Expanded" } else { if (es) "Contraído" else "Collapsed" }
     val action = if (expanded) { if (es) "Contraer" else "Collapse" } else { if (es) "Expandir" else "Expand" }
     Surface(Modifier.fillMaxWidth().padding(top = 6.dp), shape = RoundedCornerShape(12.dp),
-        color = if (expanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)) {
+        color = iecxiv.meshfabric.ui.theme.appCardBackground(
+if (expanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+),
+    contentColor = androidx.compose.material3.contentColorFor(
+if (expanded) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+)
+,
+    tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(
+androidx.compose.ui.unit.Dp(0f)
+)
+) {
         Row(Modifier.fillMaxWidth().clickable(role = Role.Button, onClickLabel = "$action $title", onClick = onToggle)
             .semantics { heading(); stateDescription = state }.heightIn(min = 48.dp).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
