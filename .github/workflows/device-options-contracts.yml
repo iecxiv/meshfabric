@@ -1,0 +1,68 @@
+name: Inspect device option contracts
+on:
+  push:
+    branches: [device-other-options]
+    paths: ['.github/workflows/device-options-contracts.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    if: github.ref == 'refs/heads/device-other-options'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Extract pinned upstream protocol and app integration points
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, urllib.request, hashlib
+          sha='f436143527458d56da0336ea3047c006703fb4e4'
+          base='https://raw.githubusercontent.com/Ylianst/MeshCentral/'+sha+'/'
+          out=Path('device-options-contracts');out.mkdir()
+          def download(path):
+              request=urllib.request.Request(base+path,headers={'User-Agent':'meshfabric-contract-audit'})
+              with urllib.request.urlopen(request,timeout=60) as response:
+                  data=response.read(8000001)
+              assert len(data)<=8000000,path
+              return data
+          package=json.loads(download('package.json'))
+          assert package['version']=='1.3.1'
+          manifest={'upstream':sha,'version':package['version'],'app_commit':'${{ github.sha }}','files':{}}
+          terms=['powertimeline','powerevents.csv','changeDevice','changedevice','logevent','logEvent','agentcore','agentCore','agentdisconnect','agentDisconnect','agentupdate','agentUpdate','getsoftware','getSoftware','software','p15console','consoleSend','tinycore','recoverycore','restartservice','setDevice','nodeid','getNodeRights']
+          for path in ['views/default.handlebars','meshuser.js','agents/meshcore.js']:
+              data=download(path)
+              lines=data.decode('utf-8').splitlines()
+              selected=set()
+              hits={}
+              for term in terms:
+                  indices=[i for i,line in enumerate(lines) if term in line][:12]
+                  hits[term]=[i+1 for i in indices]
+                  for i in indices:
+                      selected.update(range(max(0,i-30),min(len(lines),i+100)))
+              text='\n'.join(str(i+1)+': '+lines[i] for i in sorted(selected))
+              (out/(path.replace('/','_')+'.txt')).write_text(text)
+              manifest['files'][path]={'sha256':hashlib.sha256(data).hexdigest(),'lines':len(lines),'hits':hits}
+          app=[
+              'app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt',
+              'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceOtherOptions.kt',
+              'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt',
+              'app/src/main/java/iecxiv/meshfabric/ui/management/ServerEventsQuery.kt',
+              'app/src/main/java/iecxiv/meshfabric/ui/management/ServerEventsReadPolicy.kt',
+              'app/src/main/java/iecxiv/meshfabric/ui/management/ProfilePermissions.kt',
+              'app/src/main/java/iecxiv/meshfabric/ui/management/ServerCsvDownload.kt'
+          ]
+          for path in app:
+              p=Path(path)
+              assert p.is_file(),path
+              (out/('app_'+p.name+'.txt')).write_text(p.read_text())
+          (out/'manifest.json').write_text(json.dumps(manifest,indent=2))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: device-options-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: device-options-contracts/
+          if-no-files-found: error
+          retention-days: 7
