@@ -1,0 +1,103 @@
+name: Validate compact connection status
+on:
+  push:
+    branches: [notifications-broadcast-messages]
+    paths: [.github/workflows/compact-connection-status.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: notice-center-publication
+  cancel-in-progress: false
+jobs:
+  compact:
+    if: github.ref == 'refs/heads/notifications-broadcast-messages'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare approved compact layout with corrected measurement reference
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import subprocess,textwrap
+          template=subprocess.check_output(['git','show','04005222b62c21577f679589d04f2d02cacbc873:.github/workflows/compact-connection-status.yml'],text=True)
+          marker='      - name: Prepare guarded shared spacing changes\n        run: |\n'
+          end='\n      - name: Build, all unit tests and lint'
+          if template.count(marker)!=1 or template.count(end)!=1:
+              raise SystemExit('Unexpected approved preparation structure')
+          script=textwrap.dedent(template.split(marker,1)[1].split(end,1)[0])
+          old='Modifier.fillMaxWidth().padding(vertical=8.dp).testTag("event-style-reference")'
+          new='Modifier.fillMaxWidth().testTag("event-style-reference").padding(vertical=8.dp)'
+          if script.count(old)!=1:
+              raise SystemExit('Expected exactly one measurement reference')
+          script=script.replace(old,new,1)
+          subprocess.run(['bash','-euo','pipefail','-c',script],check=True)
+          PY
+      - name: Build, all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --stacktrace
+      - name: Run all standalone JavaScript tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          tests=sorted(Path('app/src/test/js').rglob('*.test.js'))
+          if not tests: raise SystemExit('No JavaScript tests found')
+          for p in tests: subprocess.run(['node',str(p)],check=True)
+          PY
+      - name: Enable emulator acceleration
+        run: sudo chmod a+rw /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Publish validated presentation on unchanged branch
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          branch=notifications-broadcast-messages
+          git fetch origin "$branch"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          base='java/iecxiv/meshfabric/ui/management/'
+          allowed={'app/src/main/'+base+n for n in ['ManagementConnectionStatus.kt','ManagementConnectionSpacing.kt','NoticeCenterScreen.kt']}
+          allowed|={'app/src/androidTest/'+base+n for n in ['ManagementConnectionStatusTest.kt','ManagementConnectionSpacingTest.kt']}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected files: '+repr(changed))
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "Compact shared connection status with corrected layout measurement tests"
+          git push origin "HEAD:refs/heads/$branch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compact-connection-status-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: warn

@@ -20,16 +20,22 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
     private var epoch=0L
     private var attempt=0L
     private var queryScope:ServerEventsScope?=null
+    private var pausedBinding:LogEventsBinding?=null
+    private var pausedAuthority:String?=null
+    private var resumeAuthority:String?=null
     private var requested=legacyServerEventsQuery
     private var timer:Job?=null
     init {jobs.launch {while(isActive) {delay(500);synchronized(this@LogEventsReader) {if(binding!=null && current()!=binding) stop(ServerEventsPhase.INVALIDATED)}}}}
     @Synchronized fun load(selection:ServerEventsQuery=legacyServerEventsQuery) {
+        val resume=mutable.value.lifecyclePause && selection==requested && current()==pausedBinding
+        val authority=if(resume) pausedAuthority else null
         requested=selection
         stop(ServerEventsPhase.IDLE)
+        resumeAuthority=authority
         val b=current() ?: run {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED,selection=requested);return}
         if(b.server.isBlank() || b.actor.isBlank() || b.cookie.isBlank()) {mutable.value=ServerEventsSnapshot(ServerEventsPhase.INVALIDATED,selection=requested);return}
         binding=b;val generation=epoch
-        mutable.value=ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=requested)
+        mutable.value=ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=requested,lifecyclePause=authority!=null)
         runCatching {socket=open(b,object:WebSocketListener() {
             override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@LogEventsReader) {
                 if(generation!=epoch || current()!=binding) {webSocket.cancel();return}
@@ -66,6 +72,7 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
                 val site=user.get("siteadmin")?.asLong?.toInt() ?: 0
                 if(str(user,"_id")!=b.actor || site!=b.site) {stop(ServerEventsPhase.INVALIDATED);return}
                 val authority=site.toString()+":"+(user.get("links")?.toString() ?: "unavailable")
+                if(resumeAuthority!=null && resumeAuthority!=authority) {stop(ServerEventsPhase.INVALIDATED);return}
                 val previous=queryScope
                 if(previous!=null) {if(previous.authority!=authority) stop(ServerEventsPhase.INVALIDATED);return}
                 val scope=ServerEventsScope(b.server,b.actor,epoch,authority);queryScope=scope
@@ -88,8 +95,16 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
     @Synchronized private fun failed(generation:Long) {if(generation==epoch) stop(ServerEventsPhase.ERROR)}
     @Synchronized private fun stop(phase:ServerEventsPhase) {
         epoch++;timer?.cancel();timer=null;binding=null;queryScope=null;gate.invalidate()
+        pausedBinding=null;pausedAuthority=null;resumeAuthority=null
         val previous=socket;socket=null;mutable.value=ServerEventsSnapshot(phase,selection=requested);previous?.cancel()
     }
-    @Synchronized fun pause(selection:ServerEventsQuery?=null) {if(selection==null || selection==requested) stop(ServerEventsPhase.INVALIDATED)}
+    @Synchronized fun pause(selection:ServerEventsQuery?=null) {
+        if(selection!=null && selection!=requested) return
+        val b=binding
+        val authority=queryScope?.authority ?: resumeAuthority
+        val preserve=b!=null && current()==b && authority!=null && (mutable.value.phase==ServerEventsPhase.READY || (mutable.value.lifecyclePause && mutable.value.phase==ServerEventsPhase.LOADING))
+        stop(ServerEventsPhase.INVALIDATED)
+        if(preserve) {pausedBinding=b;pausedAuthority=authority;mutable.value=mutable.value.copy(lifecyclePause=true)}
+    }
     @Synchronized fun close() {pause();jobs.cancel()}
 }

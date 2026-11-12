@@ -5,9 +5,9 @@ import org.junit.Test
 
 class NoticeInboxPolicyTest {
 private fun entry(id:Long)=NoticeInboxEntry(AccountNotice(id,"general","message","",""))
-@Test fun boundedNewestFirst() {
+@Test fun unreadNoticesAreNeverAutomaticallyEvicted() {
 val rows=(1L..205L).fold(emptyList<NoticeInboxEntry>()) { list,id->noticeInboxAppend(list,entry(id)) }
-assertEquals(200,rows.size); assertEquals(205L,rows.first().notice.serial); assertEquals(6L,rows.last().notice.serial)
+assertEquals(205,rows.size); assertEquals(205L,rows.first().notice.serial); assertEquals(1L,rows.last().notice.serial)
 }
 @Test fun readAndUnreadAreLocalAndTargeted() {
 val rows=listOf(entry(1),entry(2)); val read=noticeInboxRead(rows,1)

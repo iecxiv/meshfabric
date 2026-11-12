@@ -29,7 +29,7 @@ import java.util.Date
 @Composable internal fun LogScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit) {
     val actor by viewModel.userInfo.collectAsState()
     var tab by rememberSaveable {mutableIntStateOf(0)}
-    key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,actor?.id) {
+    key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,viewModel.meshClient.ignoreSsl,viewModel.meshClient.isUserLogout,actor?.id,actor?.siteadmin) {
         LogSectionContent(tab) {selected->
             if(selected==0) MeshFabricActivityScreen(viewModel,journal,feedback,actionsReady,actionsStatus,onReconnect,onOpenSettings,header={RegistroSectionTabs(tab) {tab=it}})
             else ServerEventsLogScreen(viewModel,onOpenSettings,header={RegistroSectionTabs(tab) {tab=it}})
@@ -45,7 +45,7 @@ import java.util.Date
     var selectedType by rememberSaveable {mutableStateOf(ServerEventType.ALL.name)}
     var selectedLimit by rememberSaveable {mutableIntStateOf(60)}
     val selection=ServerEventsQuery(ServerEventType.entries.firstOrNull {it.name==selectedType} ?: ServerEventType.ALL,selectedLimit.takeUnless {it==0})
-    val reader=remember(source,source.serverUrl,source.authCookie,actor?.id,actor?.siteadmin,connected) {LogEventsReader(current={
+    val reader=remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,actor?.id,actor?.siteadmin,connected) {LogEventsReader(current={
         val user=source.userInfo.value
         if(source.isUserLogout || !source.connectionState.value || user==null || user.id.isBlank() || source.authCookie.isBlank()) null
         else LogEventsBinding(source.serverUrl,user.id,source.authCookie,source.ignoreSsl,user.siteadmin,source.extractRawToken(source.authCookie))
@@ -62,7 +62,13 @@ import java.util.Date
     }
 }
 @Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory()) {
-    var detail by remember(state.records,state.phase,selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}
+    var detail by remember(selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}
+    LaunchedEffect(state,enabled,selection,inventory) {
+        detail=detail?.takeIf {opened->
+            val matches=state.records.count {it.withInventory(inventory)==opened}
+            retainEventDialog(state.phase,state.lifecyclePause,enabled,matches)
+        }
+    }
     val status=when(state.phase) {
         ServerEventsPhase.IDLE->R.string.log_idle
         ServerEventsPhase.LOADING->R.string.log_loading

@@ -24,10 +24,30 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Manage your password, authenticator, existing security keys, backup codes, login history and login tokens natively.
 - Your own user details provide separate password and MFA actions. Password opens its My Account dialog directly; MFA opens a choice of account-security options. Messaging, lock/unlock and administrative deletion are hidden for your own account.
 - Send reviewed Broadcast or individual notifications; server acceptance does not guarantee delivery or reading.
-- Use a session notice inbox, optional Android background alerts and notification preferences synchronized with the server web settings.
+- Use an encrypted persistent notice inbox per server/account, optional Android background alerts and notification preferences synchronized with the server web settings. Unread notices are not automatically evicted; local read state is saved.
 - Native FIDO2 sign-in and new security-key registration remain pending. Existing keys can be listed and removed.
 
 Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
+
+### Notices, Broadcast and Messages
+
+- Notices retains received entries; Broadcast and Messages reuse reviewed server-authorized sending flows. Messages distinguishes users from devices and is not a chat history.
+- User recipients show names; devices show device (group), without visible internal IDs. Message search starts hidden, opens from the header and matches visible names/groups. Closing search, switching section or changing recipient type clears its filter.
+- The local inbox restores unread notices and read state after reopening and authenticating the same account/server. Opening the inbox or dismissing an Android alert does not mark entries read. Restoration does not replay alerts.
+- All unread entries and up to 200 read entries are retained. Storage uses AES-GCM with an Android Keystore key, atomic files and app-private no-backup storage. There is no plaintext fallback for this inbox.
+- The per-account/server storage limit is 16 MiB. A failed or oversized save is shown as unconfirmed and preserves the previous file; pending changes can remain only in memory. Wait for saving to finish before closing. Explicitly clearing the inbox also deletes unread entries after confirmation.
+- Management dialog navigation and eligible server result dialogs survive temporary channel pauses. Event details survive verified lifecycle pauses and require matching authority and a unique matching event after reload. This is not process-death restoration of dialogs, and sensitive confirmations can still be invalidated.
+- Activity remains a separate in-memory journal. Console/Trace buffers still clear on backgrounding. Server acceptance does not prove delivery/reading; a stopped process is not guaranteed to receive notices.
+
+Guide and acceptance checklist: [Notices and continuity](docs/notices.md). Real-device lifecycle, persistence and live-server delivery checks remain required.
+
+### Connection status and dialog stability
+
+- Shared management-channel indicators keep the same bounds across connecting, connected and disconnected states at the same available width and font scale. Reconnect is integrated into the disconnected text rather than added as a separate side button. Hidden state labels are excluded from accessibility semantics.
+- Broadcast and Messages use the shared status/content spacing rather than adding a separate vertical inset around the status.
+- Management no longer inserts a temporary previous-data banner above its section tabs. Connection state remains in the existing indicator, and actions remain blocked when current data or authorization is unavailable.
+- Device-group details load automatically once per open group and real connection generation after the required state is available. Completing that load does not start another load; Refresh remains an explicit action.
+- Continuity is not unlimited restoration: changing identity, permissions, inventory or selection can invalidate context. Sensitive confirmations keep their own safety rules, and dialog state is not restored after process death.
 
 ### Agent installation and invitations
 
@@ -184,6 +204,7 @@ A request being sent or accepted is not the same as an action being executed. Me
 - Search activity and filter by category or device, with entries grouped by date.
 - Inspect request identifiers, actor information, timestamps, and result details when available.
 - The activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.
+- A control-channel interruption preserves received entries and marks pending action results unknown without automatic resending. Logout, owner destruction or process death can clear this journal; persistent received notices belong to the separate Notices inbox.
 
 ### Events
 
@@ -286,6 +307,9 @@ History-panel instrumentation tests cover hidden content, duplicate primary-acti
 Some feature changes use CI publication workflows; a workflow commit is not itself the functional change. Check that the functional commit was published and inspect the outcome of its validation run.
 
 Passing automated tests does not establish universal compatibility with Hacker's Keyboard, every physical keyboard, every IME, all Android environments, or all Windows/Linux hosts. Test real typing, shortcuts, locale/accents, composition, repeats, focus changes, reconnection, font scaling, and landscape/keyboard layouts on the intended devices.
+
+
+The Notices and dialog-continuity acceptance checklist remains a manual device/server check: verify saved unread/read state after reopening, account/server isolation, Android-alert dismissal, deletion persistence, background/resume navigation and stable status transitions. Automated success is not proof of these physical-device or delivery scenarios.
 
 ## Technology
 

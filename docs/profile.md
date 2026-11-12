@@ -21,3 +21,7 @@ Server permissions and policy remain authoritative. Missing records or failed re
 Sensitive access changes use reviewed data and separate confirmation. Changed identity, permissions, data or connection can invalidate the review. Unknown outcomes are not success and writes are not automatically retried. Reads and writes are not atomic; concurrent administrator changes remain possible.
 
 Native FIDO2 sign-in and new security-key registration remain pending. Listing/removing existing keys is available. Automated checks do not replace live-server and physical-device validation of every operation.
+
+## Background/resume continuity
+
+Temporary loss of readiness no longer clears the parent dialog navigation solely for that reason. Previous presentation data can remain visible with actions blocked until fresh matching account data is available. Identity changes clear the navigation context; sensitive reviews can still invalidate permanently on interruption. This does not promise survival of every nested dialog or restore dialogs after process death. The account-security dialogs keep their own safety rules. See [Notices and continuity](notices.md).

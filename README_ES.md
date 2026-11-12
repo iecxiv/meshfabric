@@ -24,10 +24,30 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Gestiona de forma nativa contraseña, autenticador, claves de seguridad existentes, códigos de respaldo, historial de accesos y tokens.
 - Tu propia ficha ofrece dos acciones de contraseña y MFA. Contraseña abre directamente su diálogo de Mi cuenta; MFA abre un selector de opciones. Mensajes, bloqueo/desbloqueo y eliminación administrativa se ocultan para tu propia cuenta.
 - Envía Broadcast o notificaciones individuales con revisión; la aceptación del servidor no garantiza entrega ni lectura.
-- Utiliza la bandeja de avisos de la sesión, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web del servidor.
+- Utiliza una bandeja de avisos persistente cifrada por servidor/cuenta, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web. Los no leídos no se eliminan automáticamente y se guarda el estado local de lectura.
 - El inicio de sesión FIDO2 nativo y el alta de nuevas claves siguen pendientes. Las claves existentes se pueden consultar y eliminar.
 
 Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
+
+### Avisos, Broadcast y Mensajes
+
+- Avisos conserva entradas recibidas; Broadcast y Mensajes reutilizan los flujos revisados y sujetos a permisos. Mensajes distingue usuarios y dispositivos y no es un historial de chat.
+- Los destinatarios muestran el nombre del usuario o dispositivo (grupo), sin IDs internos visibles. La búsqueda de Mensajes empieza oculta, se abre con la lupa y filtra nombres/grupos visibles. Cerrar la búsqueda, cambiar de pestaña o de tipo de destinatario limpia el filtro.
+- La bandeja restaura no leídos y estado de lectura al abrir de nuevo y autenticar la misma cuenta/servidor. Entrar en Avisos o descartar una alerta Android no marca como leído. Restaurar no vuelve a emitir alertas.
+- Se conservan todos los no leídos y hasta 200 leídos. El almacenamiento usa AES-GCM con clave de Android Keystore, archivos atómicos y almacenamiento privado excluido de backups. Esta bandeja no tiene alternativa en texto plano.
+- El límite por cuenta/servidor es de 16 MiB. Si falla o se supera, el guardado queda sin confirmar y conserva el archivo anterior; puede haber cambios solo en memoria. Espera a que termine el guardado antes de cerrar. Vaciar la bandeja también elimina los no leídos tras confirmar.
+- La navegación de diálogos de Gestión y los resultados de Servidor admitidos sobreviven a pausas temporales. Los detalles de Eventos sobreviven a pausas de ciclo de vida verificadas y exigen autorización coincidente y un evento inequívoco al recargar. No restaura diálogos tras morir el proceso; las confirmaciones sensibles pueden invalidarse.
+- Actividad sigue siendo un diario independiente en memoria. Consola/Seguimiento siguen borrando sus búferes al pasar a segundo plano. La aceptación del servidor no demuestra entrega/lectura y no se garantiza recepción con el proceso detenido.
+
+Guía y lista de aceptación: [Avisos y continuidad](docs/es/notices.md). Siguen pendientes las comprobaciones en dispositivo y de entrega contra el servidor real.
+
+### Estado de conexión y estabilidad de diálogos
+
+- Los indicadores compartidos del canal de gestión conservan las mismas dimensiones entre conectando, conectado y desconectado para un mismo ancho disponible y escala de fuente. Reconectar se integra en el texto desconectado, sin añadir un botón lateral. Los textos de estados ocultos quedan fuera de la semántica de accesibilidad.
+- Broadcast y Mensajes utilizan el espaciado compartido entre estado y contenido, sin añadir un margen vertical propio alrededor del indicador.
+- Gestión ya no inserta un aviso temporal de datos anteriores por encima de sus pestañas. El estado se muestra en el indicador existente y las acciones permanecen bloqueadas si faltan datos actuales o autorización.
+- La ficha de grupo de dispositivos realiza una carga automática por grupo abierto y generación real de conexión, cuando están disponibles los datos necesarios. Terminar esa carga no dispara otra; Actualizar sigue siendo una acción explícita.
+- La continuidad no es restauración ilimitada: cambios de identidad, permisos, inventario o selección pueden invalidar el contexto. Las confirmaciones sensibles mantienen sus reglas y los diálogos no se restauran tras morir el proceso.
 
 ### Instalación de agentes e invitaciones
 
@@ -176,6 +196,7 @@ Enviar o aceptar una solicitud no equivale a ejecutarla. MeshFabric informa de r
 - Búsqueda y filtros por categoría o dispositivo, con agrupación por fecha.
 - Identificadores de solicitud, actor, fecha/hora y detalles de resultado cuando están disponibles.
 - Hasta 200 entradas en memoria: es una vista de la sesión, no un archivo persistente ni completo de auditoría del servidor.
+- Una interrupción del canal conserva las entradas recibidas y marca resultados pendientes como desconocidos, sin reenviar automáticamente. Cerrar sesión, destruir su propietario o terminar el proceso puede borrar este diario; los avisos recibidos persistentes pertenecen a la bandeja independiente de Avisos.
 
 ### Eventos
 
@@ -276,6 +297,9 @@ Las pruebas instrumentadas del panel comprueban contenido oculto, etiquetas dupl
 Algunos cambios usan workflows de publicación: el commit del workflow no es el cambio funcional. Comprueba que el commit funcional se publicó y revisa el resultado de validación.
 
 Superar pruebas automatizadas no garantiza compatibilidad universal con Hacker's Keyboard, teclados físicos, IME, entornos Android ni todos los equipos Windows/Linux. Comprueba escritura, atajos, idiomas/acentos, composición, repeticiones, cambios de foco, reconexión, tamaño de fuente y orientación horizontal en los dispositivos previstos.
+
+
+La aceptación de Avisos y continuidad de diálogos sigue requiriendo comprobación manual en dispositivo/servidor: lectura y no leídos al reabrir, separación de cuentas/servidores, descarte de alertas Android, persistencia del borrado, navegación al volver de segundo plano y transiciones de estado sin desplazamientos. El éxito automatizado no demuestra esos escenarios físicos ni la entrega.
 
 ## Tecnología
 
