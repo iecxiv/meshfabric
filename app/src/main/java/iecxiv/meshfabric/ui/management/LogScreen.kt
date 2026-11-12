@@ -103,7 +103,7 @@ import java.util.Date
                     itemsIndexed(group.entries) {_,entry->
                         val index=entry.index
                         val row=entry.value
-                Card(Modifier.fillMaxWidth().testTag("log-event-row-$index").clickable {detail=row},
+                Card(Modifier.fillMaxWidth().testTag("log-event-row-$index").clickable {detail=row},shape=MaterialTheme.shapes.medium,border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
     colors = iecxiv.meshfabric.ui.theme.appCardColors(
 androidx.compose.material3.CardDefaults.cardColors()
 )
