@@ -26,6 +26,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Configure Android SDK and command-line tools
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - name: Verify sdkmanager and install SDK packages
         run: |
           set -euo pipefail
@@ -37,7 +40,7 @@ jobs:
         run: |
           from pathlib import Path
           import subprocess, textwrap
-          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='5fde6ca89e4316ba997cfdf3fc9050ceeaa676b1', 'Repair base changed; review required'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='8d1a891ff966128ea99f85ba730aaa139d1ab8ec', 'Repair base changed; review required'
           path=Path('.github/workflows/publish-activity-translations.yml')
           assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()=='041819b33d22f6f97fc1ce20699d5030c3a4afc2', 'Original translation preparation changed'
           source=path.read_text()
