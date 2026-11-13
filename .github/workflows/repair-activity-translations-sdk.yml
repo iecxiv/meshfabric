@@ -40,7 +40,7 @@ jobs:
         run: |
           from pathlib import Path
           import json, subprocess, textwrap
-          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='918bd2c16942a82bcb7b2df342f8f0eac54fd61a', 'Repair base changed; review required'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='9aece8a73e8f45aca7b9bb52e00eaa4170e36e89', 'Repair base changed; review required'
           path=Path('.github/workflows/publish-activity-translations.yml')
           assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()=='041819b33d22f6f97fc1ce20699d5030c3a4afc2', 'Original translation preparation changed'
           source=path.read_text()
@@ -78,11 +78,53 @@ jobs:
               text=text.replace(old,'(if(language=="es") '+old+' else '+json.dumps(en,ensure_ascii=False)+')')
           assert text.count('@Test fun ')==8, 'All eight original tests must remain'
           unit.write_text(text)
-          subprocess.run(['git','add','--',str(unit)],check=True)
+          timeline=Path('app/src/main/java/iecxiv/meshfabric/ui/management/ActivityTimeline.kt')
+          text=timeline.read_text()
+          edits=[
+              ('Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=', 'Text(entry.summary,modifier=Modifier.testTag("activity-summary-${entry.id}"),style=MaterialTheme.typography.bodySmall,color='),
+              ('Text(entry.description,style=MaterialTheme.typography.bodySmall,color=', 'Text(entry.description,modifier=Modifier.testTag("activity-description-${entry.id}"),style=MaterialTheme.typography.bodySmall,color='),
+              (',Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=', ',Modifier.weight(1f).testTag("activity-actor-${entry.id}"),style=MaterialTheme.typography.labelSmall,color='),
+              ('Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp),', 'Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp).testTag("activity-status-${entry.id}"),'),
+              ('"Título: ${j.str("title").take(160)}"', 'managementText("Título: ${j.str("title").take(160)}","Title: ${j.str("title").take(160)}")')
+          ]
+          for old,new in edits:
+              assert text.count(old)==1,old
+              text=text.replace(old,new,1)
+          timeline.write_text(text)
+          contrast=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/theme/DarkContrastUiTest.kt')
+          assert subprocess.check_output(['git','hash-object',str(contrast)],text=True).strip()=='5b87c7a0981ffd6d9359f4dd75613cb8c29f8db4', 'Contrast tests changed'
+          text=contrast.read_text()
+          edits=[
+              ('private fun textColor(text:String):Color', 'private fun textColor(tag:String):Color'),
+              ('compose.onNodeWithText(text).performSemanticsAction', 'compose.onNodeWithTag(tag).performSemanticsAction'),
+              ('textColor("Por Operador")','textColor("activity-actor-contrast")'),
+              ('textColor("Enviada al servidor; visualización en el equipo no confirmada.")','textColor("activity-summary-contrast")'),
+              ('textColor("Título: Prueba")','textColor("activity-description-contrast")'),
+              ('textColor("Solicitud enviada")','textColor("activity-status-contrast")'),
+              ('var expected=Color.Unspecified;var state=Color.Unspecified','var expected=Color.Unspecified;var state=Color.Unspecified;var spanish=false'),
+              ('            expected=if(dark)','            spanish=androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es"\n            expected=if(dark)')
+          ]
+          for old,new in edits:
+              assert text.count(old)==1,old
+              text=text.replace(old,new,1)
+          anchor='        assertEquals(state,textColor("activity-status-contrast"))'
+          extra='''
+                  compose.onNodeWithTag("activity-actor-contrast").assertTextEquals(if(spanish) "Por Operador" else "By Operador")
+                  compose.onNodeWithTag("activity-summary-contrast").assertTextEquals(if(spanish) "Enviada al servidor; visualización en el equipo no confirmada." else "Sent to the server; display on the device is not confirmed.")
+                  compose.onNodeWithTag("activity-description-contrast").assertTextEquals(if(spanish) "Título: Prueba" else "Title: Prueba")
+                  compose.onNodeWithTag("activity-status-contrast").assertTextEquals(if(spanish) "Solicitud enviada" else "Request sent")
+          '''
+          assert text.count(anchor)==1
+          text=text.replace(anchor,anchor+textwrap.dedent(extra),1)
+          assert text.count('@Test fun ')==5, 'All five contrast tests must remain'
+          contrast.write_text(text)
+          subprocess.run(['git','add','--',str(unit),str(timeline),str(contrast)],check=True)
           manifest=Path('validation/changed-files.json')
           changed=json.loads(manifest.read_text())
-          assert str(unit) not in changed
-          changed.append(str(unit))
+          for p in [unit,contrast]:
+              assert str(p) not in changed
+              changed.append(str(p))
+          assert str(timeline) in changed
           manifest.write_text(json.dumps(changed))
           subprocess.run(['git','diff','--cached','--check'],check=True)
           Path('validation/translations.diff').write_text(subprocess.check_output(['git','diff','--cached'],text=True))
@@ -109,6 +151,7 @@ jobs:
               assert not any(c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None for c in cases),root
               if 'androidTest' in root:
                   assert {c.get('name') for c in cases if c.get('classname','').endswith('.ActivityTranslationUiTest')}=={'englishLight','englishDark','spanishLight','spanishDark'}
+                  assert len([c for c in cases if c.get('classname','').endswith('.DarkContrastUiTest')])==5
               else:
                   recognition=[c for c in cases if c.get('classname','').endswith('.ActivityRecognitionTest')]
                   assert len(recognition)==16, 'Expected eight recognition tests in each language'
