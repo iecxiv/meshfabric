@@ -35,12 +35,12 @@ jobs:
           command -v sdkmanager
           sdkmanager --version
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
-      - name: Apply unchanged translation preparation with repair-base guard
+      - name: Apply translation preparation and bilingual recognition tests
         shell: python
         run: |
           from pathlib import Path
-          import subprocess, textwrap
-          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='8d1a891ff966128ea99f85ba730aaa139d1ab8ec', 'Repair base changed; review required'
+          import json, subprocess, textwrap
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='918bd2c16942a82bcb7b2df342f8f0eac54fd61a', 'Repair base changed; review required'
           path=Path('.github/workflows/publish-activity-translations.yml')
           assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()=='041819b33d22f6f97fc1ce20699d5030c3a4afc2', 'Original translation preparation changed'
           source=path.read_text()
@@ -52,6 +52,40 @@ jobs:
           assert len(guards)==1, 'Expected exactly one original preparation-base guard'
           code=code.replace(guards[0],'',1)
           exec(compile(code,'approved-translation-preparation','exec'),{'__name__':'__main__'})
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/ActivityRecognitionTest.kt')
+          assert subprocess.check_output(['git','hash-object',str(unit)],text=True).strip()=='0c45c5f86fbc2b80252b8f32a8e070f41a47353b', 'Recognition unit tests changed'
+          text=unit.read_text()
+          header='class ActivityRecognitionTest {'
+          replacement='''@org.junit.runner.RunWith(org.junit.runners.Parameterized::class)
+          class ActivityRecognitionTest(private val language:String) {
+              companion object {
+                  @JvmStatic
+                  @org.junit.runners.Parameterized.Parameters(name="{0}")
+                  fun languages():Collection<Array<String>> = listOf(arrayOf("es"),arrayOf("en"))
+              }
+              private lateinit var previousLocale:java.util.Locale
+              @org.junit.Before fun selectLanguage() {
+                  previousLocale=java.util.Locale.getDefault()
+                  java.util.Locale.setDefault(java.util.Locale.forLanguageTag(language))
+              }
+              @org.junit.After fun restoreLanguage() { java.util.Locale.setDefault(previousLocale) }
+          '''
+          assert text.count(header)==1
+          text=text.replace(header,textwrap.dedent(replacement),1)
+          for es,en in {'Equipo no identificado':'Unidentified device','Comando remoto':'Remote command','Evento del servidor':'Server event','Servidor':'Server'}.items():
+              old=json.dumps(es,ensure_ascii=False)
+              assert old in text,es
+              text=text.replace(old,'(if(language=="es") '+old+' else '+json.dumps(en,ensure_ascii=False)+')')
+          assert text.count('@Test fun ')==8, 'All eight original tests must remain'
+          unit.write_text(text)
+          subprocess.run(['git','add','--',str(unit)],check=True)
+          manifest=Path('validation/changed-files.json')
+          changed=json.loads(manifest.read_text())
+          assert str(unit) not in changed
+          changed.append(str(unit))
+          manifest.write_text(json.dumps(changed))
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          Path('validation/translations.diff').write_text(subprocess.check_output(['git','diff','--cached'],text=True))
       - name: Build, all unit tests, instrumented compilation and lint
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
       - name: Enable KVM
@@ -75,6 +109,11 @@ jobs:
               assert not any(c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None for c in cases),root
               if 'androidTest' in root:
                   assert {c.get('name') for c in cases if c.get('classname','').endswith('.ActivityTranslationUiTest')}=={'englishLight','englishDark','spanishLight','spanishDark'}
+              else:
+                  recognition=[c for c in cases if c.get('classname','').endswith('.ActivityRecognitionTest')]
+                  assert len(recognition)==16, 'Expected eight recognition tests in each language'
+                  for language in ['es','en']:
+                      assert sum(c.get('name','').endswith('['+language+']') for c in recognition)==8, language
       - name: Summarize test failures without requiring full logs
         if: always()
         shell: python
