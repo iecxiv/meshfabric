@@ -1,0 +1,284 @@
+name: Validate and publish activity translations
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/publish-activity-translations.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: activity-translations-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare localized source and translation inventory
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, subprocess, re, xml.etree.ElementTree as ET
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='b2f7cac3afa479888bc3d8423b090b15e2bea30a', 'Preparation base changed; review required'
+          pairs='''Equipo no identificado|Unidentified device
+          Servidor|Server
+          Origen no identificado|Unidentified source
+          Título: ${j.str("title").take(160)}|Title: ${j.str("title").take(160)}
+          Comando remoto; su salida se consulta en la ventana de resultado.|Remote command; view its output in the result window.
+          URL enviada (parámetros ocultos)|URL sent (parameters hidden)
+          No se pudo enviar la solicitud.|The request could not be sent.
+          Enviada al servidor; visualización en el equipo no confirmada.|Sent to the server; display on the device is not confirmed.
+          Enviada al servidor; ejecución en el equipo sin confirmar.|Sent to the server; execution on the device is not confirmed.
+          Solicitud rechazada|Request rejected
+          Salida recibida del agente.|Output received from the agent.
+          Aceptada por el servidor; ejecución todavía sin confirmar.|Accepted by the server; execution is still not confirmed.
+          Respuesta recibida, resultado no interpretado: ${result.take(300)}|Response received, result not interpreted: ${result.take(300)}
+          Mensaje sin operación vinculada|Message without a linked operation
+          No hay confirmación de ejecución. Comprueba el equipo antes de repetir la acción.|Execution is not confirmed. Check the device before repeating the action.
+          Conexión interrumpida; resultado desconocido. No se repetirá la solicitud.|Connection interrupted; result unknown. The request will not be repeated.
+          Solicitud enviada|Request sent
+          Aceptada|Accepted
+          Salida recibida|Output received
+          Confirmada|Confirmed
+          Rechazada / error|Rejected / error
+          Sin confirmación|Unconfirmed
+          Evento|Event
+          Todos los dispositivos|All devices
+          Todos|All
+          Mis acciones|My actions
+          Errores|Errors
+          No hay actividad que coincida con los filtros.|No activity matches the filters.
+          Recibido |Received 
+          Por ${entry.actor}|By ${entry.actor}
+          Ver salida|View output
+          Ocultar|Hide
+          Detalles|Details
+          ID del equipo: ${entry.nodeId}|Device ID: ${entry.nodeId}
+          Petición: ${entry.requestId}|Request: ${entry.requestId}
+          Tipo técnico: ${entry.action}|Technical type: ${entry.action}
+          Última actualización: ${DateFormat.getDateTimeInstance().format(Date(entry.updated))}|Last updated: ${DateFormat.getDateTimeInstance().format(Date(entry.updated))}
+          La salida ya no se conserva en esta sesión.|The output is no longer retained in this session.
+          Equipo conectado|Device connected
+          Equipo desconectado|Device disconnected
+          Equipo movido de grupo|Device moved to another group
+          Grupo actualizado|Group updated
+          Grupo creado|Group created
+          Grupo eliminado|Group deleted
+          Cuenta actualizada|Account updated
+          Cuenta creada|Account created
+          Cuenta eliminada|Account deleted
+          Registro del agente|Agent log
+          Registro de conexión remota|Remote connection log
+          Evento manual|Manual event
+          Comando remoto|Remote command
+          Carga de archivos|File upload
+          Datos del equipo actualizados|Device information updated
+          Equipo eliminado|Device deleted
+          Evento del servidor|Server event
+          El servidor no incluyó una descripción adicional.|The server did not include an additional description.
+          Esperando respuesta del agente…|Waiting for the agent to respond…
+          Salida recibida (limitada a 64000 caracteres)|Output received (limited to 64000 characters)
+          El agente devolvió una salida vacía|The agent returned empty output
+          Salida recibida del agente|Output received from the agent
+          Solicitud aceptada; esperando la salida…|Request accepted; waiting for output…
+          Texto enviado; esperando verificación…|Text sent; waiting for verification…
+          El agente aceptó la petición; falta verificar el contenido.|The agent accepted the request; the content still needs verification.
+          El agente ha rechazado la actualización del portapapeles.|The agent rejected the clipboard update.
+          El agente devuelve el texto enviado. Esto no garantiza que otra sesión gráfica comparta ese portapapeles.|The agent returned the text that was sent. This does not guarantee that another graphical session shares that clipboard.
+          El agente devuelve un contenido diferente; verificando…|The agent returned different content; verifying…
+          El agente sigue devolviendo un contenido diferente. No se confirma la actualización del portapapeles.|The agent is still returning different content. The clipboard update is not confirmed.
+          El agente aceptó el envío, pero no se pudo verificar la lectura del portapapeles.|The agent accepted the text, but the clipboard readback could not be verified.
+          No se ha recibido confirmación. Revisa permisos ClipboardSet/ClipboardGet y la sesión gráfica del equipo remoto.|No confirmation received. Check ClipboardSet/ClipboardGet permissions and the remote graphical session.
+          No se pudo enviar el comando.|The command could not be sent.
+          Sin salida confirmada tras 60 segundos. El comando puede seguir ejecutándose; no se ha reenviado.|No confirmed output after 60 seconds. The command may still be running; it has not been resent.
+          Agente (canal de control)|Agent (control channel)
+          Escritorio nativo ya conectado|Already connected native desktop
+          No se pudo enviar el texto.|The text could not be sent.
+          Conexión interrumpida. Resultado desconocido; no se repetirá el comando.|Connection interrupted. Result unknown; the command will not be repeated.
+          Conexión interrumpida. No se ha confirmado la actualización del portapapeles.|Connection interrupted. The clipboard update is not confirmed.
+          Copiar salida|Copy output
+          Salida remota|Remote output
+          Cerrar|Close
+          Salida|Output
+          Salida copiada|Output copied
+          Cerrar esta ventana no detiene el comando remoto. Salida recibida no implica que el proceso haya terminado correctamente.|Closing this window does not stop the remote command. Receiving output does not imply that the process completed successfully.
+          Canal: ${clipboard.transport}|Channel: ${clipboard.transport}
+          No se abre un escritorio ni se simula Ctrl+V. La disponibilidad depende también de las políticas del servidor y de la sesión gráfica remota.|No desktop is opened and Ctrl+V is not simulated. Availability also depends on server policies and the remote graphical session.
+          Ejecutar comando|Run command
+          Notificación remota|Remote notification
+          Notificación remota · ${node.name}|Remote notification · ${node.name}
+          Abrir URL remota|Open remote URL
+          Despertar (WoL)|Wake up (WoL)
+          Reiniciar|Restart
+          Apagar|Shut down
+          Suspender|Sleep
+          Leer notas|Read notes
+          Guardar notas|Save notes
+          Título|Title
+          Mensaje|Message
+          Comando / script|Command / script
+          Intérprete|Interpreter
+          Enviar|Send
+          Confirmar envío|Confirm send
+          Revisar|Review
+          Ver actividad|View activity
+          Sin conexión de acciones|Action channel disconnected
+          Conectando acciones…|Connecting action channel…
+          Acciones conectadas|Action channel connected
+          Acciones desconectadas; las sesiones remotas no se han cerrado|Action channel disconnected; remote sessions have not been closed
+          Acciones de ${node.name}|Actions for ${node.name}'''
+          translations=dict(line.split('|',1) for line in pairs.splitlines())
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          names=['ActivityTimeline.kt','ActivityEventPresentation.kt','ActionFeedbackModels.kt','RemoteActionFeedback.kt','ActionFeedbackDialogs.kt','MeshFabricHome.kt']
+          changed=[]; replacements={}
+          for name in names:
+              p=root/name; s=p.read_text(); count=0
+              for es,en in translations.items():
+                  old=json.dumps(es,ensure_ascii=False)
+                  new='managementText('+old+','+json.dumps(en,ensure_ascii=False)+')'
+                  count+=s.count(old); s=s.replace(old,new)
+              if name=='ActivityTimeline.kt':
+                  s=s.replace('"forbidden","rechazad"','"forbidden","rejected","rechazad"')
+                  marker='    val records by journal.entries.collectAsState()'
+                  assert marker in s
+                  s=s.replace(marker,'    val language=androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language\n    fun managementText(es:String,en:String)=iecxiv.meshfabric.ui.management.managementText(es,en,language)\n'+marker,1)
+              assert count>0,name
+              p.write_text(s); changed.append(str(p)); replacements[name]=count
+          helper=root/'ManagementText.kt'
+          assert not helper.exists()
+          helper.write_text('''package iecxiv.meshfabric.ui.management
+          internal fun managementLanguage():String = runCatching {
+              iecxiv.meshfabric.MeshFabricApp.instance.resources.configuration.locales[0].language
+          }.getOrElse { java.util.Locale.getDefault().language }
+          internal fun managementText(spanish:String,english:String,language:String=managementLanguage()):String =
+              if(language.equals("es",ignoreCase=true)) spanish else english
+          ''')
+          changed.append(str(helper))
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ActivityRecognitionUiTest.kt')
+          s=test.read_text()
+          for es,en in translations.items():
+              old=json.dumps(es,ensure_ascii=False)
+              s=s.replace(old,'managementText('+old+','+json.dumps(en,ensure_ascii=False)+')')
+          test.write_text(s); changed.append(str(test))
+          ui=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/ActivityTranslationUiTest.kt')
+          assert not ui.exists()
+          ui.write_text('''package iecxiv.meshfabric.ui.management
+          import android.content.res.Configuration
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.CompositionLocalProvider
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import kotlinx.coroutines.*
+          import org.junit.After
+          import org.junit.Rule
+          import org.junit.Test
+          class ActivityTranslationUiTest {
+              @get:Rule val compose=createComposeRule()
+              private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main)
+              @After fun close() { scope.cancel() }
+              private fun check(language:String,dark:Boolean) {
+                  val journal=ActivityJournal({""},{""})
+                  val feedback=RemoteActionFeedback(scope,{false},{_,_->null})
+                  compose.setContent {
+                      val configuration=Configuration(LocalConfiguration.current).apply { setLocale(java.util.Locale.forLanguageTag(language)) }
+                      CompositionLocalProvider(LocalConfiguration provides configuration) {
+                          MaterialTheme(colorScheme=if(dark) darkColorScheme() else lightColorScheme()) {
+                              ActivityTimeline(journal,feedback,Modifier.fillMaxSize())
+                          }
+                      }
+                  }
+                  val es=language=="es"
+                  compose.onNodeWithText(if(es) "Mis acciones" else "My actions").assertIsDisplayed()
+                  compose.onNodeWithText(if(es) "Todos los dispositivos" else "All devices").assertIsDisplayed()
+                  compose.onNodeWithText(if(es) "No hay actividad que coincida con los filtros." else "No activity matches the filters.").assertIsDisplayed()
+                  compose.onNodeWithText(if(es) "My actions" else "Mis acciones").assertDoesNotExist()
+              }
+              @Test fun englishLight()=check("en",false)
+              @Test fun englishDark()=check("en",true)
+              @Test fun spanishLight()=check("es",false)
+              @Test fun spanishDark()=check("es",true)
+          }
+          ''')
+          changed.append(str(ui))
+          report={'replacements':replacements,'resource_parity':{},'review_candidates':[],'note':'Candidates are heuristic, not confirmed untranslated UI. Remote content is not translated.'}
+          res=Path('app/src/main/res')
+          def keys(folder):
+              return {e.get('name') for p in folder.glob('*.xml') for e in ET.parse(p).getroot() if e.get('name') and e.get('translatable')!='false' and e.tag in ('string','plurals','string-array')}
+          base=keys(res/'values'); spanish=keys(res/'values-es')
+          report['resource_parity']={'missing_spanish':sorted(base-spanish),'spanish_only':sorted(spanish-base)}
+          for p in Path('app/src/main/java').rglob('*.kt'):
+              for number,line in enumerate(p.read_text().splitlines(),1):
+                  if re.search('[áéíóúñ¿¡]',line) and '"' in line and 'managementText(' not in line:
+                      report['review_candidates'].append({'path':str(p),'line':number,'source':line.strip()})
+          Path('validation').mkdir(exist_ok=True)
+          Path('validation/translation-audit.json').write_text(json.dumps(report,ensure_ascii=False,indent=2))
+          Path('validation/changed-files.json').write_text(json.dumps(changed))
+          subprocess.run(['git','add','--',*changed],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          Path('validation/translations.diff').write_text(subprocess.check_output(['git','diff','--cached'],text=True))
+      - name: Install SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Build, all unit tests, instrumented compilation and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete evidence
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None for c in cases),root
+              if 'androidTest' in root:
+                  assert {c.get('name') for c in cases if c.get('classname','').endswith('.ActivityTranslationUiTest')}=={'englishLight','englishDark','spanishLight','spanishDark'}
+          PY
+      - name: Upload reports and translation inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-translations-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only validated changes to unchanged dev
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          import json,subprocess
+          expected=set(json.load(open('validation/changed-files.json')))
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(i18n): localize activity and related action feedback in English and Spanish'
+          git push origin HEAD:dev

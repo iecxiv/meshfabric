@@ -24,7 +24,7 @@ class ActivityRecognitionUiTest {
     @Test fun connectionGetsSpecificTitleAndIcon() {
         val journal=ActivityJournal({""},{""})
         journal.event(JSONObject().put("action","nodeconnect").put("nodename","Equipo"))
-        show(journal);compose.onNodeWithText("Equipo conectado").assertExists();compose.onNodeWithTag("activity-icon-connection").assertExists()
+        show(journal);compose.onNodeWithText(managementText("Equipo conectado","Device connected")).assertExists();compose.onNodeWithTag("activity-icon-connection").assertExists()
     }
     @Test fun numericMessageRemainsVisible() {
         val journal=ActivityJournal({""},{""})
@@ -35,13 +35,13 @@ class ActivityRecognitionUiTest {
         val journal=ActivityJournal({""},{""})
         journal.event(JSONObject().put("action","changenode").put("nodeid","node//a").put("node",JSONObject().put("_id","node//b").put("name","Incorrecto")))
         assertEquals("",journal.entries.value.single().deviceName)
-        show(journal);compose.onNodeWithText("Equipo no identificado").assertExists();compose.onNodeWithText("Incorrecto").assertDoesNotExist()
+        show(journal);compose.onNodeWithText(managementText("Equipo no identificado","Unidentified device")).assertExists();compose.onNodeWithText("Incorrecto").assertDoesNotExist()
     }
     @Test fun inventoryRefreshResolvesEarlierUnknownRow() {
         var inventory=ServerEventInventory()
         val journal=ActivityJournal({""},{""},{inventory})
         journal.event(JSONObject().put("action","changenode").put("nodeid","node//a"))
-        show(journal);compose.onNodeWithText("Equipo no identificado").assertExists()
+        show(journal);compose.onNodeWithText(managementText("Equipo no identificado","Unidentified device")).assertExists()
         compose.runOnIdle {
             inventory=serverEventInventory(listOf(MeshGroup(id="mesh//g",name="Grupo") to listOf(MeshNode(id="node//a",name="Equipo",meshid="mesh//g"))))
             journal.rememberDevices(mapOf("node//a" to "Equipo"))
@@ -51,14 +51,14 @@ class ActivityRecognitionUiTest {
     }
     @Test fun commandIconDoesNotConfirmExecution() {
         val journal=ActivityJournal({"Equipo"},{"Operador"})
-        journal.sent("Ejecutar comando",JSONObject().put("action","runcommands").put("nodeid","node//a").put("responseid","r"),true)
-        show(journal);compose.onNodeWithTag("activity-icon-runcommands").assertExists();compose.onNodeWithText("Solicitud enviada").assertExists()
+        journal.sent(managementText("Ejecutar comando","Run command"),JSONObject().put("action","runcommands").put("nodeid","node//a").put("responseid","r"),true)
+        show(journal);compose.onNodeWithTag("activity-icon-runcommands").assertExists();compose.onNodeWithText(managementText("Solicitud enviada","Request sent")).assertExists()
         assertEquals(ActivityStatus.SENT,journal.entries.value.single().status)
     }
     @Test fun unknownActionKeepsGenericPresentation() {
         val journal=ActivityJournal({""},{""})
         journal.event(JSONObject().put("action","future-action").put("msg",JSONObject().put("x",1)))
-        show(journal);compose.onNodeWithText("Evento del servidor").assertExists();compose.onNodeWithTag("activity-icon-unknown").assertExists()
-        compose.onNodeWithText("El servidor no incluyó una descripción adicional.").assertExists()
+        show(journal);compose.onNodeWithText(managementText("Evento del servidor","Server event")).assertExists();compose.onNodeWithTag("activity-icon-unknown").assertExists()
+        compose.onNodeWithText(managementText("El servidor no incluyó una descripción adicional.","The server did not include an additional description.")).assertExists()
     }
 }

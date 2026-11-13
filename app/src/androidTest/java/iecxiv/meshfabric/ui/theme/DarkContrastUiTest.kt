@@ -19,9 +19,9 @@ class DarkContrastUiTest {
     @get:Rule val compose=createComposeRule()
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main)
     @After fun closeScope() {scope.cancel()}
-    private fun textColor(text:String):Color {
+    private fun textColor(tag:String):Color {
         val layouts=mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText(text).performSemanticsAction(SemanticsActions.GetTextLayoutResult) {it(layouts)}
+        compose.onNodeWithTag(tag).performSemanticsAction(SemanticsActions.GetTextLayoutResult) {it(layouts)}
         assertTrue(layouts.isNotEmpty())
         return layouts.first().layoutInput.style.color
     }
@@ -29,17 +29,23 @@ class DarkContrastUiTest {
         val journal=ActivityJournal({"Equipo"},{"Operador"})
         journal.sent("Notificación",JSONObject().put("action","toast").put("title","Prueba").put("nodeid","node/test").put("responseid","contrast"),true)
         val feedback=RemoteActionFeedback(scope,{false},{_,_->null})
-        var expected=Color.Unspecified;var state=Color.Unspecified
+        var expected=Color.Unspecified;var state=Color.Unspecified;var spanish=false
         compose.setContent {MeshCentralTheme(if(dark) AppThemeMode.DARK else AppThemeMode.LIGHT) {
+            spanish=androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es"
             expected=if(dark) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
             state=MaterialTheme.colorScheme.onSurfaceVariant
             ActivityTimeline(journal,feedback,Modifier.fillMaxSize())
         }}
         compose.waitForIdle()
-        assertEquals(expected,textColor("Por Operador"))
-        assertEquals(expected,textColor("Enviada al servidor; visualización en el equipo no confirmada."))
-        assertEquals(expected,textColor("Título: Prueba"))
-        assertEquals(state,textColor("Solicitud enviada"))
+        assertEquals(expected,textColor("activity-actor-contrast"))
+        assertEquals(expected,textColor("activity-summary-contrast"))
+        assertEquals(expected,textColor("activity-description-contrast"))
+        assertEquals(state,textColor("activity-status-contrast"))
+compose.onNodeWithTag("activity-actor-contrast").assertTextEquals(if(spanish) "Por Operador" else "By Operador")
+compose.onNodeWithTag("activity-summary-contrast").assertTextEquals(if(spanish) "Enviada al servidor; visualización en el equipo no confirmada." else "Sent to the server; display on the device is not confirmed.")
+compose.onNodeWithTag("activity-description-contrast").assertTextEquals(if(spanish) "Título: Prueba" else "Title: Prueba")
+compose.onNodeWithTag("activity-status-contrast").assertTextEquals(if(spanish) "Solicitud enviada" else "Request sent")
+
     }
     @Test fun darkActivityUsesEventText()=activity(true)
     @Test fun lightActivityKeepsOriginalText()=activity(false)
