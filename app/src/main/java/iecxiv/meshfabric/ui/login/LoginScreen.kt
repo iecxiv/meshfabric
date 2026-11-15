@@ -275,6 +275,9 @@ CardDefaults.cardColors(
                 }
             }
 
+            FidoLoginPanel(viewModel)
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Submit Button
             Button(
                 onClick = { viewModel.login() },

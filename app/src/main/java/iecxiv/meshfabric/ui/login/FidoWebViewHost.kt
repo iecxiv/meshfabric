@@ -37,6 +37,7 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
     enum class Failure { NAVIGATION,TLS,HTTP }
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
     private var browser:WebView?=null
+    private var assertionOnly=false
     private var registrationBridge:FidoRegistrationWebBridge?=null
     private var closed=false
     private var failed=false
@@ -44,6 +45,11 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
         mainThread()
         check(activity.lifecycle.currentState!=Lifecycle.State.DESTROYED)
         activity.lifecycle.addObserver(this)
+    }
+    fun createAssertion(server:String,options:com.google.gson.JsonObject,onCredential:(com.google.gson.JsonObject)->Unit,onFailure:(Failure)->Unit):WebView {
+        mainThread(); check(!closed && browser==null)
+        assertionOnly=true
+        return create(server,false,options,onCredential,onFailure)
     }
     private fun mainThread()=check(Looper.myLooper()==Looper.getMainLooper())
     @SuppressLint("SetJavaScriptEnabled")
@@ -74,18 +80,19 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
             val deliver=requireNotNull(onCredential)
             registrationBridge=FidoRegistrationWebBridge(view,policy,registrationOptions,
                 onCredential={ if(!closed && !failed) deliver(it) },
-                onFailure={ block(Failure.HTTP) })
+                onFailure={ block(Failure.HTTP) },assertion=assertionOnly)
         }
         val guardedClient=object:FidoClient {
             private fun allowed(origin:Origin)=!closed && !failed && policy.allowsMessage(origin.callingApp,true) && policy.allowsOrigin(origin.resolved) && policy.allowsNavigation(view.url.orEmpty())
             override suspend fun makeCredential(origin:Origin,request:String,clientDataHash:String?,callerLabel:String?):Result<String> {
+                if(assertionOnly) return Result.failure(SecurityException("Registration not allowed during login"))
                 if(!allowed(origin) || clientDataHash!=null) return Result.failure(SecurityException("FIDO origin not authorized"))
                 val result=client.makeCredential(origin,request,null,callerLabel)
                 return if(allowed(origin)) result else Result.failure(SecurityException("FIDO ceremony no longer authorized"))
             }
             override suspend fun getAssertion(origin:Origin,request:String,clientDataHash:String?,callerLabel:String?):Result<String> {
                 if(!allowed(origin) || clientDataHash!=null) return Result.failure(SecurityException("FIDO origin not authorized"))
-                if(registrationBridge!=null) return Result.failure(SecurityException("Assertion not allowed during registration"))
+                if(registrationBridge!=null && !assertionOnly) return Result.failure(SecurityException("Assertion not allowed during registration"))
                 val result=client.getAssertion(origin,request,null,callerLabel)
                 return if(allowed(origin)) result else Result.failure(SecurityException("FIDO ceremony no longer authorized"))
             }

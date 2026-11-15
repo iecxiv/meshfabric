@@ -36,7 +36,7 @@ internal class FidoRegistrationPage(
         terminal = true
         return delivery
     }
-    fun begin(): String? {
+    fun begin(assertion:Boolean=false): String? {
         if (started || terminal) return null
         started = true
         val optionsLiteral = JsonPrimitive(optionsJson).toString()
@@ -47,6 +47,7 @@ internal class FidoRegistrationPage(
               const bridge = window.meshFabricFidoRegistration;
               if (!bridge || typeof bridge.postMessage !== 'function') return;
               const ceremonyId = $idLiteral;
+              const assertionMode = $assertion;
               const decode = value => {
                 if (typeof value !== 'string' || !value.length) throw new Error('Invalid binary field');
                 const raw = value.replace(/-/g, '+').replace(/_/g, '/');
@@ -64,16 +65,25 @@ internal class FidoRegistrationPage(
                 try {
                   const publicKey = JSON.parse($optionsLiteral);
                   publicKey.challenge = decode(publicKey.challenge);
-                  publicKey.user.id = decode(publicKey.user.id);
+                  if (!assertionMode) publicKey.user.id = decode(publicKey.user.id);
+                  if (assertionMode) {
+                    if (!Array.isArray(publicKey.allowCredentials)) throw new Error('Invalid credentials');
+                    publicKey.allowCredentials = publicKey.allowCredentials.map(item => ({...item, id: decode(item.id)}));
+                  }
                   if (publicKey.excludeCredentials !== undefined) {
                     if (!Array.isArray(publicKey.excludeCredentials)) throw new Error('Invalid exclusions');
                     publicKey.excludeCredentials = publicKey.excludeCredentials.map(item => ({...item, id: decode(item.id)}));
                   }
-                  const c = await navigator.credentials.create({publicKey});
+                  const c = assertionMode ? await navigator.credentials.get({publicKey}) : await navigator.credentials.create({publicKey});
                   if (!c || c.type !== 'public-key') throw new Error('No credential');
                   deliver({credential: {
                     id: c.id, rawId: encode(c.rawId), type: c.type,
-                    response: {
+                    response: assertionMode ? {
+                      clientDataJSON: encode(c.response.clientDataJSON),
+                      authenticatorData: encode(c.response.authenticatorData),
+                      signature: encode(c.response.signature),
+                      userHandle: c.response.userHandle == null ? null : encode(c.response.userHandle)
+                    } : {
                       clientDataJSON: encode(c.response.clientDataJSON),
                       attestationObject: encode(c.response.attestationObject)
                     }

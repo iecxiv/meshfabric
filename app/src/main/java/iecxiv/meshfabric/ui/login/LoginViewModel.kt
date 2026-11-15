@@ -24,6 +24,10 @@ class LoginViewModel(
     var ignoreSsl = MutableStateFlow(false)
     var rememberMe = MutableStateFlow(true)
 
+    internal val fidoLogin=FidoLoginFlow(viewModelScope,{ FidoLoginFlow.Config(serverUrl.value,username.value,ignoreSsl.value) })
+    internal fun startFidoLogin() { if(!isLoading.value) fidoLogin.start(password.value) }
+    override fun onCleared() { fidoLogin.close(); super.onCleared() }
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -59,6 +63,7 @@ class LoginViewModel(
     }
 
     fun login() {
+        fidoLogin.cancel()
         val url = serverUrl.value.trim()
         val user = username.value.trim()
         val pass = password.value
@@ -127,6 +132,7 @@ class LoginViewModel(
     }
 
     fun logout() {
+        fidoLogin.cancel()
         sessionManager.clearSession()
         meshClient.disconnect()
         _loginSuccess.value = false

@@ -12,7 +12,8 @@ internal class FidoRegistrationWebBridge(
     private val policy: FidoWebOriginPolicy,
     options: JsonObject,
     private val onCredential: (JsonObject) -> Unit,
-    private val onFailure: () -> Unit
+    private val onFailure: () -> Unit,
+    private val assertion:Boolean=false
 ) {
     private val page = FidoRegistrationPage(policy, options, UUID.randomUUID().toString())
     private var closed = false
@@ -40,7 +41,7 @@ internal class FidoRegistrationWebBridge(
         if (!policy.allowsNavigation(url) || !policy.allowsNavigation(view.url.orEmpty())) {
             close(); onFailure(); return
         }
-        page.begin()?.let { view.evaluateJavascript(it, null) }
+        page.begin(assertion)?.let { view.evaluateJavascript(it, null) }
     }
     fun close() {
         if (closed) return
