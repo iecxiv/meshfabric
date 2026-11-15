@@ -1,0 +1,111 @@
+name: Validate FIDO hardware test APK
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/workflows/validate-fido-hardware-apk.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-hardware-apk
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 301c898c231148be7a420b0a500d145290469b47
+          persist-credentials: false
+      - name: Verify exact source commit
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = '301c898c231148be7a420b0a500d145290469b47'
+          mkdir -p validation
+          git rev-parse HEAD > validation/source-commit.txt
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve(); tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve(); candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Clean build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete evidence and prepare APK digest
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib,json,subprocess
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              checks=[('FidoLoginVerificationTest',12),('FidoLoginCompletionTest',6),('FidoSessionVerifierTest',16),('FidoLoginFlowTest',6),('FidoLoginChallengePageTest',12),('FidoLoginHttpTransportTest',9),('FidoLoginExchangeTest',18),('FidoLoginContractTest',16),('FidoRegistrationContractTest',10),('FidoRegistrationSessionTest',10),('FidoWebOriginPolicyTest',10),('FidoRegistrationPageTest',14),('NativeAccountFidoStatusTest',6)] if root=='app/build/test-results' else [('FidoSessionStorageTest',2),('FidoLoginControlsTest',2),('FidoAssertionScriptTest',1),('FidoHostLifecycleTest',2),('ServerDialogTitleTypographyUiTest',14)]
+              for name,count in checks: assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==count,name
+              totals[root]=len(cases)
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()=='301c898c231148be7a420b0a500d145290469b47'
+          assert not subprocess.check_output(['git','status','--porcelain','--untracked-files=no'],text=True).strip()
+          apks=list(Path('app/build/outputs/apk/debug').glob('*.apk')); assert len(apks)==1
+          apk=apks[0]; assert apk.stat().st_size>0
+          out=Path('validation')
+          (out/'test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          (out/'apk-sha256.txt').write_text(hashlib.sha256(apk.read_bytes()).hexdigest()+'  '+apk.name+'\n')
+          (out/'VALIDATED.txt').write_text('Debug APK from source commit 301c898c231148be7a420b0a500d145290469b47 passed build, all unit tests, lint and complete instrumentation. Physical YubiKey login, USB/NFC device compatibility and multi-server compatibility are not established by this CI run. No release or version change.\n')
+      - name: Upload reports even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-hardware-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Upload validated APK only on success
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-fido-login-301c898-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            validation/apk-sha256.txt
+            validation/source-commit.txt
+            validation/VALIDATED.txt
+            validation/test-counts.json
+          if-no-files-found: error
+          retention-days: 14
