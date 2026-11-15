@@ -28,21 +28,20 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.io.ByteArrayInputStream
 
-/** Construct during Activity.onCreate, before onStart. Does not import or export cookies.
+/** Supply a client constructed during Activity.onCreate, before onStart.
+ * The host itself may be created later on the main thread. Does not import or export cookies.
  * The caller must display the returned WebView and bind ceremony results to its session.
  * This adapter is not yet an account-registration or login entry point.
  */
-internal class FidoWebViewHost(private val activity:ComponentActivity):DefaultLifecycleObserver {
+internal class FidoWebViewHost(private val activity:ComponentActivity, private val client:FidoClient):DefaultLifecycleObserver {
     enum class Failure { NAVIGATION,TLS,HTTP }
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
-    private val client:FidoClient
     private var browser:WebView?=null
     private var closed=false
     private var failed=false
     init {
         mainThread()
-        check(activity.lifecycle.currentState!=Lifecycle.State.DESTROYED && !activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-        client=FidoClient(activity)
+        check(activity.lifecycle.currentState!=Lifecycle.State.DESTROYED)
         activity.lifecycle.addObserver(this)
     }
     private fun mainThread()=check(Looper.myLooper()==Looper.getMainLooper())
