@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.security.crypto)
     implementation("net.lingala.zip4j:zip4j:2.11.6")
     implementation("com.yubico.yubikit:fido-android-ui:3.3.0")
+    implementation("androidx.webkit:webkit:1.14.0")
 
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)

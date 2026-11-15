@@ -37,6 +37,7 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
     enum class Failure { NAVIGATION,TLS,HTTP }
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.Main.immediate)
     private var browser:WebView?=null
+    private var registrationBridge:FidoRegistrationWebBridge?=null
     private var closed=false
     private var failed=false
     init {
@@ -46,7 +47,7 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
     }
     private fun mainThread()=check(Looper.myLooper()==Looper.getMainLooper())
     @SuppressLint("SetJavaScriptEnabled")
-    fun create(server:String,ignoreSsl:Boolean=false,onFailure:(Failure)->Unit):WebView {
+    fun create(server:String,ignoreSsl:Boolean=false,registrationOptions:com.google.gson.JsonObject?=null,onCredential:((com.google.gson.JsonObject)->Unit)?=null,onFailure:(Failure)->Unit):WebView {
         mainThread()
         check(!closed && browser==null)
         val policy=FidoWebOriginPolicy(server,ignoreSsl)
@@ -65,18 +66,28 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
         fun block(reason:Failure) {
             if(closed || failed) return
             failed=true
+            registrationBridge?.close()
             view.stopLoading()
             view.post { close(); onFailure(reason) }
+        }
+        if(registrationOptions!=null) {
+            val deliver=requireNotNull(onCredential)
+            registrationBridge=FidoRegistrationWebBridge(view,policy,registrationOptions,
+                onCredential={ if(!closed && !failed) deliver(it) },
+                onFailure={ block(Failure.HTTP) })
         }
         val guardedClient=object:FidoClient {
             private fun allowed(origin:Origin)=!closed && !failed && policy.allowsMessage(origin.callingApp,true) && policy.allowsOrigin(origin.resolved) && policy.allowsNavigation(view.url.orEmpty())
             override suspend fun makeCredential(origin:Origin,request:String,clientDataHash:String?,callerLabel:String?):Result<String> {
                 if(!allowed(origin) || clientDataHash!=null) return Result.failure(SecurityException("FIDO origin not authorized"))
-                return client.makeCredential(origin,request,null,callerLabel)
+                val result=client.makeCredential(origin,request,null,callerLabel)
+                return if(allowed(origin)) result else Result.failure(SecurityException("FIDO ceremony no longer authorized"))
             }
             override suspend fun getAssertion(origin:Origin,request:String,clientDataHash:String?,callerLabel:String?):Result<String> {
                 if(!allowed(origin) || clientDataHash!=null) return Result.failure(SecurityException("FIDO origin not authorized"))
-                return client.getAssertion(origin,request,null,callerLabel)
+                if(registrationBridge!=null) return Result.failure(SecurityException("Assertion not allowed during registration"))
+                val result=client.getAssertion(origin,request,null,callerLabel)
+                return if(allowed(origin)) result else Result.failure(SecurityException("FIDO ceremony no longer authorized"))
             }
         }
         val navigation=object:WebViewClient() {
@@ -86,7 +97,10 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
                 return true
             }
             override fun onPageStarted(view:WebView,url:String?,favicon:Bitmap?) {
-                if(!policy.allowsNavigation(url.orEmpty())) block(Failure.NAVIGATION)
+                if(registrationBridge?.hasStarted==true || !policy.allowsNavigation(url.orEmpty())) block(Failure.NAVIGATION)
+            }
+            override fun onPageFinished(view:WebView,url:String?) {
+                if(!closed && !failed) registrationBridge?.onPageFinished(url.orEmpty())
             }
             override fun shouldInterceptRequest(view:WebView,request:WebResourceRequest):WebResourceResponse? {
                 if(policy.allowsNavigation(request.url.toString())) return null
@@ -117,6 +131,8 @@ internal class FidoWebViewHost(private val activity:ComponentActivity, private v
         mainThread()
         if(closed) return
         closed=true
+        registrationBridge?.close()
+        registrationBridge=null
         scope.cancel()
         activity.lifecycle.removeObserver(this)
         browser?.apply { stopLoading(); clearHistory(); removeAllViews(); destroy() }
