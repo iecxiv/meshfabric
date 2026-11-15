@@ -22,6 +22,25 @@ jobs:
           ref: ${{ github.sha }}
       - name: Prepare browser candidate only inside runner
         run: python3 .github/fido/prepare-registration-browser.py
+      - name: Add explicit WebKit dependency to runner candidate and patch
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          path='app/build.gradle.kts'
+          assert subprocess.check_output(['git','hash-object',path],text=True).strip()=='d9156d7769e3d4e2717f34acc0a770a0b7e1d36f', 'Gradle changed; review required'
+          p=Path(path)
+          text=p.read_text()
+          anchor='    implementation("com.yubico.yubikit:fido-android-ui:3.3.0")'
+          assert text.count(anchor)==1 and 'androidx.webkit:webkit' not in text
+          p.write_text(text.replace(anchor,anchor+'\n    implementation("androidx.webkit:webkit:1.14.0")'))
+          subprocess.run(['git','add','--',path],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          expected={path,'app/src/main/java/iecxiv/meshfabric/ui/login/FidoWebViewHost.kt','app/src/main/java/iecxiv/meshfabric/ui/login/FidoRegistrationPage.kt','app/src/main/java/iecxiv/meshfabric/ui/login/FidoRegistrationWebBridge.kt','app/src/test/java/iecxiv/meshfabric/ui/login/FidoRegistrationPageTest.kt'}
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          Path('validation/browser-candidate.patch').write_text(subprocess.check_output(['git','diff','--cached','--binary'],text=True))
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
