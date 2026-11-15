@@ -1,0 +1,90 @@
+name: Audit FIDO registration and login contract
+on:
+  push:
+    branches: [fido-support]
+    paths: [.github/workflows/audit-fido-contract.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: fido-contract-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/fido-support'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Read upstream source without executing it
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          import base64, hashlib, io, json, os, tarfile, urllib.request
+          from pathlib import Path
+          def read(url, limit=100000000):
+              request=urllib.request.Request(url, headers={'User-Agent':'MeshFabric-FIDO-contract-audit'})
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  data=response.read(limit+1)
+              assert len(data)<=limit, 'Response size limit exceeded'
+              return data
+          metadata=json.loads(read('https://registry.npmjs.org/meshcentral/1.3.1',1000000))
+          assert metadata['name']=='meshcentral' and metadata['version']=='1.3.1'
+          url=metadata['dist']['tarball']
+          assert url=='https://registry.npmjs.org/meshcentral/-/meshcentral-1.3.1.tgz'
+          archive=read(url)
+          integrity=metadata['dist']['integrity']
+          assert integrity.startswith('sha512-')
+          assert base64.b64encode(hashlib.sha512(archive).digest()).decode()==integrity.split('-',1)[1]
+          paths=['meshuser.js','webserver.js','webauthn.js','views/default.handlebars','views/login.handlebars']
+          patterns=['webauthn-startregister','webauthn-endregister','otp-hkey-get','otp-hkey-remove','hwtoken','hardwareKeyChallenge','verifyAuthenticatorAssertionResponse','verifyAuthenticatorAttestationResponse']
+          report=['MeshCentral FIDO contract audit','Baseline: MeshCentral 1.3.1, matching the existing MFA contract audit.','This baseline is not a claim about the version deployed by any user.','Registry integrity: '+integrity,'Source only: no package code executed, no user server contacted.','Status: implementation and hardware validation remain pending.']
+          manifest={'version':metadata['version'],'integrity':integrity,'files':{}}
+          with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as package:
+              assert json.load(package.extractfile('package/package.json'))['version']=='1.3.1'
+              for path in paths:
+                  member=package.getmember('package/'+path)
+                  assert member.isfile() and member.size<10000000
+                  data=package.extractfile(member).read()
+                  manifest['files'][path]=hashlib.sha256(data).hexdigest()
+                  lines=data.decode('utf-8-sig').splitlines()
+                  ranges=[]
+                  for pattern in patterns:
+                      hits=[i for i,line in enumerate(lines) if pattern in line]
+                      report.append(path+' :: '+pattern+' :: '+str(len(hits))+' matches')
+                      for i in hits:
+                          ranges.append((max(0,i-35),min(len(lines),i+160)))
+                  merged=[]
+                  for start,end in sorted(ranges):
+                      if merged and start<=merged[-1][1]:
+                          merged[-1]=(merged[-1][0],max(merged[-1][1],end))
+                      else:
+                          merged.append((start,end))
+                  for start,end in merged:
+                      report.append('\n--- '+path+' lines '+str(start+1)+'-'+str(end)+' ---')
+                      report.extend(str(i+1)+': '+lines[i] for i in range(start,end))
+          out=Path('docs/fido'); out.mkdir(parents=True,exist_ok=True)
+          (out/'upstream-contract.txt').write_text('\n'.join(report)+'\n',encoding='utf-8')
+          (out/'upstream-integrity.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
+              summary.write('## FIDO contract audit\nSource inspected without execution. No app implementation or USB/NFC success is claimed.\n')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fido-contract-${{ github.run_id }}
+          path: docs/fido/
+          if-no-files-found: error
+      - name: Publish evidence only if branch has not advanced
+        run: |
+          set -euo pipefail
+          git fetch origin fido-support
+          test "$(git rev-parse origin/fido-support)" = "${{ github.sha }}"
+          git add -- docs/fido/upstream-contract.txt docs/fido/upstream-integrity.json
+          git diff --cached --check
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs(fido): record integrity-checked MeshCentral contract evidence'
+          git push origin HEAD:fido-support
