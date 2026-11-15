@@ -1,0 +1,11 @@
+{
+  "version": "1.3.1",
+  "integrity": "sha512-adf9wyq+78RK6HTRNlF0OO9sPs6dzDaYlScaHRqs2w8xefm/QmS/zdrwuV2UuWWiOqh1RWPxgGNVwF/qvjL0Xg==",
+  "files": {
+    "meshuser.js": "2683d9902631e4b0393a6391d4ae4ce0b6949dfeadd3384e5be7b9f09c36732b",
+    "webserver.js": "46afba73577aa380cdc3a2edefc7c2ac4c1c3a4c50f020aefb1a3ce0f4c6420c",
+    "webauthn.js": "d7d05d9ac9ca7a79691de38248d61b85b18135752274ecd7db01b7204389924a",
+    "views/default.handlebars": "9f1e0f7b80c18b1d243394849661eb502e5b1a6eaf7ca7ecfe82e2706ebf6247",
+    "views/login.handlebars": "ecf7172fa9fa61b289a4644ab6bb92204633f8cb88fc9638ce1f70a2ced542ce"
+  }
+}
