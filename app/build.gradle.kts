@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "iecxiv.meshfabric"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "iecxiv.meshfabric"

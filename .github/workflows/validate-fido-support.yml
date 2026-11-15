@@ -32,8 +32,16 @@ jobs:
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
-      - name: Install SDK
-        run: sdkmanager 'platforms;android-37' 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+      - name: Record available SDK packages and install stable SDK
+        run: |
+          set -euo pipefail
+          mkdir -p validation
+          sdkmanager --list > validation/sdk-packages.txt
+          sdkmanager 'platforms;android-36' 'platforms;android-35' 'build-tools;36.0.0' 'build-tools;35.0.0' 'platform-tools'
+      - name: Check dependency SDK requirements without bypasses
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:checkDebugAarMetadata --no-daemon --stacktrace 2>&1 | tee validation/aar-metadata-check.txt
       - name: Build, all unit tests, instrumented compilation and lint
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
       - name: Enable KVM
@@ -64,6 +72,7 @@ jobs:
         with:
           name: fido-validation-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            validation/
             app/build/reports/
             app/build/test-results/
             app/build/outputs/androidTest-results/
