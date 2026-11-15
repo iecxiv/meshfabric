@@ -33,7 +33,7 @@ jobs:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - name: Install SDK
-        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
+        run: sdkmanager 'platforms;android-37' 'platforms;android-35' 'build-tools;35.0.0' 'platform-tools'
       - name: Build, all unit tests, instrumented compilation and lint
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
       - name: Enable KVM
@@ -56,7 +56,8 @@ jobs:
               assert cases,root
               assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
               if root=='app/build/test-results':
-                  assert len([c for c in cases if c.get('classname','').endswith('.FidoRegistrationContractTest')])==10
+                  for name in ['FidoRegistrationContractTest','FidoRegistrationSessionTest','FidoWebOriginPolicyTest']:
+                      assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==10,name
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
