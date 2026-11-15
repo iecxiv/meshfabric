@@ -93,14 +93,31 @@ jobs:
                       def versions = [:].withDefault { new LinkedHashSet() }
                       snapshots.each { name, modules ->
                           modules.each { id, version -> versions[id].add(version) }
-                          def foundation = modules['androidx.compose.foundation:foundation-layout-android'] ?: modules['androidx.compose.foundation:foundation-layout']
-                          def material3 = modules['androidx.compose.material3:material3-android'] ?: modules['androidx.compose.material3:material3']
-                          assert foundation == '1.12.1' : name + ': unexpected Foundation Layout: ' + foundation
-                          assert material3 == '1.5.0-alpha25' : name + ': unexpected Material3: ' + material3
+                          if (name != 'debugAndroidTestRuntimeClasspath') {
+                              def foundation = modules['androidx.compose.foundation:foundation-layout-android'] ?: modules['androidx.compose.foundation:foundation-layout']
+                              def material3 = modules['androidx.compose.material3:material3-android'] ?: modules['androidx.compose.material3:material3']
+                              assert foundation == '1.12.1' : name + ': unexpected Foundation Layout: ' + foundation
+                              assert material3 == '1.5.0-alpha25' : name + ': unexpected Material3: ' + material3
+                          }
                       }
                       def divergent = versions.findAll { id, values -> values.size() > 1 }
                       assert divergent.isEmpty() : 'Compose compile/runtime divergence: ' + divergent
-                      println 'Compose versions agree across all six classpaths.'
+                      def appRuntime = snapshots['debugRuntimeClasspath']
+                      def testRuntime = snapshots['debugAndroidTestRuntimeClasspath']
+                      def effectiveRuntime = new TreeMap(appRuntime)
+                      testRuntime.each { id, version ->
+                          assert !appRuntime.containsKey(id) || appRuntime[id] == version : 'App/test runtime conflict: ' + id
+                          effectiveRuntime[id] = version
+                      }
+                      def suppliedByApp = new TreeMap()
+                      snapshots['debugAndroidTestCompileClasspath'].each { id, version ->
+                          assert effectiveRuntime.containsKey(id) : 'Compiled dependency absent from both runtimes: ' + id
+                          assert effectiveRuntime[id] == version : 'Instrumented compile/runtime mismatch: ' + id
+                          if (!testRuntime.containsKey(id)) suppliedByApp[id] = version
+                      }
+                      def evidence = new File(app.rootProject.projectDir, 'validation/compose-effective-instrumentation-runtime.json')
+                      evidence.text = JsonOutput.prettyPrint(JsonOutput.toJson([effectiveRuntime:effectiveRuntime,suppliedByApp:suppliedByApp])) + '\\n'
+                      println 'Compose compile/runtime versions agree; instrumentation dependencies are present in app or test runtime.'
                   }
               }
           }
