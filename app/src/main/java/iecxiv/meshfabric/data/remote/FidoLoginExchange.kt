@@ -93,6 +93,17 @@ internal class FidoLoginExchange(
             result
         }.getOrElse { stop(Phase.INVALID); null }
     }
+    @Synchronized fun get(current:FidoLoginBinding,url:String):Request? {
+        if(!valid(current) || phase !in setOf(Phase.PASSWORD_SENT,Phase.SUBMITTED)) return null
+        if(!policy.allowsNavigation(url)) { stop(if(phase==Phase.SUBMITTED) Phase.UNKNOWN else Phase.INVALID); return null }
+        val target=requireNotNull(url.toHttpUrlOrNull())
+        return Request.Builder().url(target).get().header("Cache-Control","no-store")
+            .apply { val value=header(target); if(value.isNotEmpty()) header("Cookie",value) }.build()
+    }
+    @Synchronized fun cookieHeaderForVerification(current:FidoLoginBinding):String? {
+        if(!valid(current) || phase!=Phase.SUBMITTED) return null
+        return header(base.newBuilder().addPathSegment("control.ashx").build())
+    }
     @Synchronized fun poll(current:FidoLoginBinding):Phase { valid(current); return phase }
     @Synchronized fun cancel() { if(!terminal()) stop(if(phase==Phase.SUBMITTED) Phase.UNKNOWN else Phase.CANCELLED) }
 }
