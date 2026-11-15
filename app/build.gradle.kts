@@ -46,7 +46,10 @@ dependencies {
     implementation(libs.material)
 
     // Compose BOM & UI
-    implementation(platform(libs.compose.bom))
+    val alignedComposeBom = platform(libs.compose.bom)
+    implementation(alignedComposeBom)
+    testImplementation(alignedComposeBom)
+    implementation(libs.compose.foundation.layout)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
