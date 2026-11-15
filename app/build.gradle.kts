@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "iecxiv.meshfabric"
-    val fidoPreview = providers.gradleProperty("fidoCompileSdkPreview").orNull
-    if (fidoPreview.isNullOrBlank()) {
-        compileSdk = 37
-    } else {
-        compileSdkPreview = fidoPreview
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
     }
+    buildToolsVersion = "37.0.0"
 
     defaultConfig {
         applicationId = "iecxiv.meshfabric"
