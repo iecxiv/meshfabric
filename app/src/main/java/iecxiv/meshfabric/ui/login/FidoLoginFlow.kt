@@ -11,6 +11,9 @@ internal interface FidoLoginPort:Closeable {
     fun begin(password:String):JsonObject
     fun submit(credential:JsonObject):FidoLoginHttpTransport.PendingLogin
 }
+internal interface FidoVerificationPort:Closeable {
+    fun verify(pending:FidoLoginHttpTransport.PendingLogin):Boolean
+}
 internal class FidoLoginFlow(
     private val scope:CoroutineScope,
     private val current:()->Config,
@@ -21,14 +24,23 @@ internal class FidoLoginFlow(
             override fun submit(credential:JsonObject)=http.submit(credential)
             override fun close()=http.close()
         }
-    }
+    },
+    private val verifierFactory:(FidoLoginBinding,()->FidoLoginBinding)->FidoVerificationPort={ b,live ->
+        val verifier=FidoSessionVerifier(b,live)
+        object:FidoVerificationPort {
+            override fun verify(pending:FidoLoginHttpTransport.PendingLogin)=verifier.verify(pending)
+            override fun close()=verifier.close()
+        }
+    },
+    private val attemptTimeoutMs:Long=60_000L,
+    private val clock:()->Long={System.nanoTime()/1_000_000L}
 ):Closeable {
     data class Config(val server:String,val account:String,val ignoreSsl:Boolean=false) {
         fun binding(id:Long)=FidoLoginBinding(OkHttpHelper.sanitizeServerUrl(server.trim()),account.trim(),if(ignoreSsl) Long.MIN_VALUE else id)
     }
-    enum class Phase { IDLE,CONNECTING,AUTHENTICATOR,SUBMITTING,PENDING,CANCELLED,FAILED,EXPIRED }
+    enum class Phase { IDLE,CONNECTING,AUTHENTICATOR,SUBMITTING,PENDING,VERIFYING,VERIFIED,CANCELLED,FAILED,EXPIRED }
     data class State(val phase:Phase=Phase.IDLE,val id:Long=0,val server:String="",val options:JsonObject?=null) {
-        val busy:Boolean get()=phase in setOf(Phase.CONNECTING,Phase.AUTHENTICATOR,Phase.SUBMITTING,Phase.PENDING)
+        val busy:Boolean get()=phase in setOf(Phase.CONNECTING,Phase.AUTHENTICATOR,Phase.SUBMITTING,Phase.PENDING,Phase.VERIFYING)
     }
     private val mutable=MutableStateFlow(State())
     val state=mutable.asStateFlow()
@@ -38,10 +50,14 @@ internal class FidoLoginFlow(
     private var job:Job?=null
     private var timer:Job?=null
     private var pending:FidoLoginHttpTransport.PendingLogin?=null
+    private var verification:FidoVerificationPort?=null
+    private var deadline=0L
+    init { require(attemptTimeoutMs in 1..60_000L) }
+    private fun invalidPhase()=if(clock()>=deadline) Phase.EXPIRED else Phase.CANCELLED
     private fun live()=current().binding(serial)
-    private fun valid(id:Long)=serial==id && bound==live()
+    private fun valid(id:Long)=serial==id && bound==live() && clock()<deadline
     private fun retire(phase:Phase) {
-        serial++; job?.cancel(); timer?.cancel(); port?.close()
+        serial++; job?.cancel(); timer?.cancel(); verification?.close(); verification=null; port?.close()
         job=null; timer=null; port=null; pending=null; bound=null
         mutable.value=State(phase,serial)
     }
@@ -53,8 +69,8 @@ internal class FidoLoginFlow(
             FidoWebOriginPolicy(binding.server)
             factory(binding,{ synchronized(this) { live() } })
         } catch(_:Exception) { retire(Phase.FAILED); return false }
-        bound=binding; port=engine; mutable.value=State(Phase.CONNECTING,id,binding.server)
-        timer=scope.launch { delay(60_000); synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.EXPIRED) } }
+        deadline=clock()+attemptTimeoutMs; bound=binding; port=engine; mutable.value=State(Phase.CONNECTING,id,binding.server)
+        timer=scope.launch { delay(attemptTimeoutMs); synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.EXPIRED) } }
         job=scope.launch {
             try {
                 val options=withContext(Dispatchers.IO) { engine.begin(password) }
@@ -79,6 +95,29 @@ internal class FidoLoginFlow(
                     } else if(serial==id) retire(Phase.CANCELLED) else engine.close()
                 }
             } catch(_:Exception) { synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED) } }
+        }
+    }
+    @Synchronized fun verify(id:Long,onVerified:(FidoLoginHttpTransport.PendingLogin)->Unit) {
+        val result=pendingForVerification(id) ?: return
+        val verifier=try { verifierFactory(result.binding,{ synchronized(this) { live() } }) }
+            catch(_:Exception) { retire(Phase.FAILED); return }
+        verification=verifier
+        mutable.value=mutable.value.copy(phase=Phase.VERIFYING)
+        job=scope.launch {
+            try {
+                val accepted=withContext(Dispatchers.IO) { verifier.verify(result) }
+                synchronized(this@FidoLoginFlow) {
+                    if(serial==id) {
+                        when {
+                            !valid(id) -> retire(invalidPhase())
+                            !accepted -> retire(Phase.FAILED)
+                            else -> { onVerified(result); retire(Phase.VERIFIED) }
+                        }
+                    }
+                }
+            } catch(_:Exception) {
+                synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED) }
+            } finally { verifier.close() }
         }
     }
     @Synchronized fun configurationChanged() { if(mutable.value.busy && !valid(mutable.value.id)) retire(Phase.CANCELLED) }

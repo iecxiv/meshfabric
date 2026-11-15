@@ -9,6 +9,8 @@ import iecxiv.meshfabric.data.remote.MeshCentralClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class LoginViewModel(
@@ -25,7 +27,24 @@ class LoginViewModel(
     var rememberMe = MutableStateFlow(true)
 
     internal val fidoLogin=FidoLoginFlow(viewModelScope,{ FidoLoginFlow.Config(serverUrl.value,username.value,ignoreSsl.value) })
-    internal fun startFidoLogin() { if(!isLoading.value) fidoLogin.start(password.value) }
+    internal fun startFidoLogin() {
+        if(!isLoading.value && !_loginSuccess.value) {
+            _errorMessage.value=null
+            fidoLogin.start(password.value)
+        }
+    }
+    private fun completeFidoLogin(result:iecxiv.meshfabric.data.remote.FidoLoginHttpTransport.PendingLogin) {
+        FidoLoginCompletion.complete(result,rememberMe.value,
+            persist={ sessionManager.saveSession(it) },
+            forget={ sessionManager.forgetAuthentication() },
+            connect={ meshClient.connectControlSocket(it.serverUrl,it.authCookie,false) },
+            disconnect={ meshClient.disconnect() },
+            success={
+                password.value=""; otpToken.value=""
+                _requires2FA.value=false; _errorMessage.value=null
+                _loginSuccess.value=true
+            })
+    }
     override fun onCleared() { fidoLogin.close(); super.onCleared() }
 
     private val _isLoading = MutableStateFlow(false)
@@ -42,6 +61,18 @@ class LoginViewModel(
 
     init {
         checkSavedSession()
+        viewModelScope.launch {
+            combine(serverUrl,username,ignoreSsl) { _,_,_ -> Unit }.collect {
+                fidoLogin.configurationChanged()
+            }
+        }
+        viewModelScope.launch {
+            fidoLogin.state.collect { state ->
+                if(state.phase==FidoLoginFlow.Phase.PENDING) {
+                    fidoLogin.verify(state.id,::completeFidoLogin)
+                }
+            }
+        }
     }
 
     private fun checkSavedSession() {

@@ -190,6 +190,11 @@ class SessionManager(context: Context) {
         )
     }
 
+    internal fun forgetAuthentication() {
+        prefs.edit().remove(KEY_SERVER_URL).remove(KEY_USERNAME).remove(KEY_AUTH_COOKIE)
+            .remove(KEY_IGNORE_SSL).remove(KEY_IS_REMEMBERED).apply()
+    }
+
     fun clearSession() {
         val keepTerminalBuffers = isSaveTerminalBuffersEnabled()
         val keepOnlineFilter = _onlyOnlineDevicesFlow.value
