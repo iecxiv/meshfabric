@@ -33,17 +33,41 @@ jobs:
           cmdline-tools-version: '16111833'
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
-      - name: Install pinned official SDK with explicit tools path
+      - name: Resolve verified command-line tools and install pinned SDK
+        shell: python
         run: |
-          set -euo pipefail
-          mkdir -p validation
-          manager="$ANDROID_HOME/cmdline-tools/23.0/bin/sdkmanager"
-          test -x "$manager"
-          "$manager" --version | tee validation/sdkmanager-version.txt
-          grep -Fx '23.0' validation/sdkmanager-version.txt
-          "$manager" --sdk_root="$ANDROID_HOME" --list --channel=0 > validation/sdk-packages.txt
-          "$manager" --sdk_root="$ANDROID_HOME" --channel=0 'platforms;android-37.2' 'platforms;android-35' 'build-tools;37.0.0' 'platform-tools'
-          echo "$ANDROID_HOME/cmdline-tools/23.0/bin" >> "$GITHUB_PATH"
+          from pathlib import Path
+          import json, os, subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve()
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          def properties(path):
+              return dict((k.strip(),v.strip()) for line in path.read_text().splitlines() if '=' in line and not line.startswith('#') for k,v in [line.split('=',1)])
+          inventory=[]
+          candidates=[]
+          for source in (sdk/'cmdline-tools').glob('*/source.properties'):
+              values=properties(source)
+              binary=source.parent/'bin/sdkmanager'
+              inventory.append({'directory':str(source.parent),'properties':values,'executable':os.access(binary,os.X_OK)})
+              if values.get('Pkg.Revision')=='23.0' and os.access(binary,os.X_OK):
+                  directory=source.parent.resolve()
+                  directory.relative_to(sdk/'cmdline-tools')
+                  candidates.append(directory)
+          (out/'commandline-inventory.json').write_text(json.dumps(inventory,indent=2)+'\n')
+          assert candidates,'Installed Command-line Tools 23.0 not found; refusing older tools'
+          directory=max(candidates,key=lambda p:(p.name=='16111833',str(p)))
+          manager=str(directory/'bin/sdkmanager')
+          (out/'commandline-source.properties').write_text((directory/'source.properties').read_text())
+          (out/'sdkmanager-path.txt').write_text(manager+'\n')
+          with open(os.environ['GITHUB_ENV'],'a') as env:
+              env.write('FIDO_COMMANDLINE_TOOLS='+str(directory)+'\n')
+          with open(os.environ['GITHUB_PATH'],'a') as path:
+              path.write(str(directory/'bin')+'\n')
+          with (out/'sdkmanager-version.txt').open('w') as log:
+              subprocess.run([manager,'--version'],stdout=log,stderr=subprocess.STDOUT,check=True)
+          with (out/'sdk-packages.txt').open('w') as log:
+              subprocess.run([manager,'--sdk_root='+str(sdk),'--list','--channel=0'],stdout=log,stderr=subprocess.STDOUT,check=True)
+          with (out/'sdk-install.txt').open('w') as log:
+              subprocess.run([manager,'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],stdout=log,stderr=subprocess.STDOUT,check=True)
       - name: Verify installed SDK identity
         shell: python
         run: |
@@ -59,12 +83,11 @@ jobs:
           properties=dict((k.strip(),v.strip()) for line in (platform/'source.properties').read_text().splitlines() if '=' in line and not line.startswith('#') for k,v in [line.split('=',1)])
           assert properties.get('AndroidVersion.ApiLevel','').split('.')[0]=='37','Unexpected API major'
           assert (sdk/'build-tools/37.0.0/aapt2').is_file(),'Missing pinned build tools'
-          toolProperties=(sdk/'cmdline-tools/23.0/source.properties').read_text()
-          Path('validation/commandline-source.properties').write_text(toolProperties)
-          evidence={'package':'platforms;android-37.2','compileApi':37,'compileMinor':2,'buildTools':'37.0.0','commandLineTools':'23.0','targetSdk':35,'minSdk':26,'properties':properties}
+          tools=Path(os.environ['FIDO_COMMANDLINE_TOOLS'])
+          evidence={'package':'platforms;android-37.2','compileApi':37,'compileMinor':2,'buildTools':'37.0.0','commandLineTools':'23.0','toolsDirectory':str(tools),'targetSdk':35,'minSdk':26,'properties':properties}
           Path('validation/selected-sdk.json').write_text(json.dumps(evidence,indent=2)+'\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
-              summary.write('## FIDO SDK configuration\nPinned platform: `platforms;android-37.2`. Build Tools: `37.0.0`. Command-line Tools: `23.0`.\n\nNo preview selection or synthetic SDK. Dependency checks and all tests must still pass.\n')
+              summary.write('## FIDO SDK configuration\nPinned platform: `platforms;android-37.2`. Build Tools: `37.0.0`. Tools directory: `'+str(tools)+'`.\n\nTool identity is verified using package metadata, not folder naming or CLI version formatting. Dependency checks and all tests must still pass.\n')
       - name: Check dependency SDK requirements without bypasses
         run: |
           set -euo pipefail
