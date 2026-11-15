@@ -41,7 +41,7 @@ jobs:
           assert base64.b64encode(hashlib.sha512(archive).digest()).decode()==integrity.split('-',1)[1]
           paths=['meshuser.js','webserver.js','webauthn.js','views/default.handlebars','views/login.handlebars']
           patterns=['webauthn-startregister','webauthn-endregister','otp-hkey-get','otp-hkey-remove','hwtoken','hardwareKeyChallenge','verifyAuthenticatorAssertionResponse','verifyAuthenticatorAttestationResponse']
-          report=['MeshCentral FIDO contract audit','Baseline: MeshCentral 1.3.1, matching the existing MFA contract audit.','This baseline is not a claim about the version deployed by any user.','Registry integrity: '+integrity,'Source only: no package code executed, no user server contacted.','Status: implementation and hardware validation remain pending.']
+          report=['MeshCentral FIDO contract audit','Baseline: MeshCentral 1.3.1, matching the existing MFA contract audit.','This baseline is not a claim about the version deployed by any user.','Registry integrity: '+integrity,'Source only: no package code executed, no user server contacted.','Status: implementation and hardware validation remain pending.','Displayed excerpts omit trailing whitespace; file hashes cover original bytes.']
           manifest={'version':metadata['version'],'integrity':integrity,'files':{}}
           with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as package:
               assert json.load(package.extractfile('package/package.json'))['version']=='1.3.1'
@@ -65,7 +65,7 @@ jobs:
                           merged.append((start,end))
                   for start,end in merged:
                       report.append('\n--- '+path+' lines '+str(start+1)+'-'+str(end)+' ---')
-                      report.extend(str(i+1)+': '+lines[i] for i in range(start,end))
+                      report.extend((str(i+1)+': '+lines[i]).rstrip() for i in range(start,end))
           out=Path('docs/fido'); out.mkdir(parents=True,exist_ok=True)
           (out/'upstream-contract.txt').write_text('\n'.join(report)+'\n',encoding='utf-8')
           (out/'upstream-integrity.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
