@@ -1,0 +1,95 @@
+name: Validate FIDO registration browser candidate
+on:
+  push:
+    branches: [fido-support]
+    paths:
+      - '.github/fido/prepare-registration-browser.py'
+      - '.github/workflows/validate-fido-browser.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-browser-candidate
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Prepare browser candidate only inside runner
+        run: python3 .github/fido/prepare-registration-browser.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK with verified tools 23.0
+        shell: python
+        run: |
+          from pathlib import Path
+          import os, subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve()
+          candidates=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              tool=p.parent.resolve()
+              tool.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(tool/'bin/sdkmanager',os.X_OK): candidates.append(tool)
+          assert candidates, 'Verified Command-line Tools 23.0 missing'
+          tools=sorted(candidates)[0]
+          subprocess.run([str(tools/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(tools/'bin')+'\n')
+      - name: Clean build, all unit tests, instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete test evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases, root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']), root
+              if root=='app/build/test-results':
+                  for name,count in [('FidoRegistrationContractTest',10),('FidoRegistrationSessionTest',10),('FidoWebOriginPolicyTest',10),('FidoRegistrationPageTest',14)]:
+                      assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==count, name
+              else:
+                  assert len([c for c in cases if c.get('classname','').endswith('.FidoHostLifecycleTest')])==2
+                  assert len([c for c in cases if c.get('classname','').endswith('.ServerDialogTitleTypographyUiTest')])==14
+              totals[root]=len(cases)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          Path('validation/VALIDATED.txt').write_text('Browser candidate passed build, unit tests, lint and complete instrumentation. No app changes published. New page tests cover delivery filtering, not real WebView ceremony or USB/NFC. AccountWire integration and login remain pending.\n')
+      - name: Upload candidate and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-browser-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
