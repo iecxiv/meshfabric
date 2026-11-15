@@ -32,12 +32,68 @@ jobs:
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
-      - name: Record available SDK packages and install stable SDK
+      - name: Update SDK command-line tools and record preview packages
         run: |
           set -euo pipefail
           mkdir -p validation
-          sdkmanager --list > validation/sdk-packages.txt
-          sdkmanager 'platforms;android-36' 'platforms;android-35' 'build-tools;36.0.0' 'build-tools;35.0.0' 'platform-tools'
+          sdkmanager --sdk_root="$ANDROID_HOME" 'cmdline-tools;latest'
+          manager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$manager"
+          "$manager" --version | tee validation/sdkmanager-version.txt
+          "$manager" --sdk_root="$ANDROID_HOME" --list --channel=3 > validation/sdk-packages.txt
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Discover and verify an official API 37 platform
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, os, re, subprocess, urllib.request
+          import xml.etree.ElementTree as ET
+          out=Path('validation')
+          url='https://dl.google.com/android/repository/repository2-3.xml'
+          with urllib.request.urlopen(url,timeout=60) as response:
+              data=response.read(20000001)
+          assert len(data)<=20000000,'Repository metadata too large'
+          (out/'android-repository.xml').write_bytes(data)
+          root=ET.fromstring(data)
+          candidates=[]
+          inventory=[]
+          for package in root.findall('.//{*}remotePackage'):
+              path=package.get('path','')
+              if not path.startswith('platforms;'): continue
+              api=package.find('.//{*}api-level')
+              code=package.find('.//{*}codename')
+              level=int(api.text) if api is not None and api.text else -1
+              codename=(code.text or '') if code is not None else ''
+              inventory.append({'path':path,'api':level,'codename':codename})
+              if level!=37: continue
+              if path!='platforms;android-37' and not codename: continue
+              if not re.fullmatch(r'platforms;android-[A-Za-z0-9]+',path): continue
+              if codename and not re.fullmatch(r'[A-Za-z][A-Za-z0-9]*',codename): continue
+              revision=package.find('{*}revision')
+              numbers=tuple(int(revision.findtext('{*}'+part,'0')) for part in ['major','minor','micro']) if revision is not None else (0,0,0)
+              candidates.append((path=='platforms;android-37',numbers,path,codename))
+          (out/'platform-inventory.json').write_text(json.dumps(inventory,indent=2)+'\n')
+          assert candidates,'No official API 37 platform advertised; stopping without bypass or fabricated SDK'
+          _,_,path,codename=max(candidates)
+          listing=(out/'sdk-packages.txt').read_text()
+          assert any(line.split('|',1)[0].strip()==path for line in listing.splitlines()),'Selected platform not advertised by sdkmanager'
+          sdk=Path(os.environ['ANDROID_HOME'])
+          manager=str(sdk/'cmdline-tools/latest/bin/sdkmanager')
+          subprocess.run([manager,'--sdk_root='+str(sdk),'--channel=3','--licenses'],input='y\n'*100,text=True,stdout=subprocess.DEVNULL,check=True)
+          subprocess.run([manager,'--sdk_root='+str(sdk),'--channel=3',path,'platforms;android-35','build-tools;36.0.0','build-tools;35.0.0','platform-tools'],check=True)
+          installed=sdk/'platforms'/path.split(';',1)[1]/'source.properties'
+          properties=dict(line.split('=',1) for line in installed.read_text().splitlines() if '=' in line and not line.startswith('#'))
+          assert properties.get('AndroidVersion.ApiLevel','').strip()=='37','Installed platform is not API 37'
+          assert (installed.parent/'android.jar').is_file(),'Platform android.jar missing'
+          preview=codename if codename and codename!='REL' else ''
+          if preview:
+              assert properties.get('AndroidVersion.CodeName','').strip()==preview,'Installed preview codename mismatch'
+          evidence={'metadata':url,'package':path,'preview':preview,'properties':properties}
+          (out/'selected-sdk.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          with open(os.environ['GITHUB_ENV'],'a') as env:
+              env.write('ORG_GRADLE_PROJECT_fidoCompileSdkPreview='+preview+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
+              summary.write('## FIDO SDK selection\nPackage: `'+path+'`\n\nPreview: `'+(preview or 'none')+'`\n\nTarget SDK remains 35. Dependency metadata and all tests must still pass.\n')
       - name: Check dependency SDK requirements without bypasses
         run: |
           set -euo pipefail
