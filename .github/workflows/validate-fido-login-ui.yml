@@ -20,11 +20,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Verify and prepare the reviewed UI candidate
+      - name: Verify and prepare the reviewed UI candidate with explicit English resources
         shell: python
         run: |
           from pathlib import Path
           import base64,gzip,hashlib,json,subprocess
+          import xml.etree.ElementTree as ET
           meta=json.loads(Path('.github/fido/login-ui-candidate.json').read_text())
           assert meta['encoding']=='gzip+base64' and len(meta['payload'])<100000
           raw=gzip.decompress(base64.b64decode(meta['payload'],validate=True))
@@ -32,9 +33,18 @@ jobs:
           assert len(raw)<262144 and meta['sha256']==digest and hashlib.sha256(raw).hexdigest()==digest
           data=json.loads(raw)
           assert set(data)=={'sources','patches'} and len(data['sources'])==7 and len(data['patches'])==5
-          additions=set(data['sources']); originals=set(data['patches'])
+          english='app/src/main/res/values-en/fido_login.xml'
+          assert english not in data['sources'] and english not in data['patches']
+          additions=set(data['sources'])|{english}; originals=set(data['patches'])
           assert not originals & additions and all(n.startswith('app/') and '..' not in Path(n).parts for n in originals|additions)
           changes=dict(data['sources'])
+          expected_strings={'fido_login_'+n for n in ['action','title','prompt','pending','cancel','failed','tls','expired']}
+          for locale in ['values','values-es']:
+              root=ET.fromstring(changes['app/src/main/res/'+locale+'/fido_login.xml'])
+              elements=list(root)
+              assert len(elements)==8 and all(e.tag=='string' and e.text for e in elements)
+              assert {e.get('name') for e in elements}==expected_strings
+          changes[english]=changes['app/src/main/res/values/fido_login.xml']
           for name in additions: assert not Path(name).exists(),'Already exists: '+name
           for name,patch in data['patches'].items():
               old=Path(name).read_bytes()
@@ -105,7 +115,7 @@ jobs:
               for name,count in checks: assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==count,name
               totals[root]=len(cases)
           Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
-          Path('validation/VALIDATED.txt').write_text('UI/assertion candidate passed build, all unit tests, lint and complete instrumentation. WebView assertion test uses a simulated credential, not hardware. No session is saved and no login success is announced by the new flow. Authenticated account verification and real login remain pending.\n')
+          Path('validation/VALIDATED.txt').write_text('UI/assertion candidate with explicit English resources passed build, all unit tests, lint and complete instrumentation. WebView assertion test uses a simulated credential, not hardware. No session is saved and no login success is announced by the new flow. Authenticated account verification and real login remain pending.\n')
       - name: Upload patch and reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -117,7 +127,7 @@ jobs:
             app/build/test-results/
             app/build/outputs/androidTest-results/
           retention-days: 14
-      - name: Publish only the twelve validated UI-block app files
+      - name: Publish only the thirteen validated UI-block app files
         env:
           EXPECTED_HEAD: ${{ github.sha }}
         run: |
@@ -133,13 +143,14 @@ jobs:
           meta=json.loads(Path('.github/fido/login-ui-candidate.json').read_text())
           raw=gzip.decompress(base64.b64decode(meta['payload'],validate=True))
           assert hashlib.sha256(raw).hexdigest()=='f86658830e63d776d7a7af4de45e98a75791742ca620eb0719c63ad0be723a9a'
-          data=json.loads(raw); expected=set(data['sources'])|set(data['patches']); assert len(expected)==12
+          data=json.loads(raw); expected=set(data['sources'])|set(data['patches'])|{'app/src/main/res/values-en/fido_login.xml'}; assert len(expected)==13
           assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
           assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
           assert Path('validation/VALIDATED.txt').is_file()
           assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/ui-candidate.patch').read_bytes()
           digests=json.loads(Path('validation/app-source-digests.json').read_text()); assert set(digests)==expected
           assert all(hashlib.sha256(Path(n).read_bytes()).hexdigest()==v for n,v in digests.items())
+          assert Path('app/src/main/res/values-en/fido_login.xml').read_bytes()==Path('app/src/main/res/values/fido_login.xml').read_bytes()
           subprocess.run(['git','diff','--cached','--check'],check=True)
           PY
           git config user.name 'github-actions[bot]'
