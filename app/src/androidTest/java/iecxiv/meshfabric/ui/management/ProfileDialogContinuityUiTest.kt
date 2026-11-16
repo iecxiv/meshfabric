@@ -32,7 +32,7 @@ class ProfileDialogContinuityUiTest {
         val live=mutableStateOf(ready())
         try {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     val display=rememberProfileDialogPresentation(live.value,"same-server","user//admin")
                     UserAdministrationDialog(session,display,ProfileForm(true,"edit","user//alice","Alicia","alice@example.invalid"),onDismiss={})

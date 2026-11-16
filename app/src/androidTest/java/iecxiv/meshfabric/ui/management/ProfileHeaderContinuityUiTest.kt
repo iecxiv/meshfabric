@@ -24,7 +24,7 @@ class ProfileHeaderContinuityUiTest {
         val ready=ProfileState(ready=true,user=JSONObject().put("_id","user//admin"))
         val live=mutableStateOf(ready)
         compose.setContent {
-            val configuration=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val configuration=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             val density=Density(LocalDensity.current.density,scale)
             CompositionLocalProvider(LocalConfiguration provides configuration,LocalDensity provides density) {MaterialTheme {
                 val state=rememberProfileDialogPresentation(live.value,"same-identity","user//admin")

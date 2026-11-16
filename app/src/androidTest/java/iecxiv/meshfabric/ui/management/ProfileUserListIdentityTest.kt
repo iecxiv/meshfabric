@@ -18,7 +18,7 @@ import java.util.Locale
     private fun person(id:String=uid)=JSONObject().put("_id",id).put("name","Alicia").put("realname","Alicia García").put("email","alice@example.invalid")
     private fun show(accounts:List<JSONObject>,language:String="es") {
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(language))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag(language))}
             CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {Column {for(account in accounts) ProfileUserListIdentity(account,accounts)}}}
         }
     }
