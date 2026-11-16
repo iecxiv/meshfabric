@@ -13,10 +13,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
-/** Confirms that the cookies of one FIDO attempt open a control session for the expected account.
- * Blocking and single use: run off the main thread and close on cancellation. A cookie, an HTTP
- * status or an open socket is never proof; only a userinfo reply naming the account is.
- */
 internal class FidoSessionVerifier(
     private val binding:FidoLoginBinding,
     private val current:()->FidoLoginBinding,
@@ -29,55 +25,96 @@ internal class FidoSessionVerifier(
     private val started=AtomicBoolean(false)
     private val lock=Any()
     @Volatile private var closed=false
+    @Volatile var failureCode:FidoLoginFailure.Code?=null
+        private set
     private var active:WebSocket?=null
+    private var cancelWait:(()->Unit)?=null
+    init { require(timeoutMs in 1..15_000L) }
+    private fun live()=runCatching { current()==binding }.getOrDefault(false)
+    private fun reject(code:FidoLoginFailure.Code):Boolean { failureCode=code; return false }
     private fun accountMatches(id:String):Boolean {
         val parts=id.split("/",limit=3)
         return parts.size==3 && parts[0]=="user" && parts[2].isNotEmpty() && parts[2].equals(binding.account,ignoreCase=true)
     }
     fun verify(pending:FidoLoginHttpTransport.PendingLogin):Boolean {
         if(!started.compareAndSet(false,true)) return false
+        if(closed || pending.binding!=binding || binding.generation==Long.MIN_VALUE || !live()) return reject(FidoLoginFailure.Code.VERIFY_INVALIDATED)
         val cookie=pending.cookie
-        if(closed || pending.binding!=binding || binding.generation==Long.MIN_VALUE || current()!=binding) return false
-        if(cookie.isBlank() || cookie.any { it=='\r' || it=='\n' }) return false
+        if(cookie.isBlank() || cookie.any { it=='\r' || it=='\n' }) return reject(FidoLoginFailure.Code.COOKIES)
         val request=try {
             require(policy.allowsNavigation(binding.server+"/control.ashx"))
             Request.Builder().url(OkHttpHelper.toWebSocketUrl(binding.server,"/control.ashx")).header("Cookie",cookie).build()
-        } catch(_:Exception) { return false }
+        } catch(_:Exception) { return reject(FidoLoginFailure.Code.VERIFY_PROTOCOL) }
         val outcome=AtomicReference<Boolean?>(null)
         val done=CountDownLatch(1)
-        fun finish(value:Boolean) { if(outcome.compareAndSet(null,value)) done.countDown() }
+        fun finish(value:Boolean,code:FidoLoginFailure.Code?=null) {
+            if(outcome.compareAndSet(null,value)) {
+                failureCode=if(value) null else code ?: FidoLoginFailure.Code.ACCOUNT
+                done.countDown()
+            }
+        }
         val listener=object:WebSocketListener() {
             override fun onOpen(webSocket:WebSocket,response:Response) {
-                if(!webSocket.send("{\"action\":\"userinfo\"}")) finish(false)
+                if(closed || !live()) { finish(false,FidoLoginFailure.Code.VERIFY_INVALIDATED); return }
+                if(!webSocket.send("""{"action":"userinfo"}""")) finish(false,FidoLoginFailure.Code.VERIFY_CONNECTION)
             }
             override fun onMessage(webSocket:WebSocket,text:String) {
-                if(text.length>1_048_576) { finish(false); return }
+                if(closed || !live()) { finish(false,FidoLoginFailure.Code.VERIFY_INVALIDATED); return }
+                if(text.length>1_048_576) { finish(false,FidoLoginFailure.Code.VERIFY_PROTOCOL); return }
+                val packet=runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull() ?: return
+                val action=packet.get("action")
+                if(action==null || !action.isJsonPrimitive || !action.asJsonPrimitive.isString || action.asString!="userinfo") return
                 val id=runCatching {
-                    JsonParser.parseString(text).asJsonObject.takeIf { it.get("action")?.asString=="userinfo" }
-                        ?.getAsJsonObject("userinfo")?.get("_id")?.asString
-                }.getOrNull() ?: return
-                finish(accountMatches(id) && current()==binding && !closed)
+                    packet.getAsJsonObject("userinfo")?.get("_id")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString
+                }.getOrNull()
+                if(id==null) { finish(false,FidoLoginFailure.Code.VERIFY_PROTOCOL); return }
+                finish(accountMatches(id),FidoLoginFailure.Code.VERIFY_IDENTITY)
             }
-            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) { finish(false) }
-            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { finish(false) }
-            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) { finish(false) }
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) { finish(false,FidoLoginFailure.Code.VERIFY_CLOSED) }
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { finish(false,FidoLoginFailure.Code.VERIFY_CLOSED) }
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {
+                val reason=when {
+                    closed || !live() -> FidoLoginFailure.Code.VERIFY_INVALIDATED
+                    FidoLoginFailure.transportCode(t)==FidoLoginFailure.Code.TLS -> FidoLoginFailure.Code.VERIFY_TLS
+                    response!=null -> when(response.code) {
+                        401 -> FidoLoginFailure.Code.VERIFY_UNAUTHORIZED
+                        403 -> FidoLoginFailure.Code.VERIFY_FORBIDDEN
+                        in 300..399 -> FidoLoginFailure.Code.VERIFY_REDIRECT
+                        200 -> FidoLoginFailure.Code.VERIFY_NOT_WEBSOCKET
+                        101 -> FidoLoginFailure.Code.VERIFY_PROTOCOL
+                        else -> FidoLoginFailure.Code.VERIFY_HTTP
+                    }
+                    else -> FidoLoginFailure.Code.VERIFY_CONNECTION
+                }
+                finish(false,reason)
+            }
         }
         synchronized(lock) {
-            if(closed) return false
-            active=http.newWebSocket(request,listener)
+            if(closed) return reject(FidoLoginFailure.Code.VERIFY_INVALIDATED)
+            cancelWait={ finish(false,FidoLoginFailure.Code.VERIFY_INVALIDATED) }
+            try { active=http.newWebSocket(request,listener) }
+            catch(_:Exception) { finish(false,FidoLoginFailure.Code.VERIFY_CONNECTION) }
         }
         try {
-            val finished=done.await(timeoutMs,TimeUnit.MILLISECONDS)
-            return finished && outcome.get()==true && !closed && current()==binding
+            if(!done.await(timeoutMs,TimeUnit.MILLISECONDS)) {
+                finish(false,FidoLoginFailure.Code.VERIFY_TIMEOUT)
+                return reject(FidoLoginFailure.Code.VERIFY_TIMEOUT)
+            }
+            if(closed || !live()) return reject(FidoLoginFailure.Code.VERIFY_INVALIDATED)
+            return outcome.get()==true
         } catch(_:InterruptedException) {
             Thread.currentThread().interrupt()
-            return false
-        } finally {
-            close()
-        }
+            return reject(FidoLoginFailure.Code.VERIFY_INVALIDATED)
+        } finally { close() }
     }
     override fun close() {
-        val socket=synchronized(lock) { closed=true; active.also { active=null } }
-        socket?.cancel()
+        val resources=synchronized(lock) {
+            closed=true
+            val result=Pair(active,cancelWait)
+            active=null; cancelWait=null
+            result
+        }
+        resources.second?.invoke()
+        resources.first?.cancel()
     }
 }

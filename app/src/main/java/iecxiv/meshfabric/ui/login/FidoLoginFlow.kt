@@ -28,7 +28,10 @@ internal class FidoLoginFlow(
     private val verifierFactory:(FidoLoginBinding,()->FidoLoginBinding)->FidoVerificationPort={ b,live ->
         val verifier=FidoSessionVerifier(b,live)
         object:FidoVerificationPort {
-            override fun verify(pending:FidoLoginHttpTransport.PendingLogin)=verifier.verify(pending)
+            override fun verify(pending:FidoLoginHttpTransport.PendingLogin):Boolean {
+                if(!verifier.verify(pending)) throw FidoLoginFailure(verifier.failureCode ?: FidoLoginFailure.Code.ACCOUNT)
+                return true
+            }
             override fun close()=verifier.close()
         }
     },

@@ -97,4 +97,37 @@ class FidoSessionVerifierTest {
         server.enqueue(answers("user//alice")); create()
         assertFalse(verifier.verify(FidoLoginHttpTransport.PendingLogin(binding.copy(generation=2),"session=other"))); assertEquals(0,server.requestCount)
     }
+
+    private fun expectDiagnostic(code:FidoLoginFailure.Code) {
+        assertFalse(verifier.verify(pending())); assertEquals(code,verifier.failureCode)
+    }
+    @Test fun diagnosticUnauthorized() { server.enqueue(MockResponse().setResponseCode(401)); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_UNAUTHORIZED) }
+    @Test fun diagnosticForbidden() { server.enqueue(MockResponse().setResponseCode(403)); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_FORBIDDEN) }
+    @Test fun diagnosticRedirect() { server.enqueue(MockResponse().setResponseCode(302).addHeader("Location","https://other.example/login")); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_REDIRECT); assertEquals(1,server.requestCount) }
+    @Test fun diagnosticLoginPage() { server.enqueue(MockResponse().setBody("login")); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_NOT_WEBSOCKET) }
+    @Test fun diagnosticHttpError() { server.enqueue(MockResponse().setResponseCode(500)); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_HTTP) }
+    @Test fun diagnosticTimeout() { server.enqueue(upgrade { _,_ -> }); create(300); expectDiagnostic(FidoLoginFailure.Code.VERIFY_TIMEOUT) }
+    @Test fun diagnosticClosed() { server.enqueue(upgrade { socket,_ -> socket.close(1000,"private reason") }); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_CLOSED) }
+    @Test fun diagnosticWrongAccount() { server.enqueue(answers("user//bob")); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_IDENTITY) }
+    @Test fun diagnosticMissingId() { server.enqueue(upgrade { socket,_ -> socket.send("""{"action":"userinfo","userinfo":{}}""") }); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_PROTOCOL) }
+    @Test fun diagnosticNonStringId() { server.enqueue(upgrade { socket,_ -> socket.send("""{"action":"userinfo","userinfo":{"_id":123}}""") }); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_PROTOCOL) }
+    @Test fun diagnosticTls() { server.enqueue(answers("user//alice")); create(3000,OkHttpHelper.createClient(false)); expectDiagnostic(FidoLoginFailure.Code.VERIFY_TLS); assertEquals(0,server.requestCount) }
+    @Test fun diagnosticChangedBinding() { live.set(binding.copy(account="bob")); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_INVALIDATED); assertEquals(0,server.requestCount) }
+    @Test fun diagnosticEmptyCookie() { create(); assertFalse(verifier.verify(FidoLoginHttpTransport.PendingLogin(binding,""))); assertEquals(FidoLoginFailure.Code.COOKIES,verifier.failureCode); assertEquals(0,server.requestCount) }
+    @Test fun diagnosticInitialUserinfo() {
+        server.enqueue(MockResponse().withWebSocketUpgrade(object:WebSocketListener() {
+            override fun onOpen(webSocket:WebSocket,response:okhttp3.Response) { webSocket.send(identity("user//alice")) }
+        }))
+        create(); assertTrue(verifier.verify(pending())); assertNull(verifier.failureCode)
+    }
+    @Test fun diagnosticCancellation() {
+        server.enqueue(upgrade { _,_ -> }); create(10000)
+        val result=AtomicReference<Boolean?>(null)
+        val thread=Thread { result.set(verifier.verify(pending())) }; thread.start()
+        try {
+            assertNotNull(server.takeRequest(5,TimeUnit.SECONDS)); verifier.close(); thread.join(3000)
+            assertFalse(thread.isAlive); assertEquals(false,result.get()); assertEquals(FidoLoginFailure.Code.VERIFY_INVALIDATED,verifier.failureCode)
+        } finally { verifier.close(); thread.join(3000) }
+    }
+    @Test fun diagnosticConnectionFailure() { server.enqueue(MockResponse().setSocketPolicy(okhttp3.mockwebserver.SocketPolicy.DISCONNECT_AFTER_REQUEST)); create(); expectDiagnostic(FidoLoginFailure.Code.VERIFY_CONNECTION) }
 }
