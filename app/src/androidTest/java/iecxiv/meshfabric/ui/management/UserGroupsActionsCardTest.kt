@@ -19,7 +19,7 @@ import java.util.Locale
         val client=MeshCentralClient();val session=ProfileSession(client)
         try {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     UserGroupsDirectoryPane(session,ProfileState(),onOpenUser={},onOpenDeviceGroup={})
                 }}

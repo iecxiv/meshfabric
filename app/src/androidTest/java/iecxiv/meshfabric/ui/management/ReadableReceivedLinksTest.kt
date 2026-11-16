@@ -51,7 +51,7 @@ import java.util.Locale
         var openedUser="";var openedMesh=""
         init {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     if(received) ReceivedUserGroupDialog(session,s,gid) {} else UserGroupsDirectoryPane(session,s,Modifier.fillMaxSize(),onOpenUser={openedUser=it},onOpenDeviceGroup={openedMesh=it})
                 }}

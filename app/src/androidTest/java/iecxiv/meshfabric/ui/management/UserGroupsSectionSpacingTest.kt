@@ -45,7 +45,7 @@ import java.util.Locale
     @Test fun resultsHeadingPrecedesGroupsAndIsAbsentWhenNoGroupsExist() {Fixture().use {f->
         val state=androidx.compose.runtime.mutableStateOf(ProfileState(listedUserGroups=listOf(JSONObject().put("_id","ugrp//one").put("name","Oficina")),userGroupPhase="ready"))
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {UserGroupsDirectoryPane(f.session,state.value,onOpenUser={},onOpenDeviceGroup={})}}
         }
         compose.onNodeWithTag("user-groups-list-heading").performScrollTo().assertTextEquals("Grupos")

@@ -32,7 +32,7 @@ import java.util.Locale
             connected.value=true
             field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {UserGroupMemberAddDialog(session,state.value,group) {}}}
             }
         }

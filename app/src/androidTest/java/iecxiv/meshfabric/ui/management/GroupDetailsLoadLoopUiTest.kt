@@ -24,7 +24,7 @@ class GroupDetailsLoadLoopUiTest {
         var requests=0
         try {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     val live by session.state.collectAsState()
                     val display=rememberProfileDialogPresentation(live,"same-session","user//admin")

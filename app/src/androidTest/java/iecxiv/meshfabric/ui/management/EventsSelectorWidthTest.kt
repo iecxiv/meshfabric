@@ -23,7 +23,7 @@ class EventsSelectorWidthTest {
     @get:Rule val compose=createComposeRule()
     private fun show(scale:Float=1f,width:Int=320) {
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             val context=LocalContext.current.createConfigurationContext(config)
             val density=LocalDensity.current
             CompositionLocalProvider(LocalConfiguration provides config,LocalContext provides context,LocalDensity provides Density(density.density,scale)) {

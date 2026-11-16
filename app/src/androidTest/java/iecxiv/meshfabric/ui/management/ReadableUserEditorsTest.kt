@@ -26,7 +26,7 @@ import java.util.Locale
         val state=mutableStateOf(baseline)
         init {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     if(mode=="advanced") UserAdvancedEditor(session,state.value,account,onDismiss={},onSaved={})
                     else UserContactEditor(session,state.value,account,onDismiss={},onSaved={},initialField=if(mode=="verification") "emailVerified" else "phone")
