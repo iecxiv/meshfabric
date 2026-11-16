@@ -44,7 +44,7 @@ import java.util.Locale
             }} as WebSocket
             field(session,"socket").set(session,socket)
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {UserMfaResetDialog(session,state.value,uid,{})}}
             }
         }
