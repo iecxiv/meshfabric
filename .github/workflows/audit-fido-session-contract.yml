@@ -1,0 +1,107 @@
+name: Audit FIDO HTTP session and control websocket
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/workflows/audit-fido-session-contract.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-session-contract-audit
+  cancel-in-progress: false
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Extract integrity checked source without executing package code
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64,hashlib,io,json,re,tarfile,urllib.request
+          baseline=json.loads(Path('docs/fido/upstream-integrity.json').read_text())
+          assert baseline['version']=='1.3.1'
+          def read(url,limit):
+              req=urllib.request.Request(url,headers={'User-Agent':'MeshFabric-FIDO-session-contract-review'})
+              with urllib.request.urlopen(req,timeout=60) as response: data=response.read(limit+1)
+              assert len(data)<=limit,'Response too large'
+              return data
+          metadata=json.loads(read('https://registry.npmjs.org/meshcentral/1.3.1',1000000))
+          assert metadata['name']=='meshcentral' and metadata['version']=='1.3.1'
+          url='https://registry.npmjs.org/meshcentral/-/meshcentral-1.3.1.tgz'
+          assert metadata['dist']['tarball']==url and metadata['dist']['integrity']==baseline['integrity']
+          archive=read(url,100000000)
+          assert baseline['integrity'].startswith('sha512-')
+          assert 'sha512-'+base64.b64encode(hashlib.sha512(archive).digest()).decode()==baseline['integrity']
+          out=Path('docs/fido/login-review'); assert not out.exists(),'Review already exists; inspect before replacing'
+          out.mkdir(parents=True)
+          index={'baseline':'MeshCentral 1.3.1, not a claim about the deployed server version','integrity':baseline['integrity'],'scope':'Source only. No package code executed. No user server contacted. No app or security setting changed.','files':[]}
+          patterns={
+              'webserver.js':{
+                  'tokenlogin':r'hwtoken|hwstate|tokenlogin',
+                  'control':r'handleCtrl|handleControl|CreateMeshUser|control\.ashx',
+                  'cookies':r'cookie-session|express-session|cookieSession|sameSite|sessionOptions',
+                  'session':r'session\.regenerate|req\.session\.userid\s*='
+              },
+              'webauthn.js':{'assertion':r'verifyAuthenticatorAssertionResponse'},
+              'views/login.handlebars':{'submit':r'hwtoken|hwstate|tokenlogin'},
+              'meshuser.js':{'identity':r"action:\s*['\"]userinfo['\"]"}
+          }
+          with tarfile.open(fileobj=io.BytesIO(archive),mode='r:gz') as package:
+              for source,groups in patterns.items():
+                  member=package.getmember('package/'+source)
+                  assert member.isfile() and member.size<10000000
+                  data=package.extractfile(member).read()
+                  assert hashlib.sha256(data).hexdigest()==baseline['files'][source],'Upstream source changed: '+source
+                  lines=data.decode('utf-8-sig').splitlines()
+                  for focus,pattern in groups.items():
+                      hits=[i for i,line in enumerate(lines) if re.search(pattern,line)]
+                      ranges=[(max(0,i-40),min(len(lines),i+201)) for i in hits]
+                      if source=='meshuser.js': ranges.append((0,min(len(lines),180)))
+                      merged=[]
+                      for start,end in sorted(ranges):
+                          if merged and start<=merged[-1][1]: merged[-1]=(merged[-1][0],max(merged[-1][1],end))
+                          else: merged.append((start,end))
+                      body='\n'.join('\n--- '+source+' lines '+str(start+1)+'-'+str(end)+' ---\n'+'\n'.join((str(i+1)+': '+lines[i]).rstrip() for i in range(start,end)) for start,end in merged)
+                      if not body: body='No matching source lines for '+pattern
+                      parts=[body[i:i+12000] for i in range(0,len(body),12000)]
+                      for number,part in enumerate(parts,1):
+                          name=source.replace('/','-').replace('.','-')+'-'+focus+'-'+str(number).zfill(3)+'.txt'
+                          header='MeshCentral 1.3.1 source review: '+source+' / '+focus+' / part '+str(number)+' of '+str(len(parts))+'\nParts may continue a source line. Trailing whitespace is omitted.\n'
+                          (out/name).write_text(header+part.rstrip()+'\n',encoding='utf-8')
+                          index['files'].append({'file':name,'source':source,'focus':focus,'part':number,'parts':len(parts),'pattern_hits':len(hits)})
+          (out/'INDEX.json').write_text(json.dumps(index,indent=2)+'\n')
+      - name: Upload source review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-session-contract-${{ github.run_id }}-${{ github.run_attempt }}
+          path: docs/fido/login-review/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish evidence only if branch has not advanced
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/fido-support
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing evidence publication'; exit 1; }
+          git add -- docs/fido/login-review/
+          git diff --cached --check
+          python3 - <<'PY'
+          import subprocess
+          names=subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines()
+          assert names and all(n.startswith('docs/fido/login-review/') for n in names)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs(fido): record HTTP session and websocket contract evidence'
+          git push origin HEAD:refs/heads/fido-support
