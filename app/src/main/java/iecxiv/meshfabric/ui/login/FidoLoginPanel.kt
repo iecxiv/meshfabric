@@ -32,14 +32,14 @@ import com.google.gson.JsonObject
 @Composable internal fun FidoLoginControls(state:FidoLoginFlow.State,loading:Boolean,ignoreSsl:Boolean,onStart:()->Unit,onCancel:()->Unit,onCredential:(Long,JsonObject)->Unit,onFailure:(Long)->Unit) {
     OutlinedButton(onClick=onStart,enabled=!loading && !state.busy && !ignoreSsl,modifier=Modifier.fillMaxWidth().testTag("fido-start")) { Text(stringResource(R.string.fido_login_action)) }
     if(ignoreSsl) Text(stringResource(R.string.fido_login_tls),modifier=Modifier.testTag("fido-tls"))
-    if(state.phase==FidoLoginFlow.Phase.FAILED) Text(stringResource(R.string.fido_login_failed),color=MaterialTheme.colorScheme.error)
+    if(state.phase==FidoLoginFlow.Phase.FAILED) Text(stringResource(R.string.fido_login_failed) + state.failure?.let { " ["+it.tag+"]" }.orEmpty(),color=MaterialTheme.colorScheme.error)
     if(state.phase==FidoLoginFlow.Phase.EXPIRED) Text(stringResource(R.string.fido_login_expired),color=MaterialTheme.colorScheme.error)
     if(state.busy) AlertDialog(onDismissRequest=onCancel,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),
         title={ Text(stringResource(R.string.fido_login_title)) },confirmButton={},
         dismissButton={ TextButton(onClick=onCancel,modifier=Modifier.testTag("fido-cancel")) { Text(stringResource(R.string.fido_login_cancel)) } },
         text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(state.server)
-            if(state.phase==FidoLoginFlow.Phase.PENDING) Text(stringResource(R.string.fido_login_pending),modifier=Modifier.testTag("fido-pending"))
+            if(state.phase in setOf(FidoLoginFlow.Phase.PENDING,FidoLoginFlow.Phase.VERIFYING)) Text(stringResource(R.string.fido_login_pending),modifier=Modifier.testTag("fido-pending"))
             else { Text(stringResource(R.string.fido_login_prompt)); LinearProgressIndicator(Modifier.fillMaxWidth()) }
             if(state.phase==FidoLoginFlow.Phase.AUTHENTICATOR && state.options!=null) key(state.id) { AssertionHost(state,{ onCredential(state.id,it) },{ onFailure(state.id) }) }
         } })

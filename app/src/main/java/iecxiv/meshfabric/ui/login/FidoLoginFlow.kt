@@ -39,7 +39,7 @@ internal class FidoLoginFlow(
         fun binding(id:Long)=FidoLoginBinding(OkHttpHelper.sanitizeServerUrl(server.trim()),account.trim(),if(ignoreSsl) Long.MIN_VALUE else id)
     }
     enum class Phase { IDLE,CONNECTING,AUTHENTICATOR,SUBMITTING,PENDING,VERIFYING,VERIFIED,CANCELLED,FAILED,EXPIRED }
-    data class State(val phase:Phase=Phase.IDLE,val id:Long=0,val server:String="",val options:JsonObject?=null) {
+    data class State(val phase:Phase=Phase.IDLE,val id:Long=0,val server:String="",val options:JsonObject?=null,val failure:FidoLoginFailure.Code?=null) {
         val busy:Boolean get()=phase in setOf(Phase.CONNECTING,Phase.AUTHENTICATOR,Phase.SUBMITTING,Phase.PENDING,Phase.VERIFYING)
     }
     private val mutable=MutableStateFlow(State())
@@ -56,10 +56,17 @@ internal class FidoLoginFlow(
     private fun invalidPhase()=if(clock()>=deadline) Phase.EXPIRED else Phase.CANCELLED
     private fun live()=current().binding(serial)
     private fun valid(id:Long)=serial==id && bound==live() && clock()<deadline
-    private fun retire(phase:Phase) {
+    private fun defaultFailure()=when(mutable.value.phase) {
+        Phase.AUTHENTICATOR -> FidoLoginFailure.Code.WEB_RESPONSE
+        Phase.SUBMITTING -> FidoLoginFailure.Code.SUBMIT
+        Phase.PENDING,Phase.VERIFYING -> FidoLoginFailure.Code.ACCOUNT
+        else -> FidoLoginFailure.Code.PREPARE
+    }
+    private fun retire(phase:Phase,failure:FidoLoginFailure.Code?=null) {
+        val reason=if(phase==Phase.FAILED) failure ?: defaultFailure() else null
         serial++; job?.cancel(); timer?.cancel(); verification?.close(); verification=null; port?.close()
         job=null; timer=null; port=null; pending=null; bound=null
-        mutable.value=State(phase,serial)
+        mutable.value=State(phase,serial,failure=reason)
     }
     @Synchronized fun start(password:String):Boolean {
         if(mutable.value.busy) return false
@@ -78,7 +85,7 @@ internal class FidoLoginFlow(
                     if(valid(id)) mutable.value=State(Phase.AUTHENTICATOR,id,binding.server,options.deepCopy())
                     else if(serial==id) retire(Phase.CANCELLED) else engine.close()
                 }
-            } catch(_:Exception) { synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED) } }
+            } catch(e:Exception) { synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED,FidoLoginFailure.codeOf(e,defaultFailure())) } }
         }
         return true
     }
@@ -94,7 +101,7 @@ internal class FidoLoginFlow(
                         pending=result; mutable.value=mutable.value.copy(phase=Phase.PENDING)
                     } else if(serial==id) retire(Phase.CANCELLED) else engine.close()
                 }
-            } catch(_:Exception) { synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED) } }
+            } catch(e:Exception) { synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED,FidoLoginFailure.codeOf(e,defaultFailure())) } }
         }
     }
     @Synchronized fun verify(id:Long,onVerified:(FidoLoginHttpTransport.PendingLogin)->Unit) {
@@ -111,18 +118,21 @@ internal class FidoLoginFlow(
                         when {
                             !valid(id) -> retire(invalidPhase())
                             !accepted -> retire(Phase.FAILED)
-                            else -> { onVerified(result); retire(Phase.VERIFIED) }
+                            else -> {
+                                try { onVerified(result) } catch(_:Exception) { throw FidoLoginFailure(FidoLoginFailure.Code.SESSION) }
+                                retire(Phase.VERIFIED)
+                            }
                         }
                     }
                 }
-            } catch(_:Exception) {
-                synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED) }
+            } catch(e:Exception) {
+                synchronized(this@FidoLoginFlow) { if(serial==id) retire(Phase.FAILED,FidoLoginFailure.codeOf(e,defaultFailure())) }
             } finally { verifier.close() }
         }
     }
     @Synchronized fun configurationChanged() { if(mutable.value.busy && !valid(mutable.value.id)) retire(Phase.CANCELLED) }
     @Synchronized fun cancel() { retire(Phase.CANCELLED) }
-    @Synchronized fun fail(id:Long) { if(serial==id) retire(Phase.FAILED) }
+    @Synchronized fun fail(id:Long) { if(serial==id && mutable.value.phase==Phase.AUTHENTICATOR) retire(Phase.FAILED,FidoLoginFailure.Code.WEB_RESPONSE) }
     @Synchronized fun pendingForVerification(id:Long):FidoLoginHttpTransport.PendingLogin? =
         if(valid(id) && mutable.value.phase==Phase.PENDING) pending else null
     override fun close()=cancel()

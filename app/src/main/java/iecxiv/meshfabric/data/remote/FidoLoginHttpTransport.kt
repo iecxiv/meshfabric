@@ -50,11 +50,13 @@ internal class FidoLoginHttpTransport(
     }
     /** A pending cookie is not authenticated proof. Verify the expected user separately. */
     fun submit(credential:JsonObject):PendingLogin=operation {
-        val first=requireNotNull(exchange.submit(current(),credential))
-        val page=execute(first,false)
-        require(page.code in 200..299)
-        val cookies=requireNotNull(exchange.cookieHeaderForVerification(current()))
-        require(cookies.isNotEmpty())
+        val first=exchange.submit(current(),credential) ?: throw FidoLoginFailure(FidoLoginFailure.Code.ASSERTION)
+        val page=try { execute(first,false) } catch(e:Exception) {
+            throw FidoLoginFailure(FidoLoginFailure.transportCode(e))
+        }
+        if(page.code !in 200..299) throw FidoLoginFailure(FidoLoginFailure.Code.HTTP_STATUS)
+        val cookies=exchange.cookieHeaderForVerification(current()).orEmpty()
+        if(cookies.isEmpty()) throw FidoLoginFailure(FidoLoginFailure.Code.COOKIES)
         guard()
         PendingLogin(binding,cookies)
     }
