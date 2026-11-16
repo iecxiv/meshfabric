@@ -33,6 +33,12 @@ jobs:
           assert set(data)=={'base_commit','sources','patches'} and data['base_commit']=='993bb6a93a2a8ed6e6a6dcce32321b01e20030b1'
           assert len(data['sources'])==3 and len(data['patches'])==3
           changes=dict(data['sources']); originals=set(data['patches']); additions=set(changes)
+          test_source='app/src/test/java/iecxiv/meshfabric/ui/login/FidoLoginDiagnosticsTest.kt'
+          for method in ['lateWebFailureCannotAbortSubmission','lateWebFailureCannotAbortPendingAccountVerification']:
+              before='@Test fun '+method+'()=runBlocking'
+              after='@Test fun '+method+'():Unit=runBlocking'
+              assert changes[test_source].count(before)==1,method
+              changes[test_source]=changes[test_source].replace(before,after)
           assert not additions & originals
           assert all(n.startswith('app/') and '..' not in Path(n).parts for n in originals|additions)
           for n in additions: assert not Path(n).exists(),'Already exists: '+n
