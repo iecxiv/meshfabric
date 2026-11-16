@@ -92,11 +92,11 @@ class FidoLoginHttpTransportTest {
                 if(request.method=="GET" && request.path=="/tenant/control.ashx") {
                     val authenticated=request.getHeader("Cookie")=="session=authenticated"
                     return MockResponse().withWebSocketUpgrade(object:okhttp3.WebSocketListener() {
-                        override fun onOpen(socket:okhttp3.WebSocket,response:okhttp3.Response) {
-                            if(authenticated) socket.send(com.google.gson.JsonObject().apply {
+                        override fun onOpen(webSocket:okhttp3.WebSocket,response:okhttp3.Response) {
+                            if(authenticated) webSocket.send(com.google.gson.JsonObject().apply {
                                 addProperty("action","userinfo")
                                 add("userinfo",com.google.gson.JsonObject().apply { addProperty("_id","user//$account") })
-                            }.toString()) else socket.close(1000,"noauth")
+                            }.toString()) else webSocket.close(1000,"noauth")
                         }
                     })
                 }
