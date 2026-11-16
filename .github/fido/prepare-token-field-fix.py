@@ -47,10 +47,10 @@ append_tests(http,r'''
         // Protocol fixture only: not a cryptographic authenticator or live MeshCentral server.
         server.dispatcher=object:okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request:okhttp3.mockwebserver.RecordedRequest):MockResponse {
-                if(request.method=="POST" && request.path=="/tenant/login") {
+                if(request.method=="POST" && request.path=="/tenant/login" && decode(request.body.clone().readUtf8())["action"]=="login") {
                     return MockResponse().setBody(html()).addHeader("Set-Cookie","session=challenge; Path=/tenant; Secure; HttpOnly")
                 }
-                if(request.method=="POST" && request.path=="/tenant/") {
+                if(request.method=="POST" && request.path=="/tenant/login") {
                     val f=decode(request.body.readUtf8()); submitted.set(f)
                     val restore=f["username"]==null && f["password"]==null && f["token"]!=null
                     if(!restore || f["token"]!="" || f["action"]!="tokenlogin" || f["hwstate"]!="opaque+state=" || f["hwtoken"].isNullOrEmpty() || request.getHeader("Cookie")!="session=challenge") {
