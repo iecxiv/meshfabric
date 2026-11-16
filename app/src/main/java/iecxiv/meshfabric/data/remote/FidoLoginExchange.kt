@@ -86,7 +86,7 @@ internal class FidoLoginExchange(
         if(!valid(current) || phase!=Phase.CHALLENGE) return null
         return runCatching {
             val fields=FidoLoginContract.form(requireNotNull(options),credential,policy.origin)
-            val form=FormBody.Builder().add("action","tokenlogin").add("hwstate",hwstate)
+            val form=FormBody.Builder().add("action","tokenlogin").add("hwstate",hwstate).add("token","")
             fields.forEach { (key,value)->form.add(key,value) }
             val result=request(requireNotNull(target),form.build())
             options=null; hwstate=""; target=null; phase=Phase.SUBMITTED

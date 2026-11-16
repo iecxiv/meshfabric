@@ -22,7 +22,7 @@ class FidoLoginExchangeTest {
     private fun ready():FidoLoginExchange { val s=started(); assertNotNull(s.challenge(binding,"$origin/tenant/","$origin/tenant/","opaque+state=",options())); return s }
     private fun fields(body:FormBody)=(0 until body.size).associate { body.name(it) to body.value(it) }
     @Test fun passwordRequestKeepsTenantPath() { val s=session(); val r=s.password(binding,"secret")!!; assertEquals("$origin/tenant/login",r.url.toString()); assertEquals(mapOf("action" to "login","username" to "alice","password" to "secret"),fields(r.body as FormBody)) }
-    @Test fun assertionUsesTokenLoginAndExactState() { val r=ready().submit(binding,credential())!!; val f=fields(r.body as FormBody); assertEquals(setOf("action","hwstate","hwtoken"),f.keys); assertEquals("tokenlogin",f["action"]); assertEquals("opaque+state=",f["hwstate"]) }
+    @Test fun assertionUsesTokenLoginAndExactState() { val r=ready().submit(binding,credential())!!; val f=fields(r.body as FormBody); assertEquals(setOf("action","hwstate","hwtoken","token"),f.keys); assertEquals("",f["token"]); assertEquals("tokenlogin",f["action"]); assertEquals("opaque+state=",f["hwstate"]) }
     @Test fun cookieFromChallengeIsPreserved() { val s=ready(); assertTrue(s.observeCookies(binding,"$origin/tenant/",listOf("meshsession=abc; Path=/tenant; Secure; HttpOnly"))); assertEquals("meshsession=abc",s.submit(binding,credential())!!.header("Cookie")) }
     @Test fun updatedCookieReplacesOldValue() { val s=ready(); s.observeCookies(binding,origin,listOf("session=old; Path=/; Secure")); s.observeCookies(binding,origin,listOf("session=new; Path=/; Secure")); assertEquals("session=new",s.submit(binding,credential())!!.header("Cookie")) }
     @Test fun unrelatedCookiePathIsNotSent() { val s=ready(); s.observeCookies(binding,origin,listOf("session=abc; Path=/other; Secure")); assertNull(s.submit(binding,credential())!!.header("Cookie")) }
@@ -39,4 +39,20 @@ class FidoLoginExchangeTest {
     @Test fun otherOriginPostIsRejected() { val s=started(); assertNull(s.challenge(binding,origin,"https://other.example/login","state",options())); assertEquals(FidoLoginExchange.Phase.INVALID,s.phase) }
     @Test fun otherOriginCookiesAreRejected() { val s=started(); assertFalse(s.observeCookies(binding,"https://other.example",listOf("session=abc"))) }
     @Test fun emptyStateIsRejected() { val s=started(); assertNull(s.challenge(binding,origin,origin,"",options())) }
+
+    @Test fun emptyTokenSelectsAuditedSessionLookupCondition() {
+        val body=ready().submit(binding,credential())!!.body as FormBody
+        val f=fields(body)
+        fun restores(input:Map<String,String>)=input["username"]==null && input["password"]==null && input["token"]!=null
+        // MeshCentral 1.3.1 webserver.js lines 1379-1383: presence, not OTP validity.
+        assertTrue(restores(f)); assertFalse(restores(f-"token")); assertEquals("",f["token"])
+        assertFalse(f["hwtoken"].isNullOrBlank()); assertEquals("opaque+state=",f["hwstate"])
+    }
+    @Test fun emptyTokenIsPresentExactlyOnceWithoutPrimaryCredentials() {
+        val body=ready().submit(binding,credential())!!.body as FormBody
+        val indexes=(0 until body.size).filter { body.name(it)=="token" }
+        assertEquals(1,indexes.size); assertEquals("",body.value(indexes.single()))
+        assertFalse((0 until body.size).any { body.name(it) in setOf("username","password","pin","otptoken","vtoken") })
+        assertEquals(1,(0 until body.size).count { body.name(it)=="hwtoken" })
+    }
 }

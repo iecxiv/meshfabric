@@ -67,4 +67,55 @@ class FidoLoginHttpTransportTest {
     @Test fun doesNotRetryDisconnectedPost() { server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)); reject { transport.begin("secret") }; assertEquals(1,server.requestCount) }
     @Test fun rejectsOversizedChallengePage() { server.enqueue(MockResponse().setBody("x".repeat(2_097_153))); reject { transport.begin("secret") } }
     @Test fun defaultTlsRejectsUntrustedCertificate() { transport.close(); transport=FidoLoginHttpTransport(binding,{live}); server.enqueue(MockResponse().setBody(html())); reject { transport.begin("secret") }; assertEquals(0,server.requestCount) }
+
+    private fun auditedProtocolRoundTrip(account:String):Pair<Boolean,Map<String,String>> {
+        val submitted=java.util.concurrent.atomic.AtomicReference<Map<String,String>>(emptyMap())
+        fun decode(body:String):Map<String,String> = body.split('&').associate { field ->
+            val p=field.split('=',limit=2)
+            java.net.URLDecoder.decode(p[0],"UTF-8") to java.net.URLDecoder.decode(p.getOrElse(1){""},"UTF-8")
+        }
+        // Protocol fixture only: not a cryptographic authenticator or live MeshCentral server.
+        server.dispatcher=object:okhttp3.mockwebserver.Dispatcher() {
+            override fun dispatch(request:okhttp3.mockwebserver.RecordedRequest):MockResponse {
+                if(request.method=="POST" && request.path=="/tenant/login" && decode(request.body.clone().readUtf8())["action"]=="login") {
+                    return MockResponse().setBody(html()).addHeader("Set-Cookie","session=challenge; Path=/tenant; Secure; HttpOnly")
+                }
+                if(request.method=="POST" && request.path=="/tenant/login") {
+                    val f=decode(request.body.readUtf8()); submitted.set(f)
+                    val restore=f["username"]==null && f["password"]==null && f["token"]!=null
+                    if(!restore || f["token"]!="" || f["action"]!="tokenlogin" || f["hwstate"]!="opaque+state=" || f["hwtoken"].isNullOrEmpty() || request.getHeader("Cookie")!="session=challenge") {
+                        return MockResponse().setBody(html())
+                    }
+                    return MockResponse().setResponseCode(302).addHeader("Location","/tenant/").addHeader("Set-Cookie","session=authenticated; Path=/tenant; Secure; HttpOnly")
+                }
+                if(request.method=="GET" && request.path=="/tenant/") return MockResponse().setBody("HTTP response alone is not proof")
+                if(request.method=="GET" && request.path=="/tenant/control.ashx") {
+                    val authenticated=request.getHeader("Cookie")=="session=authenticated"
+                    return MockResponse().withWebSocketUpgrade(object:okhttp3.WebSocketListener() {
+                        override fun onOpen(socket:okhttp3.WebSocket,response:okhttp3.Response) {
+                            if(authenticated) socket.send(com.google.gson.JsonObject().apply {
+                                addProperty("action","userinfo")
+                                add("userinfo",com.google.gson.JsonObject().apply { addProperty("_id","user//$account") })
+                            }.toString()) else socket.close(1000,"noauth")
+                        }
+                    })
+                }
+                return MockResponse().setResponseCode(404)
+            }
+        }
+        transport.begin("secret")
+        val pending=transport.submit(credential())
+        assertEquals("session=authenticated",pending.cookie)
+        val verified=FidoSessionVerifier(binding,{live},client,3000).use { it.verify(pending) }
+        return verified to submitted.get()
+    }
+    @Test fun emptyTokenAllowsSessionRestorationAndVerifiedAccount() {
+        val (verified,form)=auditedProtocolRoundTrip("alice")
+        assertTrue(verified); assertTrue(form.containsKey("token")); assertEquals("",form["token"])
+        assertFalse(form.containsKey("password")); assertFalse(form.containsKey("username")); assertEquals(4,server.requestCount)
+    }
+    @Test fun emptyTokenDoesNotAllowDifferentAccount() {
+        val (verified,form)=auditedProtocolRoundTrip("bob")
+        assertFalse(verified); assertEquals("",form["token"]); assertFalse(form["hwtoken"].isNullOrBlank())
+    }
 }
