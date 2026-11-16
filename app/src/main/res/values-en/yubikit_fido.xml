@@ -1,0 +1,5 @@
+<resources>
+    <!-- A YubiKit result is not confirmation of an authenticated MeshCentral session. -->
+    <string name="yk_fido_login_successful">Security key response completed</string>
+    <string name="yk_fido_error_login_failed">Could not complete the security key operation for %1$s</string>
+</resources>
