@@ -1,0 +1,132 @@
+name: Validate and publish FIDO verifier diagnostics
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/fido/prepare-verifier-diagnostics.py', '.github/workflows/validate-fido-verifier-diagnostics.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-verifier-diagnostics
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Prepare reviewed plaintext candidate
+        run: python3 .github/fido/prepare-verifier-diagnostics.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve(); tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve(); candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify all evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib,json
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              checks=[('FidoSessionVerifierTest',32),('FidoLoginDiagnosticsTest',10),('FidoLoginVerificationTest',12),('FidoLoginCompletionTest',6),('FidoLoginFlowTest',6),('FidoLoginChallengePageTest',12),('FidoLoginHttpTransportTest',9),('FidoLoginExchangeTest',18),('FidoLoginContractTest',16),('FidoRegistrationContractTest',10),('FidoRegistrationSessionTest',10),('FidoWebOriginPolicyTest',10),('FidoRegistrationPageTest',14),('NativeAccountFidoStatusTest',6)] if root=='app/build/test-results' else [('FidoLoginDiagnosticsUiTest',2),('FidoSessionStorageTest',2),('FidoLoginControlsTest',2),('FidoAssertionScriptTest',1),('FidoHostLifecycleTest',2),('ServerDialogTitleTypographyUiTest',14)]
+              for name,count in checks: assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==count,name
+              totals[root]=len(cases)
+          out=Path('validation')
+          (out/'test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          apks=list(Path('app/build/outputs/apk/debug').glob('*.apk')); assert len(apks)==1
+          apk=apks[0]; assert apk.stat().st_size>0
+          (out/'apk-sha256.txt').write_text(hashlib.sha256(apk.read_bytes()).hexdigest()+'  '+apk.name+'\n')
+          (out/'VALIDATED.txt').write_text('Verifier diagnostics passed build, all unit tests, lint and all instrumentation. Only fixed failure codes are exposed. Strict TLS and matching userinfo remain mandatory. Physical login remains unconfirmed.\n')
+      - name: Upload patch and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-verifier-diagnostics-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish exactly four validated app files
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/fido-support
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/data/remote/FidoSessionVerifier.kt','app/src/main/java/iecxiv/meshfabric/data/remote/FidoLoginFailure.kt','app/src/main/java/iecxiv/meshfabric/ui/login/FidoLoginFlow.kt','app/src/test/java/iecxiv/meshfabric/data/remote/FidoSessionVerifierTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert Path('validation/VALIDATED.txt').is_file()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/verifier-diagnostics.patch').read_bytes()
+          digests=json.loads(Path('validation/source-digests.json').read_text()); assert set(digests)==expected
+          assert all(hashlib.sha256(Path(n).read_bytes()).hexdigest()==v for n,v in digests.items())
+          assert hashlib.sha256(Path('.github/fido/prepare-verifier-diagnostics.py').read_bytes()).hexdigest()==Path('validation/preparer-sha256.txt').read_text().strip()
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(fido): distinguish account verification failure reasons'
+          git push origin HEAD:refs/heads/fido-support
+          git rev-parse HEAD > validation/source-commit.txt
+      - name: Upload validated diagnostic APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: meshfabric-fido-verifier-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            validation/apk-sha256.txt
+            validation/source-commit.txt
+            validation/test-counts.json
+            validation/VALIDATED.txt
+          if-no-files-found: error
+          retention-days: 14
