@@ -1,0 +1,176 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 6 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+sCheckState.func(oldPassCheckState.response); }
+2765:             });
+2766:         }
+2767:
+2768:         // Try current password
+2769:         require('./pass').hash(password, user.salt, function oldPassCheck(err, hash, tag) {
+2770:             if ((err == null) && (hash == tag.user.hash)) { tag.response = 1; }
+2771:             if (--tag.count == 0) { tag.func(tag.response); }
+2772:         }, oldPassCheckState);
+2773:
+2774:         // Try each old password
+2775:         if (user.oldpasswords != null) {
+2776:             for (var i in user.oldpasswords) {
+2777:                 const oldpassword = user.oldpasswords[i];
+2778:                 // Default strong password hashing (pbkdf2 SHA384)
+2779:                 require('./pass').hash(password, oldpassword.salt, function oldPassCheck(err, hash, tag) {
+
+--- webserver.js lines 2978-3450 ---
+2978:                             if (ugroup != null) {
+2979:                                 // Add group to the user
+2980:                                 if (user.links == null) { user.links = {}; }
+2981:                                 user.links[ugroup._id] = { rights: 1 };
+2982:
+2983:                                 // Add user to the group
+2984:                                 ugroup.links[user._id] = { userid: user._id, name: user.name, rights: 1 };
+2985:                                 db.Set(ugroup);
+2986:
+2987:                                 // Notify user group change
+2988:                                 var event = { etype: 'ugrp', ugrpid: ugroup._id, name: ugroup.name, desc: ugroup.desc, action: 'usergroupchange', links: ugroup.links, msg: 'Added user ' + user.name + ' to user group ' + ugroup.name, addUserDomain: domain.id };
+2989:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+2990:                                 parent.DispatchEvent(['*', ugroup._id, user._id], obj, event);
+2991:                             }
+2992:                         }
+2993:                     }
+2994:
+2995:                     if (groups.enabled === true) {
+2996:                         // Sync the user groups if enabled
+2997:                         if (groups.syncEnabled === true) {
+2998:                             // Set groupType to the preset name if it exists, otherwise use the strategy name
+2999:                             const groupType = domain.authstrategies[req.user.strategy].custom?.preset ? domain.authstrategies[req.user.strategy].custom.preset : req.user.strategy;
+3000:                             syncExternalUserGroups(domain, user, groups.syncMemberships, groupType);
+3001:                         }
+3002:                         // See if the user is a member of the site admin group.
+3003:                         if (groups.grantAdmin === true) {
+3004:                             parent.authLog('handleStrategyLogin', `${req.user.strategy.toUpperCase()}: GROUPS: USER: "${req.user.sid}" Granting site admin privilages`);
+3005:                             user.siteadmin = 0xFFFFFFFF;
+3006:                         }
+3007:                     }
+3008:
+3009:                     // Save the user
+3010:                     obj.db.SetUser(user);
+3011:
+3012:                     // Event user creation
+3013:                     var targets = ['*', 'server-users'];
+3014:                     var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, username is ' + user.name, domain: domain.id };
+3015:                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
+3016:                     parent.DispatchEvent(targets, obj, event);
+3017:
+3018:                     req.session.userid = userid;
+3019:                     setSessionRandom(req);
+3020:
+3021:                     // Notify account login using SSO
+3022:                     var targets = ['*', 'server-users', user._id];
+3023:                     if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+3024:                     const ua = obj.getUserAgentInfo(req);
+3025:                     const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login', domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], twoFactorType: 'sso' };
+3026:                     obj.parent.DispatchEvent(targets, obj, loginEvent);
+3027:                 } else {
+3028:                     // New users not allowed
+3029:                     parent.authLog('handleStrategyLogin', `${req.user.strategy.toUpperCase()}: LOGIN FAILED: USER: "${req.user.sid}" New accounts are not allowed`);
+3030:                     req.session.loginmode = 1;
+3031:                     req.session.messageid = 100; // Unable to create account.
+3032:                     res.redirect(domain.url + getQueryPortion(req));
+3033:                     return;
+3034:                 }
+3035:             } else { // Login success
+3036:                 // Check for basic changes
+3037:                 var userChanged = false;
+3038:                 if ((req.user.name != null) && (req.user.name != user.name)) { user.name = req.user.name; userChanged = true; }
+3039:                 if ((req.user.email != null) && (req.user.email != user.email)) { user.email = req.user.email; user.emailVerified = true; userChanged = true; }
+3040:
+3041:                 if (groups.enabled === true) {
+3042:                     // Sync the user groups if enabled
+3043:                     if (groups.syncEnabled === true) {
+3044:                         syncExternalUserGroups(domain, user, groups.syncMemberships, req.user.strategy)
+3045:                     }
+3046:                     // See if the user is a member of the site admin group.
+3047:                     if (groups.siteAdminEnabled === true) {
+3048:                         if (groups.grantAdmin === true) {
+3049:                             parent.authLog('handleStrategyLogin', `${req.user.strategy.toUpperCase()}: GROUPS: USER: "${req.user.sid}" Granting site admin privilages`);
+3050:                             if (user.siteadmin !== 0xFFFFFFFF) { user.siteadmin = 0xFFFFFFFF; userChanged = true; }
+3051:                         } else if ((groups.revokeAdmin === true) && (user.siteadmin === 0xFFFFFFFF)) {
+3052:                             parent.authLog('handleStrategyLogin', `${req.user.strategy.toUpperCase()}: GROUPS: USER: "${req.user.sid}" Revoking site admin privilages.`);
+3053:                             delete user.siteadmin;
+3054:                             userChanged = true;
+3055:                         }
+3056:                     }
+3057:                 }
+3058:
+3059:                 // Update db record for user if there are changes detected
+3060:                 if (userChanged) {
+3061:                     parent.authLog('handleStrategyLogin', `${req.user.strategy.toUpperCase()}: CHANGED: USER: "${req.user.sid}" Updating user database entry`);
+3062:                     obj.db.SetUser(user);
+3063:
+3064:                     // Event user change
+3065:                     var targets = ['*', 'server-users'];
+3066:                     var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Account changed', domain: domain.id };
+3067:                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
+3068:                     parent.DispatchEvent(targets, obj, event);
+3069:                 }
+3070:                 req.session.userid = userid;
+3071:                 setSessionRandom(req);
+3072:
+3073:                 // Notify account login using SSO
+3074:                 var targets = ['*', 'server-users', user._id];
+3075:                 if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+3076:                 const ua = obj.getUserAgentInfo(req);
+3077:                 const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login', domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], twoFactorType: 'sso' };
+3078:                 obj.parent.DispatchEvent(targets, obj, loginEvent);
+3079:                 parent.authLog('handleStrategyLogin', `${req.user.strategy.toUpperCase()}: LOGIN SUCCESS: USER: "${req.user.sid}"`);
+3080:             }
+3081:         } else if (req.session && req.session.userid && obj.users[req.session.userid]) {
+3082:             parent.authLog('handleStrategyLogin', `User Already Authorised "${(req.session.passport && req.session.passport.user) ? req.session.passport.user : req.session.userid }"`);
+3083:         } else {
+3084:             parent.authLog('handleStrategyLogin', `LOGIN FAILED: REQUEST CONTAINS NO USER OR SID`);
+3085:         }
+3086:         //res.redirect(domain.url); // This does not handle cookie correctly.
+3087:         res.set('Content-Type', 'text/html');
+3088:         let url = domain.url;
+3089:         if (Object.keys(req.query).length > 0) { url += "?" + Object.keys(req.query).map(function(key) { return encodeURIComponent(key) + "=" + encodeURIComponent(req.query[key]); }).join("&"); }
+3090:
+3091:         // check for relaystate is set, test against configured server name and accepted query params
+3092:         if(req.body && req.body.RelayState !== undefined){
+3093:                 var relayState = decodeURIComponent(req.body.RelayState);
+3094:                 var serverName = (obj.getWebServerName(domain, req)).replaceAll('.','\\.');
+3095:
+3096:                 var regexstr = `(?<=https:\\/\\/(?:.+?\\.)?${serverName}\\/?)` +
+3097:                 `.*((?<=([\\?&])gotodevicename=(.{64})|` +
+3098:                 `gotonode=(.{64})|` +
+3099:                 `gotodeviceip=(((25[0-5]|(2[0-4]|1\\d|[1-9]|)\\d)\\.?\\b){4})|` +
+3100:                 `gotodeviceip=(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|::([0-9a-fA-F]{1,4}:){1,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:)` +
+3101:                 `lang=(.{5})|` +
+3102:                 `sitestyle=(\\d+)|` +
+3103:                 `user=(.{64})|` +
+3104:                 `pass=(.{256})|` +
+3105:                 `key=|` +
+3106:                 `locale=|` +
+3107:                 `gotomesh=(.{64})|` +
+3108:                 `gotouser=(.{0,64})|` +
+3109:                 `gotougrp=(.{64})|` +
+3110:                 `debug=|` +
+3111:                 `filter=|` +
+3112:                 `webrtc=|` +
+3113:                 `hide=|` +
+3114:                 `viewmode=(\\d+)(?=[\\&]|\\b)))`;
+3115:
+3116:                 var regex = new RegExp(regexstr);
+3117:                 if(regex.test(relayState)){
+3118:                         url = relayState;
+3119:                 }
+3120:         }
+3121:
+3122:         res.end('<html><head><meta http-equiv="refresh" content=0;url="' + url + '"></head><body></body></html>');
+3123:     }
+3124:
+3125:     // Indicates that any request to "/" should render "default" or "login" depending on login state
+3126:     function handleRootRequest(req, res, direct) {
+3127:         const domain = checkUserIpAddress(req, res);
+3128:         if (domain == null) { return; }
+3129:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+3130:         if (!obj.args) { parent.debug('web', 'handleRootRequest: no obj.args.'); res.sendStatus(500); return; }
+3131:
+3132:         // If a HTTP header is required, check new UserRequiredHttpHeader
+3133:         if (domain.userrequiredht

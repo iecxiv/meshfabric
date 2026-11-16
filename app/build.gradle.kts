@@ -5,14 +5,19 @@ plugins {
 
 android {
     namespace = "iecxiv.meshfabric"
-    compileSdk = 35
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
+    buildToolsVersion = "37.0.0"
 
     defaultConfig {
         applicationId = "iecxiv.meshfabric"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "1.3.7"
+        versionName = "1.3.8"
         //20261023
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -41,7 +46,10 @@ dependencies {
     implementation(libs.material)
 
     // Compose BOM & UI
-    implementation(platform(libs.compose.bom))
+    val alignedComposeBom = platform(libs.compose.bom)
+    implementation(alignedComposeBom)
+    testImplementation(alignedComposeBom)
+    implementation(libs.compose.foundation.layout)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
@@ -59,9 +67,13 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.security.crypto)
     implementation("net.lingala.zip4j:zip4j:2.11.6")
+    implementation("com.yubico.yubikit:fido-android-ui:3.3.0")
+    implementation("androidx.webkit:webkit:1.14.0")
 
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.compose.bom))

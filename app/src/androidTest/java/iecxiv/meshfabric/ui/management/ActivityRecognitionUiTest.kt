@@ -2,7 +2,7 @@ package iecxiv.meshfabric.ui.management
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import iecxiv.meshfabric.data.model.MeshGroup
 import iecxiv.meshfabric.data.model.MeshNode
 import iecxiv.meshfabric.ui.theme.AppThemeMode

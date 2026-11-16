@@ -1,0 +1,144 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 24 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+ next);
+7791:                         }, handleStrategyLogin);
+7792:                     }
+7793:
+7794:                     // Azure
+7795:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.azure) != 0) {
+7796:                         obj.app.get(url + 'auth-azure', function (req, res, next) {
+7797:                             var domain = getDomain(req);
+7798:                             if (domain.passport == null) { next(); return; }
+7799:                             domain.passport.authenticate('azure-' + domain.id, { state: obj.parent.encodeCookie({ 'p': 'azure' }, obj.parent.loginCookieEncryptionKey) })(req, res, next);
+7800:                         });
+7801:                         obj.app.get(url + 'auth-azure-callback', function (req, res, next) {
+7802:                             var domain = getDomain(req);
+7803:                             if (domain.passport == null) { next(); return; }
+7804:                             if ((Object.keys(req.session).length == 0) && (req.query.nmr == null)) {
+7805:                                 // This is an empty session likely due to the 302 redirection, redirect again (this is a bit of a hack).
+7806:                                 var url = req.url;
+7807:                                 if (url.indexOf('?') >= 0) { url += '&nmr=1'; } else { url += '?nmr=1'; } // Add this to the URL to prevent redirect loop.
+7808:                                 res.set('Content-Type', 'text/html');
+7809:                                 res.end('<html><head><meta http-equiv="refresh" content=0;url="' + encodeURIComponent(url) + '"></head><body></body></html>');
+7810:                             } else {
+7811:                                 if (req.query.state != null) {
+7812:                                     var c = obj.parent.decodeCookie(req.query.state, obj.parent.loginCookieEncryptionKey, 10); // 10 minute timeout
+7813:                                     if ((c != null) && (c.p == 'azure')) { domain.passport.authenticate('azure-' + domain.id, { failureRedirect: domain.url })(req, res, next); return; }
+7814:                                 }
+7815:                                 next();
+7816:                             }
+7817:                         }, handleStrategyLogin);
+7818:                     }
+7819:
+7820:                     // Setup OpenID Connect URLs
+7821:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.oidc) != 0) {
+7822:                         let authURL = url + 'auth-oidc'
+7823:                         parent.authLog('setupHTTPHandlers', `OIDC: Authorization URL: ${authURL}`);
+7824:                         obj.app.get(authURL, function (req, res, next) {
+7825:                             var domain = getDomain(req);
+7826:                             if (domain.passport == null) { next(); return; }
+7827:                             domain.passport.authenticate(`oidc-${domain.id}`, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7828:                         });
+7829:                         let redirectPath;
+7830:                         if (typeof domain.authstrategies.oidc.client.redirect_uri == 'string') {
+7831:                             redirectPath = (new URL(domain.authstrategies.oidc.client.redirect_uri)).pathname;
+7832:                         } else if (Array.isArray(domain.authstrategies.oidc.client.redirect_uris)) {
+7833:                             redirectPath = (new URL(domain.authstrategies.oidc.client.redirect_uris[0])).pathname;
+7834:                         } else {
+7835:                             redirectPath = url + 'auth-oidc-callback';
+7836:                         }
+7837:                         parent.authLog('setupHTTPHandlers', `OIDC: Callback URL: ${redirectPath}`);
+7838:                         obj.app.get(redirectPath, obj.bodyParser.urlencoded({ extended: false }), function (req, res, next) {
+7839:                             var domain = getDomain(req);
+7840:                             if (domain.passport == null) { next(); return; }
+7841:                             if (req.session && req.session.userid) { next(); return; } // already logged in so dont authenticate just carry on
+7842:                             if (typeof req.query.error == 'string') { // The identity provider refused the login, for example when the user has no application role assigned.
+7843:                                 parent.authLog('oidcCallback', `OIDC: LOGIN FAILED: Identity provider returned an error: ${req.query.error}${(typeof req.query.error_description == 'string') ? ' - ' + req.query.error_description : ''}`);
+7844:                                 req.session.loginmode = 1;
+7845:                                 req.session.messageid = 111; // Access denied.
+7846:                                 res.redirect(domain.url);
+7847:                                 return;
+7848:                             }
+7849:                             if (req.session && req.session['oidc-' + domain.id]) { // we have a request to login so do authenticate
+7850:                                 domain.passport.authenticate(`oidc-${domain.id}`, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7851:                             } else { // no idea so carry on
+7852:                                 next(); return;
+7853:                             }
+7854:                         }, handleStrategyLogin, function (err, req, res, next) { // Show the login page instead of an internal error page when the login could not be completed.
+7855:                             var domain = getDomain(req);
+7856:                             parent.authLog('oidcCallback', `OIDC: LOGIN FAILED: ${(err != null) ? (err.message ? err.message : err) : 'Unknown error'}`);
+7857:                             parent.debug('error', `OIDC: LOGIN FAILED: ${(err != null) ? (err.stack ? err.stack : err) : 'Unknown error'}`);
+7858:                             if ((domain == null) || (res.headersSent === true)) { next(err); return; }
+7859:                             req.session.loginmode = 1;
+7860:                             req.session.messageid = 111; // Access denied.
+7861:                             res.redirect(domain.url);
+7862:                         });
+7863:                     }
+7864:
+7865:                     // Generic SAML
+7866:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.saml) != 0) {
+7867:                         obj.app.get(url + 'auth-saml', function (req, res, next) {
+7868:                             var domain = getDomain(req);
+7869:                             if (domain.passport == null) { next(); return; }
+7870:                             //set RelayState when queries are passed
+7871:                             if (Object.keys(req.query).length != 0){
+7872:                                 req.query.RelayState = encodeURIComponent(`${req.protocol}://${req.hostname}${req.originalUrl}`.replace('auth-saml/',''))
+7873:                             }
+7874:                             domain.passport.authenticate('saml-' + domain.id, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7875:                         });
+7876:                         obj.app.post(url + 'auth-saml-callback', obj.bodyParser.urlencoded({ extended: false }), function (req, res, next) {
+7877:                             var domain = getDomain(req);
+7878:                             if (domain.passport == null) { next(); return; }
+7879:                             domain.passport.authenticate('saml-' + domain.id, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7880:                         }, handleStrategyLogin);
+7881:                     }
+7882:
+7883:                     // Intel SAML
+7884:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.intelSaml) != 0) {
+7885:                         obj.app.get(url + 'auth-intel', function (req, res, next) {
+7886:                             var domain = getDomain(req);
+7887:                             if (domain.passport == null) { next(); return; }
+7888:                             domain.passport.authenticate('isaml-' + domain.id, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7889:                         });
+7890:                         obj.app.post(url + 'auth-intel-callback', obj.bodyParser.urlencoded({ extended: false }), function (req, res, next) {
+7891:                             var domain = getDomain(req);
+7892:                             if (domain.passport == null) { next(); return; }
+7893:                             domain.passport.authenticate('isaml-' + domain.id, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7894:                         }, handleStrategyLogin);
+7895:                     }
+7896:
+7897:                     // JumpCloud SAML
+7898:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.jumpCloudSaml) != 0) {
+7899:                         obj.app.get(url + 'auth-jumpcloud', function (req, res, next) {
+7900:                             var domain = getDomain(req);
+7901:                             if (domain.passport == null) { next(); return; }
+7902:                             domain.passport.authenticate('jumpcloud-' + domain.id, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7903:                         });
+7904:                         obj.app.post(url + 'auth-jumpcloud-callback', obj.bodyParser.urlencoded({ extended: false }), function (req, res, next) {
+7905:                             var domain = getDomain(req);
+7906:                             if (domain.passport == null) { next(); return; }
+7907:                             domain.passport.authenticate('jumpcloud-' + domain.id, { failureRedirect: domain.url, failureFlash: true })(req, res, next);
+7908:                         }, handleStrategyLogin);
+7909:                     }
+7910:                 }
+7911:
+7912:                 // Setup Duo HTTP handlers if supported
+7913:                 if ((typeof domain.duo2factor == 'object') && (typeof domain.duo2factor.integrationkey == 'string') && (typeof domain.duo2factor.secretkey == 'string') && (typeof domain.duo2factor.apihostname == 'string')) {
+7914:                     // Duo authentication handler
+7915:                     obj.app.get(url + 'auth-duo', function (req, res){
+7916:                         var domain = getDomain(req);
+7917:                         const sec = parent.decryptSessionData(req.session.e);
+7918:                         if ((req.query.state !== sec.duostate) || (req.query.duo_code == null)) {
+7919:                             // The state returned from Duo is not the same as what was in the session, so must fail
+7920:                             parent.debug('web', 'handleRootRequest: Duo 2FA state failed.');
+
+--- webserver.js lines 7940-8388 ---
+7940:                                     var user = obj.users[userid];
+7941:                                     if (user.otpduo == null) {
+7942:                                         user.otpduo = {};
+7943:                                         db.SetUser(user);
+7944:                                         // Notify change
+7945:                                         var targets = ['*', 'server-users', user._id];
+7946:                                         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+7947:                                         var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msgid: 160, msg: "Enabled duo two-factor authentication.", domain: domain.id };
+7948:                                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to chang

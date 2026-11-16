@@ -1,0 +1,318 @@
+name: Validate and publish FIDO documentation and versionName 1.3.8
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/workflows/update-fido-docs-1-3-8.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-docs-version-1-3-8
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Prepare reviewed documentation and versionName only
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib,json,subprocess
+          assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
+          workflow='.github/workflows/update-fido-docs-1-3-8.yml'
+          assert subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()==[workflow]
+          pinned={
+              'app/build.gradle.kts':'265f24c7a5bcf1fe201b391f6239e8799f470bc1',
+              'README.md':'20c3852aa8ec46b5d1ebafec2c6c378fed7f32b9',
+              'README_ES.md':'05dd4d5ec71c6cc29abec26e505e2050fdbb9997',
+              'docs/profile-native.md':'69df4f0c7eebe8e3027ca524b89090baf84e5335',
+              'docs/es/profile-native.md':'298816b0b19a842fbfa528218f237819477ce59f',
+              'docs/profile.md':'4c974a656cbe5116516ad5fe5fe4ceca9c67ce0d',
+              'docs/es/profile.md':'1a713c5c555dc3b35f4de70daa106ceb2be28035',
+              'docs/terminal-selection-copy.md':'247cef242e187a8129cf905e9210f7b978c53a01',
+              'docs/es/terminal-selection-copy.md':'c5d27bc26c613c93ca18667cbda2e6876999ede1',
+              'docs/i18n/README.md':'334c8b9efcd34d8d12bb5b1049e842fcd05d759b',
+              'docs/es/i18n/README.md':'b81e482172625c894c93bde0d913f5a598bb0bd7',
+              'docs/desktop-clipboard-control.md':'eb1796c7f39015982478b5d584846bbfa8a90edd'
+          }
+          changes={}
+          for name,sha in pinned.items():
+              raw=Path(name).read_bytes()
+              assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==sha,'Source changed: '+name
+              changes[name]=raw.decode('utf-8')
+          def once(name,before,after):
+              assert changes[name].count(before)==1,('Anchor changed',name,before)
+              changes[name]=changes[name].replace(before,after,1)
+          config='app/build.gradle.kts'
+          original_config=changes[config]
+          once(config,'versionName = "1.3.7"','versionName = "1.3.8"')
+          assert changes[config].replace('versionName = "1.3.8"','versionName = "1.3.7"',1)==original_config
+          for value in ['minSdk = 26','targetSdk = 35','versionCode = 1','version = release(37)','minorApiLevel = 2','buildToolsVersion = "37.0.0"','com.yubico.yubikit:fido-android-ui:3.3.0']:
+              assert value in changes[config],value
+          en='README.md'; es='README_ES.md'
+          once(en,'English | [Español](README_ES.md)\n','English | [Español](README_ES.md)\n\nCurrent `fido-support` app version: `1.3.8` (`versionCode = 1`, unchanged). This update does not publish a tag or release. Physical checks reported by the user cover copy/paste and security-key registration, removal and sign-in, including USB sign-in. See [FIDO support, SDK configuration and validation scope](docs/fido/README.md).\n')
+          once(es,'[English](README.md) | Español\n','[English](README.md) | Español\n\nVersión actual de la app en `fido-support`: `1.3.8` (`versionCode = 1`, sin cambios). Esta actualización no publica etiquetas ni releases. El usuario ha confirmado copia/pegado y alta, baja y login con llave de seguridad, incluido el login por USB. Consulta [FIDO, configuración SDK y alcance de validación](docs/es/fido.md).\n')
+          once(en,'- Native FIDO2 sign-in and new security-key registration remain pending. Existing keys can be listed and removed.','- Native FIDO2/WebAuthn sign-in and security-key registration, listing and removal are implemented. The user reports successful registration, removal and sign-in with the YubiKey 5 NFC used in this work, including USB sign-in; NFC registration was confirmed earlier. This is not universal key, transport or server compatibility. See the [validation scope](docs/fido/README.md).')
+          once(es,'- El inicio de sesión FIDO2 nativo y el alta de nuevas claves siguen pendientes. Las claves existentes se pueden consultar y eliminar.','- Están implementados el login FIDO2/WebAuthn nativo y el alta, consulta y baja de llaves. El usuario confirma alta, baja y login con la YubiKey 5 NFC utilizada en este trabajo, incluido el login por USB; el alta por NFC ya se había confirmado. Esto no garantiza compatibilidad universal con llaves, transportes o servidores. Consulta el [alcance de validación](docs/es/fido.md).')
+          once(en,'| Compile SDK | `35` |','| Compile SDK | `37`, minor API `2` (`platforms;android-37.2`) |')
+          once(es,'| SDK de compilación | `35` |','| SDK de compilación | `37`, API menor `2` (`platforms;android-37.2`) |')
+          once(en,'| Java source/target compatibility | `17` |','| Java source/target compatibility | `17` |\n| Build Tools | `37.0.0` |\n| App versionName | `1.3.8` |\n| App versionCode | `1` (unchanged) |')
+          once(es,'| Compatibilidad de código fuente/destino Java | `17` |','| Compatibilidad de código fuente/destino Java | `17` |\n| Build Tools | `37.0.0` |\n| versionName de la app | `1.3.8` |\n| versionCode de la app | `1` (sin cambios) |')
+          once(en,'Install Android SDK Platform 35 and let Gradle synchronize the project.','Install Android SDK Platform 37.2 (`platforms;android-37.2`), Build Tools 37.0.0 and Platform Tools, then let Gradle synchronize the project. Validated CI uses Android Command-line Tools 23.0 and also installs Platform 35 for its API 35 test environment. compileSdk does not change the API 26 minimum or targetSdk 35.')
+          once(es,'Instala Android SDK Platform 35 y sincroniza Gradle.','Instala Android SDK Platform 37.2 (`platforms;android-37.2`), Build Tools 37.0.0 y Platform Tools, y sincroniza Gradle. La CI validada usa Android Command-line Tools 23.0 e instala también Platform 35 para su entorno de pruebas API 35. compileSdk no cambia el mínimo API 26 ni targetSdk 35.')
+          for name in [en,es]:
+              once(name,'git clone https://github.com/iecxiv/meshfabric.git','git clone --branch fido-support https://github.com/iecxiv/meshfabric.git')
+          once('docs/profile-native.md','- List and remove previously registered security keys. Native FIDO2 sign-in and registration of new keys are not implemented; there is no automatic browser fallback for registration.','- Register, list and remove security keys natively, and use native FIDO2/WebAuthn sign-in. The user reports successful registration, removal and sign-in with the key used in this work, including USB sign-in; NFC registration was confirmed earlier. Registration stays in the app with a restricted WebView, without an external browser. See [FIDO support and validation scope](fido/README.md).')
+          once('docs/es/profile-native.md','- Consulta y eliminación de claves de seguridad registradas. El inicio de sesión FIDO2 nativo y el alta de claves nuevas no están implementados; no se abre automáticamente un navegador como alternativa de alta.','- Alta, consulta y baja nativas de llaves, además de login FIDO2/WebAuthn nativo. El usuario confirma alta, baja y login con la llave utilizada, incluido el login por USB; el alta por NFC ya estaba confirmada. El registro permanece en la app con una WebView restringida, sin navegador externo. Consulta [FIDO y alcance de validación](fido.md).')
+          once('docs/profile.md','Native FIDO2 sign-in and new security-key registration remain pending. Listing/removing existing keys is available. Automated checks do not replace live-server and physical-device validation of every operation.','Native FIDO2/WebAuthn sign-in and security-key registration, listing and removal are implemented. The user reports successful physical registration, removal and sign-in, including USB sign-in, for the key used in this work. See [FIDO support and validation scope](fido/README.md). These checks do not establish universal compatibility or validation of every account operation.')
+          once('docs/es/profile.md','El inicio de sesión FIDO2 nativo y el alta de claves nuevas siguen pendientes; las claves existentes se pueden consultar y eliminar. Las pruebas automatizadas no sustituyen la validación de cada operación en un servidor y dispositivo reales.','Están implementados el login FIDO2/WebAuthn y el alta, consulta y baja de llaves. El usuario confirma alta, baja y login físicos, incluido el login por USB, con la llave utilizada en este trabajo. Consulta [FIDO y alcance de validación](fido.md). Estas pruebas no garantizan compatibilidad universal ni validan todas las operaciones de cuenta.')
+          once('docs/terminal-selection-copy.md','Both partial and whole-snapshot copying use a dialog-local ClipboardManager that marks content sensitive to suppress the Android clipboard preview.','Both partial and whole-snapshot copying use a dialog-local LocalClipboard/Clipboard adapter with suspend setClipEntry operations that marks content sensitive to suppress the Android clipboard preview.')
+          once('docs/es/terminal-selection-copy.md','Tanto la copia parcial como la completa usan un ClipboardManager local al diálogo que marca el contenido como sensible para ocultar la vista previa de Android.','Tanto la copia parcial como la completa usan un adaptador LocalClipboard/Clipboard local al diálogo, con operaciones suspendidas setClipEntry, que marca el contenido como sensible para ocultar la vista previa de Android.')
+          changes['docs/terminal-selection-copy.md']+='\n## Subsequent device check\n\nOn 2026-11-16 the user reported copy/paste working after the terminal/desktop clipboard migrations. This is a physical smoke check, not completion of every layout, lifecycle, host or clipboard edge-case scenario. See [validation scope](fido/README.md).\n'
+          changes['docs/es/terminal-selection-copy.md']+='\n## Comprobación física posterior\n\nEl 16 de noviembre de 2026 el usuario confirmó que copiar/pegar funciona tras las migraciones del portapapeles de terminal/escritorio. Es una comprobación física básica, no la validación de todos los escenarios de disposición, ciclo de vida, host o casos límite. Consulta el [alcance](fido.md).\n'
+          once('docs/i18n/README.md','Version name is 1.1.1; version code remains 1.','The original inventory snapshot was prepared for version 1.1.1. The current fido-support app versionName is 1.3.8; versionCode remains 1.')
+          once('docs/es/i18n/README.md','El nombre de versión es 1.1.1; el código permanece en 1.','El inventario original se preparó para la versión 1.1.1. El versionName actual de la app en fido-support es 1.3.8; versionCode permanece en 1.')
+          changes['docs/i18n/README.md']+='\n## YubiKit resources\n\nYubiKit remains at 3.3.0. App overrides provide Spanish prompts, results, PIN messages, accessibility labels and plurals, with complete default/English declarations. A completed key response is not announced as a verified MeshCentral session. This does not make the entire app localization complete.\n'
+          changes['docs/es/i18n/README.md']+='\n## Recursos de YubiKit\n\nYubiKit permanece en 3.3.0. La app aporta textos españoles de instrucciones, resultados, PIN, accesibilidad y plurales, con declaraciones completas predeterminadas e inglesas. La respuesta completada de la llave no se anuncia como sesión MeshCentral verificada. Esto no completa la localización de toda la app.\n'
+          once('docs/desktop-clipboard-control.md','# Desktop clipboard control candidate','# Desktop clipboard control\n\n> Current status, 2026-11-16: directed clipboard control and the LocalClipboard screen migration are incorporated in fido-support. The user reports copy/paste working. See [current validation scope](fido/README.md). The candidate notes below are historical: their original pending checks and unpublished status do not describe the current branch. The detailed edge-case checklist is not claimed fully verified.\n\n## Historical candidate notes')
+          additions={
+          'docs/fido/README.md':'''# FIDO2/WebAuthn and validation scope — 1.3.8
+
+          [Español](../es/fido.md) | [My Account](../profile-native.md) | [README](../../README.md)
+
+          This describes fido-support with app versionName 1.3.8. It is not a tag or release announcement.
+
+          ## Implemented behavior
+
+          - Native FIDO2/WebAuthn sign-in and registration, listing and removal of account security keys.
+          - YubiKit 3.3.0 remains pinned. The WebView stays restricted to the selected server, does not open an external browser, and cancels on TLS errors.
+          - Sign-in uses the attempt-bound hwtoken/hwstate exchange and an empty token form field for server-side session credential restoration. Authenticator success, HTTP success or cookies alone do not establish an authenticated account: the control connection must verify matching user identity.
+          - Registration requires server acknowledgement and key-list readback. Removal is not confirmed merely because the request was sent; the key must be absent from the returned list.
+          - YubiKit prompts and results have Spanish resources and default/English declarations. Key-operation completion remains separate from final account sign-in.
+          - The proposed selectable-key removal UI was cancelled and is not included. The existing key index/ID input remains unchanged.
+
+          ## Physical checks reported by the user
+
+          Report date: 2026-11-16. The security key identified in this work is a YubiKey 5 NFC.
+
+          | Operation | Evidence and scope |
+          | --- | --- |
+          | Security-key registration | User reports success; registration over NFC was independently reported earlier in this work. |
+          | Security-key removal | User reports success. No complete per-transport removal matrix was supplied. |
+          | FIDO sign-in | User reports success and explicitly confirms sign-in over USB as well. |
+          | Copy/paste | User reports it working after the terminal/desktop clipboard work. The exact device/host and edge-case matrix was not recorded. |
+
+          These are user-reported physical checks, not an independent assistant hardware test. USB sign-in does not establish USB registration/removal. Other key models, all Android/agent/server versions, every USB/NFC combination and multiserver isolation are not certified by this report. A complete transport-by-operation matrix remains open.
+
+          ## Build and runtime configuration
+
+          Source of truth: app/build.gradle.kts.
+
+          | Setting | Value |
+          | --- | --- |
+          | versionName | 1.3.8 |
+          | versionCode | 1, unchanged |
+          | minSdk | 26; Android 8.0 minimum |
+          | targetSdk | 35, unchanged |
+          | compileSdk | API 37, minor API 2; platforms;android-37.2 |
+          | Build Tools | 37.0.0 |
+          | Java source/target | 17 |
+          | Validation JDK | 21 |
+          | Validated Android Command-line Tools | 23.0 |
+
+          compileSdk is the build API selection, not the app minimum or target. SDK values and YubiKit are not changed by this documentation/versionName update.
+
+          ## Automated checks and remaining limits
+
+          The Locale constructor, Compose v2 rule and clipboard API migrations have been incorporated. The user reported successful validation workflows. This is not a claim of zero remaining lint/compiler warnings; inspect the latest reports separately.
+
+          Changes are gated by compilation, all JVM unit tests, lint and the entire Android instrumented suite, without skipped tests or weakened assertions. This update also runs the standalone JavaScript test scripts. No APK upload is required: the developer builds locally and installs through ADB.
+
+          Physical checks remain distinct from automated results. Review the detailed clipboard lifecycle/layout checklists when changing those flows, and do not infer universal FIDO compatibility or multiserver validation from a successful CI run. No merge, tag or release is performed by this update.
+          ''',
+          'docs/es/fido.md':'''# FIDO2/WebAuthn y alcance de validación — 1.3.8
+
+          [English](../fido/README.md) | [Mi cuenta](profile-native.md) | [README](../../README_ES.md)
+
+          Describe fido-support con versionName 1.3.8. No es un anuncio de etiqueta ni de release.
+
+          ## Comportamiento implementado
+
+          - Login FIDO2/WebAuthn y alta, consulta y baja nativos de llaves de seguridad de la cuenta.
+          - YubiKit permanece fijado en 3.3.0. La WebView se restringe al servidor seleccionado, no abre un navegador externo y cancela ante errores TLS.
+          - El login utiliza hwtoken/hwstate vinculados al intento y el campo token vacío para recuperar las credenciales de sesión en el servidor. El éxito del autenticador, un HTTP correcto o las cookies no prueban por sí solos la autenticación: el canal de control debe verificar la identidad de la cuenta.
+          - El alta requiere acuse del servidor y relectura de la lista. La baja no se confirma por enviar la petición: la llave debe dejar de aparecer en la lista recibida.
+          - Los textos y resultados de YubiKit tienen recursos españoles y declaraciones predeterminadas/inglesas. Completar la operación con la llave se distingue del acceso final a la cuenta.
+          - El selector de llaves propuesto para la baja fue cancelado y no se incluye. Se mantiene la entrada actual del índice/ID.
+
+          ## Comprobaciones físicas comunicadas por el usuario
+
+          Fecha: 16 de noviembre de 2026. La llave identificada en este trabajo es una YubiKey 5 NFC.
+
+          | Operación | Evidencia y alcance |
+          | --- | --- |
+          | Alta de llave | El usuario confirma éxito; el alta por NFC ya se había confirmado anteriormente. |
+          | Baja de llave | El usuario confirma éxito. No se aportó una matriz completa de baja por transporte. |
+          | Login FIDO | El usuario confirma éxito y especifica que también inicia sesión por USB. |
+          | Copiar/pegar | El usuario confirma funcionamiento tras el trabajo de portapapeles de terminal/escritorio. No se registró una matriz exacta de dispositivos, hosts y casos límite. |
+
+          Son comprobaciones físicas comunicadas por el usuario, no pruebas de hardware independientes del asistente. El login por USB no demuestra alta/baja por USB. No certifican otros modelos, todas las versiones Android/agente/servidor, cada combinación USB/NFC ni el aislamiento multiserver. Sigue abierta la matriz completa de operación por transporte.
+
+          ## Configuración de compilación y ejecución
+
+          La fuente de verdad es app/build.gradle.kts.
+
+          | Ajuste | Valor |
+          | --- | --- |
+          | versionName | 1.3.8 |
+          | versionCode | 1, sin cambios |
+          | minSdk | 26; mínimo Android 8.0 |
+          | targetSdk | 35, sin cambios |
+          | compileSdk | API 37, API menor 2; platforms;android-37.2 |
+          | Build Tools | 37.0.0 |
+          | Java fuente/destino | 17 |
+          | JDK de validación | 21 |
+          | Android Command-line Tools validadas | 23.0 |
+
+          compileSdk selecciona las API de compilación, no el mínimo ni el objetivo de la app. Esta actualización documental y de versionName no cambia los SDK ni YubiKit.
+
+          ## Automatización y límites pendientes
+
+          Se han incorporado las migraciones de constructores Locale, reglas Compose v2 y API del portapapeles. El usuario comunicó resultados correctos de sus workflows. Esto no afirma que queden cero warnings: hay que revisar los informes recientes por separado.
+
+          Los cambios se validan con compilación, todos los unitarios JVM, lint y toda la instrumentación Android, sin pruebas omitidas ni aserciones debilitadas. Esta actualización ejecuta también los scripts JavaScript independientes. No hace falta subir APK: el desarrollador compila localmente e instala por ADB.
+
+          La validación física sigue separada de la automatizada. Las listas detalladas de ciclo de vida/disposición del portapapeles deben revisarse al modificar esos flujos. Una CI correcta no acredita compatibilidad FIDO universal ni validación multiserver. Esta actualización no realiza merges, etiquetas ni releases.
+          '''
+          }
+          assert len(pinned)==12 and len(additions)==2
+          for name,text in additions.items():
+              assert not Path(name).exists(),'Document already exists: '+name
+              changes[name]=text
+          assert len(changes)==14
+          for name,text in changes.items():
+              p=Path(name); p.parent.mkdir(parents=True,exist_ok=True); p.write_bytes(text.encode('utf-8'))
+          subprocess.run(['git','add','--',*sorted(changes)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(changes)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          (out/'docs-version.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+          (out/'source-digests.json').write_text(json.dumps({n:hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in sorted(changes)},indent=2)+'\n')
+          (out/'expected-files.json').write_text(json.dumps(sorted(changes),indent=2)+'\n')
+          (out/'original-config.txt').write_text(original_config)
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve(); tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve(); candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Clean build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: All standalone JavaScript tests
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          scripts=sorted(Path('app/src/test/js').glob('*.test.js'))
+          assert len(scripts)>=3,'Expected standalone JavaScript suites'
+          with Path('validation/javascript-tests.txt').open('w') as out:
+              for script in scripts:
+                  out.write(str(script)+'\n'); out.flush()
+                  subprocess.run(['node',str(script)],stdout=out,stderr=subprocess.STDOUT,check=True)
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify all results and unchanged SDK configuration
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              totals[root]=len(cases)
+          original=Path('validation/original-config.txt').read_text()
+          assert Path('app/build.gradle.kts').read_text()==original.replace('versionName = "1.3.7"','versionName = "1.3.8"',1)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          Path('validation/VALIDATED.txt').write_text('Documentation and versionName 1.3.8 passed build, all JVM tests, lint, all standalone JavaScript scripts and complete instrumentation. versionCode, SDK levels, dependencies and application behavior are unchanged. Physical results are attributed to the user; no universal compatibility claim, APK upload, merge, tag or release.\n')
+      - name: Upload reports and exact patch only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-docs-1-3-8-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only the fourteen validated documentation and version files
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch origin refs/heads/fido-support
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess
+          digests=json.loads(Path('validation/source-digests.json').read_text())
+          expected=set(json.loads(Path('validation/expected-files.json').read_text()))
+          assert len(expected)==14 and set(digests)==expected
+          assert {n for n in expected if n.startswith('app/')}=={'app/build.gradle.kts'}
+          assert all(n in {'README.md','README_ES.md','app/build.gradle.kts'} or n.startswith('docs/') for n in expected)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert Path('validation/VALIDATED.txt').is_file()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/docs-version.patch').read_bytes()
+          assert all(hashlib.sha256(Path(n).read_bytes()).hexdigest()==v for n,v in digests.items())
+          original=Path('validation/original-config.txt').read_text()
+          assert Path('app/build.gradle.kts').read_text()==original.replace('versionName = "1.3.7"','versionName = "1.3.8"',1)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs(fido): record physical checks and set versionName 1.3.8'
+          git push origin HEAD:refs/heads/fido-support
+          printf 'Published documentation and versionName 1.3.8 in `%s`. SDK/versionCode unchanged; no APK, merge, tag or release.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

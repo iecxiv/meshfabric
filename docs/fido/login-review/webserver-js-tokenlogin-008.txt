@@ -1,0 +1,164 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 8 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+dcButtonIcon = "images/login/oidc32.png";
+3749:                         oidcButtonIcon2x = "images/login/oidc64.png 2x";
+3750:                 }
+3751:             }
+3752:
+3753:             if (obj.common.validateString(domain.authstrategies.oidc.custom.buttontext, 1, 128)) {
+3754:                 oidcButtonText = domain.authstrategies.oidc.custom.buttontext;
+3755:             }
+3756:         }
+3757:         render(req, res,
+3758:             getRenderPage((domain.sitestyle >= 2) ? 'login2' : 'login', req, domain),
+3759:             getRenderArgs({
+3760:                 loginmode: loginmode,
+3761:                 rootCertLink: getRootCertLink(domain),
+3762:                 newAccount: newAccountsAllowed, // True if new accounts are allowed from the login page
+3763:                 newAccountPass: (((domain.newaccountspass == null) || (domain.newaccountspass == '')) ? 0 : 1), // 1 if new account creation requires password
+3764:                 newAccountCaptcha: newAccountCaptcha, // If new account creation requires a CAPTCHA, this string will not be empty
+3765:                 newAccountCaptchaImage: newAccountCaptchaImage, // Set to the URL of the CAPTCHA image
+3766:                 serverDnsName: obj.getWebServerName(domain, req),
+3767:                 serverPublicPort: httpsPort,
+3768:                 passlogin: (typeof domain.showpasswordlogin == 'boolean') ? domain.showpasswordlogin : true,
+3769:                 emailcheck: emailcheck,
+3770:                 features: features,
+3771:                 sessiontime: (args.sessiontime) ? args.sessiontime : 60, // Session time in minutes, 60 minutes is the default
+3772:                 passRequirements: passRequirements,
+3773:                 customui: customui,
+3774:                 customFiles: customFiles,
+3775:                 footer: (domain.loginfooter == null) ? '' : obj.common.replacePlaceholders(domain.loginfooter, {
+3776:                     'serverversion': obj.parent.currentVer,
+3777:                     'servername': obj.getWebServerName(domain, req),
+3778:                     'agentsessions': Object.keys(parent.webserver.wsagents).length,
+3779:                     'connectedusers': Object.keys(parent.webserver.wssessions).length,
+3780:                     'userssessions': Object.keys(parent.webserver.wssessions2).length,
+3781:                     'relaysessions': parent.webserver.relaySessionCount,
+3782:                     'relaycount': Object.keys(parent.webserver.wsrelays).length
+3783:                 }),
+3784:                 hkey: encodeURIComponent(hardwareKeyChallenge).replace(/'/g, '%27'),
+3785:                 messageid: msgid,
+3786:                 flashErrors: JSON.stringify(flashErrors).replace(/"/g, '\\"'),
+3787:                 passhint: passhint,
+3788:
+3789:                 welcometext: domain.welcometext ? encodeURIComponent(obj.common.replacePlaceholders(domain.welcometext, {
+3790:                     'serverversion': obj.parent.currentVer,
+3791:                     'servername': obj.getWebServerName(domain, req),
+3792:                     'agentsessions': Object.keys(parent.webserver.wsagents).length,
+3793:                     'connectedusers': Object.keys(parent.webserver.wssessions).length,
+3794:                     'userssessions': Object.keys(parent.webserver.wssessions2).length,
+3795:                     'relaysessions': parent.webserver.relaySessionCount,
+3796:                     'relaycount': Object.keys(parent.webserver.wsrelays).length
+3797:                 })).split('\'').join('\\\'') : null,
+3798:                 welcomePictureFullScreen: ((typeof domain.welcomepicturefullscreen == 'boolean') ? domain.welcomepicturefullscreen : false),
+3799:                 hwstate: hwstate,
+3800:                 otpemail: otpemail,
+3801:                 otpduo: otpduo,
+3802:                 otpsms: otpsms,
+3803:                 otpmsg: otpmsg,
+3804:                 otppush: otppush,
+3805:                 autofido: autofido,
+3806:                 twoFactorCookieDays: twoFactorCookieDays,
+3807:                 authStrategies: authStrategies.join(','),
+3808:                 oidcButtonText: oidcButtonText || '',
+3809:                 oidcButtonIcon: oidcButtonIcon || 'images/login/oidc32.png',
+3810:                 oidcButtonIcon2x: oidcButtonIcon2x || 'images/login/oidc64.png 2x',
+3811:                 loginpicture: (typeof domain.loginpicture == 'string'),
+3812:                 tokenTimeout: twoFactorTimeout, // Two-factor authentication screen timeout in milliseconds,
+3813:                 renderLanguages: obj.renderLanguages,
+3814:                 showLanguageSelect: domain.showlanguageselect ? domain.showlanguageselect : false,
+3815:             }, req, domain, (domain.sitestyle >= 2) ? 'login2' : 'login'));
+3816:     }
+3817:
+3818:     // Handle a post request on the root
+3819:     function handleRootPostRequest(req, res) {
+3820:         const domain = checkUserIpAddress(req, res);
+3821:         if (domain == null) { return; }
+3822:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.end("Not Found"); return; } // Check 3FA URL key
+3823:         if (req.body == null) { req.body = {}; }
+3824:         parent.debug('web', 'handleRootPostRequest, action: ' + req.body.action);
+3825:
+3826:         // If a HTTP header is required, check new UserRequiredHttpHeader
+3827:         if (domain.userrequiredhttpheader && (typeof domain.userrequiredhttpheader == 'object')) { var ok = false; for (var i in req.headers) { if (domain.userrequiredhttpheader[i.toLowerCase()] == req.headers[i]) { ok = true; } } if (ok == false) { res.sendStatus(404); return; } }
+3828:
+3829:         switch (req.body.action) {
+3830:             case 'login': { handleLoginRequest(req, res, true); break; }
+3831:             case 'tokenlogin': {
+3832:                 if (req.body.hwstate) {
+3833:                     var cookie = obj.parent.decodeCookie(req.body.hwstate, obj.parent.loginCookieEncryptionKey, 10);
+3834:                     if (cookie != null) { req.session.e = parent.encryptSessionData({ tuser: cookie.u, tpass: cookie.p, u2f: cookie.c }); }
+3835:                 }
+3836:                 handleLoginRequest(req, res, true); break;
+3837:             }
+3838:             case 'pushlogin': {
+3839:                 if (req.body.hwstate) {
+3840:                     var cookie = obj.parent.decodeCookie(req.body.hwstate, obj.parent.loginCookieEncryptionKey, 1);
+3841:                     if ((cookie != null) && (typeof cookie.u == 'string') && (cookie.d == domain.id) && (cookie.a == 'pushAuth')) {
+3842:                         // Push authentication is a success, login the user
+3843:                         req.session = { userid: cookie.u };
+3844:
+3845:                         // Check if we need to remember this device
+3846:                         if ((req.body.remembertoken === 'on') && ((domain.twofactorcookiedurationdays == null) || (domain.twofactorcookiedurationdays > 0))) {
+3847:                             var maxCookieAge = domain.twofactorcookiedurationdays;
+3848:                             if (typeof maxCookieAge != 'number') { maxCookieAge = 30; }
+3849:                             const twoFactorCookie = obj.parent.encodeCookie({ userid: cookie.u, expire: maxCookieAge * 24 * 60 /*, ip: req.clientIp*/ }, obj.parent.loginCookieEncryptionKey);
+3850:                             res.cookie('twofactor', twoFactorCookie, { maxAge: (maxCookieAge * 24 * 60 * 60 * 1000), httpOnly: true, sameSite: parent.config.settings.sessionsamesite, secure: true });
+3851:                         }
+3852:                         var user = obj.users[cookie.u];
+3853:                         // Notify account login
+3854:                         var targets = ['*', 'server-users', user._id];
+3855:                         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+3856:                         const ua = obj.getUserAgentInfo(req);
+3857:                         const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login', domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], twoFactorType: 'pushlogin' };
+3858:                         obj.parent.DispatchEvent(targets, obj, loginEvent);
+3859:                         handleRootRequestEx(req, res, domain);
+3860:                         return;
+3861:                     }
+3862:                 }
+3863:                 handleLoginRequest(req, res, true); break;
+3864:             }
+3865:             case 'changepassword': { handlePasswordChangeRequest(req, res, true); break; }
+3866:             case 'deleteaccount': { handleDeleteAccountRequest(req, res, true); break; }
+3867:             case 'createaccount': { handleCreateAccountRequest(req, res, true); break; }
+3868:             case 'resetpassword': { handleResetPasswordRequest(req, res, true); break; }
+3869:             case 'resetaccount': { handleResetAccountRequest(req, res, true); break; }
+3870:             case 'checkemail': { handleCheckAccountEmailRequest(req, res, true); break; }
+3871:             default: { handleLoginRequest(req, res, true); break; }
+3872:         }
+3873:     }
+3874:
+3875:     // Return true if it looks like we are using a real TLS certificate.
+3876:     obj.isTrustedCert = function (domain) {
+3877:         if ((domain != null) && (typeof domain.trustedcert == 'boolean')) return domain.trustedcert; // If the status of the cert specified, use that.
+3878:         if (typeof obj.args.trustedcert == 'boolean') return obj.args.trustedcert; // If the status of the cert specified, use that.
+3879:         if (obj.args.tlsoffload != null) return true; // We are using TLS offload, a real cert is likely used.
+3880:         if (obj.parent.config.letsencrypt != null) return (obj.parent.config.letsencrypt.production === true); // We are using Let's Encrypt, real cert in use if production is set to true.
+3881:         if ((typeof obj.certificates.WebIssuer == 'string') && (obj.certificates.WebIssuer.indexOf('MeshCentralRoot-') == 0)) return false; // Our cert is issued by self-signed cert.
+3882:         if (obj.certificates.CommonName.indexOf('.') == -1) return false; // Our cert is named with a fake name
+3883:         return true; // This is a guess
+3884:     }
+3885:
+3886:     // Get the link to the root certificate if needed
+3887:     function getRootCertLink(domain) {
+3888:         // Check if the HTTPS certificate is issued from MeshCentralRoot, if so, add download link to root certificate.
+3889:         if (obj.isTrustedCert(domain) == false) {
+3890:             // Get the domain suffix
+3891:             var xdomain = (domain.dns == null) ? domain.id : '';
+3892:             if (xdomain != '') xdomain += '/';
+3893:             return '<a href=/' + xdomain + 'MeshServerRootCert.cer title="Download the root certificate for this server">Root Certificate</a>';
+3894:         }
+3895:         return '';
+3896:     }
+3897:
+3898:     // Serve the xterm page
+3899:     function handleXTermRequest(req, res) {
+3900:         const domain = checkUserIpAddress(req, res);
+3901:         if (domain == null) { return; }
+3902:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+3903:
+3904:         parent.debug('web', 'handleXTermRequest: sending xterm');
+3905:         res.set({ 'Cache-Control': 'no-store' });
+3906:         if (req.session && req.session.userid) {
+3907:             if (req.session.userid.split('/')[1] != domain.id) { res.redirect(domain.url + getQueryPortion(req)); return; } // Check if the session is for the correct domain
+3908:             var user = obj.users[req.session.userid];
+3909:             if ((user == null) || (req.query.nodeid == null)) { res.redirect(domain.url + getQueryPortion(req)); return;

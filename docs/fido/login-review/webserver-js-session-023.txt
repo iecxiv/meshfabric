@@ -1,0 +1,150 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 23 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+.meshDeviceFileHandler.CreateMeshDeviceFile(obj, ws, null, req, domain); });
+7633:                 obj.app.get(url + 'devicefile.ashx', handleDeviceFile);
+7634:                 obj.app.get(url + 'agentdownload.ashx', handleAgentDownloadFile);
+7635:                 obj.app.get(url + 'logo.png', handleLogoRequest);
+7636:                 obj.app.get(url + 'loginlogo.png', handleLoginLogoRequest);
+7637:                 obj.app.get(url + 'pwalogo.png', handlePWALogoRequest);
+7638:                 obj.app.post(url + 'translations', obj.bodyParser.urlencoded({ extended: false }), handleTranslationsRequest);
+7639:                 obj.app.get(url + 'welcome.jpg', handleWelcomeImageRequest);
+7640:                 obj.app.get(url + 'welcome.png', handleWelcomeImageRequest);
+7641:                 obj.app.get(url + 'recordings.ashx', handleGetRecordings);
+7642:                 obj.app.ws(url + 'recordings.ashx', handleGetRecordingsWebSocket);
+7643:                 obj.app.get(url + 'player.htm', handlePlayerRequest);
+7644:                 obj.app.get(url + 'player', handlePlayerRequest);
+7645:                 obj.app.get(url + 'sharing', handleSharingRequest);
+7646:                 obj.app.ws(url + 'agenttransfer.ashx', handleAgentFileTransfer); // Setup agent to/from server file transfer handler
+7647:                 obj.app.ws(url + 'meshrelay.ashx', function (ws, req) {
+7648:                     PerformWSSessionAuth(ws, req, true, function (ws1, req1, domain, user, cookie, authData) {
+7649:                         if (((parent.config.settings.desktopmultiplex === true) || (domain.desktopmultiplex === true)) && (req.query.p == 2)) {
+7650:                             obj.meshDesktopMultiplexHandler.CreateMeshRelay(obj, ws1, req1, domain, user, cookie); // Desktop multiplexor 1-to-n
+7651:                         } else {
+7652:                             obj.meshRelayHandler.CreateMeshRelay(obj, ws1, req1, domain, user, cookie); // Normal relay 1-to-1
+7653:                         }
+7654:                     });
+
+--- webserver.js lines 7668-7920 ---
+7668:                 obj.app.post(url + 'invite', obj.bodyParser.urlencoded({ extended: false }), handleInviteRequest);
+7669:
+7670:                 if (parent.pluginHandler != null) {
+7671:                     obj.app.get(url + 'pluginadmin.ashx', obj.handlePluginAdminReq);
+7672:                     obj.app.post(url + 'pluginadmin.ashx', obj.bodyParser.urlencoded({ extended: false }), obj.handlePluginAdminPostReq);
+7673:                     obj.app.get(url + 'pluginHandler.js', obj.handlePluginJS);
+7674:                 }
+7675:
+7676:                 // New account CAPTCHA request
+7677:                 if ((domain.newaccountscaptcha != null) && (domain.newaccountscaptcha !== false)) {
+7678:                     obj.app.get(url + 'newAccountCaptcha.ashx', handleNewAccountCaptchaRequest);
+7679:                 }
+7680:
+7681:                 // Check CrowdSec Bounser if configured
+7682:                 if (parent.crowdSecBounser != null) {
+7683:                     obj.app.get(url + 'captcha.ashx', handleCaptchaGetRequest);
+7684:                     obj.app.post(url + 'captcha.ashx', obj.bodyParser.urlencoded({ extended: false }), handleCaptchaPostRequest);
+7685:                 }
+7686:
+7687:                 // Setup IP-KVM relay if supported
+7688:                 if (domain.ipkvm) {
+7689:                     obj.app.ws(url + 'ipkvm.ashx/*', function (ws, req) {
+7690:                         const domain = getDomain(req);
+7691:                         if (domain == null) { parent.debug('web', 'ipkvm: failed domain checks.'); try { ws.close(); } catch (ex) { } return; }
+7692:                         parent.ipKvmManager.handleIpKvmWebSocket(domain, ws, req);
+7693:                     });
+7694:                     obj.app.get(url + 'ipkvm.ashx/*', function (req, res, next) {
+7695:                         const domain = getDomain(req);
+7696:                         if (domain == null) return;
+7697:                         parent.ipKvmManager.handleIpKvmGet(domain, req, res, next);
+7698:                     });
+7699:                 }
+7700:
+7701:                 // Setup RDP unless indicated as disabled
+7702:                 if (domain.mstsc !== false) {
+7703:                     obj.app.get(url + 'mstsc.html', function (req, res) { handleMSTSCRequest(req, res, 'mstsc'); });
+7704:                     obj.app.ws(url + 'mstscrelay.ashx', function (ws, req) {
+7705:                         const domain = getDomain(req);
+7706:                         if (domain == null) { parent.debug('web', 'mstsc: failed checks.'); try { ws.close(); } catch (e) { } return; }
+7707:                         // If no user is logged in and we have a default user, set it now.
+7708:                         if ((req.session.userid == null) && (typeof obj.args.user == 'string') && (obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()])) { req.session.userid = 'user/' + domain.id + '/' + obj.args.user.toLowerCase(); }
+7709:                         try { require('./apprelays.js').CreateMstscRelay(obj, obj.db, ws, req, obj.args, domain); } catch (ex) { console.log(ex); }
+7710:                     });
+7711:                 }
+7712:
+7713:                 // Setup SSH if needed
+7714:                 if (domain.ssh === true) {
+7715:                     obj.app.get(url + 'ssh.html', function (req, res) { handleMSTSCRequest(req, res, 'ssh'); });
+7716:                     obj.app.ws(url + 'sshrelay.ashx', function (ws, req) {
+7717:                         const domain = getDomain(req);
+7718:                         if (domain == null) { parent.debug('web', 'ssh: failed checks.'); try { ws.close(); } catch (e) { } return; }
+7719:                         // If no user is logged in and we have a default user, set it now.
+7720:                         if ((req.session.userid == null) && (typeof obj.args.user == 'string') && (obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()])) { req.session.userid = 'user/' + domain.id + '/' + obj.args.user.toLowerCase(); }
+7721:                         try { require('./apprelays.js').CreateSshRelay(obj, obj.db, ws, req, obj.args, domain); } catch (ex) { console.log(ex); }
+7722:                     });
+7723:                     obj.app.ws(url + 'sshterminalrelay.ashx', function (ws, req) {
+7724:                         PerformWSSessionAuth(ws, req, true, function (ws1, req1, domain, user, cookie, authData) {
+7725:                             require('./apprelays.js').CreateSshTerminalRelay(obj, obj.db, ws1, req1, domain, user, cookie, obj.args);
+7726:                         });
+7727:                     });
+7728:                     obj.app.ws(url + 'sshfilesrelay.ashx', function (ws, req) {
+7729:                         PerformWSSessionAuth(ws, req, true, function (ws1, req1, domain, user, cookie, authData) {
+7730:                             require('./apprelays.js').CreateSshFilesRelay(obj, obj.db, ws1, req1, domain, user, cookie, obj.args);
+7731:                         });
+7732:                     });
+7733:                 }
+7734:
+7735:                 // Setup firebase push only server
+7736:                 if ((obj.parent.firebase != null) && (obj.parent.config.firebase)) {
+7737:                     if (obj.parent.config.firebase.pushrelayserver) { parent.debug('email', 'Firebase-pushrelay-handler'); obj.app.post(url + 'firebaserelay.aspx', obj.bodyParser.urlencoded({ extended: false }), handleFirebasePushOnlyRelayRequest); }
+7738:                     if (obj.parent.config.firebase.relayserver) { parent.debug('email', 'Firebase-relay-handler'); obj.app.ws(url + 'firebaserelay.aspx', handleFirebaseRelayRequest); }
+7739:                 }
+7740:
+7741:                 // Setup auth strategies using passport if needed
+7742:                 if (typeof domain.authstrategies == 'object') {
+7743:                     parent.authLog('setupHTTPHandlers', `Setting up authentication strategies login and callback URLs for ${domain.id == '' ? 'root' : '"' + domain.id + '"'} domain.`);
+7744:                     // Twitter
+7745:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.twitter) != 0) {
+7746:                         obj.app.get(url + 'auth-twitter', function (req, res, next) {
+7747:                             var domain = getDomain(req);
+7748:                             if (domain.passport == null) { next(); return; }
+7749:                             domain.passport.authenticate('twitter-' + domain.id)(req, res, function (err) { console.log('c1', err, req.session); next(); });
+7750:                         });
+7751:                         obj.app.get(url + 'auth-twitter-callback', function (req, res, next) {
+7752:                             var domain = getDomain(req);
+7753:                             if (domain.passport == null) { next(); return; }
+7754:                             if ((Object.keys(req.session).length == 0) && (req.query.nmr == null)) {
+7755:                                 // This is an empty session likely due to the 302 redirection, redirect again (this is a bit of a hack).
+7756:                                 var url = req.url;
+7757:                                 if (url.indexOf('?') >= 0) { url += '&nmr=1'; } else { url += '?nmr=1'; } // Add this to the URL to prevent redirect loop.
+7758:                                 res.set('Content-Type', 'text/html');
+7759:                                 res.end('<html><head><meta http-equiv="refresh" content=0;url="' + encodeURIComponent(url) + '"></head><body></body></html>');
+7760:                             } else {
+7761:                                 domain.passport.authenticate('twitter-' + domain.id, { failureRedirect: domain.url })(req, res, function (err) { if (err != null) { console.log(err); } next(); });
+7762:                             }
+7763:                         }, handleStrategyLogin);
+7764:                     }
+7765:
+7766:                     // Google
+7767:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.google) != 0) {
+7768:                         obj.app.get(url + 'auth-google', function (req, res, next) {
+7769:                             var domain = getDomain(req);
+7770:                             if (domain.passport == null) { next(); return; }
+7771:                             domain.passport.authenticate('google-' + domain.id, { scope: ['profile', 'email'] })(req, res, next);
+7772:                         });
+7773:                         obj.app.get(url + 'auth-google-callback', function (req, res, next) {
+7774:                             var domain = getDomain(req);
+7775:                             if (domain.passport == null) { next(); return; }
+7776:                             domain.passport.authenticate('google-' + domain.id, { failureRedirect: domain.url })(req, res, function (err) { if (err != null) { console.log(err); } next(); });
+7777:                         }, handleStrategyLogin);
+7778:                     }
+7779:
+7780:                     // GitHub
+7781:                     if ((domain.authstrategies.authStrategyFlags & domainAuthStrategyConsts.github) != 0) {
+7782:                         obj.app.get(url + 'auth-github', function (req, res, next) {
+7783:                             var domain = getDomain(req);
+7784:                             if (domain.passport == null) { next(); return; }
+7785:                             domain.passport.authenticate('github-' + domain.id, { scope: ['user:email'] })(req, res, next);
+7786:                         });
+7787:                         obj.app.get(url + 'auth-github-callback', function (req, res, next) {
+7788:                             var domain = getDomain(req);
+7789:                             if (domain.passport == null) { next(); return; }
+7790:                             domain.passport.authenticate('github-' + domain.id, { failureRedirect: domain.url })(req, res,

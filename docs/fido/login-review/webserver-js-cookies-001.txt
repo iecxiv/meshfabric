@@ -1,0 +1,140 @@
+MeshCentral 1.3.1 source review: webserver.js / cookies / part 1 of 5
+Parts may continue a source line. Trailing whitespace is omitted.
+
+--- webserver.js lines 1514-1754 ---
+1514:                             // Check if 2FA is allowed for this IP address
+1515:                             if (obj.checkAllow2Fa(req) == false) {
+1516:                                 // Wait and redirect the user
+1517:                                 setTimeout(function () {
+1518:                                     req.session.messageid = 114; // IP address blocked, try again later.
+1519:                                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1520:                                 }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095));
+1521:                                 return;
+1522:                             }
+1523:
+1524:                             // 2-step auth is required, but the token is not present or not valid.
+1525:                             if ((req.body.token != null) || (req.body.hwtoken != null)) {
+1526:                                 randomWaitTime = 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095); // This is a fail, wait a random time. 2 to 6 seconds.
+1527:                                 req.session.messageid = 108; // Invalid token, try again.
+1528:                                 obj.parent.authLog('https', 'Failed 2FA for ' + xusername + ' from ' + cleanRemoteAddr(req.clientIp) + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'] });
+1529:                                 parent.debug('web', 'handleLoginRequest: invalid 2FA token');
+1530:                                 const ua = obj.getUserAgentInfo(req);
+1531:                                 obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, { action: 'authfail', username: user.name, userid: user._id, domain: domain.id, msg: 'User login attempt with incorrect 2nd factor from ' + req.clientIp, msgid: 108, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1532:                                 obj.setbad2Fa(req);
+1533:                             } else {
+1534:                                 parent.debug('web', 'handleLoginRequest: 2FA token required');
+1535:                             }
+1536:
+1537:                             // Wait and redirect the user
+1538:                             setTimeout(function () {
+1539:                                 req.session.loginmode = 4;
+1540:                                 if ((user.email != null) && (user.emailVerified == true) && (domain.mailserver != null) && (user.otpekey != null)) { req.session.temail = 1; } else { delete req.session.temail; }
+1541:                                 if ((user.phone != null) && (parent.smsserver != null)) { req.session.tsms = 1; } else { delete req.session.tsms; }
+1542:                                 if ((user.msghandle != null) && (parent.msgserver != null) && (parent.msgserver.providers != 0)) { req.session.tmsg = 1; } else { delete req.session.tmsg; }
+1543:                                 if ((user.otpdev != null) && (parent.firebase != null)) { req.session.tpush = 1; } else { delete req.session.tpush; }
+1544:                                 if ((user.otpduo != null)) { req.session.tduo = 1; } else { delete req.session.tduo; }
+1545:                                 req.session.e = parent.encryptSessionData({ tuserid: userid, tuser: xusername, tpass: xpassword });
+1546:                                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1547:                             }, randomWaitTime);
+1548:                         } else {
+1549:                             // Check if we need to remember this device
+1550:                             if ((req.body.remembertoken === 'on') && ((domain.twofactorcookiedurationdays == null) || (domain.twofactorcookiedurationdays > 0))) {
+1551:                                 var maxCookieAge = domain.twofactorcookiedurationdays;
+1552:                                 if (typeof maxCookieAge != 'number') { maxCookieAge = 30; }
+1553:                                 const twoFactorCookie = obj.parent.encodeCookie({ userid: user._id, expire: maxCookieAge * 24 * 60 /*, ip: req.clientIp*/ }, obj.parent.loginCookieEncryptionKey);
+1554:                                 res.cookie('twofactor', twoFactorCookie, { maxAge: (maxCookieAge * 24 * 60 * 60 * 1000), httpOnly: true, sameSite: parent.config.settings.sessionsamesite, secure: true });
+1555:                             }
+1556:
+1557:                             // Check if email address needs to be confirmed
+1558:                             const emailcheck = ((domain.mailserver != null) && (obj.parent.certificates.CommonName != null) && (obj.parent.certificates.CommonName.indexOf('.') != -1) && (obj.args.lanonly != true) && (domain.auth != 'sspi') && (domain.auth != 'ldap'))
+1559:                             if (emailcheck && (user.emailVerified !== true)) {
+1560:                                 parent.debug('web', 'Redirecting using ' + user.name + ' to email check login page');
+1561:                                 req.session.messageid = 3; // "Email verification required" message
+1562:                                 req.session.loginmode = 7;
+1563:                                 req.session.passhint = user.email;
+1564:                                 req.session.cuserid = userid;
+1565:                                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1566:                                 return;
+1567:                             }
+1568:
+1569:                             // Login successful
+1570:                             parent.debug('web', 'handleLoginRequest: successful 2FA login');
+1571:                             if (authData != null) { if (loginOptions == null) { loginOptions = {}; } loginOptions.twoFactorType = authData.twoFactorType; }
+1572:                             completeLoginRequest(req, res, domain, user, userid, xusername, xpassword, direct, loginOptions);
+1573:                         }
+1574:                     });
+1575:                     return;
+1576:                 }
+1577:
+1578:                 // Check if email address needs to be confirmed
+1579:                 const emailcheck = ((domain.mailserver != null) && (obj.parent.certificates.CommonName != null) && (obj.parent.certificates.CommonName.indexOf('.') != -1) && (obj.args.lanonly != true) && (domain.auth != 'sspi') && (domain.auth != 'ldap'))
+1580:                 if (emailcheck && (user.emailVerified !== true)) {
+1581:                     parent.debug('web', 'Redirecting using ' + user.name + ' to email check login page');
+1582:                     req.session.messageid = 3; // "Email verification required" message
+1583:                     req.session.loginmode = 7;
+1584:                     req.session.passhint = user.email;
+1585:                     req.session.cuserid = userid;
+1586:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1587:                     return;
+1588:                 }
+1589:
+1590:                 // Login successful
+1591:                 parent.debug('web', 'handleLoginRequest: successful login');
+1592:                 if (twoFactorSkip != null) { if (loginOptions == null) { loginOptions = {}; } loginOptions.twoFactorType = twoFactorSkip.twoFactorType; }
+1593:                 completeLoginRequest(req, res, domain, user, userid, xusername, xpassword, direct, loginOptions);
+1594:             } else {
+1595:                 // Login failed, log the error
+1596:                 obj.parent.authLog('https', 'Failed password for ' + xusername + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'] });
+1597:
+1598:                 // Wait a random delay
+1599:                 setTimeout(function () {
+1600:                     // If the account is locked, display that.
+1601:                     if (typeof xusername == 'string') {
+1602:                         var xuserid = 'user/' + domain.id + '/' + xusername.toLowerCase();
+1603:                         if (err == 'locked') {
+1604:                             parent.debug('web', 'handleLoginRequest: login failed, locked account');
+1605:                             req.session.messageid = 110; // Account locked.
+1606:                             const ua = obj.getUserAgentInfo(req);
+1607:                             obj.parent.DispatchEvent(['*', 'server-users', xuserid], obj, { action: 'authfail', userid: xuserid, username: xusername, domain: domain.id, msg: 'User login attempt on locked account from ' + req.clientIp, msgid: 109, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1608:                             obj.setbadLogin(req, xusername);
+1609:                         } else if (err == 'denied') {
+1610:                             parent.debug('web', 'handleLoginRequest: login failed, access denied');
+1611:                             req.session.messageid = 111; // Access denied.
+1612:                             const ua = obj.getUserAgentInfo(req);
+1613:                             obj.parent.DispatchEvent(['*', 'server-users', xuserid], obj, { action: 'authfail', userid: xuserid, username: xusername, domain: domain.id, msg: 'Denied user login from ' + req.clientIp, msgid: 155, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1614:                             obj.setbadLogin(req, xusername);
+1615:                         } else {
+1616:                             parent.debug('web', 'handleLoginRequest: login failed, bad username and password');
+1617:                             req.session.messageid = 112; // Login failed, check username and password.
+1618:                             const ua = obj.getUserAgentInfo(req);
+1619:                             obj.parent.DispatchEvent(['*', 'server-users', xuserid], obj, { action: 'authfail', userid: xuserid, username: xusername, domain: domain.id, msg: 'Invalid user login attempt from ' + req.clientIp, msgid: 110, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1620:                             obj.setbadLogin(req, xusername);
+1621:                         }
+1622:                     }
+1623:
+1624:                     // Clean up login mode and display password hint if present.
+1625:                     delete req.session.loginmode;
+1626:                     if ((passhint != null) && (passhint.length > 0)) {
+1627:                         req.session.passhint = passhint;
+1628:                     } else {
+1629:                         delete req.session.passhint;
+1630:                     }
+1631:
+1632:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1633:                 }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095)); // Wait for 2 to ~6 seconds.
+1634:             }
+1635:         });
+1636:     }
+1637:
+1638:     function completeLoginRequest(req, res, domain, user, userid, xusername, xpassword, direct, loginOptions) {
+1639:         // Check if we need to change the password
+1640:         if ((typeof user.passchange == 'number') && ((user.passchange == -1) || ((typeof domain.passwordrequirements == 'object') && (typeof domain.passwordrequirements.reset == 'number') && (user.passchange + (domain.passwordrequirements.reset * 86400) < Math.floor(Date.now() / 1000))))) {
+1641:             // Request a password change
+1642:             parent.debug('web', 'handleLoginRequest: login ok, password change requested');
+1643:             req.session.loginmode = 6;
+1644:             req.session.messageid = 113; // Password change requested.
+1645:
+1646:             // Decrypt any session data
+1647:             const sec = parent.decryptSessionData(req.session.e);
+1648:             sec.rtuser = xusername;
+1649:

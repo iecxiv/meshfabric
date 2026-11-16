@@ -4,7 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -16,7 +16,7 @@ import java.util.Locale
     private fun label(language:String,label:String,old:String) {
         var selected=-1
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(language))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag(language))}
             CompositionLocalProvider(LocalConfiguration provides config) {
                 MaterialTheme {ProfileNavigationBar(3) {selected=it}}
             }

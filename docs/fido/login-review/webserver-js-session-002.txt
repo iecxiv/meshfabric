@@ -1,0 +1,142 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 2 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+.common.validateUsername(req.body.username, 1, 64) || !obj.common.validateEmail(req.body.email, 1, 256) || !obj.common.validateString(req.body.password1, 1, 256) || !obj.common.validateString(req.body.password2, 1, 256) || (req.body.password1 != req.body.password2) || req.body.username == '~' || !obj.common.checkPasswordRequirements(req.body.password1, domain.passwordrequirements)) {
+1821:                     parent.debug('web', 'handleCreateAccountRequest: unable to create account (3)');
+1822:                     req.session.loginmode = 2;
+1823:                     req.session.messageid = 100; // Unable to create account.
+1824:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1825:                 } else {
+1826:                     // Check if this email was already verified
+1827:                     obj.db.GetUserWithVerifiedEmail(domain.id, req.body.email, function (err, docs) {
+1828:                         if ((docs != null) && (docs.length > 0)) {
+1829:                             parent.debug('web', 'handleCreateAccountRequest: Existing account with this email address');
+1830:                             req.session.loginmode = 2;
+1831:                             req.session.messageid = 102; // Existing account with this email address.
+1832:                             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1833:                         } else {
+1834:                             // Check if user exists
+1835:                             if (obj.users['user/' + domain.id + '/' + req.body.username.toLowerCase()]) {
+1836:                                 parent.debug('web', 'handleCreateAccountRequest: Username already exists');
+1837:                                 req.session.loginmode = 2;
+1838:                                 req.session.messageid = 104; // Username already exists.
+1839:                             } else {
+1840:                                 var user = { type: 'user', _id: 'user/' + domain.id + '/' + req.body.username.toLowerCase(), name: req.body.username, email: req.body.email, creation: Math.floor(Date.now() / 1000), login: Math.floor(Date.now() / 1000), access: Math.floor(Date.now() / 1000), domain: domain.id };
+1841:                                 if (domain.newaccountsrights) { user.siteadmin = domain.newaccountsrights; }
+1842:                                 if (obj.common.validateStrArray(domain.newaccountrealms)) { user.groups = domain.newaccountrealms; }
+1843:                                 if ((domain.passwordrequirements != null) && (domain.passwordrequirements.hint === true) && (req.body.apasswordhint)) { var hint = req.body.apasswordhint; if (hint.length > 250) { hint = hint.substring(0, 250); } user.passhint = hint; }
+1844:                                 if (domainUserCount == 0) { user.siteadmin = 4294967295; /*if (domain.newaccounts === 2) { delete domain.newaccounts; }*/ } // If this is the first user, give the account site admin.
+1845:
+1846:                                 // Auto-join any user groups
+1847:                                 if (typeof domain.newaccountsusergroups == 'object') {
+1848:                                     for (var i in domain.newaccountsusergroups) {
+1849:                                         var ugrpid = domain.newaccountsusergroups[i];
+1850:                                         if (ugrpid.indexOf('/') < 0) { ugrpid = 'ugrp/' + domain.id + '/' + ugrpid; }
+1851:                                         var ugroup = obj.userGroups[ugrpid];
+1852:                                         if (ugroup != null) {
+1853:                                             // Add group to the user
+1854:                                             if (user.links == null) { user.links = {}; }
+1855:                                             user.links[ugroup._id] = { rights: 1 };
+1856:
+1857:                                             // Add user to the group
+1858:                                             ugroup.links[user._id] = { userid: user._id, name: user.name, rights: 1 };
+1859:                                             db.Set(ugroup);
+1860:
+1861:                                             // Notify user group change
+1862:                                             var event = { etype: 'ugrp', ugrpid: ugroup._id, name: ugroup.name, desc: ugroup.desc, action: 'usergroupchange', links: ugroup.links, msg: 'Added user ' + user.name + ' to user group ' + ugroup.name, addUserDomain: domain.id };
+1863:                                             if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+1864:                                             parent.DispatchEvent(['*', ugroup._id, user._id], obj, event);
+1865:                                         }
+1866:                                     }
+1867:                                 }
+1868:
+1869:                                 obj.users[user._id] = user;
+1870:                                 req.session.userid = user._id;
+1871:                                 req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+1872:                                 setSessionRandom(req);
+1873:                                 // Create a user, generate a salt and hash the password
+1874:                                 require('./pass').hash(req.body.password1, function (err, salt, hash, tag) {
+1875:                                     if (err) throw err;
+1876:                                     user.salt = salt;
+1877:                                     user.hash = hash;
+1878:                                     delete user.passtype;
+1879:                                     obj.db.SetUser(user);
+1880:
+1881:                                     // Send the verification email
+1882:                                     if ((domain.mailserver != null) && (domain.auth != 'sspi') && (domain.auth != 'ldap') && (obj.common.validateEmail(user.email, 1, 256) == true)) { domain.mailserver.sendAccountCheckMail(domain, user.name, user._id, user.email, obj.getLanguageCodes(req), req.query.key); }
+1883:                                 }, 0);
+1884:                                 var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountcreate', msg: 'Account created, email is ' + req.body.email, domain: domain.id };
+1885:                                 if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
+1886:                                 obj.parent.DispatchEvent(['*', 'server-users'], obj, event);
+1887:                             }
+1888:                             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1889:                         }
+1890:                     });
+1891:                 }
+1892:             }
+1893:         });
+1894:     }
+1895:
+1896:     // Called to process an account password reset
+1897:     function handleResetPasswordRequest(req, res, direct) {
+1898:         const domain = checkUserIpAddress(req, res);
+1899:         if (domain == null) { return; }
+1900:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+1901:         if (req.session.loginToken != null) { res.sendStatus(404); return; } // Do not allow this command when logged in using a login token
+1902:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+1903:
+1904:         // Decrypt any session data
+1905:         const sec = parent.decryptSessionData(req.session.e);
+1906:
+1907:         // Check everything is ok
+1908:         const allowAccountReset = ((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.allowaccountreset !== false) || (sec.rtreset === true));
+1909:         if ((allowAccountReset === false) || (domain == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap') || (typeof req.body.rpassword1 != 'string') || (typeof req.body.rpassword2 != 'string') || (req.body.rpassword1 != req.body.rpassword2) || (typeof req.body.rpasswordhint != 'string') || (req.session == null) || (typeof sec.rtuser != 'string') || (typeof sec.rtpass != 'string')) {
+1910:             parent.debug('web', 'handleResetPasswordRequest: checks failed');
+1911:             delete req.session.e;
+1912:             delete req.session.u2f;
+1913:             delete req.session.loginmode;
+1914:             delete req.session.tuserid;
+1915:             delete req.session.tuser;
+1916:             delete req.session.tpass;
+1917:             delete req.session.temail;
+1918:             delete req.session.tsms;
+1919:             delete req.session.tmsg;
+1920:             delete req.session.tpush;
+1921:             delete req.session.messageid;
+1922:             delete req.session.passhint;
+1923:             delete req.session.cuserid;
+1924:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1925:             return;
+1926:         }
+1927:
+1928:         // Authenticate the user
+1929:         obj.authenticate(sec.rtuser, sec.rtpass, domain, function (err, userid, passhint, loginOptions) {
+1930:             if (userid) {
+1931:                 // Login
+1932:                 var user = obj.users[userid];
+1933:
+1934:                 // If we have password requirements, check this here.
+1935:                 if (!obj.common.checkPasswordRequirements(req.body.rpassword1, domain.passwordrequirements)) {
+1936:                     parent.debug('web', 'handleResetPasswordRequest: password rejected, use a different one (1)');
+1937:                     req.session.loginmode = 6;
+1938:                     req.session.messageid = 105; // Password rejected, use a different one.
+1939:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1940:                     return;
+1941:                 }
+1942:
+1943:                 // Check if the password is the same as a previous one
+1944:                 obj.checkOldUserPasswords(domain, user, req.body.rpassword1, function (result) {
+1945:                     if (result != 0) {
+1946:                         // This is the same password as an older one, request a password change again
+1947:                         parent.debug('web', 'handleResetPasswordRequest: password rejected, use a different one (2)');
+1948:                         req.session.loginmode = 6;
+1949:                         req.session.messageid = 105; // Password rejected, use a different one.
+1950:                         if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1951:                     } else {
+1952:                         // Update the password, use a different salt.
+1953:                         require('./pass').hash(req.body.rpassword1, function (err, salt, hash, tag) {
+1954:                             const nowSeconds = Math.floor(Date.now() / 1000);
+1955:                             if (err) { parent.debug('web', 'handleResetPasswordRequest: hash error.'); throw err; }
+1956:
+1957:                             if (domain.passwordrequirements != null) {
+1958:                                 // Save password hint if this feature is enabled
+1959:                                 if ((domain.passwordrequirements.hint === true) && (req.body.apasswordhint)) { var hint = req.body.apasswordhint; if (hint.length > 250) hint = hint.substring(0, 250); user.passhint = hint; } else { delete user.passh

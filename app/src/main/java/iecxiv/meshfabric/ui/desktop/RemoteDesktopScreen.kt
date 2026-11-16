@@ -84,6 +84,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -93,9 +96,10 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalClipboardManager
+import android.content.ClipData
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -151,7 +155,10 @@ fun RemoteDesktopScreen(
 
     val density = LocalDensity.current
     val context = androidx.compose.ui.platform.LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val clipboardScope = rememberCoroutineScope()
+    val clipboardEpoch = remember(nodeId, showClipboardDialog) { Any() }
+    val currentClipboardEpoch = rememberUpdatedState(clipboardEpoch)
 
     val isImeVisible = WindowInsets.isImeVisible
 
@@ -887,12 +894,18 @@ androidx.compose.ui.unit.Dp(0f)
                             OutlinedButton(
                                 onClick = {
                                     iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopScreen", "RemoteDesktopScreen.kt:828 Pegar de Android clicked") { "Pegar de Android clicked" }
-                                    val clip = clipboardManager.getText()?.text ?: ""
-                                    if (clip.isNotEmpty()) {
-                                        sendClipboardInput = clip
-                                        Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+                                    val draft = sendClipboardInput
+                                    clipboardScope.launch {
+                                        if (currentClipboardEpoch.value !== clipboardEpoch) return@launch
+                                        val data = clipboard.getClipEntry()?.clipData
+                                        val clip = data?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString().orEmpty()
+                                        if (currentClipboardEpoch.value !== clipboardEpoch || sendClipboardInput != draft) return@launch
+                                        if (clip.isNotEmpty()) {
+                                            sendClipboardInput = clip
+                                            Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 },
                                 modifier = Modifier
@@ -952,8 +965,11 @@ androidx.compose.ui.unit.Dp(0f)
                             Button(
                                 onClick = {
                                     if (clipboardReadState == ClipboardTransferState.RECEIVED) {
-                                        clipboardManager.setText(AnnotatedString(remoteClipboardText))
-                                        Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()
+                                        clipboardScope.launch {
+                                            if (currentClipboardEpoch.value !== clipboardEpoch) return@launch
+                                            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("plain text", remoteClipboardText)))
+                                            if (currentClipboardEpoch.value === clipboardEpoch) Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()
+                                        }
                                     } else {
                                         Toast.makeText(context, "El portapapeles remoto está vacío", Toast.LENGTH_SHORT).show()
                                     }

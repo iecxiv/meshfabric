@@ -5,7 +5,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.json.JSONObject
 import org.junit.Rule
@@ -18,7 +18,7 @@ import java.util.Locale
     private fun person(id:String=uid)=JSONObject().put("_id",id).put("name","Alicia").put("realname","Alicia García").put("email","alice@example.invalid")
     private fun show(accounts:List<JSONObject>,language:String="es") {
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(language))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag(language))}
             CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {Column {for(account in accounts) ProfileUserListIdentity(account,accounts)}}}
         }
     }

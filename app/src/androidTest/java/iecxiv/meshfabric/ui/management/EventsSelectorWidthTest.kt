@@ -11,7 +11,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -23,7 +23,7 @@ class EventsSelectorWidthTest {
     @get:Rule val compose=createComposeRule()
     private fun show(scale:Float=1f,width:Int=320) {
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             val context=LocalContext.current.createConfigurationContext(config)
             val density=LocalDensity.current
             CompositionLocalProvider(LocalConfiguration provides config,LocalContext provides context,LocalDensity provides Density(density.density,scale)) {

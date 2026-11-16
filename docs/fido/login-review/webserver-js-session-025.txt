@@ -1,0 +1,143 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 25 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+e the user. Another event will come.
+7949:                                         parent.DispatchEvent(targets, obj, event);
+7950:                                     }
+7951:                                     // Clear the Duo state
+7952:                                     delete sec.duostate;
+7953:                                     delete sec.duoconfig;
+7954:                                     req.session.e = parent.encryptSessionData(sec);
+7955:                                     var url = req.session.duorurl;
+7956:                                     delete req.session.duorurl;
+7957:                                     res.redirect(url ? url : domain.url); // Redirect back to the user's original page
+7958:                                 }).catch(function (err) {
+7959:                                     const sec = parent.decryptSessionData(req.session.e);
+7960:                                     // Duo 2FA exchange success
+7961:                                     parent.debug('web', 'handleRootRequest: Duo 2FA configuration failed.');
+7962:                                     // Clear the Duo state
+7963:                                     delete sec.duostate;
+7964:                                     delete sec.duoconfig;
+7965:                                     req.session.e = parent.encryptSessionData(sec);
+7966:                                     var url = req.session.duorurl;
+7967:                                     delete req.session.duorurl;
+7968:                                     res.redirect(url ? url : domain.url); // Redirect back to the user's original page
+7969:                                 });
+7970:                             } else {
+7971:                                 // User credentials are stored in session, just check again and get userid
+7972:                                 obj.authenticate(sec.tuser, sec.tpass, domain, function (err, userid, passhint, loginOptions) {
+7973:                                     if ((userid != null) && (err == null)) {
+7974:                                         var user = obj.users[userid]; // Get user object
+7975:                                         // Login data correct, now exchange authorization code for 2FA
+7976:                                         client.exchangeAuthorizationCodeFor2FAResult(req.query.duo_code, userid.split('/')[2]).then(function (data) {
+7977:                                             const sec = parent.decryptSessionData(req.session.e);
+7978:                                             // Duo 2FA exchange success
+7979:                                             parent.debug('web', 'handleRootRequest: Duo 2FA authorization success.');
+7980:                                             req.session.userid = userid;
+7981:                                             delete req.session.currentNode;
+7982:                                             req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+7983:                                             setSessionRandom(req);
+7984:                                             // Clear the Duo state and user/pass
+7985:                                             delete sec.duostate;
+7986:                                             delete sec.tuser;
+7987:                                             delete sec.tpass;
+7988:                                             req.session.e = parent.encryptSessionData(sec);
+7989:                                             obj.parent.authLog('https', 'Accepted Duo authentication for ' + userid + ' from ' + req.clientIp + ':' + req.connection.remotePort, { useragent: req.headers['user-agent'], sessionid: req.session.x });
+7990:                                             // Notify account login
+7991:                                             var targets = ['*', 'server-users', user._id];
+7992:                                             if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+7993:                                             const ua = obj.getUserAgentInfo(req);
+7994:                                             const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login', domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], twoFactorType: 'duo' };
+7995:                                             obj.parent.DispatchEvent(targets, obj, loginEvent);
+7996:                                             res.redirect(domain.url + getQueryPortion(req));
+7997:                                         }).catch(function (err) {
+7998:                                             const sec = parent.decryptSessionData(req.session.e);
+7999:                                             // Duo 2FA exchange failed
+8000:                                             parent.debug('web', 'handleRootRequest: Duo 2FA authorization failed.');
+8001:                                             // Clear the Duo state
+8002:                                             delete sec.duostate;
+8003:                                             req.session.e = parent.encryptSessionData(sec);
+8004:                                             req.session.loginmode = 1;
+8005:                                             req.session.messageid = 117; // Invalid security check
+8006:                                             // Notify account 2fa failed login
+8007:                                             const ua = obj.getUserAgentInfo(req);
+8008:                                             obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, { action: 'authfail', username: user.name, userid: user._id, domain: domain.id, msg: 'User login attempt with incorrect 2nd factor from ' + req.clientIp, msgid: 108, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+8009:                                             obj.setbad2Fa(req);
+8010:                                             res.redirect(domain.url + getQueryPortion(req));
+8011:                                         });
+8012:                                     } else {
+8013:                                         // Login failed
+8014:                                         parent.debug('web', 'handleRootRequest: login authorization failed when returning from Duo 2FA.');
+8015:                                         req.session.loginmode = 1;
+8016:                                         res.redirect(domain.url + getQueryPortion(req)); // redirect back to main page
+8017:                                         return;
+8018:                                     }
+8019:                                 });
+8020:                             }
+8021:                         }
+8022:                     });
+8023:
+8024:                     // Configure Duo handler
+8025:                     obj.app.get(url + 'add-duo', function (req, res) {
+8026:                         var domain = getDomain(req);
+8027:                         if (req.session.userid == null) {
+8028:                             res.sendStatus(404);
+8029:                         } else {
+8030:                             // Redirect to Duo here
+8031:                             const duo = require('@duosecurity/duo_universal');
+8032:                             const client = new duo.Client({
+8033:                                 clientId: domain.duo2factor.integrationkey,
+8034:                                 clientSecret: domain.duo2factor.secretkey,
+8035:                                 apiHost: domain.duo2factor.apihostname,
+8036:                                 redirectUrl: obj.generateBaseURL(domain, req) + 'auth-duo' + (domain.loginkey != null ? ('&key=' + domain.loginkey) : '')
+8037:                             });
+8038:
+8039:                             // Setup the Duo configuration
+8040:                             if (req.query.rurl) { req.session.duorurl = req.query.rurl; } // Set Duo return URL
+8041:                             const sec = parent.decryptSessionData(req.session.e);
+8042:                             sec.duostate = client.generateState();
+8043:                             sec.duoconfig = 1;
+8044:                             req.session.e = parent.encryptSessionData(sec);
+8045:                             parent.debug('web', 'Redirecting user ' + req.session.userid + ' to Duo for configuration');
+8046:                             res.redirect(client.createAuthUrl(req.session.userid.split('/')[2], sec.duostate));
+8047:                         }
+8048:                     });
+8049:                 }
+8050:
+8051:                 // Server redirects
+8052:                 if (parent.config.domains[i].redirects) { for (var j in parent.config.domains[i].redirects) { if (j[0] != '_') { obj.app.get(url + j, obj.handleDomainRedirect); } } }
+8053:
+8054:                 // Server picture
+8055:                 obj.app.get(url + 'serverpic.ashx', function (req, res) {
+8056:                     // Check if we have "server.jpg" in the data folder, if so, use that.
+8057:                     if ((parent.configurationFiles != null) && (parent.configurationFiles['server.png'] != null)) {
+8058:                         res.set({ 'Content-Type': 'image/png' });
+8059:                         res.send(parent.configurationFiles['server.png']);
+8060:                     } else {
+8061:                         // Check if we have "server.jpg" in the data folder, if so, use that.
+8062:                         var p = obj.path.join(obj.parent.datapath, 'server.png');
+8063:                         if (obj.fs.existsSync(p)) {
+8064:                             // Use the data folder server picture
+8065:                             try { res.sendFile(p); } catch (ex) { res.sendStatus(404); }
+8066:                         } else {
+8067:                             var domain = getDomain(req);
+8068:                             if ((domain != null) && (domain.webpublicpath != null) && (obj.fs.existsSync(obj.path.join(domain.webpublicpath, 'images/server-256.png')))) {
+8069:                                 // Use the domain server picture
+8070:                                 try { res.sendFile(obj.path.join(domain.webpublicpath, 'images/server-256.png')); } catch (ex) { res.sendStatus(404); }
+8071:                             } else if (parent.webPublicOverridePath && obj.fs.existsSync(obj.path.join(obj.parent.webPublicOverridePath, 'images/server-256.png'))) {
+8072:                                 // Use the override server picture
+8073:                                 try { res.sendFile(obj.path.join(obj.parent.webPublicOverridePath, 'images/server-256.png')); } catch (ex) { res.sendStatus(404); }
+8074:                             } else {
+8075:                                 // Use the default server picture
+8076:                                 try { res.sendFile(obj.path.join(obj.parent.webPublicPath, 'images/server-256.png')); } catch (ex) { res.sendStatus(404); }
+8077:                             }
+8078:                         }
+8079:                     }
+8080:                 });
+8081:
+8082:                 // Receive mesh agent connections
+8083:                 obj.app.ws(url + 'agent.ashx', function (ws, req) {
+8084:                     var domain = checkAgentIpAddress(ws, req);
+8085:                     if (domain == null) { parent.debug('web', 'Got agent connection with bad domain or blocked IP address ' + req.clientIp + ', holding.'); return; }
+8086:                     if (domain.agentkey && ((req.query.key == null) || (domain.agentkey.indexOf(req.query.key) == -1))) { return; } // If agent key is required and not provided or not valid, just hold the websocket and do nothing.
+8087:                     //console.log('Agent connect: ' + req.clientIp);
+8088:                     try { obj.meshAgentHandler.CreateMeshAgent(obj, obj.db, ws, req, obj.args, domain);

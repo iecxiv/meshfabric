@@ -26,6 +26,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import iecxiv.meshfabric.data.remote.OkHttpHelper
+import iecxiv.meshfabric.data.remote.FidoRegistrationBinding
+import iecxiv.meshfabric.data.remote.FidoRegistrationSession
+import iecxiv.meshfabric.MainActivity
+import iecxiv.meshfabric.ui.login.FidoWebViewHost
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -48,7 +53,7 @@ val value=a.opt(index)
 if(value is JSONObject) mapOf("p" to value.opt("p"),"u" to value.opt("u")) else value
 })
 }
-private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val server:JSONObject?=null,val notice:AccountNotice?=null,val webState:JSONObject?=null,val webStateError:String="")
+private data class AccountState(val ready:Boolean=false,val busy:Boolean=false,val user:JSONObject?=null,val reply:JSONObject?=null,val tokenList:JSONArray?=null,val status:String="offline",val server:JSONObject?=null,val notice:AccountNotice?=null,val webState:JSONObject?=null,val webStateError:String="",val fidoOptions:JSONObject?=null,val fidoActive:Boolean=false,val fidoNote:String="")
 private class AccountWire(private val source:MeshCentralClient,private val actor:String) {
 val state=MutableStateFlow(AccountState())
 private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
@@ -69,6 +74,8 @@ private val connectivity=mutableMapOf<String,Int>()
 private var identity=Triple("","",false)
 private val keys=mutableSetOf<Long>()
 private val tokens=mutableSetOf<String>()
+private var ceremony:FidoRegistrationSession?=null
+private var ceremonyTimer:Job?=null
 private fun same()=identity==Triple(source.serverUrl,source.authCookie,source.ignoreSsl) && source.connectionState.value && !source.isUserLogout
 private fun announce(kind:String,e:JSONObject,channels:Int=0) {
 val id=e.optString("nodeid").ifBlank { e.optJSONObject("node")?.optString("_id").orEmpty() }
@@ -112,8 +119,8 @@ timer=scope.launch { delay(20_000); synchronized(this@AccountWire) { if(generati
 }
 @Synchronized private fun failed(generation:Long) { if(generation==epoch) pause(if(pending.isBlank()) "offline" else "unknown") }
 @Synchronized fun pause(reason:String="offline") {
-val notice=if(retired) "deleteUnknown" else if(pending.isNotBlank() && reason=="offline") "unknown" else reason
-webStateReader.cancel(); epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null
+val notice=if(retired) "deleteUnknown" else if((pending.isNotBlank() || ceremonyUncertain()) && reason=="offline") "unknown" else reason
+ceremony?.cancel(); ceremony=null; ceremonyTimer?.cancel(); webStateReader.cancel(); epoch++; timer?.cancel(); call?.cancel(); call=null; socket?.cancel(); socket=null
 pending=""; rid=""; args=JSONObject(); secret=""; cookie=""; tokenReadback=false; keys.clear(); tokens.clear(); connectivity.clear()
 state.value=AccountState(status=notice)
 }
@@ -130,7 +137,7 @@ state.update { it.copy(webState=snapshot,webStateError=reason) }
 }
 }
 }
-@Synchronized fun clearResult() { if(state.value.busy) pause("unknown") else { secret=""; keys.clear(); tokens.clear(); state.update { it.copy(reply=null,tokenList=null) } } }
+@Synchronized fun clearResult() { if(state.value.busy) pause("unknown") else { secret=""; keys.clear(); tokens.clear(); state.update { it.copy(reply=null,tokenList=null,fidoNote="") } } }
 private fun send(action:String)=socket?.send(JSONObject().put("action",action).toString())==true
 private fun finish(reply:JSONObject?,status:String) {
 timer?.cancel(); pending=""; rid=""; args=JSONObject(); tokenReadback=false
@@ -180,6 +187,7 @@ if(pending=="changepassword" && result!=null) { finish(null,if(result) "confirme
 announce(webNoticeKind(p),p)
 return
 }
+if(ceremony!=null && receiveFido(p)) return
 if(pending.isBlank()) return
 val responseId=p.optString("responseid")
 if(responseId.isNotBlank() && responseId!=rid) return
@@ -252,6 +260,81 @@ val payload=JSONObject().put("action","userWebState").put("state",updated.toStri
 if(socket?.send(payload.toString())!=true) { pause("unknown"); return false }
 return true
 }
+private fun fidoBinding()=FidoRegistrationBinding(identity.first,actor,epoch)
+private fun ceremonyUncertain():Boolean { val p=ceremony?.phase; return p==FidoRegistrationSession.Phase.ACK || p==FidoRegistrationSession.Phase.READBACK }
+@Synchronized fun leave() {
+val s=ceremony
+val active=setOf(FidoRegistrationSession.Phase.OPTIONS,FidoRegistrationSession.Phase.AUTHENTICATOR,FidoRegistrationSession.Phase.ACK,FidoRegistrationSession.Phase.READBACK)
+if(s!=null && same() && s.phase in active) return
+pause()
+}
+@Synchronized fun beginFido(name:String):Boolean {
+val s=state.value
+if(!s.ready || s.busy || !same() || ceremony!=null) return false
+val site=ProfilePermissions.normalized(s.user?.optLong("siteadmin",0L) ?: 0L)
+if(site!=0xffffffffL && site and 1024L!=0L) return false
+val list=s.reply?.optJSONArray("keys") ?: return false
+val existing=securityKeyIds(list)?.toSet() ?: return false
+val trimmed=name.trim()
+if(trimmed.isEmpty() || trimmed.length>128) return false
+val binding=fidoBinding()
+val session=try { FidoRegistrationSession(binding,trimmed,existing,identity.third) } catch(e:Exception) { state.update { it.copy(status="https") }; return false }
+val packet=session.start(binding) ?: return false
+ceremony=session
+state.update { it.copy(busy=true,fidoActive=true,fidoOptions=null,fidoNote="",status="sent") }
+val generation=epoch
+ceremonyTimer?.cancel()
+ceremonyTimer=scope.launch { delay(65_000); synchronized(this@AccountWire) { if(generation==epoch && ceremony===session) { session.cancel(); ceremony=null; if(session.phase==FidoRegistrationSession.Phase.UNKNOWN) pause("unknown") else state.update { it.copy(busy=false,fidoActive=false,fidoOptions=null,status="fidoExpired") } } } }
+if(socket?.send(packet.toString())!=true) { session.cancel(); ceremony=null; pause("offline"); return false }
+return true
+}
+@Synchronized fun submitFido(credential:JSONObject) {
+val s=ceremony ?: return
+if(!same()) { s.cancel(); finishFido(s); return }
+val packet=runCatching { s.submit(fidoBinding(),com.google.gson.JsonParser.parseString(credential.toString()).asJsonObject) }.getOrNull()
+if(packet==null) { finishFido(s); return }
+state.update { it.copy(fidoOptions=null) }
+if(socket?.send(packet.toString())!=true) { s.cancel(); finishFido(s) }
+}
+@Synchronized fun cancelFido() { val s=ceremony ?: return; s.cancel(); finishFido(s) }
+private fun finishFido(s:FidoRegistrationSession) {
+ceremonyTimer?.cancel()
+if(ceremony===s) ceremony=null
+when(s.phase) {
+FidoRegistrationSession.Phase.COMPLETE -> {
+state.update { it.copy(busy=false,fidoActive=false,fidoOptions=null,status="confirmed",fidoNote="confirmed") }
+send("userinfo"); source.requestServerData(); request("otp-hkey-get")
+}
+FidoRegistrationSession.Phase.UNKNOWN -> pause("unknown")
+else -> state.update { it.copy(busy=false,fidoActive=false,fidoOptions=null,status=fidoPhaseStatus(s.phase)) }
+}
+}
+private fun receiveFido(p:JSONObject):Boolean {
+val s=ceremony ?: return false
+val action=p.optString("action")
+if(action !in setOf("webauthn-startregister","otp-hkey-setup-response","otp-hkey-get")) return false
+val b=fidoBinding()
+val reply=runCatching { com.google.gson.JsonParser.parseString(p.toString()).asJsonObject }.getOrNull()
+if(reply==null) { s.cancel(); finishFido(s); return true }
+when(action) {
+"webauthn-startregister" -> {
+if(s.phase!=FidoRegistrationSession.Phase.OPTIONS) return false
+val options=s.acceptOptions(b,reply)
+if(options==null) finishFido(s) else state.update { it.copy(fidoOptions=JSONObject(options.toString())) }
+}
+"otp-hkey-setup-response" -> {
+if(s.phase!=FidoRegistrationSession.Phase.ACK) return false
+val next=s.acknowledge(b,reply)
+if(next==null) finishFido(s) else if(socket?.send(next.toString())!=true) { s.cancel(); finishFido(s) }
+}
+else -> {
+if(s.phase!=FidoRegistrationSession.Phase.READBACK) return false
+if(!s.readback(b,reply)) s.cancel()
+finishFido(s)
+}
+}
+return true
+}
 @Synchronized fun request(action:String,fields:JSONObject=JSONObject()):Boolean {
 val s=state.value
 if(!s.ready || s.busy || !same()) return false
@@ -307,7 +390,7 @@ val options=webNoticeOptions(state.webState?.let(::webNoticeMask) ?: 0L)
 var mode by remember(wire) { mutableStateOf<Int?>(null) }
 DisposableEffect(wire) { onDispose { wire.dispose() } }
 LaunchedEffect(wire,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-if(connected) { wire.start(); try { awaitCancellation() } finally { wire.pause() } } else wire.pause()
+if(connected) { wire.start(); try { awaitCancellation() } finally { wire.leave() } } else wire.pause()
 } }
 LaunchedEffect(state.ready) { if(!state.ready) mode=null }
 val labels=listOf(t("Administrar la aplicación de autenticación","Manage authenticator app"),t("Administrar claves de seguridad","Manage security keys"),t("Administrar códigos de respaldo","Manage backup codes"),t("Ver inicios de sesión anteriores","View previous logins"),t("Habilitar notificaciones en la app","Enable in-app notifications"),t("Opciones de hora e idioma","Time and language options"),t("Opciones de notificación","Notification options"),t("Cambiar contraseña","Change password"),t("Eliminar cuenta","Delete account"),t("Crear token de inicio de sesión","Create login token"))+listOf(t("Gestionar MFA","Manage MFA"))
@@ -324,6 +407,8 @@ val status=when(state.status) {
 "password:17"->t("La nueva contraseña no cumple los requisitos.","The new password does not meet requirements.")
 "password:18"->t("Esa contraseña ya fue utilizada.","That password was used previously.")
 "password:19"->t("El servidor aún no permite cambiar la contraseña.","The server does not yet allow a password change.")
+"fidoExpired"->t("El registro de la llave caducó. No se considera completado.","Key registration expired. Not considered completed.")
+"fidoCancelled"->t("Registro de la llave cancelado. No se considera completado.","Key registration cancelled. Not considered completed.")
 "https"->t("Esta operación requiere HTTPS.","This operation requires HTTPS.")
 else->t("Cuenta desconectada o conectando.","Account offline or connecting.")
 }
@@ -401,7 +486,17 @@ Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox
 action("Desactivar autenticador","Disable authenticator",confirmation) { run("otpauth-clear") }
 }
 1->{
-Text(t("Consulta y eliminación nativas. El alta de nuevas claves FIDO2 no está implementada; no se abrirá un navegador.","Native listing and removal. New FIDO2 key registration is not implemented; no browser will open."))
+Text(t("Consulta, alta y eliminación de claves de seguridad. El alta usa una ceremonia WebAuthn con el servidor seleccionado, sin abrir un navegador externo. No se confirma hasta que el servidor responda y la llave aparezca en la lista.","Native listing, registration and removal of security keys. Registration uses a WebAuthn ceremony with the selected server, without an external browser. It is not confirmed until the server responds and the key appears in the list."))
+val fidoKeys=reply?.optJSONArray("keys")
+val legacyKeys=fidoKeys!=null && (0 until fidoKeys.length()).any { (fidoKeys.optJSONObject(it)?.optInt("type",3) ?: 3)!=3 }
+var fidoName by remember { mutableStateOf("") }
+var fidoLegacyOk by remember { mutableStateOf(false) }
+if(state.fidoNote=="confirmed") Text(t("Llave registrada: el servidor la confirmó y aparece en la lista.","Key registered: the server confirmed it and it appears in the list."))
+field(fidoName,{ fidoName=it },t("Nombre de la llave","Key name"))
+if(legacyKeys) option(t("Entiendo que registrar una llave WebAuthn eliminará las llaves U2F antiguas de esta cuenta.","I understand that registering a WebAuthn key removes older U2F keys from this account."),fidoLegacyOk) { fidoLegacyOk=it }
+action("Registrar llave","Register key",!state.fidoActive && fidoKeys!=null && fidoName.trim().isNotEmpty() && fidoName.length<=128 && (!legacyKeys || fidoLegacyOk)) { if(wire.beginFido(fidoName)) { fidoName=""; fidoLegacyOk=false; feedback="" } else feedback=t("No se ha iniciado el registro. Carga la lista, comprueba permisos y conexión.","Registration was not started. Load the list and check permissions and connection.") }
+if(state.fidoActive) TextButton(onClick={ wire.cancelFido() }) { Text(t("Cancelar registro","Cancel registration")) }
+state.fidoOptions?.let { fidoOptions-> key(fidoOptions.toString()) { FidoRegistrationHost(source.serverUrl,fidoOptions,onCredential={ wire.submitFido(it) },onFailure={ wire.cancelFido() }) } }
 val list=reply?.optJSONArray("keys")
 if(list!=null && list.length()==0) Text(t("No hay claves registradas.","No registered keys."))
 if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { item-> Text("${item.optString("name")} · ID ${item.optLong("i")}") }
@@ -543,4 +638,34 @@ if(feedback.isNotBlank()) Text(feedback)
 }
 },confirmButton={ TextButton(enabled=!state.busy,onClick={ wire.clearResult(); mode=null }) { Text(t("Cerrar","Close")) } })
 } }
+}
+
+internal fun fidoPhaseStatus(phase:FidoRegistrationSession.Phase):String = when(phase) {
+FidoRegistrationSession.Phase.COMPLETE->"confirmed"
+FidoRegistrationSession.Phase.REJECTED->"rejected"
+FidoRegistrationSession.Phase.EXPIRED->"fidoExpired"
+FidoRegistrationSession.Phase.INVALID->"incompatible"
+FidoRegistrationSession.Phase.UNKNOWN->"unknown"
+else->"fidoCancelled"
+}
+
+private fun findMainActivity(context:Context):MainActivity? = when(context) {
+is MainActivity->context
+is android.content.ContextWrapper->findMainActivity(context.baseContext)
+else->null
+}
+
+@Composable private fun FidoRegistrationHost(server:String,options:JSONObject,onCredential:(JSONObject)->Unit,onFailure:()->Unit) {
+val context=LocalContext.current
+val activity=remember(context) { findMainActivity(context) }
+val credentialCallback=rememberUpdatedState(onCredential)
+val failureCallback=rememberUpdatedState(onFailure)
+if(activity==null) {
+LaunchedEffect(Unit) { failureCallback.value() }
+} else {
+val host=remember(activity) { FidoWebViewHost(activity,activity.fidoClient) }
+val gsonOptions=remember(options) { com.google.gson.JsonParser.parseString(options.toString()).asJsonObject }
+DisposableEffect(host) { onDispose { host.close() } }
+AndroidView(factory={ host.create(server,false,gsonOptions,{ credentialCallback.value(JSONObject(it.toString())) },{ failureCallback.value() }) },modifier=Modifier.fillMaxWidth().height(4.dp))
+}
 }

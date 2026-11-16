@@ -1,0 +1,186 @@
+name: Validate and publish remaining Compose v2 test rules
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/workflows/fix-remaining-compose-v2-tests.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: remaining-compose-v2-test-fixes
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Prepare only reviewed Compose v2 factory imports
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib,json,re,subprocess
+          base='8c3d2027687b33a39c8bfe01fcc512db2d3c72c9'
+          workflow='.github/workflows/fix-remaining-compose-v2-tests.yml'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==base,'Base changed; review required'
+          assert subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()==[workflow]
+          assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
+          groups={
+              'desktop':['DesktopKeyboardInputTest','DesktopShortcutEditorLayoutTest'],
+              'devices':['DeviceCardOutlineUiTest','DeviceCardWhiteTextUiTest','DeviceDetailsCollapseTest'],
+              'management':'''ActivityRecognitionUiTest ActivityTranslationUiTest AgentEnrollmentFormTest AgentGroupDialogsHostTest AgentInviteLinkFormTest DeviceGroupAdvancedUiTest DeviceGroupDetailPresentationTest EventContentUiTest EventDialogContinuityUiTest EventsHeaderDatesTest EventsPresentationTest EventsSelectorWidthTest GroupDetailsLoadLoopUiTest GroupMeshEditDialogTest HeaderRefreshUiTest LogCardOutlineUiTest LogEventsDiagnosticsUiTest LogNumericMessageUiTest LogScreenTest ManagementConnectionSpacingTest ManagementConnectionStatusTest ManagementNavigationLabelTest NoticeCenterTabsUiTest NoticeHeaderSearchUiTest NoticePersistenceTest PresentationPolishUiTest ProfileCompactActionLayoutTest ProfileDialogContinuityUiTest ProfileHeaderContinuityUiTest ProfileManagementConnectionStatusTest ProfileOwnAccountNavigationTest ProfilePolishPresentationTest ProfileUserListIdentityTest ReadableAssignmentReviewsTest ReadableGrantDialogsTest ReadableMemberAddDialogTest ReadableReceivedLinksTest ReadableUserEditorsTest ReadableUserGroupDialogsTest RegistroSectionTabsTest ServerConsoleWebViewTest ServerDialogContinuityUiTest ServerDialogTitleTypographyUiTest ServerEventsControlsTest TraceSourcesChannelTest UserDeleteDialogTest UserDetailPresentationTest UserDeviceGrantDialogTest UserGroupsActionsCardTest UserGroupsSectionSpacingTest UserLockPresentationTest UserMeshAssignmentReviewTest UserMeshEditDialogTest UserMeshGrantDialogTest UserMessageDialogTest UserMfaResetDialogTest'''.split(),
+              'navigation':['NavigationRegressionTest'],
+              'terminal':['TerminalHistoryPanelUiTest','TerminalKeyBarTest'],
+              'theme':['AppCardAppearanceUiTest','DarkContrastUiTest','GroupHeaderAppearanceUiTest']
+          }
+          root=Path('app/src/androidTest/java/iecxiv/meshfabric/ui')
+          expected={str(root/group/(name+'.kt')) for group,names in groups.items() for name in names}
+          assert len(expected)==67
+          imports={
+              'import androidx.compose.ui.test.junit4.createComposeRule':'import androidx.compose.ui.test.junit4.v2.createComposeRule',
+              'import androidx.compose.ui.test.junit4.createAndroidComposeRule':'import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule'
+          }
+          def normalize(text):
+              for old,new in imports.items(): text=text.replace(new,old)
+              return text
+          changes={}; methods={}; inventory={}
+          for name in sorted(expected):
+              p=Path(name); raw=p.read_bytes(); text=raw.decode('utf-8')
+              counts={old:text.count(old) for old in imports}
+              assert sum(counts.values())==1,('Unexpected factory imports',name,counts)
+              assert not any(new in text for new in imports.values()),name
+              updated=text
+              for old,new in imports.items(): updated=updated.replace(old,new)
+              assert updated!=text and normalize(updated)==text,'Only imports may change: '+name
+              package=re.search(r'^package\s+([\w.]+)',text,re.M)
+              assert package,name
+              classname=package.group(1)+'.'+p.stem
+              found=re.findall(r'@Test\s+fun\s+(\w+)\s*\(',text)
+              assert found and len(found)==len(set(found)),('Review test inventory',name)
+              assert found==re.findall(r'@Test\s+fun\s+(\w+)\s*\(',updated),name
+              assert classname not in methods
+              methods[classname]=found
+              changes[name]=updated
+              inventory[name]={'originalSha256':hashlib.sha256(raw).hexdigest(),'methods':found,'imports':{old:imports[old] for old,count in counts.items() if count}}
+          for name,text in changes.items(): Path(name).write_bytes(text.encode('utf-8'))
+          for p in Path('app/src/androidTest').rglob('*.kt'):
+              text=p.read_text()
+              assert not any(old in text for old in imports),'Unmigrated explicit factory: '+str(p)
+              assert not re.search(r'androidx\.compose\.ui\.test\.junit4\.(?:createComposeRule|createAndroidComposeRule)\s*\(',text),'Review fully qualified factory: '+str(p)
+              assert not ('import androidx.compose.ui.test.junit4.*' in text and re.search(r'\bcreate(?:Android)?ComposeRule\s*[<(]',text)),'Review wildcard factory import: '+str(p)
+          subprocess.run(['git','add','--',*sorted(expected)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          (out/'compose-v2.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+          (out/'source-digests.json').write_text(json.dumps({n:hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in sorted(expected)},indent=2)+'\n')
+          (out/'test-methods.json').write_text(json.dumps(methods,indent=2)+'\n')
+          (out/'migration-inventory.json').write_text(json.dumps(inventory,indent=2)+'\n')
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve(); tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve(); candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Clean build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify all results and every affected test method
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          totals={}; instrumented=[]
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              totals[root]=len(cases)
+              if root.endswith('androidTest-results'): instrumented=cases
+          methods=json.loads(Path('validation/test-methods.json').read_text()); assert len(methods)==67
+          for classname,expected in methods.items():
+              actual=[c.get('name') for c in instrumented if c.get('classname','')==classname]
+              assert len(actual)==len(expected) and set(actual)==set(expected),(classname,actual,expected)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          Path('validation/VALIDATED.txt').write_text('Remaining 67 Compose v2 test factory imports passed build, all unit tests, lint and the complete instrumented suite. Every affected method executed without skips. Test bodies, assertions, synchronization, dependencies, versions and production files are unchanged.\n')
+      - name: Upload reports and exact patch only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-v2-test-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only the 67 validated test files
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch origin refs/heads/fido-support
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess
+          digests=json.loads(Path('validation/source-digests.json').read_text())
+          inventory=json.loads(Path('validation/migration-inventory.json').read_text())
+          assert len(digests)==67 and set(digests)==set(inventory)
+          assert all(n.startswith('app/src/androidTest/java/iecxiv/meshfabric/ui/') and n.endswith('Test.kt') for n in digests)
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==set(digests),(actual,set(digests))
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert Path('validation/VALIDATED.txt').is_file()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/compose-v2.patch').read_bytes()
+          for name,digest in digests.items():
+              raw=Path(name).read_bytes()
+              assert hashlib.sha256(raw).hexdigest()==digest,name
+              text=raw.decode('utf-8')
+              for old,new in inventory[name]['imports'].items(): text=text.replace(new,old)
+              assert hashlib.sha256(text.encode('utf-8')).hexdigest()==inventory[name]['originalSha256'],name
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(warnings): migrate remaining Compose test factories to v2'
+          git push origin HEAD:refs/heads/fido-support
+          printf 'Published validated Compose v2 test imports in `%s`. No APK uploaded.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

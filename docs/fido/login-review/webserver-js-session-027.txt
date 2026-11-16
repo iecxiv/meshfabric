@@ -1,0 +1,164 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 27 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+          oldestRelayHost = host;
+8238:                                     oldestRelayTime = xrelaySession.lastOperation;
+8239:                                 } else {
+8240:                                     // Check if this host is older then oldest so far
+8241:                                     if (oldestRelayTime > xrelaySession.lastOperation) {
+8242:                                         oldestRelayHost = host;
+8243:                                         oldestRelayTime = xrelaySession.lastOperation;
+8244:                                     }
+8245:                                 }
+8246:                             }
+8247:                         }
+8248:
+8249:                         // Check that the user has rights to access this device
+8250:                         parent.webserver.GetNodeWithRights(domain, userid, nodeid, function (node, rights, visible) {
+8251:                             // If there is no remote control or relay rights, reject this web relay
+8252:                             if ((rights & 0x00200008) == 0) { res.sendStatus(404); return; } // MESHRIGHT_REMOTECONTROL or MESHRIGHT_RELAY
+8253:
+8254:                             // Check if there is a free relay DNS name we can use
+8255:                             var selectedHost = null;
+8256:                             if (freeRelayHost != null) {
+8257:                                 // There is a free one, use it.
+8258:                                 selectedHost = freeRelayHost;
+8259:                             } else {
+8260:                                 // No free ones, close the oldest one
+8261:                                 selectedHost = oldestRelayHost;
+8262:                             }
+8263:                             xrelaySessionId = webSessionId + '/' + selectedHost;
+8264:
+8265:                             if (selectedHost == req.hostname) {
+8266:                                 // If this web relay session id is not free, close it now
+8267:                                 xrelaySession = webRelaySessions[xrelaySessionId];
+8268:                                 if (xrelaySession != null) { xrelaySession.close(); delete webRelaySessions[xrelaySessionId]; }
+8269:
+8270:                                 // Create a web relay session
+8271:                                 const relaySession = require('./apprelays.js').CreateWebRelaySession(obj, db, req, args, domain, userid, nodeid, addr, port, appid, xrelaySessionId, expire, node.mtype);
+8272:                                 relaySession.xpublicid = publicid;
+8273:                                 relaySession.onclose = function (sessionId) {
+8274:                                     // Remove the relay session
+8275:                                     delete webRelaySessions[sessionId];
+8276:                                     // If there are not more relay sessions, clear the cleanup timer
+8277:                                     if ((Object.keys(webRelaySessions).length == 0) && (obj.cleanupTimer != null)) { clearInterval(webRelayCleanupTimer); obj.cleanupTimer = null; }
+8278:                                 }
+8279:
+8280:                                 // Set the multi-tunnel session
+8281:                                 webRelaySessions[xrelaySessionId] = relaySession;
+8282:
+8283:                                 // Setup the cleanup timer if needed
+8284:                                 if (obj.cleanupTimer == null) { webRelayCleanupTimer = setInterval(checkWebRelaySessionsTimeout, 10000); }
+8285:
+8286:                                 // Redirect to root.
+8287:                                 res.redirect('/');
+8288:                             } else {
+8289:                                 if (req.query.noredirect != null) {
+8290:                                     // No redirects allowed, fail here. This is important to make sure there is no redirect cascades
+8291:                                     res.sendStatus(404);
+8292:                                 } else {
+8293:                                     // Request was made to a different host, redirect using the full URL so an HTTP cookie can be created on the other DNS name.
+8294:                                     const httpport = ((args.aliasport != null) ? args.aliasport : args.port);
+8295:                                     res.redirect('https://' + selectedHost + ((httpport != 443) ? (':' + httpport) : '') + req.url + '&noredirect=1');
+8296:                                 }
+8297:                             }
+8298:                         });
+8299:                     });
+8300:
+8301:                     // Handle all incoming requests as web relays
+8302:                     obj.webRelayRouter.get('/*', function (req, res) { try { handleWebRelayRequest(req, res); } catch (ex) { console.log(ex); } })
+8303:
+8304:                     // Handle all incoming requests as web relays
+8305:                     obj.webRelayRouter.post('/*', function (req, res) { try { handleWebRelayRequest(req, res); } catch (ex) { console.log(ex); } })
+8306:
+8307:                     // Handle all incoming requests as web relays
+8308:                     obj.webRelayRouter.put('/*', function (req, res) { try { handleWebRelayRequest(req, res); } catch (ex) { console.log(ex); } })
+8309:
+8310:                     // Handle all incoming requests as web relays
+8311:                     obj.webRelayRouter.delete('/*', function (req, res) { try { handleWebRelayRequest(req, res); } catch (ex) { console.log(ex); } })
+8312:
+8313:                     // Handle all incoming requests as web relays
+8314:                     obj.webRelayRouter.options('/*', function (req, res) { try { handleWebRelayRequest(req, res); } catch (ex) { console.log(ex); } })
+8315:
+8316:                     // Handle all incoming requests as web relays
+8317:                     obj.webRelayRouter.head('/*', function (req, res) { try { handleWebRelayRequest(req, res); } catch (ex) { console.log(ex); } })
+8318:                 }
+8319:
+8320:                // Theme Pack Override Middleware
+8321:                obj.app.use(url, function (req, res, next) {
+8322:                 if (req.method !== 'GET') return next();
+8323:                 var domain = getDomain(req);
+8324:                 // Serve theme pack files if domain has a theme pack configured
+8325:                 if (domain && domain.themepack) {
+8326:                     // Keep theme pack names as a single folder under theme-pack
+8327:                     if ((typeof domain.themepack !== 'string') || (domain.themepack.indexOf('..') >= 0) || (domain.themepack.indexOf('/') >= 0) || (domain.themepack.indexOf('\\') >= 0)) { return next(); }
+8328:
+8329:                     var themePublicRoot = obj.path.resolve(obj.parent.datapath, 'theme-pack', domain.themepack, 'public');
+8330:                     var requestPath = (typeof req.path === 'string') ? req.path : '';
+8331:                     while ((requestPath.length > 0) && ((requestPath.charAt(0) === '/') || (requestPath.charAt(0) === '\\'))) { requestPath = requestPath.slice(1); }
+8332:
+8333:                     // Resolve the requested file and keep it inside the theme public folder
+8334:                     var themeFilePath = obj.path.resolve(themePublicRoot, requestPath);
+8335:                     var themePublicRootCmp = isWindowsPlatform ? themePublicRoot.toLowerCase() : themePublicRoot;
+8336:                     var themeFilePathCmp = isWindowsPlatform ? themeFilePath.toLowerCase() : themeFilePath;
+8337:                     if ((themePublicRootCmp.length > 1) && themePublicRootCmp.endsWith(obj.path.sep)) { themePublicRootCmp = themePublicRootCmp.slice(0, -1); }
+8338:                     if ((themeFilePathCmp.length > 1) && themeFilePathCmp.endsWith(obj.path.sep)) { themeFilePathCmp = themeFilePathCmp.slice(0, -1); }
+8339:                     if ((themeFilePathCmp !== themePublicRootCmp) && (themeFilePathCmp.startsWith(themePublicRootCmp + obj.path.sep) === false)) { return next(); }
+8340:
+8341:                     obj.fs.stat(themeFilePath, function (err, stats) {
+8342:                         if (err || !stats.isFile()) return next();
+8343:                         res.sendFile(themeFilePath);
+8344:                     });
+8345:                 } else {
+8346:                     next();
+8347:                 }
+8348:             });
+8349:
+8350:                 // Indicates to ExpressJS that the override public folder should be used to serve static files.
+8351:                 obj.app.use(url, function(req, res, next){
+8352:                     var domain = getDomain(req);
+8353:                     if (domain.webpublicpath != null) { // Use domain public path
+8354:                         obj.express.static(domain.webpublicpath)(req, res, next);
+8355:                     } else if (obj.parent.webPublicOverridePath != null) { // Use override path
+8356:                         obj.express.static(obj.parent.webPublicOverridePath)(req, res, next);
+8357:                     } else { // carry on and use default public path
+8358:                         next();
+8359:                     }
+8360:                 });
+8361:                 // Indicates to ExpressJS that the default public folder should be used to serve static files.
+8362:                 obj.app.use(url, obj.express.static(obj.parent.webPublicPath));
+8363:
+8364:                 // Start regular disconnection list flush every 2 minutes.
+8365:                 obj.wsagentsDisconnectionsTimer = setInterval(function () { obj.wsagentsDisconnections = {}; }, 120000);
+8366:             }
+8367:         }
+8368:         function finalizeWebserver() {
+8369:             // Setup all HTTP handlers
+8370:             setupHTTPHandlers()
+8371:
+8372:             // Handle 404 error
+8373:             if (obj.args.nice404 !== false) {
+8374:                 obj.app.use(function (req, res, next) {
+8375:                     parent.debug('web', '404 Error ' + req.url);
+8376:                     var domain = getDomain(req);
+8377:                     if ((domain == null) || (domain.auth == 'sspi')) { res.sendStatus(404); return; }
+8378:                     if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL
+8379:                     const cspNonce = obj.crypto.randomBytes(15).toString('base64');
+8380:                     res.set({ 'Content-Security-Policy': "default-src 'none'; script-src 'self' 'nonce-" + cspNonce + "'; img-src 'self'; style-src 'self' 'nonce-" + cspNonce + "';" }); // This page supports very tight CSP policy
+8381:                     res.status(404).render(getRenderPage((domain.sitestyle >= 2) ? 'error4042' : 'error404', req, domain), getRenderArgs({ cspNonce: cspNonce }, req, domain));
+8382:                 });
+8383:             }
+8384:
+8385:             // Start server on a free port.
+8386:             CheckListenPort(obj.args.port, obj.args.portbind, StartWebServer);
+8387:
+8388:             // Start on a second agent-only alternative port if needed.
+
+--- webserver.js lines 9330-9721 ---
+9330:                                     parent.smsserver.sendToken(domain, user.phone, user.otpsms.k, obj.getLanguageCodes(req));
+9331:                                     // Ask for a login token & confirm sms was sent
+9332:                                     try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, sms2fasent: true, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9333:                                 } else if ((req.query.token == '**msg**') && (msg2fa == true)) {
+9334:                                     // Cause a token to be sent to the user's messenger account
+9335:                                     user.otpmsg = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+9336:                                     obj.db.SetUser(user);
+9337:

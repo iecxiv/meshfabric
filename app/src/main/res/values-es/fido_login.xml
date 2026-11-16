@@ -1,0 +1,10 @@
+<resources>
+<string name="fido_login_action">Acceder con llave de seguridad</string>
+<string name="fido_login_title">Acceso con llave de seguridad</string>
+<string name="fido_login_prompt">Usa tu llave registrada por USB o NFC. Puedes cancelar este intento.</string>
+<string name="fido_login_pending">Respuesta de la llave enviada. La cuenta autenticada aún no se ha verificado; el acceso no está completado.</string>
+<string name="fido_login_cancel">Cancelar</string>
+<string name="fido_login_failed">No se pudo completar el intento con llave. Comprueba credenciales, conexión y compatibilidad del servidor.</string>
+<string name="fido_login_tls">El acceso con llave requiere HTTPS con verificación del certificado. Desactiva Ignorar SSL para usarlo.</string>
+<string name="fido_login_expired">El intento con llave ha caducado. No se ha completado.</string>
+</resources>

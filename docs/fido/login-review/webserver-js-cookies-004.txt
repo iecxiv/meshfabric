@@ -1,0 +1,185 @@
+MeshCentral 1.3.1 source review: webserver.js / cookies / part 4 of 5
+Parts may continue a source line. Trailing whitespace is omitted.
+mode
+4024:         if (parent.config.settings.maintenancemode != null) {
+4025:             render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 3, msgid: 13, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain));
+4026:             return;
+4027:         }
+4028:
+4029:         // Check if this session is for a user
+4030:         if (req.query.id == null) { res.sendStatus(404); return; }
+4031:         var idSplit = decodeURIComponent(req.query.id).split('/');
+4032:         if ((idSplit.length != 7) || (idSplit[0] != 'meshmessenger')) { res.sendStatus(404); return; }
+4033:         if ((idSplit[1] == 'user') && (idSplit[4] == 'user')) {
+4034:             // This is a user to user conversation, both users must be logged in.
+4035:             var user1 = idSplit[1] + '/' + idSplit[2] + '/' + idSplit[3]
+4036:             var user2 = idSplit[4] + '/' + idSplit[5] + '/' + idSplit[6]
+4037:             if (!req.session || !req.session.userid) {
+4038:                 // Redirect to login page
+4039:                 if (req.query.key != null) { res.redirect(domain.url + '?key=' + encodeURIComponent(req.query.key) + '&meshmessengerid=' + encodeURIComponent(req.query.id)); } else { res.redirect(domain.url + '?meshmessengerid=' + encodeURIComponent(req.query.id)); }
+4040:                 return;
+4041:             }
+4042:             if ((req.session.userid != user1) && (req.session.userid != user2)) { res.sendStatus(404); return; }
+4043:         }
+4044:
+4045:         // Get WebRTC configuration
+4046:         var webRtcConfig = null;
+4047:         if (obj.parent.config.settings && obj.parent.config.settings.webrtcconfig && (typeof obj.parent.config.settings.webrtcconfig == 'object')) { webRtcConfig = encodeURIComponent(JSON.stringify(obj.parent.config.settings.webrtcconfig)).replace(/'/g, '%27'); }
+4048:         else if (args.webrtcconfig && (typeof args.webrtcconfig == 'object')) { webRtcConfig = encodeURIComponent(JSON.stringify(args.webrtcconfig)).replace(/'/g, '%27'); }
+4049:
+4050:         // Setup other options
+
+--- webserver.js lines 7199-7447 ---
+7199:                 obj.tlsAltServer.on('error', function (err) { console.log('tlsAltServer error', err); });
+7200:                 //obj.tlsAltServer.on('tlsClientError', function (err) { console.log('tlsClientError', err); });
+7201:                 obj.tlsAltServer.on('newSession', function (id, data, cb) { if (tlsSessionStoreCount > 1000) { tlsSessionStoreCount = 0; tlsSessionStore = {}; } tlsSessionStore[id.toString('hex')] = data; tlsSessionStoreCount++; cb(); });
+7202:                 obj.tlsAltServer.on('resumeSession', function (id, cb) { cb(null, tlsSessionStore[id.toString('hex')] || null); });
+7203:                 obj.expressWsAlt = require('express-ws')(obj.agentapp, obj.tlsAltServer, { wsOptions: { perMessageDeflate: (args.wscompression === true) } });
+7204:             }
+7205:         }
+7206:
+7207:         // Setup middleware
+7208:         obj.app.engine('handlebars', obj.exphbs.engine({ defaultLayout: false }));
+7209:         obj.app.set('view engine', 'handlebars');
+7210:         if (obj.args.trustedproxy) {
+7211:             // Reverse proxy should add the "X-Forwarded-*" headers
+7212:             try {
+7213:                 obj.app.set('trust proxy', obj.args.trustedproxy);
+7214:             } catch (ex) {
+7215:                 // If there is an error, try to resolve the string
+7216:                 if ((obj.args.trustedproxy.length == 1) && (typeof obj.args.trustedproxy[0] == 'string')) {
+7217:                     require('dns').lookup(obj.args.trustedproxy[0], function (err, address, family) { if (err == null) { obj.app.set('trust proxy', address); obj.args.trustedproxy = [address]; } });
+7218:                 }
+7219:             }
+7220:         }
+7221:         else if (typeof obj.args.tlsoffload == 'object') {
+7222:             // Reverse proxy should add the "X-Forwarded-*" headers
+7223:             try {
+7224:                 obj.app.set('trust proxy', obj.args.tlsoffload);
+7225:             } catch (ex) {
+7226:                 // If there is an error, try to resolve the string
+7227:                 if ((Array.isArray(obj.args.tlsoffload)) && (obj.args.tlsoffload.length == 1) && (typeof obj.args.tlsoffload[0] == 'string')) {
+7228:                     require('dns').lookup(obj.args.tlsoffload[0], function (err, address, family) { if (err == null) { obj.app.set('trust proxy', address); obj.args.tlsoffload = [address]; } });
+7229:                 }
+7230:             }
+7231:         }
+7232:
+7233:         // Setup a keygrip instance with higher default security, default hash is SHA1, we want to bump that up with SHA384
+7234:         // If multiple instances of this server are behind a load-balancer, this secret must be the same for all instances
+7235:         // If args.sessionkey is a string, use it as a single key, but args.sessionkey can also be used as an array of keys.
+7236:         const keygrip = require('keygrip')((typeof obj.args.sessionkey == 'string') ? [obj.args.sessionkey] : obj.args.sessionkey, 'sha384', 'base64');
+7237:
+7238:         // Setup the cookie session
+7239:         const sessionOptions = {
+7240:             name: 'xid', // Recommended security practice to not use the default cookie name
+7241:             httpOnly: true,
+7242:             keys: keygrip,
+7243:             secure: (obj.args.tlsoffload == null), // Use this cookie only over TLS (Check this: https://expressjs.com/en/guide/behind-proxies.html)
+7244:             sameSite: (obj.args.sessionsamesite ? obj.args.sessionsamesite : 'lax')
+7245:         }
+7246:         if (obj.args.sessiontime != null) { sessionOptions.maxAge = (obj.args.sessiontime * 60000); } // sessiontime is minutes
+7247:         obj.app.use(require('cookie-session')(sessionOptions));
+7248:         obj.app.use(function (request, response, next) { // Patch for passport 0.6.0 - https://github.com/jaredhanson/passport/issues/904
+7249:             if (request.session && !request.session.regenerate) {
+7250:                 request.session.regenerate = function (cb) {
+7251:                     cb()
+7252:                 }
+7253:             }
+7254:             if (request.session && !request.session.save) {
+7255:                 request.session.save = function (cb) {
+7256:                     cb()
+7257:                 }
+7258:             }
+7259:             // Special Client Hint Headers for Browser Detection on every request - https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers#client_hints
+7260:             // note: only works in a secure context (localhost or https://)
+7261:             if ((obj.webRelayRouter != null) && (obj.args.relaydns.indexOf(request.hostname) == -1)) {
+7262:                 const secCH = [
+7263:                     'Sec-CH-UA-Arch', 'Sec-CH-UA-Bitness', 'Sec-CH-UA-Form-Factors', 'Sec-CH-UA-Full-Version',
+7264:                     'Sec-CH-UA-Full-Version-List', 'Sec-CH-UA-Mobile', 'Sec-CH-UA-Model', 'Sec-CH-UA-Platform',
+7265:                     'Sec-CH-UA-Platform-Version', 'Sec-CH-UA-WoW64'
+7266:                 ];
+7267:                 response.setHeader('Accept-CH', secCH.join(', '));
+7268:                 response.setHeader('Critical-CH', secCH.join(', '));
+7269:             }
+7270:             next();
+7271:         });
+7272:
+7273:         // Handle all incoming web sockets, see if some need to be handled as web relays
+7274:         obj.app.ws('/*', function (ws, req, next) {
+7275:             // Global error catcher
+7276:             ws.on('error', function (err) { parent.debug('web', 'GENERAL WSERR: ' + err); console.log(err); });
+7277:             if ((obj.webRelayRouter != null) && (obj.args.relaydns.indexOf(req.hostname) >= 0)) { handleWebRelayWebSocket(ws, req); return; }
+7278:             return next();
+7279:         });
+7280:
+7281:         // Add HTTP security headers to all responses
+7282:         obj.app.use(async function (req, res, next) {
+7283:             // Check if a session is destroyed
+7284:             if (typeof req.session.userid == 'string') {
+7285:                 if (typeof req.session.x == 'string') {
+7286:                     if (obj.destroyedSessions[req.session.userid + '/' + req.session.x] != null) {
+7287:                         delete req.session.userid;
+7288:                         delete req.session.ip;
+7289:                         delete req.session.t;
+7290:                         delete req.session.x;
+7291:                     }
+7292:                 } else {
+7293:                     // Legacy session without a random, add one.
+7294:                     setSessionRandom(req);
+7295:                 }
+7296:             }
+7297:
+7298:             // Remove legacy values from the session to keep the session as small as possible
+7299:             delete req.session.u2f;
+7300:             delete req.session.domainid;
+7301:             delete req.session.nowInMinutes;
+7302:             delete req.session.tokenuserid;
+7303:             delete req.session.tokenusername;
+7304:             delete req.session.tokenpassword;
+7305:             delete req.session.tokenemail;
+7306:             delete req.session.tokensms;
+7307:             delete req.session.tokenpush;
+7308:             delete req.session.tusername;
+7309:             delete req.session.tpassword;
+7310:
+7311:             // Useful for debugging reverse proxy issues
+7312:             parent.debug('httpheaders', req.method, req.url, req.headers);
+7313:
+7314:             // If this request came over HTTP, redirect to HTTPS
+7315:             if (req.headers['x-forwarded-proto'] == 'http') {
+7316:                 var host = req.headers.host;
+7317:                 if (typeof host == 'string') { host = host.split(':')[0]; }
+7318:                 if ((host == null) && (obj.certificates != null)) { host = obj.certificates.CommonName; if (obj.certificates.CommonName.indexOf('.') == -1) { host = req.headers.host; } }
+7319:                 var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+7320:                 res.redirect('https://' + host + ':' + httpsPort + req.url);
+7321:                 return;
+7322:             }
+7323:
+7324:             // Perform traffic accounting
+7325:             if (req.headers.upgrade == 'websocket') {
+7326:                 // We don't count traffic on WebSockets since it's counted by the handling modules.
+7327:                 obj.trafficStats.httpWebSocketCount++;
+7328:             } else {
+7329:                 // Normal HTTP traffic is counted
+7330:                 obj.trafficStats.httpRequestCount++;
+7331:                 if (typeof req.socket.xbytesRead != 'number') {
+7332:                     req.socket.xbytesRead = 0;
+7333:                     req.socket.xbytesWritten = 0;
+7334:                     req.socket.on('close', function () {
+7335:                         // Perform final accounting
+7336:                         obj.trafficStats.httpIn += (this.bytesRead - this.xbytesRead);
+7337:                         obj.trafficStats.httpOut += (this.bytesWritten - this.xbytesWritten);
+7338:                         this.xbytesRead = this.bytesRead;
+7339:                         this.xbytesWritten = this.bytesWritten;
+7340:                     });
+7341:                 } else {
+7342:                     // Update counters
+7343:                     obj.trafficStats.httpIn += (req.socket.bytesRead - req.socket.xbytesRead);
+7344:                     obj.trafficStats.httpOut += (req.socket.bytesWritten - req.socket.xbytesWritten);
+7345:                     req.socket.xbytesRead = req.socket.bytesRead;
+7346:                     req.socket.xbytesWritten = req.socket.bytesWritten;
+7347:                 }
+7348:             }
+7349:
+7350:             // Set the real IP address of the request
+7351:             // If a trusted reverse-proxy is sending us the remote IP addres

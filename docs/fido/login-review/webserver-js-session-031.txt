@@ -1,0 +1,159 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 31 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+      const valueSplit = value.split(',');
+11144:             if (valueSplit.length != 3) return '';
+11145:             const r = parseInt(valueSplit[0]), g = parseInt(valueSplit[1]), b = parseInt(valueSplit[2]);
+11146:             if (isNaN(r) || (r < 0) || (r > 255) || isNaN(g) || (g < 0) || (g > 255) || isNaN(b) || (b < 0) || (b > 255)) return '';
+11147:             value = r + ',' + g + ',' + b;
+11148:         }
+11149:         return header + value + '\r\n';
+11150:     }
+11151:
+11152:     // Check that everything is cleaned up
+11153:     function checkWebRelaySessionsTimeout() {
+11154:         for (var i in webRelaySessions) { webRelaySessions[i].checkTimeout(); }
+11155:     }
+11156:
+11157:     // Return true if this is a private IP address
+11158:     function isPrivateAddress(ip_addr) {
+11159:         // If this is a loopback address, return true
+11160:         if ((ip_addr == '127.0.0.1') || (ip_addr == '::1')) return true;
+11161:
+11162:         // Check IPv4 private addresses
+11163:         const ipcheck = require('ipcheck');
+11164:         const IPv4PrivateRanges = ['0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '172.16.0.0/12', '192.0.0.0/24', '192.0.0.0/29', '192.0.0.8/32', '192.0.0.9/32', '192.0.0.10/32', '192.0.0.170/32', '192.0.0.171/32', '192.0.2.0/24', '192.31.196.0/24', '192.52.193.0/24', '192.88.99.0/24', '192.168.0.0/16', '192.175.48.0/24', '198.18.0.0/15', '198.51.100.0/24', '203.0.113.0/24', '240.0.0.0/4', '255.255.255.255/32']
+11165:         for (var i in IPv4PrivateRanges) { if (ipcheck.match(ip_addr, IPv4PrivateRanges[i])) return true; }
+11166:
+11167:         // Check IPv6 private addresses
+11168:         return /^::$/.test(ip_addr) ||
+11169:             /^::1$/.test(ip_addr) ||
+11170:             /^::f{4}:([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/.test(ip_addr) ||
+11171:             /^::f{4}:0.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/.test(ip_addr) ||
+11172:             /^64:ff9b::([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$/.test(ip_addr) ||
+11173:             /^100::([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4})$/.test(ip_addr) ||
+11174:             /^2001::([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4})$/.test(ip_addr) ||
+11175:             /^2001:2[0-9a-fA-F]:([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4})$/.test(ip_addr) ||
+11176:             /^2001:db8:([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4})$/.test(ip_addr) ||
+11177:             /^2002:([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4}):?([0-9a-fA-F]{0,4})$/.test(ip_addr) ||
+11178:             /^f[c-d]([0-9a-fA-F]{2,2}):/i.test(ip_addr) ||
+11179:             /^fe[8-9a-bA-B][0-9a-fA-F]:/i.test(ip_addr) ||
+11180:             /^ff([0-9a-fA-F]{2,2}):/i.test(ip_addr)
+11181:     }
+11182:
+11183:     // Check that a cookie IP is within the correct range depending on the active policy
+11184:     function checkCookieIp(cookieip, ip) {
+11185:         if (obj.args.cookieipcheck == 'none') return true; // 'none' - No IP address checking
+11186:         if (obj.args.cookieipcheck == 'strict') return (cookieip == ip); // 'strict' - Strict IP address checking, this can cause issues with HTTP proxies or load-balancers.
+11187:         if (require('ipcheck').match(cookieip, ip + '/24')) return true; // 'lax' - IP address need to be in the some range
+11188:         return (isPrivateAddress(cookieip) && isPrivateAddress(ip)); // 'lax' - If both IP addresses are private or loopback, accept it. This is needed because sometimes browsers will resolve IP addresses oddly on private networks.
+11189:     }
+11190:
+11191:     // Takes a formating string like "this {{{a}}} is an {{{b}}} example" and fills the a and b with input o.a and o.b
+11192:     function assembleStringFromObject(format, o) {
+11193:         var r = '', i = format.indexOf('{{{');
+11194:         if (i > 0) { r = format.substring(0, i); format = format.substring(i); }
+11195:         const cmd = format.split('{{{');
+11196:         for (var j in cmd) { if (j == 0) continue; i = cmd[j].indexOf('}}}'); r += o[cmd[j].substring(0, i)] + cmd[j].substring(i + 3); }
+11197:         return r;
+11198:     }
+11199:
+11200:     // Sync an account with an external user group.
+11201:     // Return true if the user was changed
+11202:     function syncExternalUserGroups(domain, user, userMemberships, userMembershipType) {
+11203:         var userChanged = false;
+11204:         if (user.links == null) { user.links = {}; }
+11205:
+11206:         // Create a user of memberships for this user that type
+11207:         var existingUserMemberships = {};
+11208:         for (var i in user.links) {
+11209:             if (i.startsWith('ugrp/') && (obj.userGroups[i] != null) && (obj.userGroups[i].membershipType == userMembershipType)) { existingUserMemberships[i] = obj.userGroups[i]; }
+11210:         }
+11211:
+11212:         // Go thru the list user memberships and create and add to any user groups as needed
+11213:         for (var i in userMemberships) {
+11214:             const membership = userMemberships[i];
+11215:             var ugrpid = 'ugrp/' + domain.id + '/' + obj.crypto.createHash('sha384').update(membership).digest('base64').replace(/\+/g, '@').replace(/\//g, '$');
+11216:             var ugrp = obj.userGroups[ugrpid];
+11217:             if (ugrp == null) {
+11218:                 // This user group does not exist, create it
+11219:                 ugrp = { type: 'ugrp', _id: ugrpid, name: membership, domain: domain.id, membershipType: userMembershipType, links: {} };
+11220:
+11221:                 // Save the new group
+11222:                 db.Set(ugrp);
+11223:                 if (db.changeStream == false) { obj.userGroups[ugrpid] = ugrp; }
+11224:
+11225:                 // Event the user group creation
+11226:                 var event = { etype: 'ugrp', ugrpid: ugrpid, name: ugrp.name, action: 'createusergroup', links: ugrp.links, msgid: 69, msgArgv: [ugrp.name], msg: 'User group created: ' + ugrp.name, ugrpdomain: domain.id };
+11227:                 parent.DispatchEvent(['*', ugrpid, user._id], obj, event); // Even if DB change stream is active, this event must be acted upon.
+11228:
+11229:                 // Log in the auth log
+11230:                 parent.authLog('https', userMembershipType.toUpperCase() + ': Created user group ' + ugrp.name);
+11231:             }
+11232:
+11233:             if (existingUserMemberships[ugrpid] == null) {
+11234:                 // This user is not part of the user group, add it.
+11235:                 if (user.links == null) { user.links = {}; }
+11236:                 user.links[ugrp._id] = { rights: 1 };
+11237:                 userChanged = true;
+11238:                 db.SetUser(user);
+11239:                 parent.DispatchEvent([user._id], obj, 'resubscribe');
+11240:
+11241:                 // Notify user change
+11242:                 var targets = ['*', 'server-users', user._id];
+11243:                 var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msgid: 67, msgArgs: [user.name], msg: 'User group membership changed: ' + user.name, domain: domain.id };
+11244:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+11245:                 parent.DispatchEvent(targets, obj, event);
+11246:
+11247:                 // Add a user to the user group
+11248:                 ugrp.links[user._id] = { userid: user._id, name: user.name, rights: 1 };
+11249:                 db.Set(ugrp);
+11250:
+11251:                 // Notify user group change
+11252:                 var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: ugrp._id, name: ugrp.name, desc: ugrp.desc, action: 'usergroupchange', links: ugrp.links, msgid: 71, msgArgs: [user.name, ugrp.name], msg: 'Added user(s) ' + user.name + ' to user group ' + ugrp.name, addUserDomain: domain.id };
+11253:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+11254:                 parent.DispatchEvent(['*', ugrp._id, user._id], obj, event);
+11255:
+11256:                 // Log in the auth log
+11257:                 parent.authLog('https', userMembershipType.toUpperCase() + ': Adding ' + user.name + ' to user group ' + userMemberships[i] + '.');
+11258:             } else {
+11259:                 // User is already part of this user group
+11260:                 delete existingUserMemberships[ugrpid];
+11261:             }
+11262:         }
+11263:
+11264:         // Remove the user from any memberships they don't belong to anymore
+11265:         for (var ugrpid in existingUserMemberships) {
+11266:             var ugrp = obj.userGroups[ugrpid];
+11267:             parent.authLog('https', userMembershipType.toUpperCase() + ': Removing ' + user.name + ' from user group ' + ugrp.name + '.');
+11268:             if ((user.links != null) && (user.links[ugrpid] != null)) {
+11269:                 delete user.links[ugrpid];
+11270:
+11271:                 // Notify user change
+11272:                 var targets = ['*', 'server-users', user._id, user._id];
+11273:                 var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msgid: 67, msgArgs: [user.name], msg: 'User group membership changed: ' + user.name, domain: domain.id };
+11274:                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+11275:                 parent.DispatchEvent(targets, obj, event);
+11276:
+11277:                 db.SetUser(user);
+11278:                 parent.DispatchEvent([user._id], obj, 'resubscribe');
+11279:             }
+11280:
+11281:             if (ugrp != null) {
+11282:                 // Remove the user from the group
+11283:                 if ((ugrp.links != null) && (ugrp.links[user._id] != null)) {
+11284:                     delete ugrp.links[user._id];
+11285:                     db.Set(ugrp);
+11286:
+11287:                     // Notify user group change
+11288:                     var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: ugrp._id, name: ugrp.name, desc: ugrp.desc, action: 'usergroupchange', links: ugrp.links, msgid: 72, msgArgs: [user.name, ugrp.name], msg: 'Removed user ' + user.name + ' from user group ' + ugrp.name, domain: domain.id };
+11289:                     if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+11290:                     parent.DispatchEvent(['*', ugrp._id, user._id], obj, event);
+11291:                 }
+11292:             }
+11293:         }
+11294:
+11295:         return userChanged;
+11296:     }
+11297:
+11298:     return obj;
+11299: };

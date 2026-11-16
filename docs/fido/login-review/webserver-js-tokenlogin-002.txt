@@ -1,0 +1,197 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 2 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+.id, 'base64');
+1216:                     clientAssertionResponse.response.authenticatorData = Buffer.from(authResponse.authenticatorData, 'base64');
+1217:                     clientAssertionResponse.response.clientDataJSON = Buffer.from(authResponse.clientDataJSON, 'base64');
+1218:                     clientAssertionResponse.response.signature = Buffer.from(authResponse.signature, 'base64');
+1219:                     clientAssertionResponse.response.userHandle = Buffer.from(authResponse.userHandle, 'base64');
+1220:
+1221:                     // Look for the key with clientAssertionResponse.id
+1222:                     var webAuthnKey = null;
+1223:                     for (var i = 0; i < webAuthnKeys.length; i++) { if (webAuthnKeys[i].keyId == clientAssertionResponse.id) { webAuthnKey = webAuthnKeys[i]; } }
+1224:
+1225:                     // If we found a valid key to use, let's validate the response
+1226:                     if (webAuthnKey != null) {
+1227:                         // Figure out the origin
+1228:                         var httpport = ((args.aliasport != null) ? args.aliasport : args.port);
+1229:                         var origin = 'https://' + (domain.dns ? domain.dns : parent.certificates.CommonName);
+1230:                         if (httpport != 443) { origin += ':' + httpport; }
+1231:
+1232:                         var u2fchallenge = null;
+1233:                         if ((req.session != null) && (req.session.e != null)) { const sec = parent.decryptSessionData(req.session.e); if (sec != null) { u2fchallenge = sec.u2f; } }
+1234:                         var assertionExpectations = {
+1235:                             challenge: u2fchallenge,
+1236:                             origin: origin,
+1237:                             factor: 'either',
+1238:                             fmt: 'fido-u2f',
+1239:                             publicKey: webAuthnKey.publicKey,
+1240:                             prevCounter: webAuthnKey.counter,
+1241:                             userHandle: Buffer.from(user._id, 'binary').toString('base64')
+1242:                         };
+1243:
+1244:                         var webauthnResponse = null;
+1245:                         try { webauthnResponse = obj.webauthn.verifyAuthenticatorAssertionResponse(clientAssertionResponse.response, assertionExpectations); } catch (ex) { parent.debug('web', 'checkUserOneTimePassword: exception ' + ex); console.log(ex); }
+1246:                         if ((webauthnResponse != null) && (webauthnResponse.verified === true)) {
+1247:                             // Update the hardware key counter and accept the 2nd factor
+1248:                             webAuthnKey.counter = webauthnResponse.counter;
+1249:                             obj.db.SetUser(user);
+1250:                             parent.debug('web', 'checkUserOneTimePassword: success (hardware).');
+1251:                             func(true, { twoFactorType: 'fido' });
+1252:                         } else {
+1253:                             parent.debug('web', 'checkUserOneTimePassword: fail (hardware).');
+1254:                             func(false);
+1255:                         }
+1256:                         return;
+1257:                     }
+1258:                 }
+1259:             }
+1260:         }
+1261:
+1262:         // Check Google Authenticator
+1263:         if (user.otpsecret && (typeof (token) == 'string') && (token.length == 6)){
+1264:             const otplib = require('otplib');
+1265:             var verified = null;
+1266:             try {
+1267:                 verified = otplib.verifySync({
+1268:                     epochTolerance: 60,
+1269:                     token: token,
+1270:                     secret: user.otpsecret,
+1271:                     guardrails: otplib.createGuardrails({
+1272:                         MIN_SECRET_BYTES: 10, // https://github.com/yeojz/otplib/issues/671#issuecomment-4368647105
+1273:                     })
+1274:                 });
+1275:             } catch (ex) { parent.debug('web', 'checkUserOneTimePassword: exception ' + ex); }
+1276:             if ((verified != null) && (verified.valid === true)) {
+1277:                 parent.debug('web', 'checkUserOneTimePassword: success (authenticator).');
+1278:                 func(true, { twoFactorType: 'otp' });
+1279:                 return;
+1280:             }
+1281:         };
+1282:
+1283:         // Check written down keys
+1284:         if ((user.otpkeys != null) && (user.otpkeys.keys != null) && (typeof (token) == 'string') && (token.length == 8)) {
+1285:             var tokenNumber = parseInt(token);
+1286:             for (var i = 0; i < user.otpkeys.keys.length; i++) {
+1287:                 if ((tokenNumber === user.otpkeys.keys[i].p) && (user.otpkeys.keys[i].u === true)) {
+1288:                     parent.debug('web', 'checkUserOneTimePassword: success (one-time).');
+1289:                     user.otpkeys.keys[i].u = false; func(true, { twoFactorType: 'backup' }); return;
+1290:                 }
+1291:             }
+1292:         }
+1293:
+1294:         // Check OTP hardware key (Yubikey OTP)
+1295:         if ((domain.yubikey != null) && (domain.yubikey.id != null) && (domain.yubikey.secret != null) && (user.otphkeys != null) && (user.otphkeys.length > 0) && (typeof (token) == 'string') && (token.length == 44)) {
+1296:             var keyId = token.substring(0, 12);
+1297:
+1298:             // Find a matching OTP key
+1299:             var match = false;
+1300:             for (var i = 0; i < user.otphkeys.length; i++) { if ((user.otphkeys[i].type === 2) && (user.otphkeys[i].keyid === keyId)) { match = true; } }
+1301:
+1302:             // If we have a match, check the OTP
+1303:             if (match === true) {
+1304:                 var yub = require('yub');
+1305:                 yub.init(domain.yubikey.id, domain.yubikey.secret);
+1306:                 yub.verify(token, function (err, results) {
+1307:                     if ((results != null) && (results.status == 'OK')) {
+1308:                         parent.debug('web', 'checkUserOneTimePassword: success (Yubikey).');
+1309:                         func(true, { twoFactorType: 'hwotp' });
+1310:                     } else {
+1311:                         parent.debug('web', 'checkUserOneTimePassword: fail (Yubikey).');
+1312:                         func(false);
+1313:                     }
+1314:                 });
+1315:                 return;
+1316:             }
+1317:         }
+1318:
+1319:         parent.debug('web', 'checkUserOneTimePassword: fail (2).');
+1320:         func(false);
+1321:     }
+1322:
+1323:     // Return a U2F hardware key challenge
+1324:     function getHardwareKeyChallenge(req, domain, user, func) {
+1325:         var sec = {};
+1326:         if (req.session == null) { req.session = {}; } else { try { sec = parent.decryptSessionData(req.session.e); } catch (ex) { } }
+1327:
+1328:         if (user.otphkeys && (user.otphkeys.length > 0)) {
+1329:             // Get all WebAuthn keys
+1330:             var webAuthnKeys = [];
+1331:             for (var i = 0; i < user.otphkeys.length; i++) { if (user.otphkeys[i].type == 3) { webAuthnKeys.push(user.otphkeys[i]); } }
+1332:             if (webAuthnKeys.length > 0) {
+1333:                 // Generate a Webauthn challenge, this is really easy, no need to call any modules to do this.
+1334:                 var authnOptions = { type: 'webAuthn', keyIds: [], timeout: 60000, challenge: obj.crypto.randomBytes(64).toString('base64') };
+1335:                 // userVerification: 'preferred' use security pin if possible (default), 'required' always use security pin, 'discouraged' do not use security pin.
+1336:                 authnOptions.userVerification = (domain.passwordrequirements && domain.passwordrequirements.fidopininput) ? domain.passwordrequirements.fidopininput : 'preferred'; // Use the domain setting if it exists, otherwise use 'preferred'.{
+1337:                 for (var i = 0; i < webAuthnKeys.length; i++) { authnOptions.keyIds.push(webAuthnKeys[i].keyId); }
+1338:                 sec.u2f = authnOptions.challenge;
+1339:                 req.session.e = parent.encryptSessionData(sec);
+1340:                 parent.debug('web', 'getHardwareKeyChallenge: success');
+1341:                 func(JSON.stringify(authnOptions));
+1342:                 return;
+1343:             }
+1344:         }
+1345:
+1346:         // Remove the challenge if present
+1347:         if (sec.u2f != null) { delete sec.u2f; req.session.e = parent.encryptSessionData(sec); }
+1348:
+1349:         parent.debug('web', 'getHardwareKeyChallenge: fail');
+1350:         func('');
+1351:     }
+1352:
+1353:     // Redirect a root request to a different page
+1354:     function handleRootRedirect(req, res, direct) {
+1355:         const domain = checkUserIpAddress(req, res);
+1356:         if (domain == null) { return; }
+1357:         res.redirect(domain.rootredirect + getQueryPortion(req));
+1358:     }
+1359:
+1360:     function handleLoginRequest(req, res, direct) {
+1361:         const domain = checkUserIpAddress(req, res);
+1362:         if (domain == null) { return; }
+1363:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+1364:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+1365:         if (req.session == null) { req.session = {}; }
+1366:
+1367:         const blockingMode = parent.config.settings.maxinvalidlogin?.blocking || 'iprange';
+1368:
+1369:         // Check if this is a banned ip address
+1370:         if (blockingMode !== 'username' && obj.checkAllowLogin(req) === false) {
+1371:             // Wait and redirect the user
+1372:             setTimeout(function () {
+1373:                 req.session.messageid = 114; // IP address blocked, try again later.
+1374:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1375:             }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095));
+1376:             return;
+1377:         }
+1378:
+1379:         // Normally, use the body username/password. If this is a token, use the username/password in the session.
+1380:         var xusername = req.body.username, xpassword = req.body.password;
+1381:         if ((xusername == null) && (xpassword == null) && (req.body.token != null)) {
+1382:             const sec = parent.decryptSessionData(req.session.e);
+1383:             xusername = sec.tuser; xpassword = sec.tpass;
+1384:         }
+1385:
+1386:         // Check if the user is locked out
+1387:         if (blockingMode === 'username' && obj.checkAllowLogin(null, xusername) === false) {
+1388:             // Wait and redirect the user
+1389:             setTimeout(function () {
+1390:                 req.session.messageid = 110; // Account locked
+1391:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1392:             }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095));
+1393:             return;
+1394:         }
+1395:
+1396:         // Authenticate the user
+1397:         obj.authenticate(xusername, xpassword, domain, function (err, userid, passhint, loginOptions) {
+1398:             if (userid) {
+1399:                 var user = obj.users[userid];
+1400:
+1401:                 // Check if we are in maintenance mode
+1402:                 if ((parent.config.settings.maintenancemode != null) && (user.siteadmin != 4294967295)) {
+1403:                     req.session.messageid = 115; // Server under maintenance
+1404:                     req.session.loginmode = 1;
+1405:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1406:                     return;
+1407:                 }
+1408:
+1409:                 var email2fa = (((typeof domain.passwordrequireme

@@ -1,0 +1,149 @@
+MeshCentral 1.3.1 source review: webserver.js / cookies / part 3 of 5
+Parts may continue a source line. Trailing whitespace is omitted.
+rustedcert == 'boolean')) return domain.trustedcert; // If the status of the cert specified, use that.
+3878:         if (typeof obj.args.trustedcert == 'boolean') return obj.args.trustedcert; // If the status of the cert specified, use that.
+3879:         if (obj.args.tlsoffload != null) return true; // We are using TLS offload, a real cert is likely used.
+3880:         if (obj.parent.config.letsencrypt != null) return (obj.parent.config.letsencrypt.production === true); // We are using Let's Encrypt, real cert in use if production is set to true.
+3881:         if ((typeof obj.certificates.WebIssuer == 'string') && (obj.certificates.WebIssuer.indexOf('MeshCentralRoot-') == 0)) return false; // Our cert is issued by self-signed cert.
+3882:         if (obj.certificates.CommonName.indexOf('.') == -1) return false; // Our cert is named with a fake name
+3883:         return true; // This is a guess
+3884:     }
+3885:
+3886:     // Get the link to the root certificate if needed
+3887:     function getRootCertLink(domain) {
+3888:         // Check if the HTTPS certificate is issued from MeshCentralRoot, if so, add download link to root certificate.
+3889:         if (obj.isTrustedCert(domain) == false) {
+3890:             // Get the domain suffix
+3891:             var xdomain = (domain.dns == null) ? domain.id : '';
+3892:             if (xdomain != '') xdomain += '/';
+3893:             return '<a href=/' + xdomain + 'MeshServerRootCert.cer title="Download the root certificate for this server">Root Certificate</a>';
+3894:         }
+3895:         return '';
+3896:     }
+3897:
+3898:     // Serve the xterm page
+3899:     function handleXTermRequest(req, res) {
+3900:         const domain = checkUserIpAddress(req, res);
+3901:         if (domain == null) { return; }
+3902:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+3903:
+3904:         parent.debug('web', 'handleXTermRequest: sending xterm');
+3905:         res.set({ 'Cache-Control': 'no-store' });
+3906:         if (req.session && req.session.userid) {
+3907:             if (req.session.userid.split('/')[1] != domain.id) { res.redirect(domain.url + getQueryPortion(req)); return; } // Check if the session is for the correct domain
+3908:             var user = obj.users[req.session.userid];
+3909:             if ((user == null) || (req.query.nodeid == null)) { res.redirect(domain.url + getQueryPortion(req)); return; } // Check if the user exists
+3910:
+3911:             // Check permissions
+3912:             obj.GetNodeWithRights(domain, user, req.query.nodeid, function (node, rights, visible) {
+3913:                 if ((node == null) || ((rights & 8) == 0) || ((rights != 0xFFFFFFFF) && ((rights & 512) != 0))) { res.redirect(domain.url + getQueryPortion(req)); return; }
+3914:
+3915:                 var logoutcontrols = { name: user.name };
+3916:                 var extras = (req.query.key != null) ? ('&key=' + encodeURIComponent(req.query.key)) : '';
+3917:                 if ((domain.ldap == null) && (domain.sspi == null) && (obj.args.user == null) && (obj.args.nousers != true)) { logoutcontrols.logoutUrl = (domain.url + 'logout?' + Math.random() + extras); } // If a default user is in use or no user mode, don't display the logout button
+3918:
+3919:                 // Create a authentication cookie
+3920:                 const authCookie = obj.parent.encodeCookie({ userid: user._id, domainid: domain.id, ip: req.clientIp }, obj.parent.loginCookieEncryptionKey);
+3921:                 const authRelayCookie = obj.parent.encodeCookie({ ruserid: user._id, domainid: domain.id }, obj.parent.loginCookieEncryptionKey);
+3922:                 var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+3923:                 render(req, res, getRenderPage('xterm', req, domain), getRenderArgs({ serverDnsName: obj.getWebServerName(domain, req), serverRedirPort: args.redirport, serverPublicPort: httpsPort, authCookie: authCookie, authRelayCookie: authRelayCookie, logoutControls: encodeURIComponent(JSON.stringify(logoutcontrols)).replace(/'/g, '%27'), name: EscapeHtml(node.name) }, req, domain));
+3924:             });
+3925:         } else {
+3926:             res.redirect(domain.url + getQueryPortion(req));
+3927:             return;
+3928:         }
+3929:     }
+3930:
+3931:     // Handle new account Captcha GET
+3932:     function handleNewAccountCaptchaRequest(req, res) {
+3933:         const domain = checkUserIpAddress(req, res);
+3934:         if (domain == null) { return; }
+3935:         if ((domain.newaccountscaptcha == null) || (domain.newaccountscaptcha === false) || (req.query.x == null)) { res.sendStatus(404); return; }
+3936:         const c = obj.parent.decodeCookie(req.query.x, obj.parent.loginCookieEncryptionKey);
+3937:         if ((c == null) || (c.type !== 'newAccount') || (typeof c.captcha != 'string')) { res.sendStatus(404); return; }
+3938:         res.type('svg');
+3939:         res.status(200).end(require('svg-captcha')(c.captcha, {}));
+3940:     }
+3941:
+3942:     // Handle Captcha GET
+3943:     function handleCaptchaGetRequest(req, res) {
+3944:         const domain = checkUserIpAddress(req, res);
+3945:         if (domain == null) { return; }
+3946:         if (parent.crowdSecBounser == null) { res.sendStatus(404); return; }
+3947:         parent.crowdSecBounser.applyCaptcha(req, res, function () { res.redirect((((domain.id == '') && (domain.dns == null)) ? '/' : ('/' + domain.id))); });
+3948:     }
+3949:
+3950:     // Handle Captcha POST
+3951:     function handleCaptchaPostRequest(req, res) {
+3952:         if (parent.crowdSecBounser == null) { res.sendStatus(404); return; }
+3953:         const domain = checkUserIpAddress(req, res);
+3954:         if (domain == null) { return; }
+3955:         req.originalUrl = (((domain.id == '') && (domain.dns == null)) ? '/' : ('/' + domain.id));
+3956:         parent.crowdSecBounser.applyCaptcha(req, res, function () { res.redirect(req.originalUrl); });
+3957:     }
+3958:
+3959:     // Render the terms of service.
+3960:     function handleTermsRequest(req, res) {
+3961:         const domain = checkUserIpAddress(req, res);
+3962:         if (domain == null) { return; }
+3963:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+3964:
+3965:         // See if term.txt was loaded from the database
+3966:         if ((parent.configurationFiles != null) && (parent.configurationFiles['terms.txt'] != null)) {
+3967:             // Send the terms from the database
+3968:             res.set({ 'Cache-Control': 'no-store' });
+3969:             if (req.session && req.session.userid) {
+3970:                 if (req.session.userid.split('/')[1] != domain.id) { req.session = null; res.redirect(domain.url + getQueryPortion(req)); return; } // Check if the session is for the correct domain
+3971:                 var user = obj.users[req.session.userid];
+3972:                 var logoutcontrols = { name: user.name };
+3973:                 var extras = (req.query.key != null) ? ('&key=' + encodeURIComponent(req.query.key)) : '';
+3974:                 if ((domain.ldap == null) && (domain.sspi == null) && (obj.args.user == null) && (obj.args.nousers != true)) { logoutcontrols.logoutUrl = (domain.url + 'logout?' + Math.random() + extras); } // If a default user is in use or no user mode, don't display the logout button
+3975:                 render(req, res, getRenderPage('terms', req, domain), getRenderArgs({ terms: encodeURIComponent(parent.configurationFiles['terms.txt'].toString()).split('\'').join('\\\''), logoutControls: encodeURIComponent(JSON.stringify(logoutcontrols)).replace(/'/g, '%27') }, req, domain));
+3976:             } else {
+3977:                 render(req, res, getRenderPage('terms', req, domain), getRenderArgs({ terms: encodeURIComponent(parent.configurationFiles['terms.txt'].toString()).split('\'').join('\\\''), logoutControls: encodeURIComponent('{}') }, req, domain));
+3978:             }
+3979:         } else {
+3980:             // See if there is a terms.txt file in meshcentral-data
+3981:             var p = obj.path.join(obj.parent.datapath, 'terms.txt');
+3982:             if (obj.fs.existsSync(p)) {
+3983:                 obj.fs.readFile(p, 'utf8', function (err, data) {
+3984:                     if (err != null) { parent.debug('web', 'handleTermsRequest: no terms.txt'); res.sendStatus(404); return; }
+3985:
+3986:                     // Send the terms from terms.txt
+3987:                     res.set({ 'Cache-Control': 'no-store' });
+3988:                     if (req.session && req.session.userid) {
+3989:                         if (req.session.userid.split('/')[1] != domain.id) { req.session = null; res.redirect(domain.url + getQueryPortion(req)); return; } // Check if the session is for the correct domain
+3990:                         var user = obj.users[req.session.userid];
+3991:                         var logoutcontrols = { name: user.name };
+3992:                         var extras = (req.query.key != null) ? ('&key=' + encodeURIComponent(req.query.key)) : '';
+3993:                         if ((domain.ldap == null) && (domain.sspi == null) && (obj.args.user == null) && (obj.args.nousers != true)) { logoutcontrols.logoutUrl = (domain.url + 'logout?' + Math.random() + extras); } // If a default user is in use or no user mode, don't display the logout button
+3994:                         render(req, res, getRenderPage('terms', req, domain), getRenderArgs({ terms: encodeURIComponent(data).split('\'').join('\\\''), logoutControls: encodeURIComponent(JSON.stringify(logoutcontrols)).replace(/'/g, '%27') }, req, domain));
+3995:                     } else {
+3996:                         render(req, res, getRenderPage('terms', req, domain), getRenderArgs({ terms: encodeURIComponent(data).split('\'').join('\\\''), logoutControls: encodeURIComponent('{}') }, req, domain));
+3997:                     }
+3998:                 });
+3999:             } else {
+4000:                 // Send the default terms
+4001:                 parent.debug('web', 'handleTermsRequest: sending default terms');
+4002:                 res.set({ 'Cache-Control': 'no-store' });
+4003:                 if (req.session && req.session.userid) {
+4004:                     if (req.session.userid.split('/')[1] != domain.id) { req.session = null; res.redirect(domain.url + getQueryPortion(req)); return; } // Check if the session is for the correct domain
+4005:                     var user = obj.users[req.session.userid];
+4006:                     var logoutcontrols = { name: user.name };
+4007:                     var extras = (req.query.key != null) ? ('&key=' + encodeURIComponent(req.query.key)) : '';
+4008:                     if ((domain.ldap == null) && (domain.sspi == null) && (obj.args.user == null) && (obj.args.nousers != true)) { logoutcontrols.logoutUrl = (domain.url + 'logout?' + Math.random() + extras); } // If a default user is in use or no user mode, don't display the logout button
+4009:                     render(req, res, getRenderPage('terms', req, domain), getRenderArgs({ logoutControls: encodeURIComponent(JSON.stringify(logoutcontrols)).replace(/'/g, '%27') }, req, domain));
+4010:                 } else {
+4011:                     render(req, res, getRenderPage('terms', req, domain), getRenderArgs({ logoutControls: encodeURIComponent('{}') }, req, domain));
+4012:                 }
+4013:             }
+4014:         }
+4015:     }
+4016:
+4017:     // Render the messenger application.
+4018:     function handleMessengerRequest(req, res) {
+4019:         const domain = getDomain(req);
+4020:         if (domain == null) { parent.debug('web', 'handleMessengerRequest: no domain'); res.sendStatus(404); return; }
+4021:         parent.debug('web', 'handleMessengerRequest()');
+4022:
+4023:         // Check if we are in maintenance

@@ -1,0 +1,133 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 10 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+ers() {
+7539:             // Setup all HTTP handlers
+7540:             if (parent.pluginHandler != null) {
+7541:                 parent.pluginHandler.callHook('hook_setupHttpHandlers', obj, parent);
+7542:             }
+7543:             if (parent.multiServer != null) { obj.app.ws('/meshserver.ashx', function (ws, req) { parent.multiServer.CreatePeerInServer(parent.multiServer, ws, req, obj.args.tlsoffload == null); }); }
+7544:             for (var i in parent.config.domains) {
+7545:                 if ((parent.config.domains[i].dns != null) || (parent.config.domains[i].share != null)) { continue; } // This is a subdomain with a DNS name, no added HTTP bindings needed.
+7546:                 var domain = parent.config.domains[i];
+7547:                 var url = domain.url;
+7548:                 if (typeof domain.rootredirect == 'string') {
+7549:                     // Root page redirects the user to a different URL
+7550:                     obj.app.get(url, handleRootRedirect);
+7551:                 } else {
+7552:                     // Present the login page as the root page
+7553:                     obj.app.get(url, handleRootRequest);
+7554:                     obj.app.post(url, obj.bodyParser.urlencoded({ extended: false }), handleRootPostRequest);
+7555:                 }
+7556:                 obj.app.get(url + 'refresh.ashx', function (req, res) { res.sendStatus(200); });
+7557:                 if ((domain.myserver !== false) && ((domain.myserver == null) || (domain.myserver.backup === true))) { obj.app.get(url + 'backup.zip', handleBackupRequest); }
+7558:                 if ((domain.myserver !== false) && ((domain.myserver == null) || (domain.myserver.restore === true))) { obj.app.post(url + 'restoreserver.ashx', obj.bodyParser.urlencoded({ extended: false }), handleRestoreRequest); }
+7559:                 obj.app.get(url + 'terms', handleTermsRequest);
+7560:                 obj.app.get(url + 'xterm', handleXTermRequest);
+7561:                 obj.app.get(url + 'login', handleRootRequest);
+7562:                 obj.app.post(url + 'login', obj.bodyParser.urlencoded({ extended: false }), handleRootPostRequest);
+7563:                 obj.app.post(url + 'tokenlogin', obj.bodyParser.urlencoded({ extended: false }), handleLoginRequest);
+7564:                 obj.app.get(url + 'logout', handleLogoutRequest);
+7565:                 obj.app.get(url + 'MeshServerRootCert.cer', handleRootCertRequest);
+7566:                 obj.app.get(url + 'manifest.json', handleManifestRequest);
+7567:                 obj.app.post(url + 'changepassword', obj.bodyParser.urlencoded({ extended: false }), handlePasswordChangeRequest);
+7568:                 obj.app.post(url + 'deleteaccount', obj.bodyParser.urlencoded({ extended: false }), handleDeleteAccountRequest);
+7569:                 obj.app.post(url + 'createaccount', obj.bodyParser.urlencoded({ extended: false }), handleCreateAccountRequest);
+7570:                 obj.app.post(url + 'resetpassword', obj.bodyParser.urlencoded({ extended: false }), handleResetPasswordRequest);
+7571:                 obj.app.post(url + 'resetaccount', obj.bodyParser.urlencoded({ extended: false }), handleResetAccountRequest);
+7572:                 obj.app.get(url + 'checkmail', handleCheckMailRequest);
+7573:                 obj.app.get(url + 'agentinvite', handleAgentInviteRequest);
+7574:                 obj.app.get(url + 'userimage.ashx', handleUserImageRequest);
+7575:                 obj.app.post(url + 'amtevents.ashx', obj.bodyParser.urlencoded({ extended: false }), obj.handleAmtEventRequest);
+7576:                 obj.app.get(url + 'meshagents', obj.handleMeshAgentRequest);
+7577:                 obj.app.get(url + 'messenger', handleMessengerRequest);
+7578:                 obj.app.get(url + 'messenger.png', handleMessengerImageRequest);
+7579:                 obj.app.get(url + 'meshosxagent', obj.handleMeshOsxAgentRequest);
+7580:                 obj.app.get(url + 'meshsettings', obj.handleMeshSettingsRequest);
+7581:                 obj.app.get(url + 'devicepowerevents.ashx', obj.handleDevicePowerEvents);
+7582:                 obj.app.get(url + 'downloadfile.ashx', handleDownloadFile);
+7583:                 obj.app.get(url + 'commander.ashx', handleMeshCommander);
+7584:                 obj.app.post(url + 'uploadfile.ashx', obj.bodyParser.urlencoded({ extended: false }), handleUploadFile);
+7585:                 obj.app.post(url + 'uploadfilebatch.ashx', obj.bodyParser.urlencoded({ extended: false }), handleUploadFileBatch);
+7586:                 obj.app.post(url + 'customiconupload.ashx', handleCustomIconUpload);
+7587:                 obj.app.post(url + 'customicondelete.ashx', obj.bodyParser.urlencoded({ extended: false }), handleCustomIconDelete);
+7588:                 obj.app.get(url + 'icons/custom/*', handleCustomIconDownload);
+7589:                 obj.app.post(url + 'uploadmeshcorefile.ashx', obj.bodyParser.urlencoded({ extended: false }), handleUploadMeshCoreFile);
+7590:                 obj.app.post(url + 'oneclickrecovery.ashx', obj.bodyParser.urlencoded({ extended: false }), handleOneClickRecoveryFile);
+7591:                 obj.app.get(url + 'userfiles/*', handleDownloadUserFiles);
+7592:                 obj.app.ws(url + 'echo.ashx', handleEchoWebSocket);
+7593:                 obj.app.ws(url + '2fahold.ashx', handle2faHoldWebSocket);
+7594:                 obj.app.ws(url + 'apf.ashx', function (ws, req) { obj.parent.mpsserver.onWebSocketConnection(ws, req); })
+7595:                 obj.app.get(url + 'webrelay.ashx', function (req, res) { res.send('Websocket connection expected'); });
+7596:                 obj.app.get(url + 'health.ashx', function (req, res) { res.send('ok'); }); // TODO: Perform more server checking.
+7597:                 obj.app.ws(url + 'webrelay.ashx', function (ws, req) { PerformWSSessionAuth(ws, req, false, handleRelayWebSocket); });
+7598:                 obj.app.ws(url + 'webider.ashx', function (ws, req) { PerformWSSessionAuth(ws, req, false, function (ws1, req1, domain, user, cookie, authData) { obj.meshIderHandler.CreateAmtIderSession(obj, obj.db, ws1, req1, obj.args, domain, user); }); });
+7599:                 obj.app.ws(url + 'control.ashx', function (ws, req) {
+7600:                     getWebsocketArgs(ws, req, function (ws, req) {
+7601:                         const domain = getDomain(req);
+7602:                         if (obj.CheckWebServerOriginName(domain, req) == false) {
+7603:                             try { ws.send(JSON.stringify({ action: 'close', cause: 'invalidorigin', msg: 'invalidorigin' })); } catch (ex) { }
+7604:                             try { ws.close(); } catch (ex) { }
+7605:                             return;
+7606:                         }
+7607:                         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { // Check 3FA URL key
+7608:                             try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'nokey' })); } catch (ex) { }
+7609:                             try { ws.close(); } catch (ex) { }
+7610:                             return;
+7611:                         }
+7612:                         PerformWSSessionAuth(ws, req, true, function (ws1, req1, domain, user, cookie, authData) {
+7613:                             // Device share guest cookies are for relay sessions only, not control.ashx
+7614:                             if (isDeviceShareGuestCookie(cookie)) {
+7615:                                 try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'noauth' })); } catch (ex) { }
+7616:                                 try { ws.close(); } catch (ex) { }
+7617:                                 return;
+7618:                             }
+7619:                             if (user == null) { // User is not authenticated, perform inner server authentication
+7620:                                 if (req.headers['x-meshauth'] === '*') {
+7621:                                     PerformWSSessionInnerAuth(ws, req, domain, function (ws1, req1, domain, user) { obj.meshUserHandler.CreateMeshUser(obj, obj.db, ws1, req1, obj.args, domain, user, authData); }); // User is authenticated
+7622:                                 } else {
+7623:                                     try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'noauth' })); } catch (ex) { }
+7624:                                     try { ws.close(); } catch (ex) { } // user is not authenticated and inner authentication was not requested, disconnect now.
+7625:                                 }
+7626:                             } else {
+7627:                                 obj.meshUserHandler.CreateMeshUser(obj, obj.db, ws1, req1, obj.args, domain, user, authData); // User is authenticated
+7628:                             }
+7629:                         });
+7630:                     });
+7631:                 });
+7632:                 obj.app.ws(url + 'devicefile.ashx', function (ws, req) { obj.meshDeviceFileHandler.CreateMeshDeviceFile(obj, ws, null, req, domain); });
+7633:                 obj.app.get(url + 'devicefile.ashx', handleDeviceFile);
+7634:                 obj.app.get(url + 'agentdownload.ashx', handleAgentDownloadFile);
+7635:                 obj.app.get(url + 'logo.png', handleLogoRequest);
+7636:                 obj.app.get(url + 'loginlogo.png', handleLoginLogoRequest);
+7637:                 obj.app.get(url + 'pwalogo.png', handlePWALogoRequest);
+7638:                 obj.app.post(url + 'translations', obj.bodyParser.urlencoded({ extended: false }), handleTranslationsRequest);
+7639:                 obj.app.get(url + 'welcome.jpg', handleWelcomeImageRequest);
+7640:                 obj.app.get(url + 'welcome.png', handleWelcomeImageRequest);
+7641:                 obj.app.get(url + 'recordings.ashx', handleGetRecordings);
+7642:                 obj.app.ws(url + 'recordings.ashx', handleGetRecordingsWebSocket);
+7643:                 obj.app.get(url + 'player.htm', handlePlayerRequest);
+7644:                 obj.app.get(url + 'player', handlePlayerRequest);
+7645:                 obj.app.get(url + 'sharing', handleSharingRequest);
+7646:                 obj.app.ws(url + 'agenttransfer.ashx', handleAgentFileTransfer); // Setup agent to/from server file transfer handler
+7647:                 obj.app.ws(url + 'meshrelay.ashx', function (ws, req) {
+7648:                     PerformWSSessionAuth(ws, req, true, function (ws1, req1, domain, user, cookie, authData) {
+7649:                         if (((parent.config.settings.desktopmultiplex === true) || (domain.desktopmultiplex === true)) && (req.query.p == 2)) {
+7650:                             obj.meshDesktopMultiplexHandler.CreateMeshRelay(obj, ws1, req1, domain, user, cookie); // Desktop multiplexor 1-to-n
+7651:                         } else {
+7652:                             obj.meshRelayHandler.CreateMeshRelay(obj, ws1, req1, domain, user, cookie); // Normal relay 1-to-1
+7653:                         }
+7654:                     });
+7655:                 });
+7656:                 if (obj.args.wanonly != true) { // If the server is not in WAN mode, allow server relayed connections.
+7657:                     obj.app.ws(url + 'localrelay.ashx', function (ws, req) {
+7658:                         PerformWSSessionAuth(ws, req, true, function (ws1, req1, domain, user, cookie, authData) {
+7659:                             if ((user == null) || (cookie == null)) {
+7660:                                 try { ws1.close(); } catch (ex) { }
+7661:                             } else {
+7662:                                 obj.meshRelayHandler.CreateLocalRelay(obj, ws1, req1, domain, user, cookie); // Local relay
+7663:                             }
+7664:                         });
+7665:                     });
+7666:                 }
+7667:                 obj.app.get(url + 'invite', handleInviteRequest);
+7668:                 obj.app.post(url + 'invite', obj.bodyParser.urlencoded({ extended: false

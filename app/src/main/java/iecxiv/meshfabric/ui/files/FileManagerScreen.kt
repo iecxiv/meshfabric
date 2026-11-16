@@ -151,6 +151,9 @@ private fun FileManagerContent(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val uploadStartingText = stringResource(R.string.starting_upload)
+    val uploadErrorTemplate = stringResource(R.string.upload_error)
+    val uploadMessageLocale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     val canCreateFiles = LocalFileCreationAllowed.current
     val isConnected by viewModel.isConnected(nodeId).collectAsState()
     val currentPath by viewModel.currentPath(nodeId).collectAsState()
@@ -267,9 +270,9 @@ private fun FileManagerContent(
             } else {
                 try {
                     viewModel.uploadUri(nodeId, context, uri)
-                    Toast.makeText(context, context.getString(R.string.starting_upload), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, uploadStartingText, Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
-                    Toast.makeText(context, context.getString(R.string.upload_error, e.localizedMessage ?: ""), Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, String.format(uploadMessageLocale, uploadErrorTemplate, e.localizedMessage ?: ""), Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -1831,7 +1834,7 @@ CardDefaults.cardColors(
                                 uploadConflictUri = null
                                 if (targetUri != null) {
                                     viewModel.uploadUri(nodeId, context, targetUri, customFileName = fileName)
-                                    Toast.makeText(context, context.getString(R.string.starting_upload), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, uploadStartingText, Toast.LENGTH_SHORT).show()
                                 }
                             }
                         ) {
@@ -1884,7 +1887,7 @@ CardDefaults.cardColors(
                                 uploadConflictUri = null
                                 if (targetUri != null && customName.isNotBlank()) {
                                     viewModel.uploadUri(nodeId, context, targetUri, customFileName = customName)
-                                    Toast.makeText(context, context.getString(R.string.starting_upload), Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, uploadStartingText, Toast.LENGTH_SHORT).show()
                                 }
                             },
                             enabled = uploadConflictCustomName.isNotBlank()

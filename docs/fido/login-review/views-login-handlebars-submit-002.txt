@@ -1,0 +1,193 @@
+MeshCentral 1.3.1 source review: views/login.handlebars / submit / part 2 of 4
+Parts may continue a source line. Trailing whitespace is omitted.
+                   <div id="unconfirmedEmail"></div><br />
+273:                                         </td>
+274:                                     </tr>
+275:                                     <tr>
+276:                                         <td>
+277:                                             <div>
+278:                                                 <input id=changeEmailButton type=button value="Change Email Address" onclick="changeEmailAddress()" />
+279:                                                 <input id=checkEmailButton2 type=button value="Resend Confirmation Email" onclick="resentEmailConfirmation()" />
+280:                                                 <input id=checkEmailButton type=submit style="display:none" />
+281:                                                 <input id=checkEmailVal name=email type="hidden" value="" />
+282:                                             </div>
+283:                                         </td>
+284:                                     </tr>
+285:                                 </table>
+286:                                 <hr /><a onclick="return xgo(1,event);" href="#" style=cursor:pointer>Back to login</a>
+287:                                 <input id=checkemailformargs name="urlargs" type="hidden" value="" />
+288:                             </form>
+289:                         </div>
+290:                     </td>
+291:                 </tr>
+292:             </table>
+293:             <br />
+294:         </div>
+295:         <div id="footer">
+296:             <div class="footer1">{{{footer}}}</div>
+297:             <div class="footer2">
+298:                 {{{rootCertLink}}}
+299:                 &nbsp;<a id="termsLinkFooter" href=terms>Terms &amp; Privacy</a>
+300:             </div>
+301:         </div>
+302:
+303:     </div>
+304:     <div id=dialog style="display:none">
+305:         <div id=dialogHeader>
+306:             <div id=id_dialogclose style=float:right;padding:5px;cursor:pointer onclick=setDialogMode()><b>X</b></div>
+307:             <div id=id_dialogtitle style=padding:5px></div>
+308:             <div style=width:100%;margin:6px></div>
+309:         </div>
+310:         <div id=dialogBody>
+311:             <div id=dialog1>
+312:                 <div id=id_dialogMessage style=""></div>
+313:             </div>
+314:             <div id=dialog2 style="">
+315:                 <div id=id_dialogOptions></div>
+316:             </div>
+317:         </div>
+318:         <div id="idx_dlgButtonBar" style="">
+319:             <input id="idx_dlgCancelButton" type="button" value="Cancel" style="" onclick="dialogclose(0)">
+320:             <input id="idx_dlgOkButton" type="button" value="OK" style="" onclick="dialogclose(1)">
+321:         </div>
+322:     </div>
+323:     <script>
+324:         'use strict';
+325:         var random = '{{{randomlength}}}' // Random length string for BREACH mitigation
+326:         var passlogin = '{{{passlogin}}}';
+327:         var passhint = '{{{passhint}}}';
+328:         var loginMode = '{{{loginmode}}}';
+329:         var newAccount = '{{{newAccount}}}';
+330:         var newAccountPass = parseInt('{{{newAccountPass}}}');
+331:         var newAccountCaptcha = '{{{newAccountCaptcha}}}';
+332:         var emailCheck = '{{{emailcheck}}}';
+333:         var passRequirements = '{{{passRequirements}}}';
+334:         var hardwareKeyChallenge = decodeURIComponent('{{{hkey}}}');
+335:         if (passRequirements != '') { passRequirements = JSON.parse(decodeURIComponent(passRequirements)); } else { passRequirements = {}; }
+336:         var passRequirementsEx = ((passRequirements.min != null) || (passRequirements.max != null) || (passRequirements.upper != null) || (passRequirements.lower != null) || (passRequirements.numeric != null) || (passRequirements.nonalpha != null));
+337:         var features = parseInt('{{{features}}}');
+338:         var welcomeText = decodeURIComponent('{{{welcometext}}}');
+339:         var currentpanel = 0;
+340:         var uiMode = parseInt(getstore('uiMode', '1'));
+341:         var webPageFullScreen = true;
+342:         var nightMode = (getstore('_nightMode', '0') == '1');
+343:         var publicKeyCredentialRequestOptions = null;
+344:         var otpduo = (decodeURIComponent('{{{otpduo}}}') === 'true');
+345:         var otpemail = (decodeURIComponent('{{{otpemail}}}') === 'true');
+346:         var otpsms = (decodeURIComponent('{{{otpsms}}}') === 'true');
+347:         var otpmsg = (decodeURIComponent('{{{otpmsg}}}') === 'true');
+348:         var autofido = (decodeURIComponent('{{{autofido}}}') === 'true');
+349:         var twoFactorCookieDays = parseInt('{{{twoFactorCookieDays}}}');
+350:         var authStrategies = '{{{authStrategies}}}'.split(',');
+351:         var tokenTimeout = parseInt('{{{tokenTimeout}}}');
+352:
+353:         function startup() {
+354:             // Display the right server message
+355:             var i;
+356:             var messageid = parseInt('{{{messageid}}}');
+357:             var okmessages = ['', "If valid, reset mail sent.", "Email sent.", "Email verification required, check your mailbox and click the confirmation link.", "SMS sent.", "Sending notification...", "Message sent."];
+358:             var failmessages = ["Unable to create account.", "Account limit reached.", "Existing account with this email address.", "Invalid account creation token.", "Username already exists.", "Password rejected, use a different one.", "Invalid email.", "Account not found.", "Invalid token, try again.", "Unable to sent email.", "Account locked.", "Access denied.", "Login failed, check username and password.", "Password change requested.", "IP address blocked, try again later.", "Server under maintenance.", "Unable to send device notification.", "Invalid security check."];
+359:             if (messageid > 0) {
+360:                 var msg = '';
+361:                 if ((messageid < 100) && (messageid < okmessages.length)) { msg = okmessages[messageid]; }
+362:                 else if ((messageid >= 100) && ((messageid - 100) < failmessages.length)) { msg = failmessages[messageid - 100]; }
+363:                 if (msg != '') {
+364:                     if (messageid >= 100) { msg = ('<span class="msg error"><b style=color:#8C001A>' + msg + '<b></span><br /><br />'); } else { msg = ('<span class="msg success"><b>' + msg + '</b></span><br /><br />'); }
+365:                     for (i = 1; i < 8; i++) { QH('message' + i, msg); }
+366:                 }
+367:             }
+368:
+369:             // Display flash error Messages
+370:             var flashErrors = JSON.parse('{{{flashErrors}}}');
+371:             if (flashErrors && (flashErrors.length > 0)) {
+372:                 var msg = '';
+373:                 for (i = 0; i < flashErrors.length; i++) {
+374:                     if (flashErrors[i]) {
+375:                         msg += '<span class="msg error"><b style=color:#8C001A>' + flashErrors[i] + '<b></span><br /><br />';
+376:                     }
+377:                 }
+378:                 QH('message1', msg);
+379:                 QV('message1', true);
+380:             }
+381:
+382:             // Fix links if a loginKey if used
+383:             var urlargs = parseUriArgs();
+384:             if (urlargs.key) {
+385:                 Q('termsLinkFooter').href += '?key=' + urlargs.key;
+386:             }
+387:
+388:             // Show user/pass login
+389:             passlogin = (passlogin == 'true');
+390:             if (urlargs.passlogin === 1) { passlogin = true; }
+391:             if (urlargs.passlogin === 0) { passlogin = false; }
+392:             QV('loginuserpassdiv', passlogin)
+393:             QV('loginuserpasshr', passlogin)
+394:
+395:             // Setup two factor cookie time
+396:             if (twoFactorCookieDays > 0) {
+397:                 QV('tokenInputRememberLabel', true);
+398:                 QH('tokenInputRememberSpan', format("Remember this device for {0} days.", twoFactorCookieDays));
+399:             } else {
+400:                 QV('tokenInputRememberLabel', false);
+401:             }
+402:
+403:             // If URL arguments are provided, add them to form posts
+404:             if (window.location.href.indexOf('?') > 0) {
+405:                 var xurlargs = window.location.href.substring(window.location.href.indexOf('?'));
+406:                 Q('loginformargs').value = xurlargs;
+407:                 Q('createformargs').value = xurlargs;
+408:                 Q('resetformargs').value = xurlargs;
+409:                 Q('tokenformargs').value = xurlargs;
+410:                 Q('resettokenformargs').value = xurlargs;
+411:                 Q('resetpasswordformargs').value = xurlargs;
+412:                 Q('checkemailformargs').value = xurlargs;
+413:             }
+414:
+415:             //var webPageFullScreen = getstore('webPageFullScreen', true);
+416:             //if (webPageFullScreen == 'false') { webPageFullScreen = false; }
+
+--- views/login.handlebars lines 442-836 ---
+442:                 if (authStrategies.indexOf('google') >= 0) { QV('auth-google', true); }
+443:                 if (authStrategies.indexOf('github') >= 0) { QV('auth-github', true); }
+444:                 if (authStrategies.indexOf('azure') >= 0) { QV('auth-azure', true); }
+445:                 if (authStrategies.indexOf('oidc') >= 0) { QV('auth-oidc', true); }
+446:                 if (authStrategies.indexOf('oidc-azure') >= 0) { QV('auth-oidc-azure', true); }
+447:                 if (authStrategies.indexOf('oidc-google') >= 0) { QV('auth-oidc-google', true); }
+448:                 if (authStrategies.indexOf('jumpcloud') >= 0) { QV('auth-jumpcloud', true); }
+449:                 if (authStrategies.indexOf('intel') >= 0) { QV('auth-intel', true); }
+450:                 if (authStrategies.indexOf('saml') >= 0) { QV('auth-saml', true); }
+451:                 // Override OIDC button title if custom text is configured by admin
+452:                 var oidcButtonText = '{{{oidcButtonText}}}';
+453:                 if (oidcButtonText != '') {
+454:                     Q('auth-oidc').title = oidcButtonText;
+455:                     Q('auth-oidc-azure').title = oidcButtonText;
+456:                     Q('auth-oidc-google').title = oidcButtonText;
+457:                 }
+458:             }
+459:
+460:             // Display the welcome text
+461:             if (welcomeText) {
+462:                 QH('welcomeText', welcomeText);
+463:             } else {
+464:                 QH('welcomeText', addTextLink('MeshCentral', Q('welcomeText').innerHTML, 'http://www.meshcommander.com/meshcentral2'));
+465:             }
+466:             QV('welcomeText', true);
+467:
+468:             window.onresize = center;
+469:             center();
+470:
+471:             validateCreate();
+472:             if (loginMode.length != 0) { go(parseInt(loginMode)); } else { go(1); }
+473:             QV('newAccountDiv', (newAccount === '1') || (newAccount === 'true')); // If new accounts are not allowed, don't display the new account link.
+474:             if ((passhint != null) && (passhint.length > 0)) { QV('showPassHintLink', true); }
+475:             QV('newAccountPass', (newAccountPass == 1));
+476:             QV('newAccountCaptcha', (newAccountCaptcha != ''));
+477:             QV('newAccountCaptchaImg', (newAccountCaptcha != ''));
+478:             QV('resetAccountDiv', (emailCheck == 'true'));
+479:             QV('hrAccountDiv', (emailCheck == 'true') || (newAccountPass == 1));
+480:
+481:             if (loginMode == '4') {
+482:                 if (tokenTimeout > 0) { setTimeout(function () { Q('hwtokenInput').value = '**timeout**'; QE('tokenOkButton', true); Q('tokenOkButton').click(); }, tokenTimeout); }
+483:                 try { if (hardwareKeyChallenge.length > 0) { hardwareKeyChallenge = JSON.parse(hardwareKeyChallenge); } else { hardwareKeyChallenge = null; } } catch (ex) { hardwareKeyChallenge = null }
+484:                 var twofakey = (hardwareKeyChallenge != null) && (hardwareKeyChallenge.type == 'webAuthn');
+485:

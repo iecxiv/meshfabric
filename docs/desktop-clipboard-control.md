@@ -1,4 +1,8 @@
-# Desktop clipboard control candidate
+# Desktop clipboard control
+
+> Current status, 2026-11-16: directed clipboard control and the LocalClipboard screen migration are incorporated in fido-support. The user reports copy/paste working. See [current validation scope](fido/README.md). The candidate notes below are historical: their original pending checks and unpublished status do not describe the current branch. The detailed edge-case checklist is not claimed fully verified.
+
+## Historical candidate notes
 
 Prepared against the attached files whose Git blob SHAs match the inspected dev sources:
 

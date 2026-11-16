@@ -1,0 +1,134 @@
+name: Validate and publish FIDO login exchange
+on:
+  push:
+    branches: [fido-support]
+    paths:
+      - '.github/fido/FidoLoginExchange.kt'
+      - '.github/fido/FidoLoginExchangeTest.kt'
+      - '.github/workflows/validate-fido-login-exchange.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-login-exchange
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Prepare the two new exchange files
+        run: |
+          set -euo pipefail
+          test ! -e app/src/main/java/iecxiv/meshfabric/data/remote/FidoLoginExchange.kt
+          test ! -e app/src/test/java/iecxiv/meshfabric/data/remote/FidoLoginExchangeTest.kt
+          cp .github/fido/FidoLoginExchange.kt app/src/main/java/iecxiv/meshfabric/data/remote/FidoLoginExchange.kt
+          cp .github/fido/FidoLoginExchangeTest.kt app/src/test/java/iecxiv/meshfabric/data/remote/FidoLoginExchangeTest.kt
+          git add -- app/src/main/java/iecxiv/meshfabric/data/remote/FidoLoginExchange.kt app/src/test/java/iecxiv/meshfabric/data/remote/FidoLoginExchangeTest.kt
+          git diff --cached --check
+          mkdir -p validation
+          git diff --cached --binary > validation/login-exchange.patch
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os, subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve()
+          tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve()
+              candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools, 'Verified Command-line Tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Clean build, all unit tests, instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete test evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(tag) is not None for c in cases for tag in ['failure','error','skipped']),root
+              if root=='app/build/test-results':
+                  for name,count in [('FidoLoginExchangeTest',18),('FidoLoginContractTest',16),('FidoRegistrationContractTest',10),('FidoRegistrationSessionTest',10),('FidoWebOriginPolicyTest',10),('FidoRegistrationPageTest',14),('NativeAccountFidoStatusTest',6)]:
+                      assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==count,name
+              else:
+                  assert len([c for c in cases if c.get('classname','').endswith('.FidoHostLifecycleTest')])==2
+                  assert len([c for c in cases if c.get('classname','').endswith('.ServerDialogTitleTypographyUiTest')])==14
+              totals[root]=len(cases)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          Path('validation/VALIDATED.txt').write_text('Request/session-state helper passed build, all unit tests, lint and complete instrumentation. HTTP execution, challenge extraction, WebView assertion, verified login and hardware remain pending.\n')
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-login-exchange-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only the validated exchange and tests
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/fido-support
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/data/remote/FidoLoginExchange.kt','app/src/test/java/iecxiv/meshfabric/data/remote/FidoLoginExchangeTest.kt'}
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert Path('validation/VALIDATED.txt').is_file()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/login-exchange.patch').read_bytes()
+          for name,dest in [('FidoLoginExchange.kt','app/src/main/java/iecxiv/meshfabric/data/remote'),('FidoLoginExchangeTest.kt','app/src/test/java/iecxiv/meshfabric/data/remote')]:
+              assert (Path('.github/fido')/name).read_bytes()==(Path(dest)/name).read_bytes()
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(fido): preserve challenge state in one-shot login requests'
+          git push origin HEAD:refs/heads/fido-support
+          printf 'Published request-state helper `%s`; complete login and hardware validation remain pending.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

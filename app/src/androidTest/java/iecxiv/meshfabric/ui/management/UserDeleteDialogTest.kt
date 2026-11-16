@@ -4,7 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import kotlinx.coroutines.CoroutineScope
@@ -32,7 +32,7 @@ import java.util.Locale
             val connected=field(client,"_connectionState").get(client) as MutableStateFlow<Boolean>;connected.value=true
             field(session,"binding").set(session,Triple(client.serverUrl,client.authCookie,false))
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     UserAdministrationDialog(session,state.value,ProfileForm(true,"delete",uid,"Alicia","alice@example.invalid"),onDismiss={})
                 }}

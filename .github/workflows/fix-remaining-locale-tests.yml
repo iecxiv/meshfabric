@@ -1,0 +1,170 @@
+name: Validate and publish remaining Locale test fixes
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/workflows/fix-remaining-locale-tests.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: remaining-locale-test-fixes
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Prepare only the fourteen pinned Locale substitutions
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib,json,re,subprocess
+          pinned={
+              'DeviceGroupDetailPresentationTest.kt':'9b13975e58c54b74a061363a1270f75c77559540',
+              'EventsSelectorWidthTest.kt':'dde780b747ef43f13db050a4b5fc8bafc0538d41',
+              'GroupDetailsLoadLoopUiTest.kt':'2bbecd0283101611954bdacb91ff881aa3666042',
+              'ReadableAssignmentReviewsTest.kt':'c4be59f21023a21a2ce3dae31bf19b8581713ba6',
+              'ReadableGrantDialogsTest.kt':'f1ef97d1dd52b960ab63880b8248ab6677aecd51',
+              'ReadableMemberAddDialogTest.kt':'c7e2ecbc3de31fcfd90a1118f1633035985d2d2c',
+              'ReadableReceivedLinksTest.kt':'d3f4487537e15e2c9905aea6c0e423d2b83bec6e',
+              'ReadableUserEditorsTest.kt':'67d0ab682fb71df1b2bfcb1730ed0d531cecf0b8',
+              'ReadableUserGroupDialogsTest.kt':'775c379ee170f1f5628062c9625532d54d2b544d',
+              'UserDeleteDialogTest.kt':'a5cab3bf0b1f80ff404a1d4a782c251676174d0d',
+              'UserDetailPresentationTest.kt':'db6ff624a89ad9d6237238f933f625e0ee73fda7',
+              'UserDeviceGrantDialogTest.kt':'78441ae091776aae16be6bbee4a45698a3f30724',
+              'UserGroupsActionsCardTest.kt':'de53de470c80ba339edffc82977e9e3fa85cf79f',
+              'UserGroupsSectionSpacingTest.kt':'6240b9cf3d6585c2f2a69447e2fc5dd92953ae2d'
+          }
+          assert len(pinned)==14
+          assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
+          root=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management')
+          changes={}; methods={}; substitutions={}
+          for name,sha in pinned.items():
+              p=root/name; raw=p.read_bytes()
+              assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==sha,'Source changed: '+name
+              text=raw.decode('utf-8')
+              found=list(re.finditer(r'\bLocale\(([^()\n]*)\)',text))
+              assert len(found)==1,('Expected one constructor',name)
+              match=found[0]; argument=match.group(1)
+              assert argument in {'"es"','"en"','language','lang'},('Review locale argument',name,argument)
+              before=match.group(0); after='Locale.forLanguageTag('+argument+')'
+              assert text.count(before)==1 and after not in text,name
+              updated=text[:match.start()]+after+text[match.end():]
+              assert updated.replace(after,before,1)==text,name
+              original_methods=re.findall(r'@Test\s+fun\s+(\w+)\s*\(',text)
+              assert original_methods and len(original_methods)==len(set(original_methods)),name
+              assert original_methods==re.findall(r'@Test\s+fun\s+(\w+)\s*\(',updated),name
+              changes[str(p)]=updated
+              methods[p.stem]=original_methods
+              substitutions[str(p)]={'before':before,'after':after,'originalBlob':sha}
+          for name,text in changes.items(): Path(name).write_bytes(text.encode('utf-8'))
+          subprocess.run(['git','add','--',*sorted(changes)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(changes)
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          (out/'locale-tests.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+          (out/'source-digests.json').write_text(json.dumps({n:hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in sorted(changes)},indent=2)+'\n')
+          (out/'test-methods.json').write_text(json.dumps(methods,indent=2)+'\n')
+          (out/'substitutions.json').write_text(json.dumps(substitutions,indent=2)+'\n')
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve(); tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve(); candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Clean build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete test evidence and all affected methods
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          totals={}; instrumented=[]
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              totals[root]=len(cases)
+              if root.endswith('androidTest-results'): instrumented=cases
+          methods=json.loads(Path('validation/test-methods.json').read_text()); assert len(methods)==14
+          for name,expected in methods.items():
+              actual=[c.get('name') for c in instrumented if c.get('classname','')=='iecxiv.meshfabric.ui.management.'+name]
+              assert len(actual)==len(expected) and set(actual)==set(expected),(name,actual,expected)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          Path('validation/VALIDATED.txt').write_text('Fourteen Locale constructor substitutions passed build, all unit tests, lint and the complete instrumented suite; every affected test method was executed without skips. No production, assertion, test rule, dependency or version changes.\n')
+      - name: Upload reports and exact patch only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: remaining-locale-test-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only the fourteen validated test files
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch origin refs/heads/fido-support
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess
+          digests=json.loads(Path('validation/source-digests.json').read_text())
+          assert len(digests)==14
+          assert all(n.startswith('app/src/androidTest/java/iecxiv/meshfabric/ui/management/') and n.endswith('Test.kt') for n in digests)
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==set(digests),(actual,set(digests))
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert Path('validation/VALIDATED.txt').is_file()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/locale-tests.patch').read_bytes()
+          assert all(hashlib.sha256(Path(n).read_bytes()).hexdigest()==v for n,v in digests.items())
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(warnings): replace remaining reported Locale constructors in tests'
+          git push origin HEAD:refs/heads/fido-support
+          printf 'Published validated Locale test fixes in `%s`. No APK uploaded.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

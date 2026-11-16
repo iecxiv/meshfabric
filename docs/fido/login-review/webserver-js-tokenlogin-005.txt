@@ -1,0 +1,147 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 5 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+req.body.viewmode) { req.session.viewmode = req.body.viewmode; }
+1704:         if (req.body.host) {
+1705:             // TODO: This is a terrible search!!! FIX THIS.
+1706:             /*
+1707:             obj.db.GetAllType('node', function (err, docs) {
+1708:                 for (var i = 0; i < docs.length; i++) {
+1709:                     if (docs[i].name == req.body.host) {
+1710:                         req.session.currentNode = docs[i]._id;
+1711:                         break;
+1712:                     }
+1713:                 }
+1714:                 console.log("CurrentNode: " + req.session.currentNode);
+1715:                 // This redirect happens after finding node is completed
+1716:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1717:             });
+1718:             */
+1719:             parent.debug('web', 'handleLoginRequest: login ok (1)');
+1720:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); } // Temporary
+1721:         } else {
+1722:             parent.debug('web', 'handleLoginRequest: login ok (2)');
+1723:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1724:         }
+1725:         //});
+
+--- webserver.js lines 2023-2289 ---
+2023:         // Always lowercase the email address
+2024:         if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
+2025:
+2026:         // Get the email from the body or session.
+2027:         var email = req.body.email;
+2028:         if ((email == null) || (email == '')) { email = req.session.temail; }
+2029:
+2030:         // Check the email string format
+2031:         if (!email || checkEmail(email) == false) {
+2032:             parent.debug('web', 'handleResetAccountRequest: Invalid email');
+2033:             req.session.loginmode = 3;
+2034:             req.session.messageid = 106; // Invalid email.
+2035:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2036:         } else {
+2037:             obj.db.GetUserWithVerifiedEmail(domain.id, email, function (err, docs) {
+2038:                 // Remove all accounts that start with ~ since they are special accounts.
+2039:                 var cleanDocs = [];
+2040:                 if ((err == null) && (docs.length > 0)) {
+2041:                     for (var i in docs) {
+2042:                         const user = docs[i];
+2043:                         const locked = ((user.siteadmin != null) && (user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)); // No password recovery for locked accounts
+2044:                         const specialAccount = (user._id.split('/')[2].startsWith('~')); // No password recovery for special accounts
+2045:                         if ((specialAccount == false) && (locked == false)) { cleanDocs.push(user); }
+2046:                     }
+2047:                 }
+2048:                 docs = cleanDocs;
+2049:
+2050:                 // Check if we have any account that match this email address
+2051:                 if ((err != null) || (docs.length == 0)) {
+2052:                     parent.debug('web', 'handleResetAccountRequest: Account not found');
+2053:                     req.session.loginmode = 3;
+2054:                     req.session.messageid = 1; // If valid, reset mail sent. Instead of "Account not found" (107), we send this hold on message so users can't know if this account exists or not.
+2055:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2056:                 } else {
+2057:                     // If many accounts have the same validated e-mail, we are going to use the first one for display, but sent a reset email for all accounts.
+2058:                     var responseSent = false;
+2059:                     for (var i in docs) {
+2060:                         var user = docs[i];
+2061:                         if (checkUserOneTimePasswordRequired(domain, user, req) == true) {
+2062:                             // Second factor setup, request it now.
+2063:                             checkUserOneTimePassword(req, domain, user, req.body.token, req.body.hwtoken, function (result, authData) {
+2064:                                 if (result == false) {
+2065:                                     if (i == 0) {
+2066:
+2067:                                         // Check if 2FA is allowed for this IP address
+2068:                                         if (obj.checkAllow2Fa(req) == false) {
+2069:                                             // Wait and redirect the user
+2070:                                             setTimeout(function () {
+2071:                                                 req.session.messageid = 114; // IP address blocked, try again later.
+2072:                                                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2073:                                             }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095));
+2074:                                             return;
+2075:                                         }
+2076:
+2077:                                         // 2-step auth is required, but the token is not present or not valid.
+2078:                                         parent.debug('web', 'handleResetAccountRequest: Invalid 2FA token, try again');
+2079:                                         if ((req.body.token != null) || (req.body.hwtoken != null)) {
+2080:                                             var sms2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.sms2factor != false)) && (parent.smsserver != null) && (user.phone != null));
+2081:                                             var msg2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.msg2factor != false)) && (parent.msgserver != null) && (parent.msgserver.providers != 0) && (user.msghandle != null));
+2082:                                             if ((req.body.hwtoken == '**sms**') && sms2fa) {
+2083:                                                 // Cause a token to be sent to the user's phone number
+2084:                                                 user.otpsms = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+2085:                                                 obj.db.SetUser(user);
+2086:                                                 parent.debug('web', 'Sending 2FA SMS for password recovery to: ' + user.phone);
+2087:                                                 parent.smsserver.sendToken(domain, user.phone, user.otpsms.k, obj.getLanguageCodes(req));
+2088:                                                 req.session.messageid = 4; // SMS sent.
+2089:                                             } else if ((req.body.hwtoken == '**msg**') && msg2fa) {
+2090:                                                 // Cause a token to be sent to the user's messager account
+2091:                                                 user.otpmsg = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+2092:                                                 obj.db.SetUser(user);
+2093:                                                 parent.debug('web', 'Sending 2FA message for password recovery to: ' + user.msghandle);
+2094:                                                 parent.msgserver.sendToken(domain, user.msghandle, user.otpmsg.k, obj.getLanguageCodes(req));
+2095:                                                 req.session.messageid = 6; // Message sent.
+2096:                                             } else {
+2097:                                                 req.session.messageid = 108; // Invalid token, try again.
+2098:                                                 const ua = obj.getUserAgentInfo(req);
+2099:                                                 obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, { action: 'authfail', username: user.name, userid: user._id, domain: domain.id, msg: 'User login attempt with incorrect 2nd factor from ' + req.clientIp, msgid: 108, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+2100:                                                 obj.setbad2Fa(req);
+2101:                                             }
+2102:                                         }
+2103:                                         req.session.loginmode = 5;
+2104:                                         req.session.temail = email;
+2105:                                         if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2106:                                     }
+2107:                                 } else {
+2108:                                     // Send email to perform recovery.
+2109:                                     delete req.session.temail;
+2110:                                     if (domain.mailserver != null) {
+2111:                                         domain.mailserver.sendAccountResetMail(domain, user.name, user._id, user.email, obj.getLanguageCodes(req), req.query.key);
+2112:                                         if (i == 0) {
+2113:                                             parent.debug('web', 'handleResetAccountRequest: Hold on, reset mail sent.');
+2114:                                             req.session.loginmode = 1;
+2115:                                             req.session.messageid = 1; // If valid, reset mail sent.
+2116:                                             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2117:                                         }
+2118:                                     } else {
+2119:                                         if (i == 0) {
+2120:                                             parent.debug('web', 'handleResetAccountRequest: Unable to sent email.');
+2121:                                             req.session.loginmode = 3;
+2122:                                             req.session.messageid = 109; // Unable to sent email.
+2123:                                             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2124:                                         }
+2125:                                     }
+2126:                                 }
+2127:                             });
+2128:                         } else {
+2129:                             // No second factor, send email to perform recovery.
+2130:                             if (domain.mailserver != null) {
+2131:                                 domain.mailserver.sendAccountResetMail(domain, user.name, user._id, user.email, obj.getLanguageCodes(req), req.query.key);
+2132:                                 if (i == 0) {
+2133:                                     parent.debug('web', 'handleResetAccountRequest: Hold on, reset mail sent.');
+2134:                                     req.session.loginmode = 1;
+2135:                                     req.session.messageid = 1; // If valid, reset mail sent.
+2136:                                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2137:                                 }
+2138:                             } else {
+2139:                                 if (i == 0) {
+2140:                                     parent.debug('web', 'handleResetAccountRequest: Unable to sent email.');
+2141:                                     req.session.loginmode = 3;
+2142:

@@ -54,7 +54,7 @@ import kotlinx.coroutines.*
             }
         }
     }
-    TooltipBox(positionProvider=TooltipDefaults.rememberPlainTooltipPositionProvider(),tooltip={ PlainTooltip { Text(label("Descargar CSV","Download CSV")) } },state=rememberTooltipState()) {
+    TooltipBox(positionProvider=TooltipDefaults.rememberTooltipPositionProvider(positioning=TooltipAnchorPosition.Above),tooltip={ PlainTooltip { Text(label("Descargar CSV","Download CSV")) } },state=rememberTooltipState()) {
         IconButton(enabled=enabled && !busy,onClick={
             val build=currentCreate
             val name=currentName

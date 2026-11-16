@@ -1,0 +1,149 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 4 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2106:                                     }
+2107:                                 } else {
+2108:                                     // Send email to perform recovery.
+2109:                                     delete req.session.temail;
+2110:                                     if (domain.mailserver != null) {
+2111:                                         domain.mailserver.sendAccountResetMail(domain, user.name, user._id, user.email, obj.getLanguageCodes(req), req.query.key);
+2112:                                         if (i == 0) {
+2113:                                             parent.debug('web', 'handleResetAccountRequest: Hold on, reset mail sent.');
+2114:                                             req.session.loginmode = 1;
+2115:                                             req.session.messageid = 1; // If valid, reset mail sent.
+2116:                                             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2117:                                         }
+2118:                                     } else {
+2119:                                         if (i == 0) {
+2120:                                             parent.debug('web', 'handleResetAccountRequest: Unable to sent email.');
+2121:                                             req.session.loginmode = 3;
+2122:                                             req.session.messageid = 109; // Unable to sent email.
+2123:                                             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2124:                                         }
+2125:                                     }
+2126:                                 }
+2127:                             });
+2128:                         } else {
+2129:                             // No second factor, send email to perform recovery.
+2130:                             if (domain.mailserver != null) {
+2131:                                 domain.mailserver.sendAccountResetMail(domain, user.name, user._id, user.email, obj.getLanguageCodes(req), req.query.key);
+2132:                                 if (i == 0) {
+2133:                                     parent.debug('web', 'handleResetAccountRequest: Hold on, reset mail sent.');
+2134:                                     req.session.loginmode = 1;
+2135:                                     req.session.messageid = 1; // If valid, reset mail sent.
+2136:                                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2137:                                 }
+2138:                             } else {
+2139:                                 if (i == 0) {
+2140:                                     parent.debug('web', 'handleResetAccountRequest: Unable to sent email.');
+2141:                                     req.session.loginmode = 3;
+2142:                                     req.session.messageid = 109; // Unable to sent email.
+2143:                                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2144:                                 }
+2145:                             }
+2146:                         }
+2147:                     }
+2148:                 }
+2149:             });
+2150:         }
+2151:     }
+2152:
+2153:     // Handle account email change and email verification request
+2154:     function handleCheckAccountEmailRequest(req, res, direct) {
+2155:         const domain = checkUserIpAddress(req, res);
+2156:         if (domain == null) { return; }
+2157:         if ((domain.mailserver == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap') || (typeof req.session.cuserid != 'string') || (obj.users[req.session.cuserid] == null) || (!obj.common.validateEmail(req.body.email, 1, 256))) { parent.debug('web', 'handleCheckAccountEmailRequest: failed checks.'); res.sendStatus(404); return; }
+2158:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+2159:         if (req.session.loginToken != null) { res.sendStatus(404); return; } // Do not allow this command when logged in using a login token
+2160:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+2161:
+2162:         // Always lowercase the email address
+2163:         if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
+2164:
+2165:         // Get the email from the body or session.
+2166:         var email = req.body.email;
+2167:         if ((email == null) || (email == '')) { email = req.session.temail; }
+2168:
+2169:         // Check if this request is for an allows email domain
+2170:         if ((domain.newaccountemaildomains != null) && Array.isArray(domain.newaccountemaildomains)) {
+2171:             var i = -1;
+2172:             if (typeof req.body.email == 'string') { i = req.body.email.indexOf('@'); }
+2173:             if (i == -1) {
+2174:                 parent.debug('web', 'handleCreateAccountRequest: unable to create account (1)');
+2175:                 req.session.loginmode = 7;
+2176:                 req.session.messageid = 106; // Invalid email.
+2177:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2178:                 return;
+2179:             }
+2180:             var emailok = false, emaildomain = req.body.email.substring(i + 1).toLowerCase();
+2181:             for (var i in domain.newaccountemaildomains) { if (emaildomain == domain.newaccountemaildomains[i].toLowerCase()) { emailok = true; } }
+2182:             if (emailok == false) {
+2183:                 parent.debug('web', 'handleCreateAccountRequest: unable to create account (2)');
+
+--- webserver.js lines 2539-2779 ---
+2539:             var agentServerName = obj.getWebServerName(domain, req);
+2540:             if (typeof obj.args.agentaliasdns == 'string') { agentServerName = obj.args.agentaliasdns; }
+2541:             var xdomain = (domain.dns == null) ? domain.id : '';
+2542:             var agentHttpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+2543:             if (obj.args.agentport != null) { agentHttpsPort = obj.args.agentport; } // If an agent only port is enabled, use that.
+2544:             if (obj.args.agentaliasport != null) { agentHttpsPort = obj.args.agentaliasport; } // If an agent alias port is specified, use that.
+2545:             var magenturl = 'mc://' + agentServerName + ((agentHttpsPort != 443) ? (':' + agentHttpsPort) : '') + ((xdomain != '') ? ('/' + xdomain) : '') + ',' + obj.agentCertificateHashBase64 + ',' + mesh._id.split('/')[2];
+2546:
+2547:             var meshcookie = parent.encodeCookie({ m: mesh._id.split('/')[2] }, parent.invitationLinkEncryptionKey);
+2548:             render(req, res, getRenderPage('agentinvite', req, domain), getRenderArgs({ meshid: meshcookie, serverport: ((args.aliasport != null) ? args.aliasport : args.port), serverhttps: 1, servernoproxy: ((domain.agentnoproxy === true) ? '1' : '0'), meshname: encodeURIComponent(mesh.name).replace(/'/g, '%27'), installflags: installflags, showagents: showagents, magenturl: magenturl, assistanttype: (domain.assistanttypeagentinvite ? domain.assistanttypeagentinvite : 0) }, req, domain));
+2549:         } else if (req.query.m != null) {
+2550:             // The MeshId is specified in the query string, use that
+2551:             var mesh = obj.meshes['mesh/' + domain.id + '/' + req.query.m.toLowerCase()];
+2552:             if (mesh == null) { res.sendStatus(404); return; }
+2553:             var installflags = 0;
+2554:             if (req.query.f) { installflags = parseInt(req.query.f); }
+2555:             if (typeof installflags != 'number') { installflags = 0; }
+2556:             var showagents = 0;
+2557:             if (req.query.f) { showagents = parseInt(req.query.ag); }
+2558:             if (typeof showagents != 'number') { showagents = 0; }
+2559:             parent.debug('web', 'handleAgentInviteRequest using meshid.');
+2560:
+2561:             // Build the mobile agent URL, this is used to connect mobile devices
+2562:             var agentServerName = obj.getWebServerName(domain, req);
+2563:             if (typeof obj.args.agentaliasdns == 'string') { agentServerName = obj.args.agentaliasdns; }
+2564:             var xdomain = (domain.dns == null) ? domain.id : '';
+2565:             var agentHttpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+2566:             if (obj.args.agentport != null) { agentHttpsPort = obj.args.agentport; } // If an agent only port is enabled, use that.
+2567:             if (obj.args.agentaliasport != null) { agentHttpsPort = obj.args.agentaliasport; } // If an agent alias port is specified, use that.
+2568:             var magenturl = 'mc://' + agentServerName + ((agentHttpsPort != 443) ? (':' + agentHttpsPort) : '') + ((xdomain != '') ? ('/' + xdomain) : '') + ',' + obj.agentCertificateHashBase64 + ',' + mesh._id.split('/')[2];
+2569:
+2570:             var meshcookie = parent.encodeCookie({ m: mesh._id.split('/')[2] }, parent.invitationLinkEncryptionKey);
+2571:             render(req, res, getRenderPage('agentinvite', req, domain), getRenderArgs({ meshid: meshcookie, serverport: ((args.aliasport != null) ? args.aliasport : args.port), serverhttps: 1, servernoproxy: ((domain.agentnoproxy === true) ? '1' : '0'), meshname: encodeURIComponent(mesh.name).replace(/'/g, '%27'), installflags: installflags, showagents: showagents, magenturl: magenturl, assistanttype: (domain.assistanttypeagentinvite ? domain.assistanttypeagentinvite : 0) }, req, domain));
+2572:         }
+2573:     }
+2574:
+2575:     // Called to process an agent invite request
+2576:     function handleUserImageRequest(req, res) {
+2577:         const domain = getDomain(req);
+2578:         if (domain == null) { parent.debug('web', 'handleUserImageRequest: failed checks.'); res.sendStatus(404); return; }
+2579:         if ((req.session == null) || (req.session.userid == null)) { parent.debug('web', 'handleUserImageRequest: failed checks 2.'); res.sendStatus(404); return; }
+2580:         var imageUserId = req.session.userid;
+2581:         if ((req.query.id != null)) {
+2582:             var user = obj.users[req.session.userid];
+2583:             if ((user == null) || (user.siteadmin == null) && ((user.siteadmin & 2) == 0)) { res.sendStatus(404); return; }
+2584:             imageUserId = 'user/' + domain.id + '/' + req.query.id;
+2585:         }
+2586:         obj.db.Get('im' + imageUserId, function (err, docs) {
+2587:             if ((err != null) || (docs == null) || (docs.length != 1) || (typeof docs[0].image != 'string')) { res.sendStatus(404); return; }
+2588:             var imagebase64 = docs[0].image;
+2589:             if (imagebase64.startsWith('data:image/png;base64,')) {
+2590:                 res.set('Content-Type', 'image/png');
+2591:                 res.set({ 'Cache-Control': 'no-store' });
+2592:                 res.send(Buffer.from(imagebase64.substring(22), 'base64'));
+2593:             } else if (imagebase64.startsWith('data:image/jpeg;base64,')) {
+2594:                 res.set('Content-Type', 'image/jpeg');
+2595:                 res.set({ 'Cache-Control': 'no-store' });
+2596:                 res.send(Buffer.from(imagebase64.substring(23), 'base64'));
+2597:             } else {
+2598:                 res.sendStatus(404);
+2599:             }
+2600:         });
+2601:     }
+2602:
+2603:     function handleDeleteAccountRequest(req, res, direct) {
+2604:

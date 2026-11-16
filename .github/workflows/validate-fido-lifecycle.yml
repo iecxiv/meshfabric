@@ -1,0 +1,141 @@
+name: Validate FIDO lifecycle candidate
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/workflows/validate-fido-lifecycle.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-lifecycle-candidate
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare lifecycle candidate without publication
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess, textwrap
+          def edit(path, sha, edits):
+              assert subprocess.check_output(['git','hash-object',path],text=True).strip()==sha, 'Source changed: '+path
+              p=Path(path); text=p.read_text()
+              for old,new in edits:
+                  assert text.count(old)==1, (path,old)
+                  text=text.replace(old,new)
+              p.write_text(text)
+          main='app/src/main/java/iecxiv/meshfabric/MainActivity.kt'
+          host='app/src/main/java/iecxiv/meshfabric/ui/login/FidoWebViewHost.kt'
+          test='app/src/androidTest/java/iecxiv/meshfabric/ui/login/FidoHostLifecycleTest.kt'
+          edit(main,'865302ea9ff392276aff9c03d3a3b551f74f7d7f',[
+              ('class MainActivity : ComponentActivity() {','class MainActivity : ComponentActivity() {\n\n    internal lateinit var fidoClient: com.yubico.yubikit.fido.android.ui.FidoClient\n        private set'),
+              ('        super.onCreate(savedInstanceState)','        super.onCreate(savedInstanceState)\n        fidoClient = com.yubico.yubikit.fido.android.ui.FidoClient(this)')
+          ])
+          edit(host,'e558ad34762772447d8c1b8d0b00fb9ac28d7b3a',[
+              ('/** Construct during Activity.onCreate, before onStart. Does not import or export cookies.','/** Supply a client constructed during Activity.onCreate, before onStart.\n * The host itself may be created later on the main thread. Does not import or export cookies.'),
+              ('internal class FidoWebViewHost(private val activity:ComponentActivity):DefaultLifecycleObserver {','internal class FidoWebViewHost(private val activity:ComponentActivity, private val client:FidoClient):DefaultLifecycleObserver {'),
+              ('    private val client:FidoClient\n',''),
+              ('        check(activity.lifecycle.currentState!=Lifecycle.State.DESTROYED && !activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))\n        client=FidoClient(activity)','        check(activity.lifecycle.currentState!=Lifecycle.State.DESTROYED)')
+          ])
+          p=Path(test); assert not p.exists(); p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(textwrap.dedent('''\
+          package iecxiv.meshfabric.ui.login
+
+          import androidx.test.core.app.ActivityScenario
+          import iecxiv.meshfabric.MainActivity
+          import org.junit.Assert.assertTrue
+          import org.junit.Test
+
+          class FidoHostLifecycleTest {
+              @Test fun hostCanBeConstructedAfterActivityResumes() {
+                  ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                      scenario.onActivity { activity ->
+                          val host = FidoWebViewHost(activity, activity.fidoClient)
+                          host.close()
+                          host.close()
+                      }
+                  }
+              }
+
+              @Test fun closedHostRejectsCreationBeforeLoadingAnyPage() {
+                  ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                      scenario.onActivity { activity ->
+                          val host = FidoWebViewHost(activity, activity.fidoClient)
+                          host.close()
+                          val result = runCatching { host.create("https://example.invalid") {} }
+                          assertTrue(result.exceptionOrNull() is IllegalStateException)
+                      }
+                  }
+              }
+          }
+          '''))
+          subprocess.run(['git','add','--',main,host,test],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          (out/'lifecycle-candidate.patch').write_text(subprocess.check_output(['git','diff','--cached','--binary'],text=True))
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools 23.0
+        shell: python
+        run: |
+          from pathlib import Path
+          import os, subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve()
+          candidates=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              if props.get('Pkg.Revision')=='23.0' and (p.parent/'bin/sdkmanager').is_file(): candidates.append(p.parent.resolve())
+          assert candidates, 'Command-line Tools 23.0 missing'
+          tools=sorted(candidates)[0]
+          subprocess.run([str(tools/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(tools/'bin')+'\n')
+      - name: Build, all unit tests, instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite including lifecycle tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete test evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases, root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']), root
+              if root.endswith('androidTest-results'):
+                  found={c.get('name') for c in cases if c.get('classname','').endswith('.FidoHostLifecycleTest')}
+                  assert found=={'hostCanBeConstructedAfterActivityResumes','closedHostRejectsCreationBeforeLoadingAnyPage'}, found
+          Path('validation/VALIDATED.txt').write_text('Lifecycle candidate passed build, unit tests, lint and instrumentation. No source changes were published. USB/NFC and account registration remain unvalidated.\n')
+      - name: Upload candidate and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14

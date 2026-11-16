@@ -1,0 +1,153 @@
+MeshCentral 1.3.1 source review: views/login.handlebars / submit / part 4 of 4
+Parts may continue a source line. Trailing whitespace is omitted.
+6:             }
+687:         }
+688:
+689:         function validateLogin(box, e) {
+690:             setTimeout(function(){
+691:                 setDialogMode(0);
+692:                 if ((e != null) && (e.keyCode == 13)) { if ((box == 1) && (Q('username').value != '')) { Q('password').focus(); } else if ((box == 2) && (Q('password').value != '')) { Q('loginButton').click(); } }
+693:                 if (e != null) { haltEvent(e); }
+694:             }, 100);
+695:         }
+696:
+697:         function validateCreate(box, e) {
+698:             setDialogMode(0);
+699:             var userok = false;
+700:             if (features & 0x200000) { userok = true; } else { userok = (Q('ausername').value.length > 0) && (Q('ausername').value.indexOf(' ') == -1) && (Q('ausername').value.indexOf('"') == -1) && (Q('ausername').value.indexOf(',') == -1); }
+701:             var emailok = (validateEmail(Q('aemail').value) == true);
+702:             var pass1ok = (Q('apassword1').value.length > 0);
+703:             var pass2ok = (Q('apassword2').value.length > 0) && (Q('apassword2').value == Q('apassword1').value);
+704:             var newAccOk = (newAccountPass == 0) || (Q('anewaccountpass').value.length > 0);
+705:             var newCaptchaOk = (newAccountCaptcha == '') || (Q('anewaccountcaptcha').value.length > 0);
+706:             var ok = (userok && emailok && pass1ok && pass2ok && newAccOk);
+707:
+708:             // Color the fields
+709:             QS('nuUser').color = userok ? 'black' : '#7b241c';
+710:             QS('nuEmail').color = emailok ? 'black' : '#7b241c';
+711:             QS('nuPass1').color = pass1ok ? 'black' : '#7b241c';
+712:             QS('nuPass2').color = pass2ok ? 'black' : '#7b241c';
+713:             QS('nuToken').color = newAccOk ? 'black' : '#7b241c';
+714:             QS('nuCaptcha').color = newCaptchaOk ? 'black' : '#7b241c';
+715:
+716:             if (Q('apassword1').value == '') {
+717:                 QH('passWarning', '');
+718:                 QV('passwordPolicyCallout', false);
+719:             } else {
+720:                 if (!passRequirementsEx) {
+721:                     // No password requirements, display password strength
+722:                     var passStrength = checkPasswordStrength(Q('apassword1').value);
+723:                     if (passStrength >= 80) { QH('passWarning', '<span style=color:green><b>' + "Strong Password" + '</b><span>'); }
+724:                     else if (passStrength >= 60) { QH('passWarning', '<span style=color:blue><b>' + "Good Password" + '</b><span>'); }
+725:                     else { QH('passWarning', '<span style=color:red><b>' + "Weak Password" + '</b><span>'); }
+726:                 } else {
+727:                     // Password requirements provided, use that
+728:                     var passReq = checkPasswordRequirements(Q('apassword1').value, passRequirements);
+729:                     if (passReq == false) {
+730:                         ok = false;
+731:                         QS('nuPass1').color = '#7b241c';
+732:                         QS('nuPass2').color = '#7b241c';
+733:                         QH('passWarning', '<div style=color:red;cursor:pointer onclick=showPasswordPolicy()><b>' + "Password Policy" + '</b><div>'); // This is also a link to the password policy
+734:                         QV('passwordPolicyCallout', true);
+735:                         QH('passwordPolicyCallout', passwordPolicyText(Q('apassword1').value));
+736:                     } else {
+737:                         QH('passWarning', '');
+738:                         QV('passwordPolicyCallout', false);
+739:                     }
+740:                 }
+741:             }
+742:             if ((e != null) && (e.keyCode == 13)) {
+743:                 if ((box == 1) && userok) { Q('aemail').focus(); }
+744:                 if ((box == 2) && emailok) { Q('apassword1').focus(); }
+745:                 if ((box == 3) && pass1ok) { Q('apassword2').focus(); }
+746:                 if ((box == 4) && pass2ok) { if (passRequirements.hint === true) { Q('apasswordhint').focus(); } else { box = 5; } }
+747:                 if (box == 5) { if (newAccountPass == 1) { Q('anewaccountpass').focus(); } else { box = 6; } }
+748:                 if (box == 6) { if (newAccountCaptcha != '') { Q('anewaccountcaptcha').focus(); } else { box = 7; } }
+749:                 if (box == 7) { Q('createButton').click(); }
+750:             }
+751:             if (e != null) { haltEvent(e); }
+752:             QE('createButton', ok);
+753:         }
+754:
+755:         function validatePassReset(box, e) {
+756:             setDialogMode(0);
+757:             var pass1ok = (Q('rapassword1').value.length > 0);
+758:             var pass2ok = (Q('rapassword2').value.length > 0) && (Q('rapassword2').value == Q('rapassword1').value);
+759:             var ok = (pass1ok && pass2ok);
+760:
+761:             // Color the fields
+762:             QS('rnuPass1').color = pass1ok ? 'black' : '#7b241c';
+763:             QS('rnuPass2').color = pass2ok ? 'black' : '#7b241c';
+764:
+765:             if (Q('rapassword1').value == '') {
+766:                 QH('rpassWarning', '');
+767:                 QV('rpasswordPolicyCallout', false);
+768:             } else {
+769:                 if (!passRequirementsEx) {
+770:                     // No password requirements, display password strength
+771:                     var passStrength = checkPasswordStrength(Q('rapassword1').value);
+772:                     if (passStrength >= 80) { QH('rpassWarning', '<span style=color:green><b>' + "Strong Password" + '</b><span>'); }
+773:                     else if (passStrength >= 60) { QH('rpassWarning', '<span style=color:blue><b>' + "Good Password" + '</b><span>'); }
+774:                     else { QH('rpassWarning', '<span style=color:red><b>' + "Weak Password" + '</b><span>'); }
+775:                 } else {
+776:                     // Password requirements provided, use that
+777:                     var passReq = checkPasswordRequirements(Q('rapassword1').value, passRequirements);
+778:                     if (passReq == false) {
+779:                         ok = false;
+780:                         QS('rnuPass1').color = '#7b241c';
+781:                         QS('rnuPass2').color = '#7b241c';
+782:                         QH('rpassWarning', '<div style=color:red;cursor:pointer onclick=showPasswordPolicy()><b>' + "Password Policy" + '</b><div>'); // This is also a link to the password policy
+783:                         QV('rpasswordPolicyCallout', true);
+784:                         QH('rpasswordPolicyCallout', passwordPolicyText(Q('rapassword1').value));
+785:                     } else {
+786:                         QH('rpassWarning', '');
+787:                         QV('rpasswordPolicyCallout', false);
+788:                     }
+789:                 }
+790:             }
+791:             if ((e != null) && (e.keyCode == 13)) {
+792:                 if (box == 2) { Q('rapassword1').focus(); }
+793:                 if (box == 3) { Q('rapassword2').focus(); }
+794:                 if (box == 4) { Q('rapasswordhint').focus(); }
+795:                 if (box == 6) { Q('resetPassButton').click(); }
+796:             }
+797:             if (e != null) { haltEvent(e); }
+798:             QE('resetPassButton', ok);
+799:         }
+800:
+801:         function passwordPolicyText(pass) {
+802:             var policy = '<div style=text-align:left>';
+803:             var counts = strCount(pass);
+804:             if (passRequirements.min && ((pass == null) || (pass.length < passRequirements.min))) { policy += format("Minimum length of {0}", passRequirements.min) + '<br />'; }
+805:             if (passRequirements.max && ((pass == null) || (pass.length > passRequirements.max))) { policy += format("Maximum length of {0}", passRequirements.max) + '<br />'; }
+806:             if (passRequirements.upper && ((pass == null) || (counts.upper < passRequirements.upper))) { policy += format("{0} upper case", passRequirements.upper) + '<br />'; }
+807:             if (passRequirements.lower && ((pass == null) || (counts.lower < passRequirements.lower))) { policy += format("{0} lower case", passRequirements.lower) + '<br />'; }
+808:             if (passRequirements.numeric && ((pass == null) || (counts.numeric < passRequirements.numeric))) { policy += format("{0} numeric", passRequirements.numeric) + '<br />'; }
+809:             if (passRequirements.nonalpha && ((pass == null) || (counts.nonalpha < passRequirements.nonalpha))) { policy += format("{0} non-alphanumeric", passRequirements.nonalpha) + '<br />'; }
+810:             policy += '</div>';
+811:             return policy;
+812:         }
+813:
+814:         function showPasswordPolicy() {
+815:             messagebox("Password Policy", passwordPolicyText());
+816:         }
+817:
+818:         function validateReset(e) {
+819:             setDialogMode(0);
+820:             var x = validateEmail(Q('remail').value);
+821:             QE('eresetButton', x);
+822:             if ((e != null) && (e.keyCode == 13) && (x == true)) {
+823:                 Q('eresetButton').click();
+824:             }
+825:             if (e != null) { haltEvent(e); }
+826:         }
+827:
+828:         // Return a password strength score
+829:         function checkPasswordStrength(password) {
+830:             var r = 0, letters = {}, varCount = 0, variations = { digits: /\d/.test(password), lower: /[a-z]/.test(password), upper: /[A-Z]/.test(password), nonWords: /\W/.test(password) }
+831:             if (!password) return 0;
+832:             for (var i = 0; i < password.length; i++) { letters[password[i]] = (letters[password[i]] || 0) + 1; r += 5.0 / letters[password[i]]; }
+833:             for (var c in variations) { varCount += (variations[c] == true) ? 1 : 0; }
+834:             return parseInt(r + (varCount - 1) * 10);
+835:         }
+836:
