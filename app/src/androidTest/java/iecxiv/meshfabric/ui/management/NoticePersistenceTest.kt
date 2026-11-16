@@ -3,7 +3,7 @@ import android.content.ContextWrapper
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import java.io.File
 import java.security.KeyStore
 import java.util.UUID
