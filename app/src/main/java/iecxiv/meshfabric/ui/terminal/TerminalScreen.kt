@@ -68,12 +68,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -116,7 +119,8 @@ fun TerminalScreen(
     val connectionStatus by selectedSession.connectionStatus.collectAsState()
     val historyTruncated by selectedSession.historyTruncated.collectAsState()
     val context = LocalContext.current
-    val clipboardManager = LocalClipboardManager.current
+    val clipboard = LocalClipboard.current
+    val clipboardScope = rememberCoroutineScope()
     var rendererVersion by remember(nodeId) { mutableStateOf(0) }
     val renderer = remember(selectedSession, viewModel, rendererVersion) { viewModel.renderSession(context, selectedSession) }
     var showRecoveryDialog by remember(renderer) { mutableStateOf(false) }
@@ -166,6 +170,9 @@ fun TerminalScreen(
     var selectedCtrlChar by remember(renderer) { mutableStateOf('C') }
     var showCtrlDropdown by remember(renderer) { mutableStateOf(false) }
     val ctrlLetters = remember { ('A'..'Z').toList() }
+    val clipboardEpoch = remember(renderer, showCommandDialog) { Any() }
+    val currentClipboardEpoch = rememberUpdatedState(clipboardEpoch)
+    val clipboardInputAllowed = rememberUpdatedState(inputEnabled && showCommandDialog)
     LaunchedEffect(renderer, connectionStatus) {
         if (connectionStatus != TerminalConnectionStatus.CONNECTED) {
             showPasteDialog = false
@@ -484,12 +491,18 @@ fun TerminalScreen(
                         ) {
                             OutlinedButton(
                                 onClick = {
-                                    val clip = clipboardManager.getText()?.text ?: ""
-                                    if (clip.isNotEmpty()) {
-                                        commandInput = clip
-                                        Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+                                    val draft = commandInput
+                                    clipboardScope.launch {
+                                        if (currentClipboardEpoch.value !== clipboardEpoch || !clipboardInputAllowed.value) return@launch
+                                        val data = clipboard.getClipEntry()?.clipData
+                                        val clip = data?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString().orEmpty()
+                                        if (currentClipboardEpoch.value !== clipboardEpoch || !clipboardInputAllowed.value || commandInput != draft) return@launch
+                                        if (clip.isNotEmpty()) {
+                                            commandInput = clip
+                                            Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 },
                                 modifier = Modifier
