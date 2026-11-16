@@ -1,0 +1,167 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 8 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+id], obj, event);
+3287:                             }
+3288:                         }
+3289:                     }
+3290:
+3291:                     obj.users[req.session.userid] = user2;
+3292:                     obj.db.SetUser(user2);
+3293:                     var event = { etype: 'user', userid: req.session.userid, username: req.connection.user, account: obj.CloneSafeUser(user2), action: 'accountcreate', msg: 'Domain account created, user ' + req.connection.user, domain: domain.id };
+3294:                     if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to create the user. Another event will come.
+3295:                     obj.parent.DispatchEvent(['*', 'server-users'], obj, event);
+3296:                     parent.debug('web', 'handleRootRequestEx: SSPI new domain user.');
+3297:                 }
+3298:             }
+3299:         }
+3300:
+3301:         // Figure out the minimal password requirement
+3302:         var passRequirements = null;
+3303:         if (domain.passwordrequirements != null) {
+3304:             if (domain.passrequirementstr == null) {
+3305:                 var passRequirements = {};
+3306:                 if (typeof domain.passwordrequirements.min == 'number') { passRequirements.min = domain.passwordrequirements.min; }
+3307:                 if (typeof domain.passwordrequirements.max == 'number') { passRequirements.max = domain.passwordrequirements.max; }
+3308:                 if (typeof domain.passwordrequirements.upper == 'number') { passRequirements.upper = domain.passwordrequirements.upper; }
+3309:                 if (typeof domain.passwordrequirements.lower == 'number') { passRequirements.lower = domain.passwordrequirements.lower; }
+3310:                 if (typeof domain.passwordrequirements.numeric == 'number') { passRequirements.numeric = domain.passwordrequirements.numeric; }
+3311:                 if (typeof domain.passwordrequirements.nonalpha == 'number') { passRequirements.nonalpha = domain.passwordrequirements.nonalpha; }
+3312:                 domain.passwordrequirementsstr = encodeURIComponent(JSON.stringify(passRequirements));
+3313:             }
+3314:             passRequirements = domain.passwordrequirementsstr;
+3315:         }
+3316:
+3317:         // If a user exists and is logged in, serve the default app, otherwise server the login app.
+3318:         if (req.session && req.session.userid && obj.users[req.session.userid]) {
+3319:             const user = obj.users[req.session.userid];
+3320:
+3321:             // Check if we are in maintenance mode
+3322:             if ((parent.config.settings.maintenancemode != null) && (user.siteadmin != 4294967295)) {
+3323:                 req.session.messageid = 115; // Server under maintenance
+3324:                 req.session.loginmode = 1;
+3325:                 res.redirect(domain.url);
+3326:                 return;
+3327:             }
+3328:
+3329:             // If the request has a "meshmessengerid", redirect to MeshMessenger
+3330:             // This situation happens when you get a push notification for a chat session, but are not logged in.
+3331:             if (req.query.meshmessengerid != null) {
+3332:                 res.redirect(domain.url + 'messenger?id=' + encodeURIComponent(req.query.meshmessengerid) + ((req.query.key != null) ? ('&key=' + encodeURIComponent(req.query.key)) : ''));
+3333:                 return;
+3334:             }
+3335:
+3336:             const xdbGetFunc = function dbGetFunc(err, states) {
+3337:                 if (dbGetFunc.req.session.userid.split('/')[1] != domain.id) { // Check if the session is for the correct domain
+3338:                     parent.debug('web', 'handleRootRequestEx: incorrect domain.');
+3339:                     dbGetFunc.req.session = null;
+3340:                     dbGetFunc.res.redirect(domain.url + getQueryPortion(dbGetFunc.req)); // BAD***
+3341:                     return;
+3342:                 }
+3343:
+3344:                 // Check if this is a locked account
+3345:                 if ((dbGetFunc.user.siteadmin != null) && ((dbGetFunc.user.siteadmin & 32) != 0) && (dbGetFunc.user.siteadmin != 0xFFFFFFFF)) {
+3346:                     // Locked account
+3347:                     parent.debug('web', 'handleRootRequestEx: locked account.');
+3348:                     delete dbGetFunc.req.session.userid;
+3349:                     delete dbGetFunc.req.session.currentNode;
+3350:                     delete dbGetFunc.req.session.passhint;
+3351:                     delete dbGetFunc.req.session.cuserid;
+3352:                     dbGetFunc.req.session.messageid = 110; // Account locked.
+3353:                     dbGetFunc.res.redirect(domain.url + getQueryPortion(dbGetFunc.req)); // BAD***
+3354:                     return;
+3355:                 }
+3356:
+3357:                 var viewmode = 1;
+3358:                 if (dbGetFunc.req.session.viewmode) {
+3359:                     viewmode = dbGetFunc.req.session.viewmode;
+3360:                     delete dbGetFunc.req.session.viewmode;
+3361:                 } else if (dbGetFunc.req.query.viewmode) {
+3362:                     viewmode = dbGetFunc.req.query.viewmode;
+3363:                 }
+3364:                 var currentNode = '';
+3365:                 if (dbGetFunc.req.session.currentNode) {
+3366:                     currentNode = dbGetFunc.req.session.currentNode;
+3367:                     delete dbGetFunc.req.session.currentNode;
+3368:                 } else if (dbGetFunc.req.query.node) {
+3369:                     currentNode = 'node/' + domain.id + '/' + dbGetFunc.req.query.node;
+3370:                 }
+3371:                 var logoutcontrols = {};
+3372:                 if (obj.args.nousers != true) { logoutcontrols.name = user.name; }
+3373:
+3374:                 // Give the web page a list of supported server features for this domain and user
+3375:                 const allFeatures = obj.getDomainUserFeatures(domain, dbGetFunc.user, dbGetFunc.req);
+3376:
+3377:                 // Create a authentication cookie
+3378:                 const authCookie = obj.parent.encodeCookie({ userid: dbGetFunc.user._id, domainid: domain.id, ip: req.clientIp }, obj.parent.loginCookieEncryptionKey);
+3379:                 const authRelayCookie = obj.parent.encodeCookie({ ruserid: dbGetFunc.user._id, x: req.session.x }, obj.parent.loginCookieEncryptionKey);
+3380:
+3381:                 // Send the main web application
+3382:                 var extras = (dbGetFunc.req.query.key != null) ? ('&key=' + dbGetFunc.req.query.key) : '';
+3383:                 if ((!obj.args.user) && (obj.args.nousers != true) && (nologout == false)) { logoutcontrols.logoutUrl = (domain.url + 'logout?' + Math.random() + extras); } // If a default user is in use or no user mode, don't display the logout button
+3384:                 var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+3385:
+3386:                 // Clean up the U2F challenge if needed
+3387:                 if (dbGetFunc.req.session.u2f) { delete dbGetFunc.req.session.u2f; };
+3388:                 if (dbGetFunc.req.session.e) {
+3389:                     const sec = parent.decryptSessionData(dbGetFunc.req.session.e);
+3390:                     if (sec.u2f != null) { delete sec.u2f; dbGetFunc.req.session.e = parent.encryptSessionData(sec); }
+3391:                 }
+3392:
+3393:                 // Intel AMT Scanning options
+3394:                 var amtscanoptions = '';
+3395:                 if (typeof domain.amtscanoptions == 'string') { amtscanoptions = encodeURIComponent(domain.amtscanoptions); }
+3396:                 else if (obj.common.validateStrArray(domain.amtscanoptions)) { domain.amtscanoptions = domain.amtscanoptions.join(','); amtscanoptions = encodeURIComponent(domain.amtscanoptions); }
+3397:
+3398:                 // Fetch the web state
+3399:                 parent.debug('web', 'handleRootRequestEx: success.');
+3400:
+3401:                 var webstate = '{}';
+3402:                 if ((err == null) && (states != null) && (Array.isArray(states)) && (states.length == 1) && (states[0].state != null)) { webstate = obj.filterUserWebState(states[0].state); }
+3403:                 if ((webstate == '{}') && (typeof domain.defaultuserwebstate == 'object')) { webstate = JSON.stringify(domain.defaultuserwebstate); } // User has no web state, use defaults.
+3404:                 if (typeof domain.forceduserwebstate == 'object') { // Forces initial user web state if present, use it.
+3405:                     var webstate2 = {};
+3406:                     try { if (webstate != '{}') { webstate2 = JSON.parse(webstate); } } catch (ex) { }
+3407:                     for (var i in domain.forceduserwebstate) { webstate2[i] = domain.forceduserwebstate[i]; }
+3408:                     webstate = JSON.stringify(webstate2);
+3409:                 }
+3410:
+3411:                 // Custom user interface
+3412:                 var customui = '';
+3413:                 if (domain.customui != null) { customui = encodeURIComponent(JSON.stringify(domain.customui)); }
+3414:
+3415:                 // Custom files (CSS and JS)
+3416:                 var customFiles = '';
+3417:                 if (domain.customFiles != null) {
+3418:                     customFiles = encodeURIComponent(JSON.stringify(domain.customFiles));
+3419:                 } else if (domain.customfiles != null) {
+3420:                     customFiles = encodeURIComponent(JSON.stringify(domain.customfiles));
+3421:                 }
+3422:
+3423:                 // Server features
+3424:                 var serverFeatures = 255;
+3425:                 if (domain.myserver === false) { serverFeatures = 0; } // 64 = Show "My Server" tab
+3426:                 else if (typeof domain.myserver == 'object') {
+3427:                     if (domain.myserver.backup !== true) { serverFeatures -= 1; } // Disallow simple server backups
+3428:                     if (domain.myserver.restore !== true) { serverFeatures -= 2; } // Disallow simple server restore
+3429:                     if (domain.myserver.upgrade !== true) { serverFeatures -= 4; } // Disallow server upgrade
+3430:                     if (domain.myserver.errorlog !== true) { serverFeatures -= 8; } // Disallow show server crash log
+3431:                     if (domain.myserver.console !== true) { serverFeatures -= 16; } // Disallow server console
+3432:                     if (domain.myserver.trace !== true) { serverFeatures -= 32; } // Disallow server tracing
+3433:                     if (domain.myserver.config !== true) { serverFeatures -= 128; } // Disallow server configuration
+3434:                 }
+3435:                 if (obj.db.databaseType != 1) { // If not using NeDB, we can't backup using the simple system.
+3436:                     // backup function changed to support all types, only NeDB can be restored through the webinterface
+3437:                     // if ((serverFeatures & 1) != 0) { serverFeatures -= 1; } // Disallow server backups
+3438:                     if ((serverFeatures & 2) != 0) { serverFeatures -= 2; } // Disallow simple server restore
+3439:                 }
+3440:
+3441:                 // Get WebRTC configuration
+3442:                 var webRtcConfig = null;
+3443:                 if (obj.parent.config.settings && obj.parent.config.settings.webrtcconfig && (typeof obj.parent.config.settings.webrtcconfig == 'object')) { webRtcConfig = encodeURIComponent(JSON.stringify(obj.parent.config.settings.webrtcconfig)).replace(/'/g, '%27'); }
+3444:                 else if (args.webrtcconfig && (typeof args.webrtcconfig == 'object')) { webRtcConfig = encodeURIComponent(JSON.stringify(args.webrtcconfig)).replace(/'/g, '%27'); }
+3445:
+3446:                 // Load default page style or new modern ui
+3447:                 var uiViewMode = 'default';
+3448:                 var webstateJSON = JSON.parse(webstate);
+3449:                 if (req.query.sitestyle != null) {
+3450:

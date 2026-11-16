@@ -1,0 +1,145 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 6 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+                    req.session.messageid = 109; // Unable to sent email.
+2143:                                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2144:                                 }
+2145:                             }
+2146:                         }
+2147:                     }
+2148:                 }
+2149:             });
+2150:         }
+2151:     }
+2152:
+2153:     // Handle account email change and email verification request
+2154:     function handleCheckAccountEmailRequest(req, res, direct) {
+2155:         const domain = checkUserIpAddress(req, res);
+2156:         if (domain == null) { return; }
+2157:         if ((domain.mailserver == null) || (domain.auth == 'sspi') || (domain.auth == 'ldap') || (typeof req.session.cuserid != 'string') || (obj.users[req.session.cuserid] == null) || (!obj.common.validateEmail(req.body.email, 1, 256))) { parent.debug('web', 'handleCheckAccountEmailRequest: failed checks.'); res.sendStatus(404); return; }
+2158:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+2159:         if (req.session.loginToken != null) { res.sendStatus(404); return; } // Do not allow this command when logged in using a login token
+2160:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+2161:
+2162:         // Always lowercase the email address
+2163:         if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
+2164:
+2165:         // Get the email from the body or session.
+2166:         var email = req.body.email;
+2167:         if ((email == null) || (email == '')) { email = req.session.temail; }
+2168:
+2169:         // Check if this request is for an allows email domain
+2170:         if ((domain.newaccountemaildomains != null) && Array.isArray(domain.newaccountemaildomains)) {
+2171:             var i = -1;
+2172:             if (typeof req.body.email == 'string') { i = req.body.email.indexOf('@'); }
+2173:             if (i == -1) {
+2174:                 parent.debug('web', 'handleCreateAccountRequest: unable to create account (1)');
+2175:                 req.session.loginmode = 7;
+2176:                 req.session.messageid = 106; // Invalid email.
+2177:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2178:                 return;
+2179:             }
+2180:             var emailok = false, emaildomain = req.body.email.substring(i + 1).toLowerCase();
+2181:             for (var i in domain.newaccountemaildomains) { if (emaildomain == domain.newaccountemaildomains[i].toLowerCase()) { emailok = true; } }
+2182:             if (emailok == false) {
+2183:                 parent.debug('web', 'handleCreateAccountRequest: unable to create account (2)');
+2184:                 req.session.loginmode = 7;
+2185:                 req.session.messageid = 106; // Invalid email.
+2186:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2187:                 return;
+2188:             }
+2189:         }
+2190:
+2191:         // Check the email string format
+2192:         if (!email || checkEmail(email) == false) {
+2193:             parent.debug('web', 'handleCheckAccountEmailRequest: Invalid email');
+2194:             req.session.loginmode = 7;
+2195:             req.session.messageid = 106; // Invalid email.
+2196:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2197:         } else {
+2198:             // Check is email already exists
+2199:             obj.db.GetUserWithVerifiedEmail(domain.id, email, function (err, docs) {
+2200:                 if ((err != null) || ((docs.length > 0) && (docs.find(function (u) { return (u._id === req.session.cuserid); }) < 0))) {
+2201:                     // Email already exists
+2202:                     req.session.messageid = 102; // Existing account with this email address.
+2203:                 } else {
+2204:                     // Update the user and notify of user email address change
+2205:                     var user = obj.users[req.session.cuserid];
+2206:                     if (user.email != email) {
+2207:                         user.email = email;
+2208:                         db.SetUser(user);
+2209:                         var targets = ['*', 'server-users', user._id];
+2210:                         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+2211:                         var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Account changed: ' + user.name, domain: domain.id };
+2212:                         if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+2213:                         parent.DispatchEvent(targets, obj, event);
+2214:                     }
+2215:
+2216:                     // Send the verification email
+2217:                     domain.mailserver.sendAccountCheckMail(domain, user.name, user._id, user.email, obj.getLanguageCodes(req), req.query.key);
+2218:
+2219:                     // Send the response
+2220:                     req.session.messageid = 2; // Email sent.
+2221:                 }
+2222:                 req.session.loginmode = 7;
+2223:                 delete req.session.cuserid;
+2224:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2225:             });
+2226:         }
+2227:     }
+2228:
+2229:     // Called to process a web based email verification request
+2230:     function handleCheckMailRequest(req, res) {
+2231:         const domain = checkUserIpAddress(req, res);
+2232:         if (domain == null) { return; }
+2233:         if ((domain.auth == 'sspi') || (domain.auth == 'ldap') || (domain.mailserver == null)) { parent.debug('web', 'handleCheckMailRequest: failed checks.'); res.sendStatus(404); return; }
+2234:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+2235:
+2236:         if (req.query.c != null) {
+2237:             var cookie = obj.parent.decodeCookie(req.query.c, domain.mailserver.mailCookieEncryptionKey, 30);
+2238:             if ((cookie != null) && (cookie.u != null) && (cookie.u.startsWith('user/')) && (cookie.e != null)) {
+2239:                 var idsplit = cookie.u.split('/');
+2240:                 if ((idsplit.length != 3) || (idsplit[1] != domain.id)) {
+2241:                     parent.debug('web', 'handleCheckMailRequest: Invalid domain.');
+2242:                     render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 1, msgid: 1, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain));
+2243:                 } else {
+2244:                     obj.db.Get(cookie.u, function (err, docs) {
+2245:                         if (docs.length == 0) {
+2246:                             parent.debug('web', 'handleCheckMailRequest: Invalid username.');
+2247:                             render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 1, msgid: 2, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27'), arg1: encodeURIComponent(idsplit[1]).replace(/'/g, '%27') }, req, domain));
+2248:                         } else {
+2249:                             var user = docs[0];
+2250:                             if (user.email != cookie.e) {
+2251:                                 parent.debug('web', 'handleCheckMailRequest: Invalid e-mail.');
+2252:                                 render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 1, msgid: 3, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27'), arg1: encodeURIComponent(user.email).replace(/'/g, '%27'), arg2: encodeURIComponent(user.name).replace(/'/g, '%27') }, req, domain));
+2253:                             } else {
+2254:                                 if (cookie.a == 1) {
+2255:                                     // Account email verification
+2256:                                     if (user.emailVerified == true) {
+2257:                                         parent.debug('web', 'handleCheckMailRequest: email already verified.');
+2258:                                         render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 1, msgid: 4, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27'), arg1: encodeURIComponent(user.email).replace(/'/g, '%27'), arg2: encodeURIComponent(user.name).replace(/'/g, '%27') }, req, domain));
+2259:                                     } else {
+2260:                                         obj.db.GetUserWithVerifiedEmail(domain.id, user.email, function (err, docs) {
+2261:                                             if ((docs.length > 0) && (docs.find(function (u) { return (u._id === user._id); }) < 0)) {
+2262:                                                 parent.debug('web', 'handleCheckMailRequest: email already in use.');
+2263:                                                 render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 1, msgid: 5, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27'), arg1: encodeURIComponent(user.email).replace(/'/g, '%27') }, req, domain));
+2264:                                             } else {
+2265:                                                 parent.debug('web', 'handleCheckMailRequest: email verification success.');
+2266:
+2267:                                                 // Set the verified flag
+2268:                                                 obj.users[user._id].emailVerified = true;
+2269:                                                 user.emailVerified = true;
+2270:                                                 obj.db.SetUser(user);
+2271:
+2272:                                                 // Event the change
+2273:                                                 var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'Verified email of user ' + EscapeHtml(user.name) + ' (' + EscapeHtml(user.email) + ')', domain: domain.id };
+2274:                                                 if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+2275:                                                 obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
+2276:
+2277:                                                 // Send the confirmation page
+2278:                                                 render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 1, msgid: 6, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27'), arg1: encodeURIComponent(user.email).replace(/'/g, '%27'), arg2: encodeURIComponent(user.name).replace(/'/g, '%27') }, req, domain));
+2279:
+2280:                                                 // Send a notification
+2281:                                                 obj.parent.DispatchEvent([user._id], obj, { action: 'notify', title: 'Email verified', value: user.email, nolog: 1, id: Math.random() });
+2282:
+2283:                                                 // Send to authLog
+2284:                                                 obj.parent

@@ -1,0 +1,169 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 12 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+t + 5), height: data.readUInt16BE(offset + 3) };
+4925:             }
+4926:             // Move to the next marker segment.
+4927:             offset += segmentLength;
+4928:         }
+4929:         return null;
+4930:     }
+4931:
+4932:     /**
+4933:      * Validate the raster image signature and extract dimensions for supported custom icon formats.
+4934:      *
+4935:      * @param {Buffer} data Initial bytes from the uploaded icon file.
+4936:      * @param {string} extension Lowercase extension from the original uploaded filename.
+4937:      * @returns {{width:number,height:number}|null} Parsed raster dimensions, or null if the signature/type is invalid.
+4938:      */
+4939:     function getCustomIconDimensions(data, extension) {
+4940:         // PNG dimensions are fixed in the IHDR chunk at byte offsets 16 and 20.
+4941:         if ((extension === '.png') && (data.length >= 24) && (data[0] === 0x89) && (data[1] === 0x50) && (data[2] === 0x4E) && (data[3] === 0x47) && (data[4] === 0x0D) && (data[5] === 0x0A) && (data[6] === 0x1A) && (data[7] === 0x0A)) {
+4942:             return { width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+4943:         }
+4944:         // JPEG dimensions are stored in the first SOF marker segment.
+4945:         if (((extension === '.jpg') || (extension === '.jpeg')) && (data.length >= 3) && (data[0] === 0xFF) && (data[1] === 0xD8) && (data[2] === 0xFF)) {
+4946:             return getJpegDimensions(data);
+4947:         }
+4948:         return null;
+4949:     }
+4950:
+4951:     /**
+4952:      * Enforce custom icon upload policy before moving the temp file into persistent storage.
+4953:      * SVG files are checked for active content; PNG/JPEG files are signature and dimension checked.
+4954:      *
+4955:      * @param {string} iconTempPath Safe resolved path to the uploaded temp file.
+4956:      * @param {string} extension Lowercase extension from the original uploaded filename.
+4957:      * @param {function(string|null):void} callback Called with null on success, or a user-safe error message on failure.
+4958:      */
+4959:     function validateCustomIconFile(iconTempPath, extension, callback) {
+4960:         obj.fs.stat(iconTempPath, function (statErr, stats) {
+4961:             if (statErr) { callback('Unable to read uploaded icon.'); return; }
+4962:             if ((stats == null) || (stats.isFile() !== true)) { callback('Invalid icon file.'); return; }
+4963:             // Reject empty and oversized uploads before reading any file content.
+4964:             if ((stats.size < 4) || (stats.size > customIconMaxFileSize)) { callback('Icon files must be non-empty and ' + (customIconMaxFileSize / 1048576) + ' MB or smaller.'); return; }
+4965:             if (extension === '.svg') {
+4966:                 obj.fs.readFile(iconTempPath, 'utf8', function (readErr, svgContent) {
+4967:                     if (readErr) { callback('Unable to read uploaded icon.'); return; }
+4968:                     const cleanedSvg = cleanSvg(svgContent);
+4969:                     if (cleanedSvg == null) { callback('Invalid SVG icon file.'); return; }
+4970:                     obj.fs.writeFile(iconTempPath, cleanedSvg, 'utf8', function (writeErr) {
+4971:                         callback(writeErr ? 'Unable to clean uploaded SVG icon.' : null);
+4972:                     });
+4973:                 });
+4974:                 return;
+4975:             }
+4976:             obj.fs.open(iconTempPath, 'r', function (openErr, fd) {
+4977:                 if (openErr) { callback('Unable to read uploaded icon.'); return; }
+4978:                 // Reading the first 64 KB is enough for normal PNG headers and JPEG SOF markers.
+4979:                 const header = Buffer.alloc(Math.min(stats.size, 65536));
+4980:                 obj.fs.read(fd, header, 0, header.length, 0, function (readErr, bytesRead) {
+4981:                     obj.fs.close(fd, function () { });
+4982:                     if (readErr) { callback('Unable to read uploaded icon.'); return; }
+4983:                     const dimensions = getCustomIconDimensions(header.slice(0, bytesRead), extension);
+4984:                     if (dimensions == null) { callback('The uploaded icon does not match its file type.'); return; }
+4985:                     if ((dimensions.width < 1) || (dimensions.height < 1) || (dimensions.width > customIconMaxDimension) || (dimensions.height > customIconMaxDimension)) { callback('Icon images must be ' + customIconMaxDimension + ' x ' + customIconMaxDimension + ' pixels or smaller.'); return; }
+4986:                     callback(null);
+4987:                 });
+4988:             });
+4989:         });
+4990:     }
+4991:
+4992:     function handleCustomIconUpload(req, res) {
+4993:         const domain = checkUserIpAddress(req, res);
+4994:         if (domain == null) { return; }
+4995:         if ((req.session == null) || (typeof req.session.userid !== 'string')) { res.sendStatus(401); return; }
+4996:         const user = obj.users[req.session.userid];
+4997:         if (user == null) { res.sendStatus(401); return; }
+4998:
+4999:         const multiparty = require('multiparty');
+5000:         const form = new multiparty.Form({ maxFilesSize: customIconMaxFileSize });
+5001:         form.parse(req, function (err, fields, files) {
+
+--- webserver.js lines 5097-5449 ---
+5097:         if (user == null) { res.sendStatus(401); return; }
+5098:
+5099:         const iconPath = (req.body && (typeof req.body.iconPath === 'string')) ? req.body.iconPath : null;
+5100:         const iconInfo = resolveCustomIconPath(iconPath, user);
+5101:         if ((iconInfo == null) || (iconInfo.isOwned !== true)) { res.status(400).json({ success: false, error: 'Invalid icon path.' }); return; }
+5102:
+5103:         obj.fs.unlink(iconInfo.diskPath, function (err) {
+5104:             if (err && (err.code !== 'ENOENT')) { res.status(500).json({ success: false, error: 'Failed to delete icon.' }); return; }
+5105:             res.json({ success: true });
+5106:         });
+5107:     }
+5108:
+5109:     function handleCustomIconDownload(req, res) {
+5110:         const domain = getDomain(req);
+5111:         if (domain == null) { res.sendStatus(404); return; }
+5112:         if ((req.session == null) || (typeof req.session.userid !== 'string')) { res.sendStatus(401); return; }
+5113:         const user = obj.users[req.session.userid];
+5114:         if (user == null) { res.sendStatus(401); return; }
+5115:
+5116:         if ((req.params == null) || (typeof req.params[0] !== 'string')) { res.sendStatus(404); return; }
+5117:         const iconInfo = resolveCustomIconPath('/icons/custom/' + req.params[0], user);
+5118:         if (iconInfo == null) { res.sendStatus(404); return; }
+5119:         if ((iconInfo.isLegacy !== true) && (iconInfo.isOwned !== true)) { res.sendStatus(404); return; }
+5120:         const contentType = getCustomIconMimeType(iconInfo.iconName);
+5121:         if (contentType == null) { res.sendStatus(404); return; }
+5122:
+5123:         obj.fs.readFile(iconInfo.diskPath, function (err, data) {
+5124:             if (err) { res.sendStatus(404); return; }
+5125:             const headers = { 'Content-Type': contentType, 'X-Content-Type-Options': 'nosniff' };
+5126:             if (contentType === 'image/svg+xml') { headers['Content-Security-Policy'] = "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; object-src 'none'; base-uri 'none'"; }
+5127:             res.set(headers);
+5128:             res.send(data);
+5129:         });
+5130:     }
+5131:
+5132:     function handleUploadFile(req, res) {
+5133:         const domain = checkUserIpAddress(req, res);
+5134:         if (domain == null) { return; }
+5135:         if (domain.userQuota == -1) { res.sendStatus(401); return; }
+5136:         var authUserid = null;
+5137:         if ((req.session != null) && (typeof req.session.userid == 'string')) { authUserid = req.session.userid; }
+5138:         const multiparty = require('multiparty');
+5139:         const form = new multiparty.Form();
+5140:         form.parse(req, function (err, fields, files) {
+5141:             // If an authentication cookie is embedded in the form, use that.
+5142:             if ((fields != null) && (fields.auth != null) && (fields.auth.length == 1) && (typeof fields.auth[0] == 'string')) {
+5143:                 var loginCookie = obj.parent.decodeCookie(fields.auth[0], obj.parent.loginCookieEncryptionKey, 60); // 60 minute timeout
+5144:                 if ((loginCookie != null) && (loginCookie.ip != null) && !checkCookieIp(loginCookie.ip, req.clientIp)) { loginCookie = null; } // Check cookie IP binding.
+5145:                 if ((loginCookie != null) && (domain.id == loginCookie.domainid)) { authUserid = loginCookie.userid; } // Use cookie authentication
+5146:             }
+5147:             if (authUserid == null) { res.sendStatus(401); return; }
+5148:
+5149:             // Get the user
+5150:             const user = obj.users[authUserid];
+5151:             if ((user == null) || (user.siteadmin & 8) == 0) { res.sendStatus(401); return; } // Check if we have file rights
+5152:
+5153:             if ((fields == null) || (fields.link == null) || (fields.link.length != 1)) { /*console.log('UploadFile, Invalid Fields:', fields, files);*/ console.log('err4'); res.sendStatus(404); return; }
+5154:             var xfile = null;
+5155:             try { xfile = obj.getServerFilePath(user, domain, decodeURIComponent(fields.link[0])); } catch (ex) { }
+5156:             if (xfile == null) { res.sendStatus(404); return; }
+5157:             // Get total bytes in the path
+5158:             var totalsize = readTotalFileSize(xfile.fullpath);
+5159:             if ((xfile.quota == null) || (totalsize < xfile.quota)) { // Check if the quota is not already broken
+5160:                 if (fields.name != null) {
+5161:                     if ((fields.name.length != 1) || (typeof fields.name[0] != 'string') ||
+5162:                         (fields.size == null) || (fields.size.length != 1) || (typeof fields.size[0] != 'string') ||
+5163:                         (fields.type == null) || (fields.type.length != 1) || (typeof fields.type[0] != 'string') ||
+5164:                         (fields.data == null) || (fields.data.length != 1) || (typeof fields.data[0] != 'string')) { res.sendStatus(400); return; }
+5165:
+5166:                     // See if we need to create the folder
+5167:                     var domainx = 'domain';
+5168:                     if (domain.id.length > 0) { domainx = 'domain-' + usersplit[1]; }
+5169:                     try { obj.fs.mkdirSync(obj.parent.filespath); } catch (ex) { }
+5170:                     try { obj.fs.mkdirSync(obj.parent.path.join(obj.parent.filespath, domainx)); } catch (ex) { }
+5171:                     try { obj.fs.mkdirSync(xfile.fullpath); } catch (ex) { }
+5172:
+5173:                     // Upload method where all the file data is within the fields.
+5174:                     var names = fields.name[0].split('*'), sizes = fields.size[0].split('*'), types = fields.type[0].split('*'), datas = fields.data[0].split('*');
+5175:                     if ((names.length == sizes.length) && (types.length == datas.length) && (names.length == types.length)) {
+5176:                         for (var i = 0; i < names.length; i++) {
+5177:                             var originalName = names[i];
+5178:                             var safeName = obj.path.basename(originalName);
+5179:                             if ((safeName !== originalName) || (obj.common.IsFilenameValid(safeName) == false)) { res.sendStatus(404); return; }
+5180:                             var filedata = Buffer.from(datas[i].split(',')[1], 'base64');
+5181:                             if ((xfile.quota == null) || ((totalsize + filedata.length) < xfile.quota)) { // Check if quota would not be broken if we add this file
+5182:                                 // Create the user folder if needed
+5183:                                 (function (fullpath, filename, fi

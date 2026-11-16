@@ -1,0 +1,133 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 15 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+t>setTimeout(function(){window.location.replace("' + rootUrl + '");}, 10000);</script>Server will be restarted, <a href="' + domain.url + '">click here to login</a>.</body></html>');
+6287:             parent.Stop(files.datafile[0].path);
+6288:         });
+6289:     }
+6290:
+6291:     // Handle a request to download a mesh agent
+6292:     obj.handleMeshAgentRequest = function (req, res) {
+6293:         var domain = getDomain(req, res);
+6294:         if (domain == null) { parent.debug('web', 'handleRootRequest: invalid domain.'); try { res.sendStatus(404); } catch (ex) { } return; }
+6295:
+6296:         // If required, check if this user has rights to do this
+6297:         if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) {
+6298:             // Agents fetching their own update have no session, the agentupdate command gives them a cookie instead
+6299:             var updatecookie = obj.parent.decodeCookie(req.query.auth, obj.parent.loginCookieEncryptionKey, 10); // 10 minute timeout, covers the agent's download retries
+6300:             if ((updatecookie == null) || (updatecookie.a != 'aupd') || (req.query.id == null) || (updatecookie.i != req.query.id)) { res.sendStatus(401); return; }
+6301:         }
+6302:
+6303:         if ((req.query.meshinstall != null) && (req.query.id != null)) {
+6304:             if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { try { res.sendStatus(404); } catch (ex) { } return; } // Check 3FA URL key
+6305:
+6306:             // Send meshagent with included self installer for a specific platform back
+6307:             // Start by getting the .msh for this request
+6308:             var meshsettings = getMshFromRequest(req, res, domain);
+6309:             if (meshsettings == null) { try { res.sendStatus(401); } catch (ex) { } return; }
+6310:
+6311:             // Get the interactive install script, this only works for non-Windows agents
+6312:             var agentid = parseInt(req.query.meshinstall);
+6313:             var argentInfo = obj.parent.meshAgentBinaries[agentid];
+6314:             if (domain.meshAgentBinaries && domain.meshAgentBinaries[agentid]) { argentInfo = domain.meshAgentBinaries[agentid]; }
+6315:             var scriptInfo = obj.parent.meshAgentInstallScripts[6];
+6316:             if ((argentInfo == null) || (scriptInfo == null) || (argentInfo.platform == 'win32')) { try { res.sendStatus(404); } catch (ex) { } return; }
+6317:
+6318:             // Change the .msh file into JSON format and merge it into the install script
+6319:             var tokens, msh = {}, meshsettingslines = meshsettings.split('\r').join('').split('\n');
+6320:             for (var i in meshsettingslines) { tokens = meshsettingslines[i].split('='); if (tokens.length == 2) { msh[tokens[0]] = tokens[1]; } }
+6321:             var js = scriptInfo.data.replace('var msh = {};', 'var msh = ' + JSON.stringify(msh) + ';');
+6322:
+6323:             // Get the agent filename
+6324:             var meshagentFilename = 'meshagent';
+6325:             if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.filename == 'string')) { meshagentFilename = domain.agentcustomization.filename; }
+6326:
+6327:             setContentDispositionHeader(res, 'application/octet-stream', meshagentFilename, null, 'meshagent');
+6328:             if (argentInfo.mtime != null) { res.setHeader('Last-Modified', argentInfo.mtime.toUTCString()); }
+6329:             res.statusCode = 200;
+6330:             obj.parent.exeHandler.streamExeWithJavaScript({ platform: argentInfo.platform, sourceFileName: argentInfo.path, destinationStream: res, js: Buffer.from(js, 'utf8'), peinfo: argentInfo.pe });
+6331:         } else if (req.query.id != null) {
+6332:             // Send a specific mesh agent back
+6333:             var argentInfo = obj.parent.meshAgentBinaries[req.query.id];
+6334:             if (domain.meshAgentBinaries && domain.meshAgentBinaries[req.query.id]) { argentInfo = domain.meshAgentBinaries[req.query.id]; }
+6335:             if (argentInfo == null) { try { res.sendStatus(404); } catch (ex) { } return; }
+6336:
+6337:             // Download PDB debug files, only allowed for administrator or accounts with agent dump access
+6338:             if (req.query.pdb == 1) {
+6339:                 if ((req.session == null) || (req.session.userid == null)) { try { res.sendStatus(404); } catch (ex) { } return; }
+6340:                 var user = obj.users[req.session.userid];
+6341:                 if (user == null) { try { res.sendStatus(404); } catch (ex) { } return; }
+6342:                 if ((user != null) && ((user.siteadmin == 0xFFFFFFFF) || ((Array.isArray(obj.parent.config.settings.agentcoredumpusers)) && (obj.parent.config.settings.agentcoredumpusers.indexOf(user._id) >= 0)))) {
+6343:                     if (argentInfo.id == 3) {
+6344:                         setContentDispositionHeader(res, 'application/octet-stream', 'MeshService.pdb', null, 'MeshService.pdb');
+6345:                         if (argentInfo.mtime != null) { res.setHeader('Last-Modified', argentInfo.mtime.toUTCString()); }
+6346:                         try { res.sendFile(argentInfo.path.split('MeshService-signed.exe').join('MeshService.pdb')); } catch (ex) { }
+6347:                         return;
+6348:                     }
+6349:                     if (argentInfo.id == 4) {
+6350:                         setContentDispositionHeader(res, 'application/octet-stream', 'MeshService64.pdb', null, 'MeshService64.pdb');
+6351:                         if (argentInfo.mtime != null) { res.setHeader('Last-Modified', argentInfo.mtime.toUTCString()); }
+6352:                         try { res.sendFile(argentInfo.path.split('MeshService64-signed.exe').join('MeshService64.pdb')); } catch (ex) { }
+6353:                         return;
+6354:                     }
+6355:                 }
+6356:                 try { res.sendStatus(404); } catch (ex) { }
+6357:                 return;
+6358:             }
+6359:
+6360:             if ((req.query.meshid == null) || (argentInfo.platform != 'win32')) {
+6361:                 // Get the agent filename
+6362:                 var meshagentFilename = argentInfo.rname;
+6363:                 if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.filename == 'string')) { meshagentFilename = domain.agentcustomization.filename; }
+6364:                 if (argentInfo.rname.endsWith('.apk') && !meshagentFilename.endsWith('.apk')) { meshagentFilename = meshagentFilename + '.apk'; }
+6365:                 if (argentInfo.mtime != null) { res.setHeader('Last-Modified', argentInfo.mtime.toUTCString()); }
+6366:                 if (req.query.zip == 1) { if (argentInfo.zdata != null) { setContentDispositionHeader(res, 'application/octet-stream', meshagentFilename + '.zip', null, 'meshagent.zip'); res.send(argentInfo.zdata); } else { try { res.sendStatus(404); } catch (ex) { } } return; } // Send compressed agent
+6367:                 setContentDispositionHeader(res, 'application/octet-stream', meshagentFilename, null, 'meshagent');
+6368:                 if (argentInfo.data == null) { res.sendFile(argentInfo.path); } else { res.send(argentInfo.data); }
+6369:                 return;
+6370:             } else {
+6371:                 // Check if the meshid is a time limited, encrypted cookie
+6372:                 var meshcookie = obj.parent.decodeCookie(req.query.meshid, obj.parent.invitationLinkEncryptionKey);
+6373:                 if ((meshcookie != null) && (meshcookie.m != null)) { req.query.meshid = meshcookie.m; }
+6374:
+6375:                 // We are going to embed the .msh file into the Windows executable (signed or not).
+6376:                 // First, fetch the mesh object to build the .msh file
+6377:                 var mesh = obj.meshes['mesh/' + domain.id + '/' + req.query.meshid];
+6378:                 if (mesh == null) { try { res.sendStatus(401); } catch (ex) { } return; }
+6379:
+6380:                 // If required, check if this user has rights to do this
+6381:                 if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true))) {
+6382:                     if ((domain.id != mesh.domain) || ((obj.GetMeshRights(req.session.userid, mesh) & 1) == 0)) { try { res.sendStatus(401); } catch (ex) { } return; }
+6383:                 }
+6384:
+6385:                 var meshidhex = Buffer.from(req.query.meshid.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
+6386:                 var serveridhex = Buffer.from(obj.agentCertificateHashBase64.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
+6387:                 var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port if specified
+6388:                 if (obj.args.agentport != null) { httpsPort = obj.args.agentport; } // If an agent only port is enabled, use that.
+6389:                 if (obj.args.agentaliasport != null) { httpsPort = obj.args.agentaliasport; } // If an agent alias port is specified, use that.
+6390:
+6391:                 // Prepare a mesh agent file name using the device group name.
+6392:                 var meshfilename = mesh.name
+6393:                 meshfilename = meshfilename.split('\\').join('').split('/').join('').split(':').join('').split('*').join('').split('?').join('').split('"').join('').split('<').join('').split('>').join('').split('|').join('').split(' ').join('').split('\'').join('');
+6394:                 if (argentInfo.rname.endsWith('.exe')) { meshfilename = argentInfo.rname.substring(0, argentInfo.rname.length - 4) + '-' + meshfilename + '.exe'; } else { meshfilename = argentInfo.rname + '-' + meshfilename; }
+6395:
+6396:                 // Customize the mesh agent file name
+6397:                 if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.filename == 'string')) {
+6398:                     meshfilename = meshfilename.split('meshagent').join(domain.agentcustomization.filename).split('MeshAgent').join(domain.agentcustomization.filename);
+6399:                 }
+6400:
+6401:                 // Get the agent connection server name
+6402:                 var serverName = obj.getWebServerName(domain, req);
+6403:                 if (typeof obj.args.agentaliasdns == 'string') { serverName = obj.args.agentaliasdns; }
+6404:
+6405:                 // Build the agent connection URL. If we are using a sub-domain or one with a DNS, we need to craft the URL correctly.
+6406:                 var xdomain = (domain.dns == null) ? domain.id : '';
+6407:                 if (xdomain != '') xdomain += '/';
+6408:                 var meshsettings = '';
+6409:                 if (req.query.ac != '4') { // If MeshCentral Assistant Monitor Mode, DONT INCLUDE SERVER DETAILS!
+6410:                     meshsettings += '\r\nMeshName=' + mesh.name + '\r\nMeshType=' + mesh.mtype + '\r\nMeshID=0x' + meshidhex + '\r\nServerID=' + serveridhex + '\r\n';
+6411:                     if (obj.args.lanonly != true) { meshsettings += 'MeshServer=wss://' + serverName + ':' + httpsPort + '/' + xdomain + 'agent.ashx\r\n'; } else {
+6412:                         meshsettings += 'MeshServer=local\r\n';
+6413:                         if ((obj.args.localdiscovery != null) && (typeof obj.args.localdiscovery.key == 'string') && (obj.args.localdiscovery.key.length > 0)) { meshsettings += 'DiscoveryKey=' + obj.args.localdiscovery.key + '\r\n'; }
+6414:                     }
+6415:                     if ((req.query.tag != null) && (typeof req.query.tag == 'string') && (obj.common.isAlphaNumeric(req.query.tag) == true)) { meshsettings += 'Tag=' + encodeURIComponent(req.query.tag) + '\r\n'; }
+6416:                     if ((req.query.installflags != null) && (req.query.installflags != 0) && (parseInt(r

@@ -1,0 +1,204 @@
+MeshCentral 1.3.1 source review: views/login.handlebars / submit / part 3 of 4
+Parts may continue a source line. Trailing whitespace is omitted.
+                 QV('securityKeyButton', twofakey);
+486:                 QV('emailKeyButton', otpemail && (messageid != 2) && (messageid != 4) && (messageid != 6));
+487:                 QV('smsKeyButton', otpsms && (messageid != 2) && (messageid != 4) && (messageid != 6));
+488:                 QV('msgKeyButton', otpmsg && (messageid != 2) && (messageid != 4) && (messageid != 6));
+489:                 QV('duoKeyButton', otpduo && (messageid != 2) && (messageid != 4) && (messageid != 6));
+490:
+491:                 // If hardware key is an option, trigger it now
+492:                 if (autofido && twofakey) { setTimeout(function () { useSecurityKey(1); }, 300); }
+493:             }
+494:
+495:             if (loginMode == '5') {
+496:                 if (tokenTimeout > 0) { setTimeout(function () { Q('hwtokenInput').value = '**timeout**'; QE('tokenOkButton', true); Q('tokenOkButton').click(); }, tokenTimeout); }
+497:                 try { if (hardwareKeyChallenge.length > 0) { hardwareKeyChallenge = JSON.parse(hardwareKeyChallenge); } else { hardwareKeyChallenge = null; } } catch (ex) { hardwareKeyChallenge = null }
+498:                 var twofakey = (hardwareKeyChallenge != null) && (hardwareKeyChallenge.type == 'webAuthn');
+499:                 QV('securityKeyButton2', twofakey);
+500:                 QV('emailKeyButton2', otpemail && (messageid != 2) && (messageid != 4) && (messageid != 6));
+501:                 QV('smsKeyButton2', otpsms && (messageid != 2) && (messageid != 4) && (messageid != 6));
+502:                 QV('msgKeyButton2', otpmsg && (messageid != 2) && (messageid != 4) && (messageid != 6));
+503:                 QV('duoKeyButton2', otpduo && (messageid != 2) && (messageid != 4) && (messageid != 6));
+504:
+505:                 // If hardware key is an option, trigger it now
+506:                 if (autofido && twofakey) { setTimeout(function () { useSecurityKey(2); }, 300); }
+507:             }
+508:
+509:             /*
+510:             if (loginMode == '5') {
+511:                 try { if (hardwareKeyChallenge.length > 0) { hardwareKeyChallenge = JSON.parse(hardwareKeyChallenge); } else { hardwareKeyChallenge = null; } } catch (ex) { hardwareKeyChallenge = null }
+512:                 if ((hardwareKeyChallenge != null) && (hardwareKeyChallenge.type == 'webAuthn')) {
+513:                     if (typeof hardwareKeyChallenge.challenge == 'string') { hardwareKeyChallenge.challenge = Uint8Array.from(atob(hardwareKeyChallenge.challenge), function (c) { return c.charCodeAt(0) }).buffer; }
+514:
+515:                     publicKeyCredentialRequestOptions = { challenge: hardwareKeyChallenge.challenge, allowCredentials: [], timeout: hardwareKeyChallenge.timeout }
+516:                     for (var i = 0; i < hardwareKeyChallenge.keyIds.length; i++) {
+517:                         publicKeyCredentialRequestOptions.allowCredentials.push(
+518:                             { id: Uint8Array.from(atob(hardwareKeyChallenge.keyIds[i]), function (c) { return c.charCodeAt(0) }), type: 'public-key', transports: ['usb', 'ble', 'nfc', 'internal'] }
+519:                         );
+520:                     }
+521:
+522:                     // New WebAuthn hardware keys
+523:                     navigator.credentials.get({ publicKey: publicKeyCredentialRequestOptions }).then(
+524:                         function (rawAssertion) {
+525:                             var assertion = {
+526:                                 id: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.rawId))),
+527:                                 clientDataJSON: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.clientDataJSON))),
+528:                                 userHandle: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.userHandle))),
+529:                                 signature: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.signature))),
+530:                                 authenticatorData: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.authenticatorData))),
+531:                             };
+532:                             Q('resetHwtokenInput').value = JSON.stringify(assertion);
+533:                             QE('resetTokenOkButton', true);
+534:                             Q('resetTokenOkButton').click();
+535:                         },
+536:                         function (error) { console.log('credentials-get error', error); }
+537:                     );
+538:                 }
+539:             }
+540:             */
+541:
+542:             // Setup the user interface in the right mode
+543:             userInterfaceSelectMenu();
+544:         }
+545:
+546:         // Use a hardware security key
+547:         function useSecurityKey(panelAction) {
+548:             if ((hardwareKeyChallenge != null) && (hardwareKeyChallenge.type == 'webAuthn')) {
+549:                 if (typeof hardwareKeyChallenge.challenge == 'string') { hardwareKeyChallenge.challenge = Uint8Array.from(atob(hardwareKeyChallenge.challenge), function (c) { return c.charCodeAt(0) }).buffer; }
+550:
+551:                 publicKeyCredentialRequestOptions = { challenge: hardwareKeyChallenge.challenge, allowCredentials: [], timeout: hardwareKeyChallenge.timeout, userVerification: hardwareKeyChallenge.userVerification ? hardwareKeyChallenge.userVerification : 'preferred' }
+552:                 for (var i = 0; i < hardwareKeyChallenge.keyIds.length; i++) {
+553:                     publicKeyCredentialRequestOptions.allowCredentials.push(
+554:                         { id: Uint8Array.from(atob(hardwareKeyChallenge.keyIds[i]), function (c) { return c.charCodeAt(0) }), type: 'public-key', transports: ['usb', 'ble', 'nfc', 'internal'] }
+555:                     );
+556:                 }
+557:
+558:                 // New WebAuthn hardware keys
+559:                 navigator.credentials.get({ publicKey: publicKeyCredentialRequestOptions }).then(
+560:                     function (rawAssertion) {
+561:                         var assertion = {
+562:                             id: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.rawId))),
+563:                             clientDataJSON: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.clientDataJSON))),
+564:                             userHandle: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.userHandle))),
+565:                             signature: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.signature))),
+566:                             authenticatorData: btoa(String.fromCharCode.apply(null, new Uint8Array(rawAssertion.response.authenticatorData))),
+567:                         };
+568:                         if (panelAction == 1) {
+569:                             Q('hwtokenInput').value = JSON.stringify(assertion);
+570:                             QE('tokenOkButton', true);
+571:                             Q('tokenOkButton').click();
+572:                         } else if (panelAction == 2) {
+573:                             Q('resetHwtokenInput').value = JSON.stringify(assertion);
+574:                             QE('resetTokenOkButton', true);
+575:                             Q('resetTokenOkButton').click();
+576:                         }
+577:                     },
+578:                     function (error) { console.log('credentials-get error', error); }
+579:                 );
+580:             }
+581:         }
+582:
+583:         function useEmailToken(panelAction) {
+584:             if (otpemail != true) return;
+585:             setDialogMode(1, "Secure Login", 3, useEmailKeyEx, "Send token to registered email address?", panelAction);
+586:         }
+587:
+588:         function useEmailKeyEx(b, panelAction) {
+589:             if (panelAction == 1) {
+590:                 Q('hwtokenInput').value = '**email**';
+591:                 QE('tokenOkButton', true);
+592:                 Q('tokenOkButton').click();
+593:             } else if (panelAction == 2) {
+594:                 Q('resetHwtokenInput').value = '**email**';
+595:                 QE('resetTokenOkButton', true);
+596:                 Q('resetTokenOkButton').click();
+597:             }
+598:         }
+599:
+600:         function useSMSToken(panelAction) {
+601:             if (otpsms != true) return;
+602:             setDialogMode(1, "Secure Login", 3, useSMSTokenEx, "Send token to registered phone number?", panelAction);
+603:         }
+604:
+605:         function useSMSTokenEx(b, panelAction) {
+606:             if (panelAction == 1) {
+607:                 Q('hwtokenInput').value = '**sms**';
+608:                 QE('tokenOkButton', true);
+609:                 Q('tokenOkButton').click();
+610:             } else if (panelAction == 2) {
+611:                 Q('resetHwtokenInput').value = '**sms**';
+612:                 QE('resetTokenOkButton', true);
+613:                 Q('resetTokenOkButton').click();
+614:             }
+615:         }
+616:
+617:         function useMsgToken(panelAction) {
+618:             if (otpmsg != true) return;
+619:             setDialogMode(1, "Secure Login", 3, useMsgTokenEx, "Send token to messaging application?", panelAction);
+620:         }
+621:
+622:         function useMsgTokenEx(b, panelAction) {
+623:             if (panelAction == 1) {
+624:                 Q('hwtokenInput').value = '**msg**';
+625:                 QE('tokenOkButton', true);
+626:                 Q('tokenOkButton').click();
+627:             } else if (panelAction == 2) {
+628:                 Q('resetHwtokenInput').value = '**msg**';
+629:                 QE('resetTokenOkButton', true);
+630:                 Q('resetTokenOkButton').click();
+631:             }
+632:         }
+633:
+634:         function useDuoToken(panelAction) {
+635:             if (panelAction == 1) {
+636:                 Q('hwtokenInput').value = '**duo**';
+637:                 QE('tokenOkButton', true);
+638:                 Q('tokenOkButton').click();
+639:             } else if (panelAction == 2) {
+640:                 Q('resetHwtokenInput').value = '**duo**';
+641:                 QE('resetTokenOkButton', true);
+642:                 Q('resetTokenOkButton').click();
+643:             }
+644:         }
+645:
+646:         function showPassHint(e) {
+647:             messagebox("Password Hint", passhint);
+648:             haltEvent(e);
+649:             return false;
+650:         }
+651:
+652:         function xgo(x, e) {
+653:             QV('message1', false);
+654:             QV('message2', false);
+655:             QV('message3', false);
+656:             QV('message4', false);
+657:             QV('message5', false);
+658:             QV('message6', false);
+659:             QV('message7', false);
+660:             go(x);
+661:             haltEvent(e);
+662:             return false;
+663:         }
+664:
+665:         function go(x) {
+666:             currentpanel = x;
+667:             setDialogMode(0);
+668:             QV('showPassHintLink', false);
+669:             QV('loginpanel', x == 1);
+670:             QV('createpanel', x == 2);
+671:             QV('resetpanel', x == 3);
+672:             QV('tokenpanel', x == 4);
+673:             QV('resettokenpanel', x == 5);
+674:             QV('resetpasswordpanel', x == 6);
+675:             QV('checkemailpanel', x == 7);
+676:             if (x == 1) { Q('username').focus(); }
+677:             if (x == 2) { if (features & 0x200000) { Q('aemail').focus(); } else { Q('ausername').focus(); } } // Email is username
+678:             if (x == 3) { Q('remail').focus(); }
+679:             if (x == 4) { Q('tokenInput').focus(); }
+680:             if (x == 5) { Q('resetTokenInput').focus(); }
+681:             if (x == 6) { Q('rapassword1').focus(); }
+682:             if (x == 7) {
+683:                 QH('unconfirmedEmail', passhint);
+684:                 QV('checkCheckOperations', Q('unconfirmedEmail').innerHTML != '');
+685:                 QH('checkEmailVal', passhint);
+68

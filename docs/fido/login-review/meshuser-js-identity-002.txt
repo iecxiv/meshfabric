@@ -1,0 +1,171 @@
+MeshCentral 1.3.1 source review: meshuser.js / identity / part 2 of 3
+Parts may continue a source line. Trailing whitespace is omitted.
+, 'agent']; // 1 = Windows Command, 2 = Windows PowerShell, 3 = Linux, 4 = Agent
+652:                     const script = domain.preconfiguredscripts[i];
+653:                     if ((typeof script.name == 'string') && (script.name.length <= 32) && (typeof script.type == 'string') && ((typeof script.file == 'string') || (typeof script.cmd == 'string'))) {
+654:                         const s = { name: script.name, type: types.indexOf(script.type.toLowerCase()) };
+655:                         if (s.type > 0) { r.push(s); }
+656:                     }
+657:                 }
+658:                 serverinfo.preConfiguredScripts = r;
+659:             }
+660:
+661:             if (domain.maxdeviceview != null) { serverinfo.maxdeviceview = domain.maxdeviceview; } // Maximum number of devices a user can view at any given time
+662:
+663:             // Send server information
+664:             try { ws.send(JSON.stringify({ action: 'serverinfo', serverinfo: serverinfo })); } catch (ex) { }
+665:
+666:             // Send user information to web socket, this is the first thing we send
+667:             try { ws.send(JSON.stringify({ action: 'userinfo', userinfo: parent.CloneSafeUser(parent.users[user._id]) })); } catch (ex) { }
+668:
+669:             if (user.siteadmin === SITERIGHT_ADMIN) {
+670:                 // Check if tracing is allowed for this domain
+671:                 if ((domain.myserver !== false) && ((domain.myserver == null) || (domain.myserver.trace === true))) {
+672:                     // Send server tracing information
+673:                     try { ws.send(JSON.stringify({ action: 'traceinfo', traceSources: parent.parent.debugRemoteSources })); } catch (ex) { }
+674:                 }
+675:
+676:                 // Send any server warnings if any
+677:                 var serverWarnings = parent.parent.getServerWarnings();
+678:                 if (serverWarnings.length > 0) { try { ws.send(JSON.stringify({ action: 'serverwarnings', warnings: serverWarnings })); } catch (ex) { } }
+679:             }
+680:
+681:             // See how many times bad login attempts where made since the last login
+682:             const lastLoginTime = parent.users[user._id].pastlogin;
+683:             if (lastLoginTime != null) {
+684:                 db.GetFailedLoginCount(user._id, user.domain, new Date(lastLoginTime * 1000), function (count) {
+685:                     if (count > 0) { try { ws.send(JSON.stringify({ action: 'msg', type: 'notify', title: "Security Warning", tag: 'ServerNotify', id: Math.random(), value: "There has been " + count + " failed login attempts on this account since the last login.", titleid: 3, msgid: 12, args: [count] })); } catch (ex) { } delete user.pastlogin; }
+686:                 });
+687:             }
+688:
+689:             // If we are site administrator and Google Drive backup is setup, send out the status.
+690:             if ((user.siteadmin === SITERIGHT_ADMIN) && (domain.id == '') && (typeof parent.parent.config.settings.autobackup == 'object') && (typeof parent.parent.config.settings.autobackup.googledrive == 'object')) {
+691:                 db.Get('GoogleDriveBackup', function (err, docs) {
+692:                     if (err != null) return;
+693:                     if (docs.length == 0) { try { ws.send(JSON.stringify({ action: 'serverBackup', service: 'googleDrive', state: 1 })); } catch (ex) { } }
+694:                     else { try { ws.send(JSON.stringify({ action: 'serverBackup', service: 'googleDrive', state: docs[0].state })); } catch (ex) { } }
+695:                 });
+696:             }
+697:
+698:             // We are all set, start receiving data
+699:             ws._socket.resume();
+700:             if (parent.parent.pluginHandler != null) parent.parent.pluginHandler.callHook('hook_userLoggedIn', user);
+701:         });
+702:     } catch (ex) { console.log(ex); }
+703:
+704:     // Process incoming web socket data from the browser
+705:     function processWebSocketData(msg) {
+706:         var command, i = 0, mesh = null, meshid = null, nodeid = null, meshlinks = null, change = 0;
+707:         try { command = JSON.parse(msg.toString('utf8')); } catch (e) { return; }
+708:         if (command == null) return;
+709:         if (common.validateString(command.action, 3, 32) == false) return; // Action must be a string between 3 and 32 chars
+710:
+711:         var commandHandler = serverCommands[command.action];
+712:         if (commandHandler != null) {
+713:             try { commandHandler(command); return; }
+714:             catch (e) {
+715:                 console.log('Unhandled error while processing ' + command.action + ' for user ' + user.name + ':\n' + e);
+716:                 parent.parent.logError(e.stack); return; // todo: remove returns when switch is gone
+717:             }
+718:         } else { }
+719:             // console.log('Unknown action from user ' + user.name + ': ' + command.action + '.');
+720:             // pass through to switch statement until refactoring complete
+721:
+722:         switch (command.action) {
+723:             case 'nodes':
+724:                 {
+725:                     // If in paging mode, look to set the skip and limit values
+726:                     if (domain.maxdeviceview != null) {
+727:                         if ((typeof command.skip == 'number') && (command.skip >= 0)) { obj.deviceSkip = command.skip; }
+728:                         if ((typeof command.limit == 'number') && (command.limit > 0)) { obj.deviceLimit = command.limit; }
+729:                         if (obj.deviceLimit > domain.maxdeviceview) { obj.deviceLimit = domain.maxdeviceview; }
+730:
+731:                         // Device name filter, applied by the database before paging so it searches all devices, not only the current page.
+732:                         // The filter stays set for the following requests (page changes, refreshes) until the client changes it.
+733:                         if (typeof command.filter == 'string') {
+734:                             var newFilter = command.filter.trim().toLowerCase().substring(0, 128);
+735:                             if (newFilter == '') { newFilter = null; }
+736:                             if (newFilter != obj.deviceFilter) { obj.deviceFilter = newFilter; if (typeof command.skip != 'number') { obj.deviceSkip = 0; } }
+737:                         }
+738:                     }
+739:
+740:                     var links = [], extraids = null, err = null;
+741:
+742:                     // Resolve the device group name if needed
+743:                     if ((typeof command.meshname == 'string') && (command.meshid == null)) {
+744:                         for (var i in parent.meshes) {
+745:                             var m = parent.meshes[i];
+746:                             if ((m.mtype == 2) && (m.name == command.meshname) && parent.IsMeshViewable(user, m)) {
+747:                                 if (command.meshid == null) { command.meshid = m._id; } else { err = 'Duplicate device groups found'; }
+748:                             }
+749:                         }
+750:                         if (command.meshid == null) { err = 'Invalid group id'; }
+751:                     }
+752:
+753:                     // Check if command.id is set with a domain id, if not, add the domain id to it.
+754:                     if (typeof command.id == 'string' && command.id !== '') {
+755:                         if (common.validateString(command.id, 1, 1024) == false) { err = 'Invalid device identifier'; }
+756:                         else if (command.id.indexOf('/') == -1) { command.id = 'node/' + domain.id + '/' + command.id; }
+757:                     }
+758:
+759:                     if (err == null) {
+760:                         try {
+761:                             if (command.meshid == null) {
+762:                                 // Request a list of all meshes this user as rights to
+763:                                 links = parent.GetAllMeshIdWithRights(user);
+764:
+765:                                 // Add any nodes with direct rights or any nodes with user group direct rights
+766:                                 extraids = getUserExtraIds();
+767:                             } else {
+768:                                 // Request list of all nodes for one specific meshid
+769:                                 meshid = command.meshid;
+770:                                 if (common.validateString(meshid, 0, 128) == false) { err = 'Invalid group id'; } else {
+771:                                     if (meshid.split('/').length == 1) { meshid = 'mesh/' + domain.id + '/' + command.meshid; }
+772:                                     if (parent.IsMeshViewable(user, meshid)) { links.push(meshid); } else { err = 'Invalid group id'; }
+773:                                 }
+774:                             }
+775:                         } catch (ex) { err = 'Validation exception: ' + ex; }
+776:                     }
+777:
+778:                     // Handle any errors
+779:                     if (err != null) {
+780:                         if (command.responseid != null) { try { ws.send(JSON.stringify({ action: 'nodes', responseid: command.responseid, result: err })); } catch (ex) { } }
+781:                         break;
+782:                     }
+783:
+784:                     // Request a list of all nodes
+785:                     db.GetAllTypeNoTypeFieldMeshFiltered(links, extraids, domain.id, 'node', command.id, obj.deviceSkip, obj.deviceLimit, obj.deviceFilter, function (err, docs) {
+786:
+787:                         //console.log(err, docs, links, extraids, domain.id, 'node', command.id);
+788:
+789:                         if (docs == null) { docs = []; }
+790:                         parent.common.unEscapeAllLinksFieldName(docs);
+791:
+792:                         var r = {}, nodeCount = docs.length;
+793:                         if (domain.maxdeviceview != null) { obj.visibleDevices = {}; }
+794:                         for (i in docs) {
+795:                             // Check device links, if a link points to an unknown user, remove it.
+796:                             parent.cleanDevice(docs[i]); // TODO: This will make the total device count incorrect and will affect device paging.
+797:
+798:                             // If we are paging, add the device to the page here
+799:                             if (domain.maxdeviceview != null) { obj.visibleDevices[docs[i]._id] = 1; }
+800:
+801:                             // Remove any connectivity and power state information, that should not be in the database anyway.
+802:                             // TODO: Find why these are sometimes saved in the db.
+803:                             if (docs[i].conn != null) { delete docs[i].conn; }
+804:                             if (docs[i].pwr != null) { delete docs[i].pwr; }
+805:                             if (docs[i].agct != null) { delete docs[i].agct; }
+806:                             if (docs[i].cict != null) { delete docs[i].cict; }
+807:
+808:                             // Add the connection state
+809:                             var state = parent.parent.GetConnectivityState(docs[i]._id);
+810:                             if (state) {
+811:                                 docs[i].conn = state.connectivity;
+812:                                 docs[i].pwr = state.powerState;
+813:                                 if ((state.connectivity & 1) != 0) { var agent = parent.wsagents[docs[i]._id]; if (agent != null) { docs[i].agct = agent.connectTime; } }
+814:
+815:                                 // Use the connection time of the CIRA/Relay connection
+816:                                 if ((state.connectivity & 2) != 0) {
+817:                                     var ciraConnection = parent.parent.mpsserver.GetConnectionToNode(docs[i]._id, null, true);
+818:                                     if ((ciraConnection != null) && (ciraConnection.tag != null)) { docs[i].cict = ciraConnection.tag.connectTime; }
+819:

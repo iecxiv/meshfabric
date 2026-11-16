@@ -1,0 +1,463 @@
+{
+  "baseline": "MeshCentral 1.3.1, not a claim about the deployed server version",
+  "integrity": "sha512-adf9wyq+78RK6HTRNlF0OO9sPs6dzDaYlScaHRqs2w8xefm/QmS/zdrwuV2UuWWiOqh1RWPxgGNVwF/qvjL0Xg==",
+  "scope": "Source only. No package code executed. No user server contacted. No app or security setting changed.",
+  "files": [
+    {
+      "file": "webserver-js-tokenlogin-001.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 1,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-002.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 2,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-003.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 3,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-004.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 4,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-005.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 5,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-006.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 6,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-007.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 7,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-008.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 8,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-009.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 9,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-010.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 10,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-tokenlogin-011.txt",
+      "source": "webserver.js",
+      "focus": "tokenlogin",
+      "part": 11,
+      "parts": 11,
+      "pattern_hits": 25
+    },
+    {
+      "file": "webserver-js-control-001.txt",
+      "source": "webserver.js",
+      "focus": "control",
+      "part": 1,
+      "parts": 2,
+      "pattern_hits": 4
+    },
+    {
+      "file": "webserver-js-control-002.txt",
+      "source": "webserver.js",
+      "focus": "control",
+      "part": 2,
+      "parts": 2,
+      "pattern_hits": 4
+    },
+    {
+      "file": "webserver-js-cookies-001.txt",
+      "source": "webserver.js",
+      "focus": "cookies",
+      "part": 1,
+      "parts": 5,
+      "pattern_hits": 6
+    },
+    {
+      "file": "webserver-js-cookies-002.txt",
+      "source": "webserver.js",
+      "focus": "cookies",
+      "part": 2,
+      "parts": 5,
+      "pattern_hits": 6
+    },
+    {
+      "file": "webserver-js-cookies-003.txt",
+      "source": "webserver.js",
+      "focus": "cookies",
+      "part": 3,
+      "parts": 5,
+      "pattern_hits": 6
+    },
+    {
+      "file": "webserver-js-cookies-004.txt",
+      "source": "webserver.js",
+      "focus": "cookies",
+      "part": 4,
+      "parts": 5,
+      "pattern_hits": 6
+    },
+    {
+      "file": "webserver-js-cookies-005.txt",
+      "source": "webserver.js",
+      "focus": "cookies",
+      "part": 5,
+      "parts": 5,
+      "pattern_hits": 6
+    },
+    {
+      "file": "webserver-js-session-001.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 1,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-002.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 2,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-003.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 3,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-004.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 4,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-005.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 5,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-006.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 6,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-007.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 7,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-008.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 8,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-009.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 9,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-010.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 10,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-011.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 11,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-012.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 12,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-013.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 13,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-014.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 14,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-015.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 15,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-016.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 16,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-017.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 17,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-018.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 18,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-019.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 19,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-020.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 20,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-021.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 21,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-022.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 22,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-023.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 23,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-024.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 24,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-025.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 25,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-026.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 26,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-027.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 27,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-028.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 28,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-029.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 29,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-030.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 30,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webserver-js-session-031.txt",
+      "source": "webserver.js",
+      "focus": "session",
+      "part": 31,
+      "parts": 31,
+      "pattern_hits": 43
+    },
+    {
+      "file": "webauthn-js-assertion-001.txt",
+      "source": "webauthn.js",
+      "focus": "assertion",
+      "part": 1,
+      "parts": 1,
+      "pattern_hits": 1
+    },
+    {
+      "file": "views-login-handlebars-submit-001.txt",
+      "source": "views/login.handlebars",
+      "focus": "submit",
+      "part": 1,
+      "parts": 4,
+      "pattern_hits": 11
+    },
+    {
+      "file": "views-login-handlebars-submit-002.txt",
+      "source": "views/login.handlebars",
+      "focus": "submit",
+      "part": 2,
+      "parts": 4,
+      "pattern_hits": 11
+    },
+    {
+      "file": "views-login-handlebars-submit-003.txt",
+      "source": "views/login.handlebars",
+      "focus": "submit",
+      "part": 3,
+      "parts": 4,
+      "pattern_hits": 11
+    },
+    {
+      "file": "views-login-handlebars-submit-004.txt",
+      "source": "views/login.handlebars",
+      "focus": "submit",
+      "part": 4,
+      "parts": 4,
+      "pattern_hits": 11
+    },
+    {
+      "file": "meshuser-js-identity-001.txt",
+      "source": "meshuser.js",
+      "focus": "identity",
+      "part": 1,
+      "parts": 3,
+      "pattern_hits": 1
+    },
+    {
+      "file": "meshuser-js-identity-002.txt",
+      "source": "meshuser.js",
+      "focus": "identity",
+      "part": 2,
+      "parts": 3,
+      "pattern_hits": 1
+    },
+    {
+      "file": "meshuser-js-identity-003.txt",
+      "source": "meshuser.js",
+      "focus": "identity",
+      "part": 3,
+      "parts": 3,
+      "pattern_hits": 1
+    }
+  ]
+}

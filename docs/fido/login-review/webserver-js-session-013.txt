@@ -1,0 +1,155 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 13 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+ledata) {
+5184:                                     obj.fs.mkdir(xfile.fullpath, function () {
+5185:                                         // Write the file
+5186:                                         obj.fs.writeFile(obj.path.join(xfile.fullpath, filename), filedata, function () {
+5187:                                             obj.parent.DispatchEvent([user._id], obj, 'updatefiles'); // Fire an event causing this user to update this files
+5188:                                         });
+5189:                                     });
+5190:                                 })(xfile.fullpath, safeName, filedata);
+5191:                             } else {
+5192:                                 // Send a notification
+5193:                                 obj.parent.DispatchEvent([user._id], obj, { action: 'notify', title: "Disk quota exceed", value: names[i], nolog: 1, id: Math.random() });
+5194:                             }
+5195:                         }
+5196:                     }
+5197:                 } else {
+5198:                     // More typical upload method, the file data is in a multipart mime post.
+5199:                     for (var i in files.files) {
+5200:                         var file = files.files[i];
+5201:                         var originalFilename = (typeof file.originalFilename === 'string') ? file.originalFilename : '';
+5202:                         var safeOriginalFilename = obj.path.basename(originalFilename);
+5203:                         var isFilenameAcceptable = (safeOriginalFilename === originalFilename) && obj.common.IsFilenameValid(safeOriginalFilename);
+5204:                         const uploadTempPath = resolveSafeUploadTempPath(file.path);
+5205:                         if (uploadTempPath == null) { res.sendStatus(400); return; }
+5206:                         if (isFilenameAcceptable && ((xfile.quota == null) || ((totalsize + file.size) < xfile.quota))) { // Check if quota would not be broken if we add this file
+5207:                             var fpath = obj.path.join(xfile.fullpath, safeOriginalFilename);
+5208:
+5209:                             // See if we need to create the folder
+5210:                             var domainx = 'domain';
+5211:                             if (domain.id.length > 0) { domainx = 'domain-' + domain.id; }
+5212:                             try { obj.fs.mkdirSync(obj.parent.filespath); } catch (e) { }
+5213:                             try { obj.fs.mkdirSync(obj.parent.path.join(obj.parent.filespath, domainx)); } catch (e) { }
+5214:                             try { obj.fs.mkdirSync(xfile.fullpath); } catch (e) { }
+5215:
+5216:                             // Rename the file
+5217:                             obj.fs.rename(uploadTempPath, fpath, function (err) {
+5218:                                 if (err && (err.code === 'EXDEV')) {
+5219:                                     // On some Linux, the rename will fail with a "EXDEV" error, do a copy+unlink instead.
+5220:                                     obj.common.copyFile(uploadTempPath, fpath, function (err) {
+5221:                                         obj.fs.unlink(uploadTempPath, function (err) {
+5222:                                             obj.parent.DispatchEvent([user._id], obj, 'updatefiles'); // Fire an event causing this user to update this files
+5223:                                         });
+5224:                                     });
+5225:                                 } else {
+5226:                                     obj.parent.DispatchEvent([user._id], obj, 'updatefiles'); // Fire an event causing this user to update this files
+5227:                                 }
+5228:                             });
+5229:                         } else {
+5230:                             // Send a notification
+5231:                             obj.parent.DispatchEvent([user._id], obj, { action: 'notify', title: "Disk quota exceed", value: file.originalFilename, nolog: 1, id: Math.random() });
+5232:                             try { obj.fs.unlink(uploadTempPath, function (err) { }); } catch (e) { }
+5233:                         }
+5234:                     }
+5235:                 }
+5236:             } else {
+5237:                 // Send a notification
+5238:                 obj.parent.DispatchEvent([user._id], obj, { action: 'notify', value: "Disk quota exceed", nolog: 1, id: Math.random() });
+5239:             }
+5240:             res.send('');
+5241:         });
+5242:     }
+5243:
+5244:     // Upload a file to the server and then batch upload to many agents
+5245:     function handleUploadFileBatch(req, res) {
+5246:         const domain = checkUserIpAddress(req, res);
+5247:         if (domain == null) { return; }
+5248:         var authUserid = null;
+5249:         if ((req.session != null) && (typeof req.session.userid == 'string')) { authUserid = req.session.userid; }
+5250:         const multiparty = require('multiparty');
+5251:         const form = new multiparty.Form();
+5252:         form.parse(req, function (err, fields, files) {
+5253:             // If an authentication cookie is embedded in the form, use that.
+5254:             if ((fields != null) && (fields.auth != null) && (fields.auth.length == 1) && (typeof fields.auth[0] == 'string')) {
+5255:                 var loginCookie = obj.parent.decodeCookie(fields.auth[0], obj.parent.loginCookieEncryptionKey, 60); // 60 minute timeout
+5256:                 if ((loginCookie != null) && (loginCookie.ip != null) && !checkCookieIp(loginCookie.ip, req.clientIp)) { loginCookie = null; } // Check cookie IP binding.
+5257:                 if ((loginCookie != null) && (domain.id == loginCookie.domainid)) { authUserid = loginCookie.userid; } // Use cookie authentication
+5258:             }
+5259:             if (authUserid == null) { res.sendStatus(401); return; }
+5260:
+5261:             // Get the user
+5262:             const user = obj.users[authUserid];
+5263:             if (user == null) { parent.debug('web', 'Batch upload error, invalid user.'); res.sendStatus(401); return; } // Check if user exists
+5264:
+5265:             // Get fields
+5266:             if ((fields == null) || (fields.nodeIds == null) || (fields.nodeIds.length != 1)) { res.sendStatus(404); return; }
+5267:             var cmd = { nodeids: fields.nodeIds[0].split(','), files: [], user: user, domain: domain, overwrite: false, createFolder: false };
+5268:             if ((fields.winpath != null) && (fields.winpath.length == 1)) { cmd.windowsPath = fields.winpath[0]; }
+5269:             if ((fields.linuxpath != null) && (fields.linuxpath.length == 1)) { cmd.linuxPath = fields.linuxpath[0]; }
+5270:             if ((fields.overwriteFiles != null) && (fields.overwriteFiles.length == 1) && (fields.overwriteFiles[0] == 'on')) { cmd.overwrite = true; }
+5271:             if ((fields.createFolder != null) && (fields.createFolder.length == 1) && (fields.createFolder[0] == 'on')) { cmd.createFolder = true; }
+5272:
+5273:             // Check if we have at least one target path
+5274:             if ((cmd.windowsPath == null) && (cmd.linuxPath == null)) {
+5275:                 parent.debug('web', 'Batch upload error, invalid fields: ' + JSON.stringify(fields));
+5276:                 res.send('');
+5277:                 return;
+5278:             }
+5279:
+5280:             // Get server temporary path
+5281:             var serverpath = obj.path.join(obj.filespath, 'tmp')
+5282:             try { obj.fs.mkdirSync(obj.parent.filespath); } catch (ex) { }
+5283:             try { obj.fs.mkdirSync(serverpath); } catch (ex) { }
+5284:
+5285:             // More typical upload method, the file data is in a multipart mime post.
+5286:             for (var i in files.files) {
+5287:                 var file = files.files[i];
+5288:                 // Keep only a plain filename for the temporary target, matching the single-file upload handler above.
+5289:                 var originalFilename = (typeof file.originalFilename === 'string') ? file.originalFilename : '';
+5290:                 var safeOriginalFilename = obj.path.basename(originalFilename);
+5291:                 if ((safeOriginalFilename !== originalFilename) || (obj.common.IsFilenameValid(safeOriginalFilename) == false)) { res.sendStatus(404); return; }
+5292:                 const ftarget = getRandomPassword() + '-' + safeOriginalFilename;
+5293:                 const targetPath = obj.path.join(serverpath, ftarget);
+5294:                 const uploadTempPath = resolveSafeUploadTempPath(file.path);
+5295:                 if (uploadTempPath == null) { res.sendStatus(400); return; }
+5296:                 cmd.files.push({ name: safeOriginalFilename, target: ftarget });
+5297:                 // Rename the file
+5298:                 obj.fs.rename(uploadTempPath, targetPath, function (err) {
+5299:                     if (err && (err.code === 'EXDEV')) {
+5300:                         // On some Linux, the rename will fail with a "EXDEV" error, do a copy+unlink instead.
+5301:                         obj.common.copyFile(uploadTempPath, targetPath, function (err) { obj.fs.unlink(uploadTempPath, function (err) { }); });
+5302:                     }
+5303:                 });
+5304:             }
+5305:
+5306:             // Instruct one of more agents to download a URL to a given local drive location.
+5307:             var tlsCertHash = null;
+5308:             if ((parent.args.ignoreagenthashcheck == null) || (parent.args.ignoreagenthashcheck === false)) { // TODO: If ignoreagenthashcheck is an array of IP addresses, not sure how to handle this.
+5309:                 tlsCertHash = obj.webCertificateFullHashs[cmd.domain.id];
+5310:                 if (tlsCertHash != null) { tlsCertHash = Buffer.from(tlsCertHash, 'binary').toString('hex'); }
+5311:             }
+5312:             for (var i in cmd.nodeids) {
+5313:                 obj.GetNodeWithRights(cmd.domain, cmd.user, cmd.nodeids[i], function (node, rights, visible) {
+5314:                     if ((node == null) || ((rights & 8) == 0) || (visible == false)) return; // We don't have remote control rights to this device
+5315:                     if ((rights != MESHRIGHT_ADMIN) && ((rights & MESHRIGHT_NOFILES) != 0)) return; // This user is not allowed to use files on this device
+5316:                     var agentPath = (((node.agent.id > 0) && (node.agent.id < 5)) || (node.agent.id == 34)) ? cmd.windowsPath : cmd.linuxPath;
+5317:                     if (agentPath == null) return;
+5318:
+5319:                     // Compute user consent
+5320:                     var consent = 0;
+5321:                     var mesh = obj.meshes[node.meshid];
+5322:                     if (typeof domain.userconsentflags == 'number') { consent |= domain.userconsentflags; } // Add server required consent flags
+5323:                     if ((mesh != null) && (typeof mesh.consent == 'number')) { consent |= mesh.consent; } // Add device group user consent
+5324:                     if (typeof node.consent == 'number') { consent |= node.consent; } // Add node user consent
+5325:                     if (typeof user.consent == 'number') { consent |= user.consent; } // Add user consent
+5326:
+5327:                     // Check if we need to add consent flags because of a user group link
+5328:                     if ((mesh != null) && (user.links != null) && (user.links[mesh._id] == null) && (user.links[node._id] == null)) {
+5329:                         // This user does not have a direct link to the device group or device. Find all user groups the would cause the link.
+5330:                         for (var i in user.links) {
+5331:                             var ugrp = obj.userGroups[i];
+5332:                             if ((ugrp != null) && (ugrp.consent != null) && (ugrp.links != null) && ((ugrp.links[mesh._id] != null) || (ugrp.links[node._id] != null))) {
+5333:                                 consent |= ugrp.consent; // Add user group consent flags
+5334:                             }
+5335:

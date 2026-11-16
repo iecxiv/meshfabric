@@ -1,0 +1,129 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 28 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+                                parent.debug('web', 'Sending 2FA message to: ' + user.msghandle);
+9338:                                     parent.msgserver.sendToken(domain, user.msghandle, user.otpmsg.k, obj.getLanguageCodes(req));
+9339:                                     // Ask for a login token & confirm message was sent
+9340:                                     try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, msg2fasent: true, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9341:                                     /*
+9342:                                 } else if ((command.token == '**push**') && (push2fa == true)) {
+9343:                                     // Cause push notification to device
+9344:                                     const code = Buffer.from(obj.common.zeroPad(getRandomSixDigitInteger(), 6)).toString('base64');
+9345:                                     const authCookie = parent.encodeCookie({ a: 'checkAuth', c: code, u: user._id, n: user.otpdev });
+9346:                                     var payload = { notification: { title: "MeshCentral", body: user.name + " authentication" }, data: { url: '2fa://auth?code=' + code + '&c=' + authCookie } };
+9347:                                     var options = { priority: 'High', timeToLive: 60 }; // TTL: 1 minute
+9348:                                     parent.firebase.sendToDevice(user.otpdev, payload, options, function (id, err, errdesc) {
+9349:                                         if (err == null) { parent.debug('email', 'Successfully auth check send push message to device'); } else { parent.debug('email', 'Failed auth check push message to device, error: ' + errdesc); }
+9350:                                     });
+9351:                                     */
+9352:                                 } else {
+9353:                                     // Ask for a login token
+9354:                                     parent.debug('web', 'Asking for login token');
+9355:                                     try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9356:                                 }
+9357:                             } else {
+9358:                                 checkUserOneTimePassword(req, domain, user, req.query.token, null, function (result, authData) {
+9359:                                     if (result == false) {
+9360:                                         // Failed, ask for a login token again
+9361:                                         parent.debug('web', 'Invalid login token, asking again');
+9362:                                         try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9363:                                     } else {
+9364:                                         // We are authenticated with 2nd factor.
+9365:                                         // Check email verification
+9366:                                         if (emailcheck && (user.email != null) && (!(user._id.split('/')[2].startsWith('~'))) && (user.emailVerified !== true)) {
+9367:                                             parent.debug('web', 'Invalid login, asking for email validation');
+9368:                                             try { ws.send(JSON.stringify({ action: 'close', cause: 'emailvalidation', msg: 'emailvalidationrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, email2fasent: true })); ws.close(); } catch (e) { }
+9369:                                         } else {
+9370:                                             req.session.userid = user._id;
+9371:                                             req.session.ip = req.clientIp;
+9372:                                             setSessionRandom(req);
+9373:                                             func(ws, req, domain, user, null, authData);
+9374:                                         }
+9375:                                     }
+9376:                                 });
+9377:                             }
+9378:                         } else {
+9379:                             // Check email verification
+9380:                             if (emailcheck && (user.email != null) && (!(user._id.split('/')[2].startsWith('~'))) && (user.emailVerified !== true)) {
+9381:                                 parent.debug('web', 'Invalid login, asking for email validation');
+9382:                                 var email2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.email2factor != false)) && (domain.mailserver != null) && (user.otpekey != null));
+9383:                                 var sms2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.sms2factor != false)) && (parent.smsserver != null) && (user.phone != null));
+9384:                                 var msg2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.msg2factor != false)) && (parent.msgserver != null) && (parent.msgserver.providers != 0) && (user.msghandle != null));
+9385:                                 try { ws.send(JSON.stringify({ action: 'close', cause: 'emailvalidation', msg: 'emailvalidationrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, email2fasent: true })); ws.close(); } catch (e) { }
+9386:                             } else {
+9387:                                 // We are authenticated
+9388:                                 req.session.userid = user._id;
+9389:                                 req.session.ip = req.clientIp;
+9390:                                 setSessionRandom(req);
+9391:                                 func(ws, req, domain, user);
+9392:                             }
+9393:                         }
+9394:                     } else {
+9395:                         // Failed to authenticate, see if a default user is active
+9396:                         if (obj.args.user && obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]) {
+9397:                             // A default user is active
+9398:                             func(ws, req, domain, obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]);
+9399:                         } else {
+9400:                             // If not authenticated, close the websocket connection
+9401:                             parent.debug('web', 'ERR: Websocket bad user/pass auth');
+9402:                             //obj.parent.DispatchEvent(['*', 'server-users', 'user/' + domain.id + '/' + obj.args.user.toLowerCase()], obj, { action: 'authfail', userid: 'user/' + domain.id + '/' + obj.args.user.toLowerCase(), username: obj.args.user, domain: domain.id, msg: 'Invalid user login attempt from ' + req.clientIp });
+9403:                             //parent.debug('web', "Failed login for user:", req.query.user);
+9404:                             obj.setbadLogin(req, req.query.user);
+9405:                             try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'noauth-2a' })); ws.close(); } catch (e) { }
+9406:                         }
+9407:                     }
+9408:                 });
+9409:                 return;
+9410:             }
+9411:
+9412:             if ((req.query.auth != null) && (req.query.auth != '')) {
+9413:                 // This is a encrypted cookie authentication
+9414:                 var cookie = obj.parent.decodeCookie(req.query.auth, obj.parent.loginCookieEncryptionKey, 60); // Cookie with 1 hour timeout
+9415:                 if ((cookie == null) && (obj.parent.multiServer != null)) { cookie = obj.parent.decodeCookie(req.query.auth, obj.parent.serverKey, 60); } // Try the server key
+9416:                 if ((cookie != null) && (cookie.ip != null) && !checkCookieIp(cookie.ip, req.clientIp)) { // If the cookie if binded to an IP address, check here.
+9417:                     parent.debug('web', 'ERR: Invalid cookie IP address, got \"' + cookie.ip + '\", expected \"' + cleanRemoteAddr(req.clientIp) + '\".');
+9418:                     cookie = null;
+9419:                 }
+9420:                 if ((cookie != null) && (cookie.userid != null) && (obj.users[cookie.userid]) && (cookie.domainid == domain.id) && (cookie.userid.split('/')[1] == domain.id)) {
+9421:                     // Valid cookie, we are authenticated. Cookie of format { userid: 'user//name', domain: '' }
+9422:                     func(ws, req, domain, obj.users[cookie.userid], cookie);
+9423:                     return;
+9424:                 } else if ((cookie != null) && (cookie.a === 3) && (typeof cookie.u == 'string') && (obj.users[cookie.u]) && (cookie.u.split('/')[1] == domain.id)) {
+9425:                     // Valid cookie, we are authenticated. Cookie of format { u: 'user//name', a: 3 }
+9426:                     func(ws, req, domain, obj.users[cookie.u], cookie);
+9427:                     return;
+9428:                 } else if ((cookie != null) && (cookie.nouser === 1)) {
+9429:                     // This is a valid cookie, but no user. This is used for agent self-sharing.
+9430:                     func(ws, req, domain, null, cookie);
+9431:                     return;
+9432:                 } /*else {
+9433:                     // This is a bad cookie, keep going anyway, maybe we have a active session that will save us.
+9434:                     if ((cookie != null) && (cookie.domainid != domain.id)) { parent.debug('web', 'ERR: Invalid domain, got \"' + cookie.domainid + '\", expected \"' + domain.id + '\".'); }
+9435:                     parent.debug('web', 'ERR: Websocket bad cookie auth (Cookie:' + (cookie != null) + '): ' + req.query.auth);
+9436:                     try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'noauth-2b' })); ws.close(); } catch (e) { }
+9437:                     return;
+9438:                 }
+9439:                 */
+9440:             }
+9441:
+9442:             if (req.headers['x-meshauth'] != null) {
+9443:                 // This is authentication using a custom HTTP header
+9444:                 var s = req.headers['x-meshauth'].split(',');
+9445:                 for (var i in s) { s[i] = Buffer.from(s[i], 'base64').toString(); }
+9446:                 if ((s.length < 2) || (s.length > 3)) { try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'noauth-2c' })); ws.close(); } catch (e) { } return; }
+9447:                 obj.authenticate(s[0], s[1], domain, function (err, userid, passhint, loginOptions) {
+9448:                     var user = obj.users[userid];
+9449:                     if ((err == null) && (user)) {
+9450:                         // Check if user as the "notools" site right. If so, deny this connection as tools are not allowed to connect.
+9451:                         if ((user.siteadmin != 0xFFFFFFFF) && (user.siteadmin & SITERIGHT_NOMESHCMD)) {
+9452:                             // No tools allowed, close the websocket connection
+9453:                             parent.debug('web', 'ERR: Websocket no tools allowed');
+9454:                             try { ws.send(JSON.stringify({ action: 'close', cause: 'notools', msg: 'notools' })); ws.close(); } catch (e) { }
+9455:                             return;
+9456:                         }
+9457:
+9458:                         // Check if a 2nd factor is needed
+9459:                         if (checkUserOneTimePasswordRequired(domain, user, req, loginOptions) == true) {
+9460:
+9461:                             // See if we support two-factor trusted cookies
+9462:                             var twoFactorCookieDays = 30;
+9463:                             if (typeof domain.twofactorco

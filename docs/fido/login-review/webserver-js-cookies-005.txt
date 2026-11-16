@@ -1,0 +1,99 @@
+MeshCentral 1.3.1 source review: webserver.js / cookies / part 5 of 5
+Parts may continue a source line. Trailing whitespace is omitted.
+s, use it.
+7352:             var ipex = '0.0.0.0', xforwardedhost = req.headers.host;
+7353:             if (typeof req.connection.remoteAddress == 'string') { ipex = (req.connection.remoteAddress.startsWith('::ffff:')) ? req.connection.remoteAddress.substring(7) : req.connection.remoteAddress; }
+7354:             if (
+7355:                 (obj.args.trustedproxy === true) || (obj.args.tlsoffload === true) ||
+7356:                 ((typeof obj.args.trustedproxy == 'object') && (isIPMatch(ipex, obj.args.trustedproxy))) ||
+7357:                 ((typeof obj.args.tlsoffload == 'object') && (isIPMatch(ipex, obj.args.tlsoffload)))
+7358:             ) {
+7359:                 // Get client IP
+7360:                 if (req.headers['cf-connecting-ip']) { // Use CloudFlare IP address if present
+7361:                     req.clientIp = req.headers['cf-connecting-ip'].split(',')[0].trim();
+7362:                 } else if (req.headers['x-forwarded-for']) {
+7363:                     req.clientIp = req.headers['x-forwarded-for'].split(',')[0].trim();
+7364:                 } else if (req.headers['x-real-ip']) {
+7365:                     req.clientIp = req.headers['x-real-ip'].split(',')[0].trim();
+7366:                 } else {
+7367:                     req.clientIp = ipex;
+7368:                 }
+7369:
+7370:                 // If there is a port number, remove it. This will only work for IPv4, but nice for people that have a bad reverse proxy config.
+7371:                 const clientIpSplit = req.clientIp.split(':');
+7372:                 if (clientIpSplit.length == 2) { req.clientIp = clientIpSplit[0]; }
+7373:
+7374:                 // Get server host
+7375:                 if (req.headers['x-forwarded-host']) { xforwardedhost = req.headers['x-forwarded-host'].split(',')[0]; } // If multiple hosts are specified with a comma, take the first one.
+7376:             } else {
+7377:                 req.clientIp = ipex;
+7378:             }
+7379:
+7380:             // If this is a web relay connection, handle it here.
+7381:             if ((obj.webRelayRouter != null) && (obj.args.relaydns.indexOf(req.hostname) >= 0)) {
+7382:                 if (['GET', 'POST', 'PUT', 'HEAD', 'DELETE', 'OPTIONS'].indexOf(req.method) >= 0) { return obj.webRelayRouter(req, res); } else { res.sendStatus(404); return; }
+7383:             }
+7384:
+7385:             // Get the domain for this request
+7386:             const domain = req.xdomain = getDomain(req);
+7387:             parent.debug('webrequest', '(' + req.clientIp + ') ' + req.url);
+7388:
+7389:             // Skip the rest if this is an agent connection
+7390:             if ((req.url.indexOf('/meshrelay.ashx/.websocket') >= 0) || (req.url.indexOf('/agent.ashx/.websocket') >= 0) || (req.url.indexOf('/localrelay.ashx/.websocket') >= 0)) { next(); return; }
+7391:
+7392:             // Setup security headers
+7393:             const geourl = (domain.geolocation ? ' *.openstreetmap.org' : '');
+7394:             var selfurl = ' wss://' + req.headers.host;
+7395:             if ((xforwardedhost != null) && (xforwardedhost != req.headers.host)) { selfurl += ' wss://' + xforwardedhost; }
+7396:             const extraScriptSrc = (parent.config.settings.extrascriptsrc != null) ? (' ' + parent.config.settings.extrascriptsrc) : '';
+7397:             const extraImgSrc = (parent.config.settings.extraimgsrc != null) ? (' ' + parent.config.settings.extraimgsrc) : '';
+7398:             const allowedFramingOriginsValue = (domain.allowedframingorigins != null) ? domain.allowedframingorigins : parent.config.settings.allowedframingorigins;
+7399:             const hasAllowedFramingOrigins = (allowedFramingOriginsValue != null);
+7400:             var framingOrigins = [];
+7401:             if (typeof allowedFramingOriginsValue === 'string') {
+7402:                 framingOrigins = allowedFramingOriginsValue.split(/[,\s]+/).map(function (v) { return v.trim(); }).filter(function (v) { return v.length > 0; });
+7403:             } else if (Array.isArray(allowedFramingOriginsValue)) {
+7404:                 framingOrigins = allowedFramingOriginsValue.filter(function (v) { return (typeof v === 'string') && (v.trim().length > 0); }).map(function (v) { return v.trim(); });
+7405:             }
+7406:
+7407:             // If the web relay port is enabled, allow the web page to redirect to it
+7408:             var extraFrameSrc = '';
+7409:             if ((parent.webrelayserver != null) && (parent.webrelayserver.port != 0)) {
+7410:                 extraFrameSrc = ' https://' + req.headers.host + ':' + parent.webrelayserver.port;
+7411:                 if ((xforwardedhost != null) && (xforwardedhost != req.headers.host)) { extraFrameSrc += ' https://' + xforwardedhost + ':' + parent.webrelayserver.port; }
+7412:             }
+7413:
+7414:
+7415:             // If using duo add apihostname to CSP
+7416:             var duoSrc = '';
+7417:             if ((typeof domain.duo2factor == 'object') && (typeof domain.duo2factor.apihostname == 'string')) {
+7418:                 duoSrc = domain.duo2factor.apihostname;
+7419:             }
+7420:
+7421:             // Finish setup security headers
+7422:             var cspBase = "default-src 'none'; font-src 'self' fonts.gstatic.com data:; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' " + extraScriptSrc + "; connect-src 'self'" + geourl + selfurl + "; img-src 'self' blob: data:" + geourl + extraImgSrc + " data:; style-src 'self' 'unsafe-inline' fonts.googleapis.com; frame-src 'self' blob: mcrouter:" + extraFrameSrc + "; media-src 'self'; form-action 'self' " + duoSrc + "; manifest-src 'self'";
+7423:             if (hasAllowedFramingOrigins) {
+7424:                 var frameAncestors = "'self'" + (framingOrigins.length > 0 ? ' ' + framingOrigins.join(' ') : '');
+7425:                 cspBase += "; frame-ancestors " + frameAncestors;
+7426:             }
+7427:             const headers = {
+7428:                 'Referrer-Policy': 'no-referrer',
+7429:                 'X-XSS-Protection': '1; mode=block',
+7430:                 'X-Content-Type-Options': 'nosniff',
+7431:                 'Content-Security-Policy': cspBase
+7432:             };
+7433:             if (req.headers['user-agent'] && (req.headers['user-agent'].indexOf('Chrome') >= 0)) { headers['Permissions-Policy'] = 'interest-cohort=()'; } // Remove Google's FLoC Network, only send this if Chrome browser
+7434:             if (hasAllowedFramingOrigins) {
+7435:                 if (framingOrigins.length === 0) { headers['X-Frame-Options'] = 'sameorigin'; }
+7436:             } else if ((parent.config.settings.allowframing !== true) && (typeof parent.config.settings.allowframing !== 'string')) {
+7437:                 headers['X-Frame-Options'] = 'sameorigin';
+7438:             }
+7439:             if ((parent.config.settings.stricttransportsecurity === true) || ((parent.config.settings.stricttransportsecurity !== false) && (obj.isTrustedCert(domain)))) { if (typeof parent.config.settings.stricttransportsecurity == 'string') { headers['Strict-Transport-Security'] = parent.config.settings.stricttransportsecurity; } else { headers['Strict-Transport-Security'] = 'max-age=63072000'; } }
+7440:
+7441:             // If this domain has configured headers, add them. If a header is set to null, remove it.
+7442:             if ((domain != null) && (domain.httpheaders != null) && (typeof domain.httpheaders == 'object')) {
+7443:                 for (var i in domain.httpheaders) { if (domain.httpheaders[i] === null) { delete headers[i]; } else { headers[i] = domain.httpheaders[i]; } }
+7444:             }
+7445:             res.set(headers);
+7446:
+7447:             // Check the session if bound to the external IP address

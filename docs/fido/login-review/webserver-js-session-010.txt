@@ -1,0 +1,149 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 10 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+consent, pid: doc.publicid, k: doc.extrakey ? doc.extrakey : null, port: doc.port };
+4585:                 if (doc.userid) { cookie.uid = doc.userid; }
+4586:                 if ((cookie.userid == null) && (cookie.pid.startsWith('AS:node/'))) { cookie.nouser = 1; }
+4587:                 if (doc.startTime != null) {
+4588:                     if (doc.expireTime != null) { cookie.start = doc.startTime; cookie.expire = doc.expireTime; }
+4589:                     else if (doc.duration != null) { cookie.start = doc.startTime; cookie.expire = doc.startTime + (doc.duration * 60000); }
+4590:                 }
+4591:                 if (doc.viewOnly === true) { cookie.vo = 1; }
+4592:                 handleSharingRequestEx(req, res, domain, cookie);
+4593:             });
+4594:             return;
+4595:         }
+4596:         res.sendStatus(404); return;
+4597:     }
+4598:
+4599:     // Serve the guest sharing page
+4600:     function handleSharingRequestEx(req, res, domain, c) {
+4601:         // Check the expired time, expire message.
+4602:         if ((c.expire != null) && (c.expire <= Date.now())) { res.status(404); render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 2, msgid: 12, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain)); return; }
+4603:
+4604:         // Check the public id
+4605:         obj.db.GetAllTypeNodeFiltered([c.nid], domain.id, 'deviceshare', null, function (err, docs) {
+4606:             // Check if any sharing links are present, expire message.
+4607:             if ((err != null) || (docs.length == 0)) { res.status(404); render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 2, msgid: 12, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain)); return; }
+4608:
+4609:             // Search for the device share public identifier, expire message.
+4610:             var found = false;
+4611:             for (var i = 0; i < docs.length; i++) { if ((docs[i].publicid == c.pid) && ((docs[i].extrakey == null) || (docs[i].extrakey === c.k))) { found = true; } }
+4612:             if (found == false) { res.status(404); render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 2, msgid: 12, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain)); return; }
+4613:
+4614:             // Get information about this node
+4615:             obj.db.Get(c.nid, function (err, nodes) {
+4616:                 if ((err != null) || (nodes == null) || (nodes.length != 1)) { res.sendStatus(404); return; }
+4617:                 var node = nodes[0];
+4618:
+4619:                 // Check the start time, not yet valid message.
+4620:                 if ((c.start != null) && (c.expire != null) && ((c.start > Date.now()) || (c.start > c.expire))) { res.status(404); render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 2, msgid: 11, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain)); return; }
+4621:
+4622:                 // If this is a web relay share, check if this feature is active
+4623:                 if ((c.p == 8) || (c.p == 16)) {
+4624:                     // This is a HTTP or HTTPS share
+4625:                     var webRelayPort = ((args.relaydns != null) ? ((typeof args.aliasport == 'number') ? args.aliasport : args.port) : ((parent.webrelayserver != null) ? ((typeof args.relayaliasport == 'number') ? args.relayaliasport : parent.webrelayserver.port) : 0));
+4626:                     if (webRelayPort == 0) { res.sendStatus(404); return; }
+4627:
+4628:                     // Create the authentication cookie
+4629:                     // Include cf so these cookies match the device-share guest shape used elsewhere.
+4630:                     const authCookieData = { userid: c.uid, domainid: domain.id, nid: c.nid, ip: req.clientIp, p: c.p, gn: c.gn, cf: (typeof c.cf == 'number') ? c.cf : 0, r: 8, expire: c.expire, pid: c.pid, port: c.port };
+4631:                     if ((authCookieData.userid == null) && (authCookieData.pid.startsWith('AS:node/'))) { authCookieData.nouser = 1; }
+4632:                     const authCookie = obj.parent.encodeCookie(authCookieData, obj.parent.loginCookieEncryptionKey);
+4633:
+4634:                     // Redirect to a URL
+4635:                     var webRelayDns = (args.relaydns != null) ? args.relaydns[0] : obj.getWebServerName(domain, req);
+4636:                     var url = 'https://' + webRelayDns + ':' + webRelayPort + '/control-redirect.ashx?n=' + c.nid + '&p=' + c.port + '&appid=' + c.p + '&c=' + authCookie;
+4637:                     if (c.addr != null) { url += '&addr=' + c.addr; }
+4638:                     if (c.pid != null) { url += '&relayid=' + c.pid; }
+4639:                     parent.debug('web', 'handleSharingRequest: Redirecting guest to HTTP relay page for \"' + c.uid + '\", guest \"' + c.gn + '\".');
+4640:                     res.redirect(url);
+4641:                 } else {
+4642:                     // Looks good, let's create the outbound session cookies.
+4643:                     // This is a desktop, terminal or files share. We need to display the sharing page.
+4644:                     // Consent flags are 1 = Notify, 8 = Prompt, 64 = Privacy Bar.
+4645:                     const authCookieData = { userid: c.uid, domainid: domain.id, nid: c.nid, ip: req.clientIp, p: c.p, gn: c.gn, cf: c.cf, r: 8, expire: c.expire, pid: c.pid, vo: c.vo };
+4646:                     if ((authCookieData.userid == null) && (authCookieData.pid.startsWith('AS:node/'))) { authCookieData.nouser = 1; }
+4647:                     if (c.k != null) { authCookieData.k = c.k; }
+4648:                     const authCookie = obj.parent.encodeCookie(authCookieData, obj.parent.loginCookieEncryptionKey);
+4649:
+4650:                     // Server features
+4651:                     var features2 = 0;
+4652:                     if (obj.args.allowhighqualitydesktop !== false) { features2 += 1; } // Enable AllowHighQualityDesktop (Default true)
+4653:
+4654:                     // Lets respond by sending out the desktop viewer.
+4655:                     var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+4656:                     parent.debug('web', 'handleSharingRequest: Sending guest sharing page for \"' + c.uid + '\", guest \"' + c.gn + '\".');
+4657:                     res.set({ 'Cache-Control': 'no-store' });
+4658:                     render(req, res, getRenderPage('sharing', req, domain), getRenderArgs({ authCookie: authCookie, authRelayCookie: '', domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27'), nodeid: c.nid, agentId: (node.agent != null) ? node.agent.id : 0, serverDnsName: obj.getWebServerName(domain, req), serverRedirPort: args.redirport, serverPublicPort: httpsPort, expire: c.expire, viewOnly: (c.vo == 1) ? 1 : 0, nodeName: encodeURIComponent(node.name).replace(/'/g, '%27'), features: c.p, features2: features2 }, req, domain));
+4659:                 }
+4660:             });
+4661:         });
+4662:     }
+4663:
+4664:     // Handle domain redirection
+4665:     obj.handleDomainRedirect = function (req, res) {
+4666:         const domain = checkUserIpAddress(req, res);
+4667:         if (domain == null) { return; }
+4668:         if (domain.redirects == null) { res.sendStatus(404); return; }
+4669:         var urlArgs = '', urlName = null, splitUrl = req.originalUrl.split('?');
+4670:         if (splitUrl.length > 1) { urlArgs = '?' + splitUrl[1]; }
+4671:         if ((splitUrl.length > 0) && (splitUrl[0].length > 1)) { urlName = splitUrl[0].substring(1).toLowerCase(); }
+4672:         if ((urlName == null) || (domain.redirects[urlName] == null) || (urlName[0] == '_')) { res.sendStatus(404); return; }
+4673:         if (domain.redirects[urlName] == '~showversion') {
+4674:             // Show the current version
+
+--- webserver.js lines 4679-5001 ---
+4679:         }
+4680:     }
+4681:
+4682:     // Take a "user/domain/userid/path/file" format and return the actual server disk file path if access is allowed
+4683:     obj.getServerFilePath = function (user, domain, path) {
+4684:         var splitpath = path.split('/'), serverpath = obj.path.join(obj.filespath, 'domain'), filename = '';
+4685:         if ((splitpath.length < 3) || (splitpath[0] != 'user' && splitpath[0] != 'mesh') || (splitpath[1] != domain.id)) return null; // Basic validation
+4686:         var objid = splitpath[0] + '/' + splitpath[1] + '/' + splitpath[2];
+4687:         if (splitpath[0] == 'user' && (objid != user._id)) return null; // User validation, only self allowed
+4688:         if (splitpath[0] == 'mesh') { if ((obj.GetMeshRights(user, objid) & 32) == 0) { return null; } } // Check mesh server file rights
+4689:         if (splitpath[1] != '') { serverpath += '-' + splitpath[1]; } // Add the domain if needed
+4690:         serverpath += ('/' + splitpath[0] + '-' + splitpath[2]);
+4691:         for (var i = 3; i < splitpath.length; i++) { if (obj.common.IsFilenameValid(splitpath[i]) == true) { serverpath += '/' + splitpath[i]; filename = splitpath[i]; } else { return null; } } // Check that each folder is correct
+4692:         return { fullpath: obj.path.resolve(obj.filespath, serverpath), path: serverpath, name: filename, quota: obj.getQuota(objid, domain) };
+4693:     };
+4694:
+4695:     // Return the maximum number of bytes allowed in the user account "My Files".
+4696:     obj.getQuota = function (objid, domain) {
+4697:         if (objid == null) return 0;
+4698:         if (objid.startsWith('user/')) {
+4699:             var user = obj.users[objid];
+4700:             if (user == null) return 0;
+4701:             if (user.siteadmin == 0xFFFFFFFF) return null; // Administrators have no user limit
+4702:             if ((user.quota != null) && (typeof user.quota == 'number')) { return user.quota; }
+4703:             if ((domain != null) && (domain.userquota != null) && (typeof domain.userquota == 'number')) { return domain.userquota; }
+4704:             return null; // By default, the user will have no limit
+4705:         } else if (objid.startsWith('mesh/')) {
+4706:             var mesh = obj.meshes[objid];
+4707:             if (mesh == null) return 0;
+4708:             if ((mesh.quota != null) && (typeof mesh.quota == 'number')) { return mesh.quota; }
+4709:             if ((domain != null) && (domain.meshquota != null) && (typeof domain.meshquota == 'number')) { return domain.meshquota; }
+4710:             return null; // By default, the mesh will have no limit
+4711:         }
+4712:         return 0;
+4713:     };
+4714:
+4715:     // Download a file from the server
+4716:     function handleDownloadFile(req, res) {
+4717:         const domain = checkUserIpAddress(req, res);
+4718:         if (domain == null) { return; }
+4719:         if ((req.query.link == null) || (req.session == null) || (req.session.userid == null) || (domain == null) || (domain.userQuota == -1)) { res.sendStatus(404); return; }
+4720:         const user = obj.users[req.session.userid];
+4721:         if (user == null) { res.sendStatus(404); return; }
+4722:         const file = obj.getServerFilePath(user, domain, req.query.link);
+4723:         if (file == null) { res.sendStatus(404); return; }
+4724:         setContentDispositionHeader(res, 'application/octet-stream', file.name, null, 'file.bin');
+4725:         obj.fs.exists(file.fullpath, function (exists) { if (exists == true) { res.sendFile(file.fullpath); } else { res.sendStatus(404); } });
+4726:     }
+4727:
+4728:     // Download the MeshCommander web page
+4729:     function handleMeshCommander(req, res) {
+4730:         const domain = checkUserIpAddress(req, res);
+4731:         if (domain == null) { return; }
+4732:         if ((req.session == null) || (req.session.userid == n
