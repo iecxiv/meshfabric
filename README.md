@@ -2,8 +2,6 @@
 
 English | [Español](README_ES.md)
 
-Current `fido-support` app version: `1.3.8` (`versionCode = 1`, unchanged). This update does not publish a tag or release. Physical checks reported by the user cover copy/paste and security-key registration, removal and sign-in, including USB sign-in. See [FIDO support, SDK configuration and validation scope](docs/fido/README.md).
-
 MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and a Log view with Activity and Events tabs without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
 Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
@@ -27,9 +25,18 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Your own user details provide separate password and MFA actions. Password opens its My Account dialog directly; MFA opens a choice of account-security options. Messaging, lock/unlock and administrative deletion are hidden for your own account.
 - Send reviewed Broadcast or individual notifications; server acceptance does not guarantee delivery or reading.
 - Use an encrypted persistent notice inbox per server/account, optional Android background alerts and notification preferences synchronized with the server web settings. Unread notices are not automatically evicted; local read state is saved.
-- Native FIDO2/WebAuthn sign-in and security-key registration, listing and removal are implemented. The user reports successful registration, removal and sign-in with the YubiKey 5 NFC used in this work, including USB sign-in; NFC registration was confirmed earlier. This is not universal key, transport or server compatibility. See the [validation scope](docs/fido/README.md).
 
 Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
+
+### Security keys (FIDO2/WebAuthn)
+
+- Native sign-in with a security key and verification of the authenticated account before completing login.
+- Register, list and remove security keys from My Account.
+- Authentication stays inside the app, restricted to the selected server, without an external browser and with cancellation on TLS errors.
+
+Physical checks with the YubiKey 5 NFC used during development cover registration, removal and sign-in, including USB sign-in; NFC registration was also confirmed. These checks do not guarantee every key, transport or server configuration.
+
+Guide: [FIDO support and validation scope](docs/fido/README.md).
 
 ### Notices, Broadcast and Messages
 
@@ -251,8 +258,6 @@ Build configuration:
 | Target SDK | `35` |
 | Java source/target compatibility | `17` |
 | Build Tools | `37.0.0` |
-| App versionName | `1.3.8` |
-| App versionCode | `1` (unchanged) |
 
 The build configuration is defined in `app/build.gradle.kts`.
 
@@ -261,7 +266,7 @@ The build configuration is defined in `app/build.gradle.kts`.
 1. Clone the repository:
 
    ```bash
-   git clone --branch fido-support https://github.com/iecxiv/meshfabric.git
+   git clone --branch main https://github.com/iecxiv/meshfabric.git
    cd meshfabric
    ```
 
@@ -344,7 +349,6 @@ The following items are not presented as completed features:
 - Broader hardware/software inventory coverage beyond the implemented device-details view.
 - Advanced device filters and favorites, beyond the existing device search and activity filters.
 - Inventory/activity export.
-- Native FIDO2/YubiKey sign-in and registration of new security keys; listing and removing existing keys are available.
 - Multi-file selection and bulk file operations.
 - Automatic terminal reconnection, advanced terminal-state restoration, and broader reconnection validation. Retained output does not restore or prove continuity of the original remote process.
 - Completion of English/Spanish localization for native management features.

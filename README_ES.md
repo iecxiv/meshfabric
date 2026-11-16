@@ -2,8 +2,6 @@
 
 [English](README.md) | Español
 
-Versión actual de la app en `fido-support`: `1.3.8` (`versionCode = 1`, sin cambios). Esta actualización no publica etiquetas ni releases. El usuario ha confirmado copia/pegado y alta, baja y login con llave de seguridad, incluido el login por USB. Consulta [FIDO, configuración SDK y alcance de validación](docs/es/fido.md).
-
 MeshFabric es un cliente Android nativo no oficial para MeshCentral. Ofrece escritorio remoto, terminal interactivo, gestión de archivos, notas de dispositivos, acciones remotas y Registro con pestañas Actividad y Eventos sin integrar la interfaz web de administración de MeshCentral. El terminal utiliza recursos de xterm.js incluidos localmente dentro de un WebView de Android.
 
 La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, el agente remoto, el sistema operativo y la sesión. MeshFabric no sustituye la consola completa de administración de MeshCentral.
@@ -27,9 +25,18 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Tu propia ficha ofrece dos acciones de contraseña y MFA. Contraseña abre directamente su diálogo de Mi cuenta; MFA abre un selector de opciones. Mensajes, bloqueo/desbloqueo y eliminación administrativa se ocultan para tu propia cuenta.
 - Envía Broadcast o notificaciones individuales con revisión; la aceptación del servidor no garantiza entrega ni lectura.
 - Utiliza una bandeja de avisos persistente cifrada por servidor/cuenta, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web. Los no leídos no se eliminan automáticamente y se guarda el estado local de lectura.
-- Están implementados el login FIDO2/WebAuthn nativo y el alta, consulta y baja de llaves. El usuario confirma alta, baja y login con la YubiKey 5 NFC utilizada en este trabajo, incluido el login por USB; el alta por NFC ya se había confirmado. Esto no garantiza compatibilidad universal con llaves, transportes o servidores. Consulta el [alcance de validación](docs/es/fido.md).
 
 Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
+
+### Llaves de seguridad (FIDO2/WebAuthn)
+
+- Inicio de sesión nativo con llave de seguridad y verificación de la cuenta autenticada antes de completar el acceso.
+- Alta, consulta y baja de llaves desde Mi cuenta.
+- La autenticación permanece dentro de la app, restringida al servidor seleccionado, sin navegador externo y con cancelación ante errores TLS.
+
+Las comprobaciones físicas con la YubiKey 5 NFC utilizada durante el desarrollo incluyen alta, baja y login, también por USB; el alta por NFC ya estaba confirmada. Estas pruebas no garantizan todas las llaves, transportes o configuraciones de servidor.
+
+Guía: [FIDO y alcance de validación](docs/es/fido.md).
 
 ### Avisos, Broadcast y Mensajes
 
@@ -241,8 +248,6 @@ El inventario y sus limitaciones se documentan en [docs/i18n](docs/es/i18n/READM
 | SDK objetivo | `35` |
 | Compatibilidad de código fuente/destino Java | `17` |
 | Build Tools | `37.0.0` |
-| versionName de la app | `1.3.8` |
-| versionCode de la app | `1` (sin cambios) |
 
 La configuración está en `app/build.gradle.kts`.
 
@@ -251,7 +256,7 @@ La configuración está en `app/build.gradle.kts`.
 1. Clona el repositorio:
 
    ```bash
-   git clone --branch fido-support https://github.com/iecxiv/meshfabric.git
+   git clone --branch main https://github.com/iecxiv/meshfabric.git
    cd meshfabric
    ```
 
@@ -334,7 +339,6 @@ No se presentan como funciones completadas:
 - Mayor cobertura de inventario de hardware/software más allá de la ficha de dispositivo implementada.
 - Filtros avanzados y favoritos, más allá de búsquedas y filtros actuales.
 - Exportación de inventario/actividad.
-- Inicio de sesión FIDO2/YubiKey nativo y alta de nuevas claves; la consulta y eliminación de claves existentes están disponibles.
 - Selección múltiple y operaciones masivas de archivos.
 - Reconexión automática del terminal, restauración avanzada y validación más amplia de reconexión. La salida retenida no restaura ni demuestra continuidad del proceso remoto original.
 - Localización completa inglés/español de la gestión nativa.
