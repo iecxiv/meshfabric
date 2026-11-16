@@ -8,7 +8,7 @@ My Account uses native controls rather than the old browser shortcuts. A private
 
 - Change your password using the existing account dialog and current-password checks.
 - Enrol a TOTP authenticator using a manual key and six-digit code, or explicitly confirm its removal.
-- List and remove previously registered security keys. Native FIDO2 sign-in and registration of new keys are not implemented; there is no automatic browser fallback for registration.
+- Register, list and remove security keys natively, and use native FIDO2/WebAuthn sign-in. The user reports successful registration, removal and sign-in with the key used in this work, including USB sign-in; NFC registration was confirmed earlier. Registration stays in the app with a restricted WebView, without an external browser. See [FIDO support and validation scope](fido/README.md).
 - View, regenerate or clear backup codes with the corresponding visibility and confirmation controls. Structured code replies preserve reported usage state.
 - View server-recorded web-login history; it may not contain app sign-ins.
 - Create/list login tokens and revoke an individual token with confirmation.
