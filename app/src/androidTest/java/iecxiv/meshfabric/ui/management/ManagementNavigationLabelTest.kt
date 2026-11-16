@@ -16,7 +16,7 @@ import java.util.Locale
     private fun label(language:String,label:String,old:String) {
         var selected=-1
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(language))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag(language))}
             CompositionLocalProvider(LocalConfiguration provides config) {
                 MaterialTheme {ProfileNavigationBar(3) {selected=it}}
             }

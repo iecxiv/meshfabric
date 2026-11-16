@@ -15,7 +15,7 @@ class ProfileManagementConnectionStatusTest {
     @Test fun profileChannelStatesStayIndependentAndReconnectOnlyOnClick() {
         val state=mutableStateOf(ProfileState(notice="connecting"));var retries=0
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                 ProfileManagementConnectionStatus(state.value,onReconnect={retries++})
             }}
