@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -56,8 +57,9 @@ private fun activity(context:Context):MainActivity? {
     if(owner==null) { LaunchedEffect(state.id) { fail.value() }; return }
     val host=remember(owner,state.id) { FidoWebViewHost(owner,owner.fidoClient) }
     DisposableEffect(host) { onDispose { host.close() } }
+    // Keep the WebAuthn bridge attached and sized without exposing the server login HTML.
     AndroidView(factory={ ctx ->
         runCatching { host.createAssertion(state.server,requireNotNull(state.options),{ deliver.value(it) },{ fail.value() }) }
             .getOrElse { TextView(ctx).also { view -> view.post { fail.value() } } }
-    },modifier=Modifier.fillMaxWidth().height(4.dp))
+    },modifier=Modifier.fillMaxWidth().height(4.dp).alpha(0f))
 }
