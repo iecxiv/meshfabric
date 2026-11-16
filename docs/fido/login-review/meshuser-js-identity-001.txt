@@ -1,0 +1,211 @@
+MeshCentral 1.3.1 source review: meshuser.js / identity / part 1 of 3
+Parts may continue a source line. Trailing whitespace is omitted.
+
+--- meshuser.js lines 1-180 ---
+1: /**
+2: * @description MeshCentral MeshAgent
+3: * @author Ylian Saint-Hilaire & Bryan Roe
+4: * @copyright Intel Corporation 2018-2022
+5: * @license Apache-2.0
+6: * @version v0.0.1
+7: */
+8:
+9: /*jslint node: true */
+10: /*jshint node: true */
+11: /*jshint strict:false */
+12: /*jshint -W097 */
+13: /*jshint esversion: 6 */
+14: "use strict";
+15:
+16: // volume & bitlocker statuses
+17: const encMethod = { 0: '', 1: "AES-128 with diffuser", 2: "AES-256 with diffuser", 3: 'AES-128', 4: 'AES-256', 5: "Hardware encryption", 6: 'XTS-AES-128', 7: 'XTS-AES-256' };
+18: const driveType = { 0: "Unknown", 1: "No Root Directory", 2: "Removable Disk", 3: "Local Disk", 4: "Network Drive", 5: "Compact Disc", 6: "RAM Disk" };
+19: const conversionStatus = { "-1": "Unknown", 0: "Fully Decrypted", 1: "Fully Encrypted", 2: "Encryption In Progress", 3: "Decryption In Progress", 4: "Encryption Paused", 5: "Decryption Paused" };
+20: const protectionStatus = { 0: "Off", 1: "On", 2: "Locked"};
+21:
+22: // Construct a MeshAgent object, called upon connection
+23: module.exports.CreateMeshUser = function (parent, db, ws, req, args, domain, user) {
+24:     const fs = require('fs');
+25:     const path = require('path');
+26:     const common = parent.common;
+27:     // Cross domain messages, for cross-domain administrators only.
+28:     const allowedCrossDomainMessages = ['accountcreate', 'accountremove', 'accountchange', 'createusergroup', 'deleteusergroup', 'usergroupchange'];
+29:
+30:     // User Consent Flags
+31:     const USERCONSENT_DesktopNotifyUser = 1;
+32:     const USERCONSENT_TerminalNotifyUser = 2;
+33:     const USERCONSENT_FilesNotifyUser = 4;
+34:     const USERCONSENT_DesktopPromptUser = 8;
+35:     const USERCONSENT_TerminalPromptUser = 16;
+36:     const USERCONSENT_FilesPromptUser = 32;
+37:     const USERCONSENT_ShowConnectionToolbar = 64;
+38:
+39:     // Mesh Rights
+40:     const MESHRIGHT_EDITMESH            = 0x00000001; // 1
+41:     const MESHRIGHT_MANAGEUSERS         = 0x00000002; // 2
+42:     const MESHRIGHT_MANAGECOMPUTERS     = 0x00000004; // 4
+43:     const MESHRIGHT_REMOTECONTROL       = 0x00000008; // 8
+44:     const MESHRIGHT_AGENTCONSOLE        = 0x00000010; // 16
+45:     const MESHRIGHT_SERVERFILES         = 0x00000020; // 32
+46:     const MESHRIGHT_WAKEDEVICE          = 0x00000040; // 64
+47:     const MESHRIGHT_SETNOTES            = 0x00000080; // 128
+48:     const MESHRIGHT_REMOTEVIEWONLY      = 0x00000100; // 256
+49:     const MESHRIGHT_NOTERMINAL          = 0x00000200; // 512
+50:     const MESHRIGHT_NOFILES             = 0x00000400; // 1024
+51:     const MESHRIGHT_NOAMT               = 0x00000800; // 2048
+52:     const MESHRIGHT_DESKLIMITEDINPUT    = 0x00001000; // 4096
+53:     const MESHRIGHT_LIMITEVENTS         = 0x00002000; // 8192
+54:     const MESHRIGHT_CHATNOTIFY          = 0x00004000; // 16384
+55:     const MESHRIGHT_UNINSTALL           = 0x00008000; // 32768
+56:     const MESHRIGHT_NODESKTOP           = 0x00010000; // 65536
+57:     const MESHRIGHT_REMOTECOMMAND       = 0x00020000; // 131072
+58:     const MESHRIGHT_RESETOFF            = 0x00040000; // 262144
+59:     const MESHRIGHT_GUESTSHARING        = 0x00080000; // 524288
+60:     const MESHRIGHT_DEVICEDETAILS       = 0x00100000; // 1048576
+61:     const MESHRIGHT_RELAY               = 0x00200000; // 2097152
+62:     const MESHRIGHT_NOREGISTRY          = 0x00400000; // 4194304
+63:     const MESHRIGHT_NOSOFTWARE          = 0x00800000; // 8388608
+64:     const MESHRIGHT_ADMIN               = 0xFFFFFFFF;
+65:
+66:     // Site rights
+67:     const SITERIGHT_SERVERBACKUP        = 0x00000001; // 1
+68:     const SITERIGHT_MANAGEUSERS         = 0x00000002; // 2
+69:     const SITERIGHT_SERVERRESTORE       = 0x00000004; // 4
+70:     const SITERIGHT_FILEACCESS          = 0x00000008; // 8
+71:     const SITERIGHT_SERVERUPDATE        = 0x00000010; // 16
+72:     const SITERIGHT_LOCKED              = 0x00000020; // 32
+73:     const SITERIGHT_NONEWGROUPS         = 0x00000040; // 64
+74:     const SITERIGHT_NOMESHCMD           = 0x00000080; // 128
+75:     const SITERIGHT_USERGROUPS          = 0x00000100; // 256
+76:     const SITERIGHT_RECORDINGS          = 0x00000200; // 512
+77:     const SITERIGHT_LOCKSETTINGS        = 0x00000400; // 1024
+78:     const SITERIGHT_ALLEVENTS           = 0x00000800; // 2048
+79:     const SITERIGHT_NONEWDEVICES        = 0x00001000; // 4096
+80:     const SITERIGHT_ADMIN               = 0xFFFFFFFF;
+81:
+82:     // Protocol Numbers
+83:     const PROTOCOL_TERMINAL             = 1;
+84:     const PROTOCOL_DESKTOP              = 2;
+85:     const PROTOCOL_FILES                = 5;
+86:     const PROTOCOL_AMTWSMAN             = 100;
+87:     const PROTOCOL_AMTREDIR             = 101;
+88:     const PROTOCOL_MESSENGER            = 200;
+89:     const PROTOCOL_WEBRDP               = 201;
+90:     const PROTOCOL_WEBSSH               = 202;
+91:     const PROTOCOL_WEBSFTP              = 203;
+92:     const PROTOCOL_WEBVNC               = 204;
+93:
+94:     // MeshCentral Satellite
+95:     const SATELLITE_PRESENT = 1;     // This session is a MeshCentral Satellite session
+96:     const SATELLITE_802_1x = 2;      // This session supports 802.1x profile checking and creation
+97:
+98:     // Events
+99:     /*
+100:     var eventsMessageId = {
+101:         1: "Account login",
+102:         2: "Account logout",
+103:         3: "Changed language from {1} to {2}",
+104:         4: "Joined desktop multiplex session",
+105:         5: "Left the desktop multiplex session",
+106:         6: "Started desktop multiplex session",
+107:         7: "Finished recording session, {0} second(s)",
+108:         8: "Closed desktop multiplex session, {0} second(s)"
+109:     };
+110:     */
+111:
+112:     var obj = {};
+113:     obj.user = user;
+114:     obj.domain = domain;
+115:     obj.ws = ws;
+116:
+117:     // Information related to the current page the user is looking at
+118:     obj.deviceSkip = 0; // How many devices to skip
+119:     obj.deviceLimit = 0; // How many devices to view
+120:     obj.visibleDevices = null; // An object of visible nodeid's if the user is in paging mode
+121:     obj.deviceFilter = null; // Device name filter applied by the server before paging, only used in paging mode
+122:     if (domain.maxdeviceview != null) { obj.deviceLimit = domain.maxdeviceview; }
+123:
+124:     // Check if we are a cross-domain administrator
+125:     if (parent.parent.config.settings.managecrossdomain && (parent.parent.config.settings.managecrossdomain.indexOf(user._id) >= 0)) { obj.crossDomain = true; }
+126:
+127:     // Server side Intel AMT stack
+128:     const WsmanComm = require('./amt/amt-wsman-comm.js');
+129:     const Wsman = require('./amt/amt-wsman.js');
+130:     const Amt = require('./amt/amt.js');
+131:
+132:     // If this session has an expire time, setup a timer now.
+133:     if ((req.session != null) && (typeof req.session.expire == 'number')) {
+134:         var delta = (req.session.expire - Date.now());
+135:         if (delta <= 0) { req.session = {}; try { ws.close(); } catch (ex) { } return; } // Session is already expired, close now.
+136:         obj.expireTimer = setTimeout(function () { for (var i in req.session) { delete req.session[i]; } obj.close(); }, delta);
+137:     }
+138:
+139:     // Send data through the websocket
+140:     obj.send = function (object) { try { ws.send(JSON.stringify(object)); } catch(ex) {} }
+141:
+142:     // Clean a IPv6 address that encodes a IPv4 address
+143:     function cleanRemoteAddr(addr) { if (addr.startsWith('::ffff:')) { return addr.substring(7); } else { return addr; } }
+144:
+145:     // Send a PING/PONG message
+146:     function sendPing() { try { obj.ws.send('{"action":"ping"}'); } catch (ex) { } }
+147:     function sendPong() { try { obj.ws.send('{"action":"pong"}'); } catch (ex) { } }
+148:
+149:     // Setup the agent PING/PONG timers
+150:     if ((typeof args.browserping == 'number') && (obj.pingtimer == null)) { obj.pingtimer = setInterval(sendPing, args.browserping * 1000); }
+151:     else if ((typeof args.browserpong == 'number') && (obj.pongtimer == null)) { obj.pongtimer = setInterval(sendPong, args.browserpong * 1000); }
+152:
+153:     // Disconnect this user
+154:     obj.close = function (arg) {
+155:         obj.ws.xclosed = 1; // This is for testing. Will be displayed when running "usersessions" server console command.
+156:
+157:         if ((arg == 1) || (arg == null)) { try { obj.ws.close(); parent.parent.debug('user', 'Soft disconnect'); } catch (ex) { console.log(ex); } } // Soft close, close the websocket
+158:         if (arg == 2) { try { obj.ws._socket._parent.end(); parent.parent.debug('user', 'Hard disconnect'); } catch (ex) { console.log(ex); } } // Hard close, close the TCP socket
+159:
+160:         obj.ws.xclosed = 2; // DEBUG
+161:
+162:         // Perform timer cleanup
+163:         if (obj.pingtimer) { clearInterval(obj.pingtimer); delete obj.pingtimer; }
+164:         if (obj.pongtimer) { clearInterval(obj.pongtimer); delete obj.pongtimer; }
+165:
+166:         obj.ws.xclosed = 3; // DEBUG
+167:
+168:         // Clear expire timeout
+169:         if (obj.expireTimer != null) { clearTimeout(obj.expireTimer); delete obj.expireTimer; }
+170:
+171:         obj.ws.xclosed = 4; // DEBUG
+172:
+173:         // Perform cleanup
+174:         parent.parent.RemoveAllEventDispatch(obj.ws);
+175:         if (obj.serverStatsTimer != null) { clearInterval(obj.serverStatsTimer); delete obj.serverStatsTimer; }
+176:         if (req.session && req.session.ws && req.session.ws == obj.ws) { delete req.session.ws; }
+177:         if (parent.wssessions2[ws.sessionId]) { delete parent.wssessions2[ws.sessionId]; }
+178:
+179:         obj.ws.xclosed = 5; // DEBUG
+180:
+
+--- meshuser.js lines 627-867 ---
+627:                 if (typeof domain.guestdevicesharing == 'object') {
+628:                     if (typeof domain.guestdevicesharing.maxsessiontime == 'number') { serverinfo.guestdevicesharingmaxtime = domain.guestdevicesharing.maxsessiontime; }
+629:                 }
+630:             }
+631:             if (typeof domain.userconsentflags == 'number') { serverinfo.consent = domain.userconsentflags; }
+632:             if ((typeof domain.usersessionidletimeout == 'number') && (domain.usersessionidletimeout > 0)) {serverinfo.timeout = (domain.usersessionidletimeout * 60 * 1000); }
+633:             if (typeof domain.logoutonidlesessiontimeout == 'boolean') {
+634:                 serverinfo.logoutonidlesessiontimeout = domain.logoutonidlesessiontimeout;
+635:             } else {
+636:                 // Default
+637:                 serverinfo.logoutonidlesessiontimeout = true;
+638:             }
+639:             if (user.siteadmin === SITERIGHT_ADMIN) {
+640:             if (parent.parent.config.settings.managealldevicegroups.indexOf(user._id) >= 0 || (user.links && Object.keys(user.links).some(key => parent.parent.config.settings.managealldevicegroups.indexOf(key) >= 0))) { serverinfo.manageAllDeviceGroups = true; }
+641:                 if (obj.crossDomain === true) { serverinfo.crossDomain = []; for (var i in parent.parent.config.domains) { serverinfo.crossDomain.push(i); } }
+642:                 if (typeof parent.webCertificateExpire[domain.id] == 'number') { serverinfo.certExpire = parent.webCertificateExpire[domain.id]; }
+643:             }
+644:             if (typeof domain.terminal == 'object') { // Settings used for remote terminal feature
+645:                 if ((typeof domain.terminal.linuxshell == 'string') && (domain.terminal.linuxshell != 'any')) { serverinfo.linuxshell = domain.terminal.linuxshell; }
+646:             }
+647:             if (Array.isArray(domain.preconfiguredremoteinput)) { serverinfo.preConfiguredRemoteInput = domain.preconfiguredremoteinput; }
+648:             if (Array.isArray(domain.preconfiguredscripts)) {
+649:                 const r = [];
+650:                 for (var i in domain.preconfiguredscripts) {
+651:                     const types = ['', 'bat', 'ps1', 'sh'

@@ -2,6 +2,8 @@
 
 English | [Español](README_ES.md)
 
+Current `fido-support` app version: `1.3.8` (`versionCode = 1`, unchanged). This update does not publish a tag or release. Physical checks reported by the user cover copy/paste and security-key registration, removal and sign-in, including USB sign-in. See [FIDO support, SDK configuration and validation scope](docs/fido/README.md).
+
 MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, interactive terminal, file management, device notes, remote actions, and a Log view with Activity and Events tabs without embedding the MeshCentral web administration interface. The terminal uses locally bundled xterm.js assets inside an Android WebView.
 
 Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
@@ -25,7 +27,7 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Your own user details provide separate password and MFA actions. Password opens its My Account dialog directly; MFA opens a choice of account-security options. Messaging, lock/unlock and administrative deletion are hidden for your own account.
 - Send reviewed Broadcast or individual notifications; server acceptance does not guarantee delivery or reading.
 - Use an encrypted persistent notice inbox per server/account, optional Android background alerts and notification preferences synchronized with the server web settings. Unread notices are not automatically evicted; local read state is saved.
-- Native FIDO2 sign-in and new security-key registration remain pending. Existing keys can be listed and removed.
+- Native FIDO2/WebAuthn sign-in and security-key registration, listing and removal are implemented. The user reports successful registration, removal and sign-in with the YubiKey 5 NFC used in this work, including USB sign-in; NFC registration was confirmed earlier. This is not universal key, transport or server compatibility. See the [validation scope](docs/fido/README.md).
 
 Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
 
@@ -245,9 +247,12 @@ Build configuration:
 | Setting | Value |
 | --- | --- |
 | Minimum SDK | `26` |
-| Compile SDK | `35` |
+| Compile SDK | `37`, minor API `2` (`platforms;android-37.2`) |
 | Target SDK | `35` |
 | Java source/target compatibility | `17` |
+| Build Tools | `37.0.0` |
+| App versionName | `1.3.8` |
+| App versionCode | `1` (unchanged) |
 
 The build configuration is defined in `app/build.gradle.kts`.
 
@@ -256,11 +261,11 @@ The build configuration is defined in `app/build.gradle.kts`.
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/iecxiv/meshfabric.git
+   git clone --branch fido-support https://github.com/iecxiv/meshfabric.git
    cd meshfabric
    ```
 
-2. Open the project in an Android Studio installation compatible with the Android Gradle Plugin and Gradle wrapper configured in this repository. Install Android SDK Platform 35 and let Gradle synchronize the project.
+2. Open the project in an Android Studio installation compatible with the Android Gradle Plugin and Gradle wrapper configured in this repository. Install Android SDK Platform 37.2 (`platforms;android-37.2`), Build Tools 37.0.0 and Platform Tools, then let Gradle synchronize the project. Validated CI uses Android Command-line Tools 23.0 and also installs Platform 35 for its API 35 test environment. compileSdk does not change the API 26 minimum or targetSdk 35.
 3. Select a Gradle JDK compatible with the configured build tooling. Verification tasks use JDK 21; Java source/target compatibility remains 17. These are separate settings.
 4. Build and run on an Android device or emulator using API 26 or newer.
 

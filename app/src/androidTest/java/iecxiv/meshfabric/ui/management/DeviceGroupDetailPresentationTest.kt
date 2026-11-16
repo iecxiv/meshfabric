@@ -9,7 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import iecxiv.meshfabric.data.remote.MeshCentralClient
@@ -47,7 +47,7 @@ import java.util.Locale
         fun field(target:Any,name:String)=target.javaClass.getDeclaredField(name).apply {isAccessible=true}
         try {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     DeviceGroupDetailsDialog(session,state,mid,false,onDismiss={},onEdit={},onDelete={},initialTab=2)
                 }}

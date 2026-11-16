@@ -1,0 +1,180 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 19 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+ 'meshagent';
+6900:         if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.companyname == 'string')) {
+6901:             meshcompanyname = meshcompanyname.split('meshagent').join(domain.agentcustomization.companyname);
+6902:         }
+6903:
+6904:         // Set the agent download including the mesh name.
+6905:         setContentDispositionHeader(res, 'application/octet-stream', meshfilename, null, 'MeshAgent.zip');
+6906:
+6907:         // Create a flat XAR macOS installer package. Bundle .mpkg installers are rejected by recent macOS versions.
+6908:         const macosInstallerOpts = {
+6909:             agentPath: argentInfo.path,
+6910:             meshSettings: meshsettings,
+6911:             meshName: mesh.name.split(']').join('').split('[').join(''), // We can't have ']]' in the string since it will terminate the CDATA.
+6912:             executableName: meshexecutablename,
+6913:             packageName: meshpkgname,
+6914:             displayName: meshdisplayname,
+6915:             serviceName: meshservicename,
+6916:             companyName: meshcompanyname
+6917:         };
+6918:
+6919:         if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.macosinstallerimage == 'string')) {
+6920:             macosInstallerOpts.backgroundPath = parent.path.join(parent.datapath, domain.agentcustomization.macosinstallerimage);
+6921:         }
+6922:
+6923: 		require('./macosinstaller').createMacOSInstaller(macosInstallerOpts).then(async function (installer) {
+6924: 			const { Writable } = require('node:stream');
+6925: 			const zip = require('@zip.js/zip.js');
+6926:
+6927: 			const zipWriter = new zip.ZipWriter(Writable.toWeb(res), { level: 5 });
+6928:
+6929: 			await zipWriter.add(
+6930: 				meshpkgname,
+6931: 				new zip.Uint8ArrayReader(installer.pkg)
+6932: 			);
+6933:
+6934: 			await zipWriter.add(
+6935: 				'Uninstall.command',
+6936: 				(typeof installer.uninstall === 'string')
+6937: 					? new zip.TextReader(installer.uninstall)
+6938: 					: new zip.Uint8ArrayReader(installer.uninstall),
+6939: 				{
+6940: 					executable: true,
+6941: 					unixMode: 0o100755
+6942: 				}
+6943: 			);
+6944:
+6945: 			await zipWriter.close();
+6946: 		}).catch(function (err) {
+6947: 			parent.debug('web', 'Failed to build macOS MeshAgent package: ' + err);
+6948: 			try {
+6949: 				if (!res.headersSent) {
+6950: 					res.sendStatus(500);
+6951: 				} else {
+6952: 					res.destroy(err);
+6953: 				}
+6954: 			} catch (ex) { }
+6955: 		});
+6956:     }
+6957:
+6958:     // Return a .msh file from a given request, id is the device group identifier or encrypted cookie with the identifier.
+6959:     function getMshFromRequest(req, res, domain) {
+6960:         // If required, check if this user has rights to do this
+6961:         if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) { return null; }
+6962:
+6963:         // Check if the meshid is a time limited, encrypted cookie
+6964:         var meshcookie = obj.parent.decodeCookie(req.query.id, obj.parent.invitationLinkEncryptionKey);
+6965:         if ((meshcookie != null) && (meshcookie.m != null)) { req.query.id = meshcookie.m; }
+6966:
+6967:         // Fetch the mesh object
+6968:         var mesh = obj.meshes['mesh/' + domain.id + '/' + req.query.id];
+6969:         if (mesh == null) { return null; }
+6970:
+6971:         // If needed, check if this user has rights to do this
+6972:         if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true))) {
+6973:             if ((domain.id != mesh.domain) || ((obj.GetMeshRights(req.session.userid, mesh) & 1) == 0)) { return null; }
+6974:         }
+6975:
+6976:         var meshidhex = Buffer.from(req.query.id.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
+6977:         var serveridhex = Buffer.from(obj.agentCertificateHashBase64.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
+6978:
+6979:         // Get the agent connection server name
+6980:         var serverName = obj.getWebServerName(domain, req);
+6981:         if (typeof obj.args.agentaliasdns == 'string') { serverName = obj.args.agentaliasdns; }
+6982:
+6983:         // Build the agent connection URL. If we are using a sub-domain or one with a DNS, we need to craft the URL correctly.
+6984:         var xdomain = (domain.dns == null) ? domain.id : '';
+6985:         if (xdomain != '') xdomain += '/';
+6986:         var meshsettings = '\r\nMeshName=' + mesh.name + '\r\nMeshType=' + mesh.mtype + '\r\nMeshID=0x' + meshidhex + '\r\nServerID=' + serveridhex + '\r\n';
+6987:         var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+6988:         if (obj.args.agentport != null) { httpsPort = obj.args.agentport; } // If an agent only port is enabled, use that.
+6989:         if (obj.args.agentaliasport != null) { httpsPort = obj.args.agentaliasport; } // If an agent alias port is specified, use that.
+6990:         if (obj.args.lanonly != true) { meshsettings += 'MeshServer=wss://' + serverName + ':' + httpsPort + '/' + xdomain + 'agent.ashx\r\n'; } else {
+6991:             meshsettings += 'MeshServer=local\r\n';
+6992:             if ((obj.args.localdiscovery != null) && (typeof obj.args.localdiscovery.key == 'string') && (obj.args.localdiscovery.key.length > 0)) { meshsettings += 'DiscoveryKey=' + obj.args.localdiscovery.key + '\r\n'; }
+6993:         }
+6994:         if ((req.query.tag != null) && (typeof req.query.tag == 'string') && (obj.common.isAlphaNumeric(req.query.tag) == true)) { meshsettings += 'Tag=' + encodeURIComponent(req.query.tag) + '\r\n'; }
+6995:         if ((req.query.installflags != null) && (req.query.installflags != 0) && (parseInt(req.query.installflags) == req.query.installflags)) { meshsettings += 'InstallFlags=' + parseInt(req.query.installflags) + '\r\n'; }
+6996:         if ((domain.agentnoproxy === true) || (obj.args.lanonly == true)) { meshsettings += 'ignoreProxyFile=1\r\n'; }
+6997:         if (obj.args.agentconfig) { for (var i in obj.args.agentconfig) { meshsettings += obj.args.agentconfig[i] + '\r\n'; } }
+6998:         if (domain.agentconfig) { for (var i in domain.agentconfig) { meshsettings += domain.agentconfig[i] + '\r\n'; } }
+6999:         if (domain.agentcustomization != null) { // Add agent customization
+7000:             if (domain.agentcustomization.displayname != null) { meshsettings += 'displayName=' + domain.agentcustomization.displayname + '\r\n'; }
+7001:             if (domain.agentcustomization.description != null) { meshsettings += 'description=' + domain.agentcustomization.description + '\r\n'; }
+7002:             if (domain.agentcustomization.companyname != null) { meshsettings += 'companyName=' + domain.agentcustomization.companyname + '\r\n'; }
+7003:             if (domain.agentcustomization.servicename != null) { meshsettings += 'meshServiceName=' + domain.agentcustomization.servicename + '\r\n'; }
+7004:             if (domain.agentcustomization.filename != null) { meshsettings += 'fileName=' + domain.agentcustomization.filename + '\r\n'; }
+7005:             if (domain.agentcustomization.image != null) { meshsettings += 'image=' + domain.agentcustomization.image + '\r\n'; }
+7006:             if (domain.agentcustomization.foregroundcolor != null) { meshsettings += checkAgentColorString('foreground=', domain.agentcustomization.foregroundcolor); }
+7007:             if (domain.agentcustomization.backgroundcolor != null) { meshsettings += checkAgentColorString('background=', domain.agentcustomization.backgroundcolor); }
+7008:         }
+7009:         if (domain.agentTranslations != null) { meshsettings += 'translation=' + domain.agentTranslations + '\r\n'; }
+7010:         return meshsettings;
+7011:     }
+7012:
+7013:     // Handle a request to download a mesh settings
+7014:     obj.handleMeshSettingsRequest = function (req, res) {
+7015:         const domain = getDomain(req);
+7016:         if (domain == null) { return; }
+7017:         //if ((domain.id !== '') || (!req.session) || (req.session == null) || (!req.session.userid)) { res.sendStatus(401); return; }
+7018:
+7019:         var meshsettings = getMshFromRequest(req, res, domain);
+7020:         if (meshsettings == null) { res.sendStatus(401); return; }
+7021:
+7022:         // Get the agent filename
+7023:         var meshagentFilename = 'meshagent';
+7024:         if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.filename == 'string')) { meshagentFilename = domain.agentcustomization.filename; }
+7025:
+7026:         setContentDispositionHeader(res, 'application/octet-stream', meshagentFilename + '.msh', null, 'meshagent.msh');
+7027:         res.send(meshsettings);
+7028:     };
+7029:
+7030:     // Handle a request for power events
+7031:     obj.handleDevicePowerEvents = function (req, res) {
+7032:         const domain = checkUserIpAddress(req, res);
+7033:         if (domain == null) { return; }
+7034:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+7035:         if ((domain.id !== '') || (!req.session) || (req.session == null) || (!req.session.userid) || (req.query.id == null) || (typeof req.query.id != 'string')) { res.sendStatus(401); return; }
+7036:         var x = req.query.id.split('/');
+7037:         var user = obj.users[req.session.userid];
+7038:         if ((x.length != 3) || (x[0] != 'node') || (x[1] != domain.id) || (user == null) || (user.links == null)) { res.sendStatus(401); return; }
+7039:
+7040:         obj.db.Get(req.query.id, function (err, docs) {
+7041:             if (docs.length != 1) {
+7042:                 res.sendStatus(401);
+7043:             } else {
+7044:                 var node = docs[0];
+7045:
+7046:                 // Check if we have right to this node
+7047:                 if (obj.GetNodeRights(user, node.meshid, node._id) == 0) { res.sendStatus(401); return; }
+7048:
+7049:                 // See how we will convert UTC time to local time
+7050:                 var localTimeOffset = 0;
+7051:                 var timeConversionSystem = 0;
+7052:                 if ((req.query.l != null) && (req.query.tz != null)) {
+7053:                     timeConversionSystem = 1;
+7054:                 } else if (req.query.tf != null) {
+7055:                     // Get local time offset (bad way)
+7056:                     timeConversionSystem = 2;
+7057:                     localTimeOffset = parseInt(req.query.tf);
+7058:                     if (isNaN(localTimeOffset)) { localTimeOffset = 0; }
+7059:                 }
+7060:
+7061:                 // Get the list of power events and send them
+7062:                 setContentDispositionHeader(res, 'application/octet-stream', 'powerevents.csv', null, 'powerevents.csv');
+7063:                 obj.db.getPowerTimeline(node._id, function (err, docs) {
+7064:                     var xevents = ['UTC Time, Local Time, State, Previous State'], prevState = 0;
+7065:                     for (var i in docs) {
+7066:                         if (docs[i].power != prevState) {
+7067:                             var timedoc = docs[i].time;
+7068:                             if (typeof timedoc == 'string') {
+7069:                                 timedoc = new Date(timedoc);
+7070:                             }
+7071:                             prevState = docs[i].power;
+7072:                             var localTime = '';
+7073:                             if (timeConversionSystem == 1) { // Good way
+7074:                                 localTime = new Date(timedoc.getTime()).toLocaleString(req.query.l, { timeZone: req.query.tz })
+7075:                             } else if (timeConversionSystem == 2) { // Bad way
+7076:                                 localTime = new

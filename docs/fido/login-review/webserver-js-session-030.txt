@@ -1,0 +1,189 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 30 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+j.tcpServer = obj.app.listen(port, addr, function () {
+9600:                 console.log('MeshCentral HTTP server running on port ' + port + ((typeof args.aliasport == 'number') ? (', alias port ' + args.aliasport) : '') + '.');
+9601:                 if (args.relaydns != null) { console.log('MeshCentral HTTP relay server running on ' + args.relaydns[0] + ':' + port + ((typeof args.aliasport == 'number') ? (', alias port ' + args.aliasport) : '') + '.'); }
+9602:             });
+9603:             obj.parent.updateServerState('http-port', port);
+9604:             if (args.aliasport != null) { obj.parent.updateServerState('http-aliasport', args.aliasport); }
+9605:         }
+9606:
+9607:         // Check if there is a permissions problem with the ports.
+9608:         if (require('os').platform() != 'win32') {
+9609:             var expectedPort = obj.parent.config.settings.port ? obj.parent.config.settings.port : 443;
+9610:             if ((expectedPort != port) && (port >= 1024) && (port < 1034)) {
+9611:                 console.log('');
+9612:                 console.log('WARNING: MeshCentral is running without permissions to use ports below 1025.');
+9613:                 console.log('         Use setcap to grant access to lower ports, or read installation guide.');
+9614:                 console.log('');
+9615:                 console.log('   sudo setcap \'cap_net_bind_service=+ep\' `which node` \r\n');
+9616:                 obj.parent.addServerWarning('Server running without permissions to use ports below 1025.', false);
+9617:             }
+9618:         }
+9619:     }
+9620:
+9621:     // Start the ExpressJS web server on agent-only alternative port
+9622:     function StartAltWebServer(port, addr) {
+9623:         if ((port < 1) || (port > 65535)) return;
+9624:         var agentAliasPort = null;
+9625:         var agentAliasDns = null;
+9626:         if (args.agentaliasport != null) { agentAliasPort = args.agentaliasport; }
+9627:         if (args.agentaliasdns != null) { agentAliasDns = args.agentaliasdns; }
+9628:         if (obj.tlsAltServer != null) {
+9629:             if (obj.args.lanonly == true) {
+9630:                 obj.tcpAltServer = obj.tlsAltServer.listen(port, addr, function () { console.log('MeshCentral HTTPS agent-only server running on port ' + port + ((agentAliasPort != null) ? (', alias port ' + agentAliasPort) : '') + '.'); });
+9631:             } else {
+9632:                 obj.tcpAltServer = obj.tlsAltServer.listen(port, addr, function () { console.log('MeshCentral HTTPS agent-only server running on ' + ((agentAliasDns != null) ? agentAliasDns : certificates.CommonName) + ':' + port + ((agentAliasPort != null) ? (', alias port ' + agentAliasPort) : '') + '.'); });
+9633:             }
+9634:             obj.parent.debug('https', 'Server listening on 0.0.0.0 port ' + port + '.');
+9635:             obj.parent.updateServerState('https-agent-port', port);
+9636:         } else {
+9637:             obj.tcpAltServer = obj.agentapp.listen(port, addr, function () { console.log('MeshCentral HTTP agent-only server running on port ' + port + ((agentAliasPort != null) ? (', alias port ' + agentAliasPort) : '') + '.'); });
+9638:             obj.parent.updateServerState('http-agent-port', port);
+9639:         }
+9640:     }
+9641:
+9642:     // Force mesh agent disconnection
+9643:     obj.forceMeshAgentDisconnect = function (user, domain, nodeid, disconnectMode) {
+9644:         if (nodeid == null) return;
+9645:         var splitnode = nodeid.split('/');
+9646:         if ((splitnode.length != 3) || (splitnode[1] != domain.id)) return; // Check that nodeid is valid and part of our domain
+9647:         var agent = obj.wsagents[nodeid];
+9648:         if (agent == null) return;
+9649:
+9650:         // Check we have agent rights
+9651:         if (((obj.GetMeshRights(user, agent.dbMeshKey) & MESHRIGHT_AGENTCONSOLE) != 0) || (user.siteadmin == 0xFFFFFFFF)) { agent.close(disconnectMode); }
+9652:     };
+9653:
+9654:     // Send the core module to the mesh agent
+9655:     obj.sendMeshAgentCore = function (user, domain, nodeid, coretype, coredata) {
+9656:         if (nodeid == null) return;
+9657:         const splitnode = nodeid.split('/');
+9658:         if ((splitnode.length != 3) || (splitnode[1] != domain.id)) return; // Check that nodeid is valid and part of our domain
+9659:
+9660:         // TODO: This command only works if the agent is connected on the same server. Will not work with multi server peering.
+9661:         const agent = obj.wsagents[nodeid];
+9662:         if (agent == null) return;
+9663:
+9664:         // Check we have agent rights
+9665:         if (((obj.GetMeshRights(user, agent.dbMeshKey) & MESHRIGHT_AGENTCONSOLE) != 0) || (user.siteadmin == 0xFFFFFFFF)) {
+9666:             if (coretype == 'clear') {
+9667:                 // Clear the mesh agent core
+9668:                 agent.agentCoreCheck = 1000; // Tell the agent object we are using a custom core.
+9669:                 agent.send(obj.common.ShortToStr(10) + obj.common.ShortToStr(0));
+9670:             } else if (coretype == 'default') {
+9671:                 // Reset to default code
+9672:                 agent.agentCoreCheck = 0; // Tell the agent object we are using a default code
+9673:                 agent.send(obj.common.ShortToStr(11) + obj.common.ShortToStr(0)); // Command 11, ask for mesh core hash.
+9674:             } else if (coretype == 'recovery') {
+9675:                 // Reset to recovery core
+9676:                 agent.agentCoreCheck = 1001; // Tell the agent object we are using the recovery core.
+9677:                 agent.send(obj.common.ShortToStr(11) + obj.common.ShortToStr(0)); // Command 11, ask for mesh core hash.
+9678:             } else if (coretype == 'tiny') {
+9679:                 // Reset to tiny core
+9680:                 agent.agentCoreCheck = 1011; // Tell the agent object we are using the tiny core.
+9681:                 agent.send(obj.common.ShortToStr(11) + obj.common.ShortToStr(0)); // Command 11, ask for mesh core hash.
+9682:             } else if (coretype == 'custom') {
+9683:                 agent.agentCoreCheck = 1000; // Tell the agent object we are using a custom core.
+9684:                 var buf = Buffer.from(coredata, 'utf8');
+9685:                 const hash = obj.crypto.createHash('sha384').update(buf).digest().toString('binary'); // Perform a SHA384 hash on the core module
+9686:                 agent.sendBinary(obj.common.ShortToStr(10) + obj.common.ShortToStr(0) + hash + buf.toString('binary')); // Send the code module to the agent
+9687:             }
+9688:         }
+9689:     };
+9690:
+9691:     // Get the server path of a user or mesh object
+9692:     function getServerRootFilePath(obj) {
+9693:         if ((typeof obj != 'object') || (obj.domain == null) || (obj._id == null)) return null;
+9694:         var domainname = 'domain', splitname = obj._id.split('/');
+9695:         if (splitname.length != 3) return null;
+9696:         if (obj.domain !== '') domainname = 'domain-' + obj.domain;
+9697:         return obj.path.join(obj.filespath, domainname + "/" + splitname[0] + "-" + splitname[2]);
+9698:     }
+9699:
+9700:     // Return true is the input string looks like an email address
+9701:     function checkEmail(str) {
+9702:         var x = str.split('@');
+9703:         var ok = ((x.length == 2) && (x[0].length > 0) && (x[1].split('.').length > 1) && (x[1].length > 2));
+9704:         if (ok == true) { var y = x[1].split('.'); for (var i in y) { if (y[i].length == 0) { ok = false; } } }
+9705:         return ok;
+9706:     }
+9707:
+9708:     /*
+9709:         obj.wssessions = {};         // UserId --> Array Of Sessions
+9710:         obj.wssessions2 = {};        // "UserId + SessionRnd" --> Session  (Note that the SessionId is the UserId + / + SessionRnd)
+9711:         obj.wsPeerSessions = {};     // ServerId --> Array Of "UserId + SessionRnd"
+9712:         obj.wsPeerSessions2 = {};    // "UserId + SessionRnd" --> ServerId
+9713:         obj.wsPeerSessions3 = {};    // ServerId --> UserId --> [ SessionId ]
+9714:     */
+9715:
+9716:     // Count sessions and event any changes
+9717:     obj.recountSessions = function (changedSessionId) {
+9718:         var userid, oldcount, newcount, x, serverid;
+9719:         if (changedSessionId == null) {
+9720:             // Recount all sessions
+9721:
+
+--- webserver.js lines 11082-11299 ---
+11082:         for (var ip in obj.bad2faTable) {
+11083:             var ipTable = obj.bad2faTable[ip];
+11084:             if (typeof ipTable == 'number') {
+11085:                 if (obj.bad2faTable[ip] < Date.now()) { delete obj.bad2faTable[ip]; } // Check cooloff period
+11086:             } else {
+11087:                 while ((ipTable.length > 0) && (ipTable[0] < cutoffTime)) { ipTable.shift(); }
+11088:                 if (ipTable.length == 0) { delete obj.bad2faTable[ip]; }
+11089:             }
+11090:         }
+11091:         obj.bad2faTableLastClean = 0;
+11092:     }
+11093:
+11094:     // Hold a websocket until additional arguments are provided within the socket.
+11095:     // This is a generic function that can be used for any websocket to avoid passing arguments in the URL.
+11096:     function getWebsocketArgs(ws, req, func) {
+11097:         if (req.query.moreargs != '1') {
+11098:             // No more arguments needed, pass the websocket thru
+11099:             func(ws, req);
+11100:         } else {
+11101:             // More arguments are needed
+11102:             delete req.query.moreargs;
+11103:             const xfunc = function getWebsocketArgsEx(msg) {
+11104:                 var command = null;
+11105:                 try { command = JSON.parse(msg.toString('utf8')); } catch (e) { return; }
+11106:                 if ((command != null) && (command.action === 'urlargs') && (typeof command.args == 'object')) {
+11107:                     for (var i in command.args) { getWebsocketArgsEx.req.query[i] = command.args[i]; }
+11108:                     ws.removeEventListener('message', getWebsocketArgsEx);
+11109:                     getWebsocketArgsEx.func(getWebsocketArgsEx.ws, getWebsocketArgsEx.req);
+11110:                 }
+11111:             }
+11112:             xfunc.ws = ws;
+11113:             xfunc.req = req;
+11114:             xfunc.func = func;
+11115:             ws.on('message', xfunc);
+11116:         }
+11117:     }
+11118:
+11119:     // Set a random value to this session. Only works if the session has a userid.
+11120:     // This random value along with the userid is used to destroy the session when logging out.
+11121:     function setSessionRandom(req) {
+11122:         if ((req.session == null) || (req.session.userid == null) || (req.session.x != null)) return;
+11123:         var x = obj.crypto.randomBytes(6).toString('base64');
+11124:         while (obj.destroyedSessions[req.session.userid + '/' + x] != null) { x = obj.crypto.randomBytes(6).toString('base64'); }
+11125:         req.session.x = x;
+11126:     }
+11127:
+11128:     // Remove all destroyed sessions after 2 hours, these sessions would have timed out anyway.
+11129:     function clearDestroyedSessions() {
+11130:         var toRemove = [], t = Date.now() - (2 * 60 * 60 * 1000);
+11131:         for (var i in obj.destroyedSessions) { if (obj.destroyedSessions[i] < t) { toRemove.push(i); } }
+11132:         for (var i in toRemove) { delete obj.destroyedSessions[toRemove[i]]; }
+11133:     }
+11134:
+11135:     // Check and/or convert the agent color value into a correct string or return empty string.
+11136:     function checkAgentColorString(header, value) {
+11137:         if ((typeof header !== 'string') || (typeof value !== 'string')) return '';
+11138:         if (value.startsWith('#') && (value.length == 7)) {
+11139:             // Convert color in hex format
+11140:             value = parseInt(value.substring(1, 3), 16) + ',' + parseInt(value.substring(3, 5), 16) + ',' + parseInt(value.substring(5, 7), 16);
+11141:         } else {
+11142:             // Check color in decimal format
+11143:

@@ -8,8 +8,12 @@ La extracción usa únicamente las API públicas de líneas del búfer activo de
 
 La lectura nativa se puede cancelar y vence a los tres segundos. Cerrar el diálogo cancela su corrutina: los callbacks tardíos no pueden reabrirlo ni rellenarlo. El texto solo permanece transitoriamente en memoria de interfaz, sin logs ni persistencia. Seleccionar no pausa el terminal ni altera el cursor de entrega, el redimensionado o el protocolo.
 
-Tanto la copia parcial como la completa usan un ClipboardManager local al diálogo que marca el contenido como sensible para ocultar la vista previa de Android. Esto no cifra el portapapeles ni impide leer el texto a otras aplicaciones autorizadas. Android 13 y posteriores aportan su propia confirmación de copia; solo las versiones anteriores muestran un Toast.
+Tanto la copia parcial como la completa usan un adaptador LocalClipboard/Clipboard local al diálogo, con operaciones suspendidas setClipEntry, que marca el contenido como sensible para ocultar la vista previa de Android. Esto no cifra el portapapeles ni impide leer el texto a otras aplicaciones autorizadas. Android 13 y posteriores aportan su propia confirmación de copia; solo las versiones anteriores muestran un Toast.
 
 Verificación: nuevas pruebas JavaScript puras de capturas y pruebas existentes del runtime. Los casos Android WebView también comprueban el texto capturado; un caso con colores ANSI comprueba que se copian caracteres renderizados y no secuencias de escape. Otra prueba instrumentada verifica el texto de ClipData y sus metadatos sensibles. CI debe compilar app/pruebas y ejecutar JVM, Node y las pruebas Android específicas antes de publicar. Sigue siendo necesaria la verificación física de tiradores de selección, desplazamiento al seleccionar, orientación horizontal, barra del portapapeles y estado retenido del terminal.
 
 Este commit excluye deliberadamente el pegado, el comportamiento IME/foco y el rediseño de teclas especiales/desplazamiento.
+
+## Comprobación física posterior
+
+El 16 de noviembre de 2026 el usuario confirmó que copiar/pegar funciona tras las migraciones del portapapeles de terminal/escritorio. Es una comprobación física básica, no la validación de todos los escenarios de disposición, ciclo de vida, host o casos límite. Consulta el [alcance](fido.md).

@@ -1,0 +1,163 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 5 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+   parent.debug('web', 'handleDeleteAccountRequest()');
+2605:         const domain = checkUserIpAddress(req, res);
+2606:         if (domain == null) { return; }
+2607:         if ((domain.auth == 'sspi') || (domain.auth == 'ldap')) { parent.debug('web', 'handleDeleteAccountRequest: failed checks.'); res.sendStatus(404); return; }
+2608:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+2609:         if (req.session.loginToken != null) { res.sendStatus(404); return; } // Do not allow this command when logged in using a login token
+2610:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+2611:
+2612:         var user = null;
+2613:         if (req.body.authcookie) {
+2614:             // If a authentication cookie is provided, decode it here
+2615:             var loginCookie = obj.parent.decodeCookie(req.body.authcookie, obj.parent.loginCookieEncryptionKey, 60); // 60 minute timeout
+2616:             if ((loginCookie != null) && (domain.id == loginCookie.domainid)) { user = obj.users[loginCookie.userid]; }
+2617:         } else {
+2618:             // Check if the user is logged and we have all required parameters
+2619:             if (!req.session || !req.session.userid || !req.body.apassword1 || (req.body.apassword1 != req.body.apassword2) || (req.session.userid.split('/')[1] != domain.id)) {
+2620:                 parent.debug('web', 'handleDeleteAccountRequest: required parameters not present.');
+2621:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2622:                 return;
+2623:             } else {
+2624:                 user = obj.users[req.session.userid];
+2625:             }
+2626:         }
+2627:         if (!user) { parent.debug('web', 'handleDeleteAccountRequest: user not found.'); res.sendStatus(404); return; }
+2628:         if ((user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)) { parent.debug('web', 'handleDeleteAccountRequest: account settings locked.'); res.sendStatus(404); return; }
+2629:
+2630:         // Check if the password is correct
+2631:         obj.authenticate(user._id.split('/')[2], req.body.apassword1, domain, function (err, userid, passhint, loginOptions) {
+2632:             var deluser = obj.users[userid];
+2633:             if ((userid != null) && (deluser != null)) {
+2634:                 // Remove all links to this user
+2635:                 if (deluser.links != null) {
+2636:                     for (var i in deluser.links) {
+2637:                         if (i.startsWith('mesh/')) {
+2638:                             // Get the device group
+2639:                             var mesh = obj.meshes[i];
+2640:                             if (mesh) {
+2641:                                 // Remove user from the mesh
+2642:                                 if (mesh.links[deluser._id] != null) { delete mesh.links[deluser._id]; parent.db.Set(mesh); }
+2643:
+2644:                                 // Notify mesh change
+2645:                                 var change = 'Removed user ' + deluser.name + ' from group ' + mesh.name;
+2646:                                 var event = { etype: 'mesh', userid: user._id, username: user.name, meshid: mesh._id, name: mesh.name, mtype: mesh.mtype, desc: mesh.desc, action: 'meshchange', links: mesh.links, msg: change, domain: domain.id, invite: mesh.invite };
+2647:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+2648:                                 parent.DispatchEvent(['*', mesh._id, deluser._id, user._id], obj, event);
+2649:                             }
+2650:                         } else if (i.startsWith('node/')) {
+2651:                             // Get the node and the rights for this node
+2652:                             obj.GetNodeWithRights(domain, deluser, i, function (node, rights, visible) {
+2653:                                 if ((node == null) || (node.links == null) || (node.links[deluser._id] == null)) return;
+2654:
+2655:                                 // Remove the link and save the node to the database
+2656:                                 delete node.links[deluser._id];
+2657:                                 if (Object.keys(node.links).length == 0) { delete node.links; }
+2658:                                 db.Set(obj.cleanDevice(node));
+2659:
+2660:                                 // Event the node change
+2661:                                 var event = { etype: 'node', userid: user._id, username: user.name, action: 'changenode', nodeid: node._id, domain: domain.id, msg: ('Removed user device rights for ' + node.name), node: obj.CloneSafeNode(node) }
+2662:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the mesh. Another event will come.
+2663:                                 parent.DispatchEvent(['*', node.meshid, node._id], obj, event);
+2664:                             });
+2665:                         } else if (i.startsWith('ugrp/')) {
+2666:                             // Get the device group
+2667:                             var ugroup = obj.userGroups[i];
+2668:                             if (ugroup) {
+2669:                                 // Remove user from the user group
+2670:                                 if (ugroup.links[deluser._id] != null) { delete ugroup.links[deluser._id]; parent.db.Set(ugroup); }
+2671:
+2672:                                 // Notify user group change
+2673:                                 var change = 'Removed user ' + deluser.name + ' from user group ' + ugroup.name;
+2674:                                 var event = { etype: 'ugrp', userid: user._id, username: user.name, ugrpid: ugroup._id, name: ugroup.name, desc: ugroup.desc, action: 'usergroupchange', links: ugroup.links, msg: 'Removed user ' + deluser.name + ' from user group ' + ugroup.name, addUserDomain: domain.id };
+2675:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+2676:                                 parent.DispatchEvent(['*', ugroup._id, user._id, deluser._id], obj, event);
+2677:                             }
+2678:                         }
+2679:                     }
+2680:                 }
+2681:
+2682:                 obj.db.Remove('ws' + deluser._id);  // Remove user web state
+2683:                 obj.db.Remove('nt' + deluser._id);  // Remove notes for this user
+2684:                 obj.db.Remove('ntp' + deluser._id); // Remove personal notes for this user
+2685:                 obj.db.Remove('im' + deluser._id);  // Remove image for this user
+2686:
+2687:                 // Delete any login tokens
+2688:                 parent.db.GetAllTypeNodeFiltered(['logintoken-' + deluser._id], domain.id, 'logintoken', null, function (err, docs) {
+2689:                     if ((err == null) && (docs != null)) { for (var i = 0; i < docs.length; i++) { parent.db.Remove(docs[i]._id, function () { }); } }
+2690:                 });
+2691:
+2692:                 // Delete all files on the server for this account
+2693:                 try {
+2694:                     var deluserpath = obj.getServerRootFilePath(deluser);
+2695:                     if (deluserpath != null) { obj.deleteFolderRec(deluserpath); }
+2696:                 } catch (e) { }
+2697:
+2698:                 // Remove the user
+2699:                 obj.db.Remove(deluser._id);
+2700:                 delete obj.users[deluser._id];
+2701:                 req.session = null;
+2702:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2703:                 obj.parent.DispatchEvent(['*', 'server-users'], obj, { etype: 'user', userid: deluser._id, username: deluser.name, action: 'accountremove', msg: 'Account removed', domain: domain.id });
+2704:                 parent.debug('web', 'handleDeleteAccountRequest: removed user.');
+2705:             } else {
+2706:                 parent.debug('web', 'handleDeleteAccountRequest: auth failed.');
+2707:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2708:             }
+2709:         });
+2710:     }
+2711:
+2712:     // Check a user's password
+2713:     obj.checkUserPassword = function (domain, user, password, func) {
+2714:         // Check the old password
+2715:         if (user.passtype != null) {
+2716:             // IIS default clear or weak password hashing (SHA-1)
+2717:             require('./pass').iishash(user.passtype, password, user.salt, function (err, hash) {
+2718:                 if (err) { parent.debug('web', 'checkUserPassword: SHA-1 fail.'); return func(false); }
+2719:                 if (hash == user.hash) {
+2720:                     if ((user.siteadmin) && (user.siteadmin != 0xFFFFFFFF) && (user.siteadmin & 32) != 0) { parent.debug('web', 'checkUserPassword: SHA-1 locked.'); return func(false); } // Account is locked
+2721:                     parent.debug('web', 'checkUserPassword: SHA-1 ok.');
+2722:                     return func(true); // Allow password change
+2723:                 }
+2724:                 func(false);
+2725:             });
+2726:         } else {
+2727:             // Default strong password hashing (pbkdf2 SHA384)
+2728:             require('./pass').hash(password, user.salt, function (err, hash, tag) {
+2729:                 if (err) { parent.debug('web', 'checkUserPassword: pbkdf2 SHA384 fail.'); return func(false); }
+2730:                 if (hash == user.hash) {
+2731:                     if ((user.siteadmin) && (user.siteadmin != 0xFFFFFFFF) && (user.siteadmin & 32) != 0) { parent.debug('web', 'checkUserPassword: pbkdf2 SHA384 locked.'); return func(false); } // Account is locked
+2732:                     parent.debug('web', 'checkUserPassword: pbkdf2 SHA384 ok.');
+2733:                     return func(true); // Allow password change
+2734:                 }
+2735:                 func(false);
+2736:             }, 0);
+2737:         }
+2738:     }
+2739:
+2740:     // Check a user's old passwords
+2741:     // Callback: 0=OK, 1=OldPass, 2=CommonPass
+2742:     obj.checkOldUserPasswords = function (domain, user, password, func) {
+2743:         // Check how many old passwords we need to check
+2744:         if ((domain.passwordrequirements != null) && (typeof domain.passwordrequirements.oldpasswordban == 'number') && (domain.passwordrequirements.oldpasswordban > 0)) {
+2745:             if (user.oldpasswords != null) {
+2746:                 const extraOldPasswords = user.oldpasswords.length - domain.passwordrequirements.oldpasswordban;
+2747:                 if (extraOldPasswords > 0) { user.oldpasswords.splice(0, extraOldPasswords); }
+2748:             }
+2749:         } else {
+2750:             delete user.oldpasswords;
+2751:         }
+2752:
+2753:         // If there is no old passwords, exit now.
+2754:         var oldPassCount = 1;
+2755:         if (user.oldpasswords != null) { oldPassCount += user.oldpasswords.length; }
+2756:         var oldPassCheckState = { response: 0, count: oldPassCount, user: user, func: func };
+2757:
+2758:         // Test against common passwords if this feature is enabled
+2759:         // Example of common passwords: 123456789, password123
+2760:         if ((domain.passwordrequirements != null) && (domain.passwordrequirements.bancommonpasswords == true)) {
+2761:             oldPassCheckState.count++;
+2762:             require('wildleek')(password).then(function (wild) {
+2763:                 if (wild == true) { oldPassCheckState.response = 2; }
+2764:                 if (--oldPassCheckState.count == 0) { oldPas

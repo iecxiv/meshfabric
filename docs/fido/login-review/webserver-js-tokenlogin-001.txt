@@ -1,0 +1,165 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 1 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+
+--- webserver.js lines 1055-1725 ---
+1055:                 obj.parent.authLog('https', 'User ' + user.name + ' logout from ' + req.clientIp + ' port ' + req.connection.remotePort, { sessionid: req.session.x, useragent: req.headers['user-agent'] });
+1056:                 obj.parent.DispatchEvent(['*'], obj, { etype: 'user', userid: user._id, username: user.name, action: 'logout', msgid: 2, msg: 'Account logout', domain: domain.id });
+1057:             }
+1058:             if (req.session.x) { clearDestroyedSessions(); obj.destroyedSessions[req.session.userid + '/' + req.session.x] = Date.now(); } // Destroy this session
+1059:         }
+1060:         req.session = null;
+1061:         parent.debug('web', 'handleLogoutRequest: success.');
+1062:
+1063:         // If this user was logged in using an authentication strategy and there is a logout URL, use it.
+1064:         if ((userid != null) && (domain.authstrategies?.authStrategyFlags != null)) {
+1065:             let logouturl = null;
+1066:             let userStrategy = ((userid.split('/')[2]).split(':')[0]).substring(1);
+1067:             // Setup logout url for oidc
+1068:             if (userStrategy == 'oidc' && domain.authstrategies.oidc != null) {
+1069:                 if (typeof domain.authstrategies.oidc.logouturl == 'string') {
+1070:                     logouturl = domain.authstrategies.oidc.logouturl;
+1071:                 } else if (typeof domain.authstrategies.oidc.issuer.end_session_endpoint == 'string' && typeof domain.authstrategies.oidc.client.post_logout_redirect_uri == 'string') {
+1072:                     logouturl = domain.authstrategies.oidc.issuer.end_session_endpoint + (domain.authstrategies.oidc.issuer.end_session_endpoint.indexOf('?') == -1 ? '?' : '&') + 'post_logout_redirect_uri=' + domain.authstrategies.oidc.client.post_logout_redirect_uri;
+1073:                 } else if (typeof domain.authstrategies.oidc.issuer.end_session_endpoint == 'string') {
+1074:                     logouturl = domain.authstrategies.oidc.issuer.end_session_endpoint;
+1075:                 }
+1076:                 // Log out all other strategies
+1077:             } else if ((domain.authstrategies[userStrategy] != null) && (typeof domain.authstrategies[userStrategy].logouturl == 'string')) { logouturl = domain.authstrategies[userStrategy].logouturl; }
+1078:             // If custom logout was setup, use it
+1079:             if (logouturl != null) {
+1080:                 parent.authLog('handleLogoutRequest', userStrategy.toUpperCase() + ': LOGOUT: ' + logouturl);
+1081:                 res.redirect(logouturl);
+1082:                 return;
+1083:             }
+1084:         }
+1085:
+1086:         // This is the default logout redirect to the login page
+1087:         if (req.query.key != null) { res.redirect(domain.url + 'login?key=' + encodeURIComponent(req.query.key)); } else { res.redirect(domain.url + 'login'); }
+1088:     }
+1089:
+1090:     // Return an object with 2FA type if 2-step auth can be skipped
+1091:     function checkUserOneTimePasswordSkip(domain, user, req, loginOptions) {
+1092:         if (parent.config.settings.no2factorauth == true) return null;
+1093:
+1094:         // If this login occurred using a login token, no 2FA needed.
+1095:         if ((loginOptions != null) && (typeof loginOptions.tokenName === 'string')) { return { twoFactorType: 'tokenlogin' }; }
+1096:
+1097:         // Check if we can skip 2nd factor auth because of the source IP address
+1098:         if ((req != null) && (req.clientIp != null) && (domain.passwordrequirements != null) && (domain.passwordrequirements.skip2factor != null)) {
+1099:             for (var i in domain.passwordrequirements.skip2factor) { if (require('ipcheck').match(req.clientIp, domain.passwordrequirements.skip2factor[i]) === true) { return { twoFactorType: 'ipaddr' }; } }
+1100:         }
+1101:
+1102:         // Check if a 2nd factor cookie is present
+1103:         if (typeof req.headers.cookie == 'string') {
+1104:             const cookies = req.headers.cookie.split('; ');
+1105:             for (var i in cookies) {
+1106:                 if (cookies[i].startsWith('twofactor=')) {
+1107:                     var twoFactorCookie = obj.parent.decodeCookie(decodeURIComponent(cookies[i].substring(10)), obj.parent.loginCookieEncryptionKey, (30 * 24 * 60)); // If the cookies does not have an expire field, assume 30 day timeout.
+1108:                     if ((twoFactorCookie != null) && ((twoFactorCookie.ip == null) || checkCookieIp(twoFactorCookie.ip, req.clientIp)) && (twoFactorCookie.userid == user._id)) { return { twoFactorType: 'cookie' }; }
+1109:                 }
+1110:             }
+1111:         }
+1112:
+1113:         return null;
+1114:     }
+1115:
+1116:     // Return true if this user has 2-step auth active
+1117:     function checkUserOneTimePasswordRequired(domain, user, req, loginOptions) {
+1118:         // If this login occurred using a login token, no 2FA needed.
+1119:         if ((loginOptions != null) && (typeof loginOptions.tokenName === 'string')) { return false; }
+1120:
+1121:         // Check if we can skip 2nd factor auth because of the source IP address
+1122:         if ((req != null) && (req.clientIp != null) && (domain.passwordrequirements != null) && (domain.passwordrequirements.skip2factor != null)) {
+1123:             for (var i in domain.passwordrequirements.skip2factor) { if (require('ipcheck').match(req.clientIp, domain.passwordrequirements.skip2factor[i]) === true) return false; }
+1124:         }
+1125:
+1126:         // Check if a 2nd factor cookie is present
+1127:         if (typeof req.headers.cookie == 'string') {
+1128:             const cookies = req.headers.cookie.split('; ');
+1129:             for (var i in cookies) {
+1130:                 if (cookies[i].startsWith('twofactor=')) {
+1131:                     var twoFactorCookie = obj.parent.decodeCookie(decodeURIComponent(cookies[i].substring(10)), obj.parent.loginCookieEncryptionKey, (30 * 24 * 60)); // If the cookies does not have an expire field, assume 30 day timeout.
+1132:                     if ((twoFactorCookie != null) && ((twoFactorCookie.ip == null) || checkCookieIp(twoFactorCookie.ip, req.clientIp)) && (twoFactorCookie.userid == user._id)) { return false; }
+1133:                 }
+1134:             }
+1135:         }
+1136:
+1137:         // See if SMS 2FA is available
+1138:         var sms2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.sms2factor != false)) && (parent.smsserver != null) && (user.phone != null));
+1139:
+1140:         // See if Messenger 2FA is available
+1141:         var msg2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.msg2factor != false)) && (parent.msgserver != null) && (parent.msgserver.providers != 0) && (user.msghandle != null));
+1142:
+1143:         // Check if a 2nd factor is present
+1144:         return ((parent.config.settings.no2factorauth !== true) && (msg2fa || sms2fa || (user.otpsecret != null) || ((user.email != null) && (user.emailVerified == true) && (domain.mailserver != null) && (user.otpekey != null)) || (user.otpduo != null) || ((user.otphkeys != null) && (user.otphkeys.length > 0))));
+1145:     }
+1146:
+1147:     // Check the 2-step auth token
+1148:     function checkUserOneTimePassword(req, domain, user, token, hwtoken, func) {
+1149:         parent.debug('web', 'checkUserOneTimePassword()');
+1150:         const twoStepLoginSupported = ((domain.auth != 'sspi') && (obj.parent.certificates.CommonName.indexOf('.') != -1) && (obj.args.nousers !== true) && (parent.config.settings.no2factorauth !== true));
+1151:         if (twoStepLoginSupported == false) { parent.debug('web', 'checkUserOneTimePassword: not supported.'); func(true); return; };
+1152:
+1153:         // Check if we can use OTP tokens with email
+1154:         var otpemail = (domain.mailserver != null);
+1155:         if ((typeof domain.passwordrequirements == 'object') && (domain.passwordrequirements.email2factor == false)) { otpemail = false; }
+1156:         var otpsms = (parent.smsserver != null);
+1157:         if ((typeof domain.passwordrequirements == 'object') && (domain.passwordrequirements.sms2factor == false)) { otpsms = false; }
+1158:         var otpmsg = ((parent.msgserver != null) && (parent.msgserver.providers != 0));
+1159:         if ((typeof domain.passwordrequirements == 'object') && (domain.passwordrequirements.msg2factor == false)) { otpmsg = false; }
+1160:
+1161:         // Check 2FA login cookie
+1162:         if ((token != null) && (token.startsWith('cookie='))) {
+1163:             var twoFactorCookie = obj.parent.decodeCookie(decodeURIComponent(token.substring(7)), obj.parent.loginCookieEncryptionKey, (30 * 24 * 60)); // If the cookies does not have an expire field, assume 30 day timeout.
+1164:             if ((twoFactorCookie != null) && ((twoFactorCookie.ip == null) || checkCookieIp(twoFactorCookie.ip, req.clientIp)) && (twoFactorCookie.userid == user._id)) { func(true, { twoFactorType: 'cookie' }); return; }
+1165:         }
+1166:
+1167:         // Check email key
+1168:         if ((otpemail) && (user.otpekey != null) && (user.otpekey.d != null) && (user.otpekey.k === token)) {
+1169:             var deltaTime = (Date.now() - user.otpekey.d);
+1170:             if ((deltaTime > 0) && (deltaTime < 300000)) { // Allow 5 minutes to use the email token (10000 * 60 * 5).
+1171:                 user.otpekey = {};
+1172:                 obj.db.SetUser(user);
+1173:                 parent.debug('web', 'checkUserOneTimePassword: success (email).');
+1174:                 func(true, { twoFactorType: 'email' });
+1175:                 return;
+1176:             }
+1177:         }
+1178:
+1179:         // Check SMS key
+1180:         if ((otpsms) && (user.phone != null) && (user.otpsms != null) && (user.otpsms.d != null) && (user.otpsms.k === token)) {
+1181:             var deltaTime = (Date.now() - user.otpsms.d);
+1182:             if ((deltaTime > 0) && (deltaTime < 300000)) { // Allow 5 minutes to use the SMS token (10000 * 60 * 5).
+1183:                 delete user.otpsms;
+1184:                 obj.db.SetUser(user);
+1185:                 parent.debug('web', 'checkUserOneTimePassword: success (SMS).');
+1186:                 func(true, { twoFactorType: 'sms' });
+1187:                 return;
+1188:             }
+1189:         }
+1190:
+1191:         // Check messenger key
+1192:         if ((otpmsg) && (user.msghandle != null) && (user.otpmsg != null) && (user.otpmsg.d != null) && (user.otpmsg.k === token)) {
+1193:             var deltaTime = (Date.now() - user.otpmsg.d);
+1194:             if ((deltaTime > 0) && (deltaTime < 300000)) { // Allow 5 minutes to use the Messenger token (10000 * 60 * 5).
+1195:                 delete user.otpmsg;
+1196:                 obj.db.SetUser(user);
+1197:                 parent.debug('web', 'checkUserOneTimePassword: success (Messenger).');
+1198:                 func(true, { twoFactorType: 'messenger' });
+1199:                 return;
+1200:             }
+1201:         }
+1202:
+1203:         // Check hardware key
+1204:         if (user.otphkeys && (user.otphkeys.length > 0) && (typeof (hwtoken) == 'string') && (hwtoken.length > 0)) {
+1205:             var authResponse = null;
+1206:             try { authResponse = JSON.parse(hwtoken); } catch (ex) { }
+1207:             if ((authResponse != null) && (authResponse.clientDataJSON)) {
+1208:                 // Get all WebAuthn keys
+1209:                 var webAuthnKeys = [];
+1210:                 for (var i = 0; i < user.otphkeys.length; i++) { if (user.otphkeys[i].type == 3) { webAuthnKeys.push(user.otphkeys[i]); } }
+1211:                 if (webAuthnKeys.length > 0) {
+1212:                     // Decode authentication response
+1213:                     var clientAssertionResponse = { response: {} };
+1214:                     clientAssertionResponse.id = authResponse.id;
+1215:                     clientAssertionResponse.rawId = Buffer.from(authResponse

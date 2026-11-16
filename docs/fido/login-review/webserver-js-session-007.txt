@@ -1,0 +1,156 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 7 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+tpheader && (typeof domain.userrequiredhttpheader == 'object')) { var ok = false; for (var i in req.headers) { if (domain.userrequiredhttpheader[i.toLowerCase()] == req.headers[i]) { ok = true; } } if (ok == false) { res.sendStatus(404); return; } }
+3134:
+3135:         // If the session is expired, clear it.
+3136:         if ((req.session != null) && (typeof req.session.expire == 'number') && ((req.session.expire - Date.now()) <= 0)) { for (var i in req.session) { delete req.session[i]; } }
+3137:
+3138:         // Check if we are in maintenance mode
+3139:         if ((parent.config.settings.maintenancemode != null) && (req.query.loginscreen !== '1')) {
+3140:             parent.debug('web', 'handleLoginRequest: Server under maintenance.');
+3141:             render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 3, msgid: 13, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain));
+3142:             return;
+3143:         }
+3144:
+3145:         // If set and there is no user logged in, redirect the root page. Make sure not to redirect if /login is used
+3146:         if ((typeof domain.unknownuserrootredirect == 'string') && ((req.session == null) || (req.session.userid == null))) {
+3147:             var q = new URL(req.url, 'http://localhost');
+3148:             if (!q.pathname.endsWith('/login')) { res.redirect(domain.unknownuserrootredirect + getQueryPortion(req)); return; }
+3149:         }
+3150:
+3151:         if ((domain.sspi != null) && ((req.query.login == null) || (obj.parent.loginCookieEncryptionKey == null))) {
+3152:             // Login using SSPI
+3153:             domain.sspi.authenticate(req, res, function (err) {
+3154:                 if ((err != null) || (req.connection.user == null)) {
+3155:                     obj.parent.authLog('https', 'Failed SSPI-auth for ' + req.connection.user + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'] });
+3156:                     parent.debug('web', 'handleRootRequest: SSPI auth required.');
+3157:                     try { res.sendStatus(401); } catch (ex) { } // sspi.authenticate() should already have responded to this request.
+3158:                 } else {
+3159:                     parent.debug('web', 'handleRootRequest: SSPI auth ok.');
+3160:                     handleRootRequestEx(req, res, domain, direct);
+3161:                 }
+3162:             });
+3163:         } else if (req.query.user && req.query.pass) {
+3164:             // User credentials are being passed in the URL. WARNING: Putting credentials in a URL is bad security... but people are requesting this option.
+3165:             obj.authenticate(req.query.user, req.query.pass, domain, function (err, userid, passhint, loginOptions) {
+3166:                 // 2FA is not supported in URL authentication method. If user has 2FA enabled, this login method fails.
+3167:                 var user = obj.users[userid];
+3168:                 if ((err == null) && checkUserOneTimePasswordRequired(domain, user, req, loginOptions) == true) {
+3169:                     handleRootRequestEx(req, res, domain, direct);
+3170:                 } else if ((userid != null) && (err == null)) {
+3171:                     // Login success
+3172:                     parent.debug('web', 'handleRootRequest: user/pass in URL auth ok.');
+3173:                     req.session.userid = userid;
+3174:                     delete req.session.currentNode;
+3175:                     req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+3176:                     setSessionRandom(req);
+3177:                     obj.parent.authLog('https', 'Accepted password for ' + userid + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'], sessionid: req.session.x });
+3178:                     handleRootRequestEx(req, res, domain, direct);
+3179:                 } else {
+3180:                     // Login failed
+3181:                     handleRootRequestEx(req, res, domain, direct);
+3182:                 }
+3183:             });
+3184:         } else if ((req.session != null) && (typeof req.session.loginToken == 'string')) {
+3185:             // Check if the loginToken is still valid
+3186:             obj.db.Get('logintoken-' + req.session.loginToken, function (err, docs) {
+3187:                 if ((err != null) || (docs == null) || (docs.length != 1) || (docs[0].tokenUser != req.session.loginToken)) { for (var i in req.session) { delete req.session[i]; } }
+3188:                 handleRootRequestEx(req, res, domain, direct); // Login using a different system
+3189:             });
+3190:         } else {
+3191:             // Login using a different system
+3192:             handleRootRequestEx(req, res, domain, direct);
+3193:         }
+3194:     }
+3195:
+3196:     function handleRootRequestEx(req, res, domain, direct) {
+3197:         var nologout = false, user = null;
+3198:         res.set({ 'Cache-Control': 'no-store' });
+3199:
+3200:         // Check if we have an incomplete domain name in the path
+3201:         if ((domain.id != '') && (domain.dns == null) && (req.url.split('/').length == 2)) {
+3202:             parent.debug('web', 'handleRootRequestEx: incomplete domain name in the path.');
+3203:             res.redirect(domain.url + getQueryPortion(req)); // BAD***
+3204:             return;
+3205:         }
+3206:
+3207:         if (obj.args.nousers == true) {
+3208:             // If in single user mode, setup things here.
+3209:             delete req.session.loginmode;
+3210:             req.session.userid = 'user/' + domain.id + '/~';
+3211:             delete req.session.currentNode;
+3212:             req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+3213:             setSessionRandom(req);
+3214:             if (obj.users[req.session.userid] == null) {
+3215:                 // Create the dummy user ~ with impossible password
+3216:                 parent.debug('web', 'handleRootRequestEx: created dummy user in nouser mode.');
+3217:                 obj.users[req.session.userid] = { type: 'user', _id: req.session.userid, name: '~', email: '~', domain: domain.id, siteadmin: 4294967295 };
+3218:                 obj.db.SetUser(obj.users[req.session.userid]);
+3219:             }
+3220:         } else if (obj.args.user && obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]) {
+3221:             // If a default user is active, setup the session here.
+3222:             parent.debug('web', 'handleRootRequestEx: auth using default user.');
+3223:             delete req.session.loginmode;
+3224:             req.session.userid = 'user/' + domain.id + '/' + obj.args.user.toLowerCase();
+3225:             delete req.session.currentNode;
+3226:             req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+3227:             setSessionRandom(req);
+3228:         } else if (req.query.login && (obj.parent.loginCookieEncryptionKey != null)) {
+3229:             var loginCookie = obj.parent.decodeCookie(req.query.login, obj.parent.loginCookieEncryptionKey, 60); // 60 minute timeout
+3230:             //if ((loginCookie != null) && (loginCookie.ip != null) && !checkCookieIp(loginCookie.ip, req.clientIp)) { loginCookie = null; } // If the cookie is bound to an IP address, check here.
+3231:             if ((loginCookie != null) && (loginCookie.a == 3) && (loginCookie.u != null) && (loginCookie.u.split('/')[1] == domain.id)) {
+3232:                 // If a login cookie was provided, setup the session here.
+3233:                 parent.debug('web', 'handleRootRequestEx: cookie auth ok.');
+3234:                 delete req.session.loginmode;
+3235:                 req.session.userid = loginCookie.u;
+3236:                 delete req.session.currentNode;
+3237:                 req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+3238:                 setSessionRandom(req);
+3239:             } else {
+3240:                 parent.debug('web', 'handleRootRequestEx: cookie auth failed.');
+3241:             }
+3242:         } else if (domain.sspi != null) {
+3243:             // SSPI login (Windows only)
+3244:             //console.log(req.connection.user, req.connection.userSid);
+3245:             if ((req.connection.user == null) || (req.connection.userSid == null)) {
+3246:                 parent.debug('web', 'handleRootRequestEx: SSPI no user auth.');
+3247:                 res.sendStatus(404); return;
+3248:             } else {
+3249:                 nologout = true;
+3250:                 req.session.userid = 'user/' + domain.id + '/' + req.connection.user.toLowerCase();
+3251:                 req.session.usersid = req.connection.userSid;
+3252:                 req.session.usersGroups = req.connection.userGroups;
+3253:                 delete req.session.currentNode;
+3254:                 req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+3255:                 setSessionRandom(req);
+3256:                 obj.parent.authLog('https', 'Accepted SSPI-auth for ' + req.connection.user + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'], sessionid: req.session.x });
+3257:
+3258:                 // Check if this user exists, create it if not.
+3259:                 user = obj.users[req.session.userid];
+3260:                 if ((user == null) || (user.sid != req.session.usersid)) {
+3261:                     // Create the domain user
+3262:                     var usercount = 0, user2 = { type: 'user', _id: req.session.userid, name: req.connection.user, domain: domain.id, sid: req.session.usersid, creation: Math.floor(Date.now() / 1000), login: Math.floor(Date.now() / 1000), access: Math.floor(Date.now() / 1000) };
+3263:                     if (domain.newaccountsrights) { user2.siteadmin = domain.newaccountsrights; }
+3264:                     if (obj.common.validateStrArray(domain.newaccountrealms)) { user2.groups = domain.newaccountrealms; }
+3265:                     for (var i in obj.users) { if (obj.users[i].domain == domain.id) { usercount++; } }
+3266:                     if (usercount == 0) { user2.siteadmin = 4294967295; } // If this is the first user, give the account site admin.
+3267:
+3268:                     // Auto-join any user groups
+3269:                     if (typeof domain.newaccountsusergroups == 'object') {
+3270:                         for (var i in domain.newaccountsusergroups) {
+3271:                             var ugrpid = domain.newaccountsusergroups[i];
+3272:                             if (ugrpid.indexOf('/') < 0) { ugrpid = 'ugrp/' + domain.id + '/' + ugrpid; }
+3273:                             var ugroup = obj.userGroups[ugrpid];
+3274:                             if (ugroup != null) {
+3275:                                 // Add group to the user
+3276:                                 if (user2.links == null) { user2.links = {}; }
+3277:                                 user2.links[ugroup._id] = { rights: 1 };
+3278:
+3279:                                 // Add user to the group
+3280:                                 ugroup.links[user2._id] = { userid: user2._id, name: user2.name, rights: 1 };
+3281:                                 db.Set(ugroup);
+3282:
+3283:                                 // Notify user group change
+3284:                                 var event = { etype: 'ugrp', ugrpid: ugroup._id, name: ugroup.name, desc: ugroup.desc, action: 'usergroupchange', links: ugroup.links, msg: 'Added user ' + user2.name + ' to user group ' + ugroup.name, addUserDomain: domain.id };
+3285:                                 if (db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user group. Another event will come.
+3286:                                 parent.DispatchEvent(['*', ugroup._id, user2._

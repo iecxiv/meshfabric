@@ -20,7 +20,7 @@ El servidor conserva la autoridad sobre permisos y políticas. Datos ausentes o 
 
 Los cambios sensibles de acceso separan revisión y confirmación. Cambios de identidad, datos, permisos o conexión pueden invalidar la revisión. Un resultado desconocido no es éxito y no se reenvía automáticamente. Consultas y escrituras no son atómicas: siguen siendo posibles modificaciones concurrentes.
 
-El inicio de sesión FIDO2 nativo y el alta de claves nuevas siguen pendientes; las claves existentes se pueden consultar y eliminar. Las pruebas automatizadas no sustituyen la validación de cada operación en un servidor y dispositivo reales.
+Están implementados el login FIDO2/WebAuthn y el alta, consulta y baja de llaves. El usuario confirma alta, baja y login físicos, incluido el login por USB, con la llave utilizada en este trabajo. Consulta [FIDO y alcance de validación](fido.md). Estas pruebas no garantizan compatibilidad universal ni validan todas las operaciones de cuenta.
 
 ## Continuidad al volver de segundo plano
 

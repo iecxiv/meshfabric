@@ -1,0 +1,108 @@
+MeshCentral 1.3.1 source review: webauthn.js / assertion / part 1 of 1
+Parts may continue a source line. Trailing whitespace is omitted.
+
+--- webauthn.js lines 160-263 ---
+160:             const signatureBase = Buffer.from([header, payload].join('.'))
+161:
+162:             header = JSON.parse(header)
+163:             payload = JSON.parse(payload)
+164:
+165:             console.log('JWS HEADER', header)
+166:             console.log('JWS PAYLOAD', payload)
+167:             console.log('JWS SIGNATURE', signature)
+168:
+169:             const PEMCertificate = ASN1toPEM(Buffer.from(header.x5c[0], 'base64'))
+170:
+171:             const pem = Certificate.fromPEM(PEMCertificate)
+172:
+173:             console.log('PEM', pem)
+174:
+175:             response.verified = // Verify that sig is a valid signature over the concatenation of authenticatorData
+176:                 // and clientDataHash using the attestation public key in attestnCert with the algorithm specified in alg.
+177:                 verifySignature(signature, signatureBase, PEMCertificate) &&
+178:                 // version must be 3 (which is indicated by an ASN.1 INTEGER with value 2)
+179:                 pem.version == 3 &&
+180:                 pem.subject.commonName === 'attest.android.com'
+181:
+182:             if (response.verified) {
+183:                 response.authrInfo = {
+184:                     fmt: 'fido-u2f',
+185:                     publicKey: ASN1toPEM(publicKey),
+186:                     counter: authrDataStruct.counter,
+187:                     keyId: authrDataStruct.credID.toString('base64')
+188:                 }
+189:             }
+190:
+191:             console.log('RESPONSE', response)
+192:         } */
+193:         else {
+194:             throw new Error(`Unsupported attestation format: ${ctapMakeCredResp.fmt}`);
+195:         }
+196:
+197:         return response;
+198:     }
+199:
+200:     obj.verifyAuthenticatorAssertionResponse = function (webauthnResponse, authr) {
+201:         const response = { 'verified': false }
+202:         if (['fido-u2f'].includes(authr.fmt)) {
+203:             const authrDataStruct = parseGetAssertAuthData(webauthnResponse.authenticatorData);
+204:             if (!(authrDataStruct.flags & 0x01)) { throw new Error('User was not presented durring authentication!'); } // U2F_USER_PRESENTED
+205:             response.counter = authrDataStruct.counter;
+206:             response.verified = verifySignature(webauthnResponse.signature, Buffer.concat([authrDataStruct.rpIdHash, authrDataStruct.flagsBuf, authrDataStruct.counterBuf, hash(webauthnResponse.clientDataJSON)]), authr.publicKey);
+207:         }
+208:         return response;
+209:     }
+210:
+211:     function hash(data) { return crypto.createHash('sha256').update(data).digest() }
+212:     function verifySignature(signature, data, publicKey) { return crypto.createVerify('SHA256').update(data).verify(publicKey, signature); }
+213:
+214:     function parseGetAssertAuthData(buffer) {
+215:         const rpIdHash = buffer.slice(0, 32);
+216:         buffer = buffer.slice(32);
+217:         const flagsBuf = buffer.slice(0, 1);
+218:         buffer = buffer.slice(1);
+219:         const flags = flagsBuf[0];
+220:         const counterBuf = buffer.slice(0, 4);
+221:         buffer = buffer.slice(4);
+222:         const counter = counterBuf.readUInt32BE(0);
+223:         return { rpIdHash, flagsBuf, flags, counter, counterBuf };
+224:     }
+225:
+226:     function parseMakeCredAuthData(buffer) {
+227:         const rpIdHash = buffer.slice(0, 32);
+228:         buffer = buffer.slice(32);
+229:         const flagsBuf = buffer.slice(0, 1);
+230:         buffer = buffer.slice(1);
+231:         const flags = flagsBuf[0];
+232:         const counterBuf = buffer.slice(0, 4);
+233:         buffer = buffer.slice(4);
+234:         const counter = counterBuf.readUInt32BE(0);
+235:         const aaguid = buffer.slice(0, 16);
+236:         buffer = buffer.slice(16);
+237:         const credIDLenBuf = buffer.slice(0, 2);
+238:         buffer = buffer.slice(2);
+239:         const credIDLen = credIDLenBuf.readUInt16BE(0);
+240:         const credID = buffer.slice(0, credIDLen);
+241:         buffer = buffer.slice(credIDLen);
+242:         const COSEPublicKey = buffer;
+243:         return { rpIdHash, flagsBuf, flags, counter, counterBuf, aaguid, credID, COSEPublicKey };
+244:     }
+245:
+246:     function COSEECDHAtoPKCS(COSEPublicKey) {
+247:         const coseStruct = cbor.decodeAllSync(COSEPublicKey)[0];
+248:         return Buffer.concat([Buffer.from([0x04]), coseStruct.get(-2), coseStruct.get(-3)]);
+249:     }
+250:
+251:     function ASN1toPEM(pkBuffer) {
+252:         if (!Buffer.isBuffer(pkBuffer)) { throw new Error("ASN1toPEM: pkBuffer must be Buffer."); }
+253:         let type;
+254:         if (pkBuffer.length == 65 && pkBuffer[0] == 0x04) { pkBuffer = Buffer.concat([Buffer.from("3059301306072a8648ce3d020106082a8648ce3d030107034200", "hex"), pkBuffer]); type = 'PUBLIC KEY'; } else { type = 'CERTIFICATE'; }
+255:         const b64cert = pkBuffer.toString('base64');
+256:         let PEMKey = '';
+257:         for (let i = 0; i < Math.ceil(b64cert.length / 64); i++) { const start = 64 * i; PEMKey += b64cert.substr(start, 64) + '\n'; }
+258:         PEMKey = `-----BEGIN ${type}-----\n` + PEMKey + `-----END ${type}-----\n`;
+259:         return PEMKey;
+260:     }
+261:
+262:     return obj;
+263: }

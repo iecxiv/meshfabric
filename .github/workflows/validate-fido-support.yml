@@ -1,0 +1,254 @@
+name: Validate FIDO support
+on:
+  push:
+    branches: [fido-support]
+    paths:
+      - 'app/**'
+      - 'gradle/**'
+      - '*.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/validate-fido-support.yml'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: validate-fido-support
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Prepare reviewed resource fixes and Compose alignment
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, subprocess, textwrap
+          def patch(path,sha,edits):
+              file=Path(path)
+              text=file.read_text()
+              if all(old not in text and text.count(new)>=count for old,new,count in edits): return
+              assert subprocess.check_output(['git','hash-object',path],text=True).strip()==sha,'Source changed; review required: '+path
+              for old,new,count in edits:
+                  assert text.count(old)==count,(path,old,text.count(old),count)
+                  text=text.replace(old,new)
+              file.write_text(text)
+              subprocess.run(['git','add','--',path],check=True)
+          patch('app/src/main/java/iecxiv/meshfabric/ui/management/MyServerScreen.kt','13d5900df3971d3a3007516cb01f0d478ec71642',[
+              ('    val es=LocalConfiguration.current.locales[0].language=="es"','    val historyLocale=LocalConfiguration.current.locales[0]\n    val es=historyLocale.language=="es"',1),
+              ('java.util.Locale.getDefault()','historyLocale',3)
+          ])
+          patch('app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt','4ac238225e9f086fe263eabc66cc7b2fc280d915',[
+              ('    val context = LocalContext.current\n    val canCreateFiles','    val context = LocalContext.current\n    val uploadStartingText = stringResource(R.string.starting_upload)\n    val uploadErrorTemplate = stringResource(R.string.upload_error)\n    val uploadMessageLocale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]\n    val canCreateFiles',1),
+              ('context.getString(R.string.starting_upload)','uploadStartingText',3),
+              ('context.getString(R.string.upload_error, e.localizedMessage ?: "")','String.format(uploadMessageLocale, uploadErrorTemplate, e.localizedMessage ?: "")',1)
+          ])
+          test='app/src/androidTest/java/iecxiv/meshfabric/ui/management/ServerDialogTitleTypographyUiTest.kt'
+          patch(test,'63a47bd6d373d5c34ad84eaff0971ba6b24a9cfe',[
+              ('import androidx.compose.ui.platform.LocalContext','import androidx.compose.ui.res.stringResource',1),
+              ('                val context=LocalContext.current\n','',1),
+              ('context.getString(','stringResource(',3)
+          ])
+          patch('gradle/libs.versions.toml','810250e983188e96cb8ad769df67e3e085620c16',[
+              ('composeBom = "2024.12.01"','composeBom = "2026.09.00"\ncomposeFoundation = "1.12.1"\ncomposeMaterial3 = "1.5.0-alpha25"',1),
+              ('compose-material3 = { group = "androidx.compose.material3", name = "material3" }','compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "composeMaterial3" }\ncompose-foundation-layout = { group = "androidx.compose.foundation", name = "foundation-layout", version.ref = "composeFoundation" }',1)
+          ])
+          patch('app/build.gradle.kts','3339821add5a555dbcbfb132241a34777aa4c550',[
+              ('    implementation(platform(libs.compose.bom))','    val alignedComposeBom = platform(libs.compose.bom)\n    implementation(alignedComposeBom)\n    testImplementation(alignedComposeBom)\n    implementation(libs.compose.foundation.layout)',1)
+          ])
+          assert Path(test).read_text().count('@Test fun ')==14,'All original typography tests must remain'
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/MyServerScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt',test,'gradle/libs.versions.toml','app/build.gradle.kts'}
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual<=expected,actual
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          (out/'observable-resource-fix-files.json').write_text(json.dumps(sorted(actual)))
+          (out/'observable-resource-fixes.diff').write_text(subprocess.check_output(['git','diff','--cached'],text=True))
+          (out/'verify-compose.init.gradle').write_text(textwrap.dedent('''\
+          import groovy.json.JsonOutput
+          import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+          gradle.projectsEvaluated {
+              def app = gradle.rootProject.findProject(':app')
+              assert app != null
+              app.tasks.register('verifyComposeClasspathAlignment') {
+                  doLast {
+                      def snapshots = [:]
+                      ['debugCompileClasspath','debugRuntimeClasspath','debugUnitTestCompileClasspath','debugUnitTestRuntimeClasspath','debugAndroidTestCompileClasspath','debugAndroidTestRuntimeClasspath'].each { name ->
+                          def modules = new TreeMap()
+                          app.configurations.getByName(name).incoming.resolutionResult.allComponents.each { component ->
+                              def id = component.id
+                              if (id instanceof ModuleComponentIdentifier && id.group.startsWith('androidx.compose')) {
+                                  modules[id.group + ':' + id.module] = id.version
+                              }
+                          }
+                          snapshots[name] = modules
+                      }
+                      def output = new File(app.rootProject.projectDir, 'validation/compose-classpaths.json')
+                      output.text = JsonOutput.prettyPrint(JsonOutput.toJson(snapshots)) + '\\n'
+                      def versions = [:].withDefault { new LinkedHashSet() }
+                      snapshots.each { name, modules ->
+                          modules.each { id, version -> versions[id].add(version) }
+                          if (name != 'debugAndroidTestRuntimeClasspath') {
+                              def foundation = modules['androidx.compose.foundation:foundation-layout-android'] ?: modules['androidx.compose.foundation:foundation-layout']
+                              def material3 = modules['androidx.compose.material3:material3-android'] ?: modules['androidx.compose.material3:material3']
+                              assert foundation == '1.12.1' : name + ': unexpected Foundation Layout: ' + foundation
+                              assert material3 == '1.5.0-alpha25' : name + ': unexpected Material3: ' + material3
+                          }
+                      }
+                      def divergent = versions.findAll { id, values -> values.size() > 1 }
+                      assert divergent.isEmpty() : 'Compose compile/runtime divergence: ' + divergent
+                      def appRuntime = snapshots['debugRuntimeClasspath']
+                      def testRuntime = snapshots['debugAndroidTestRuntimeClasspath']
+                      def effectiveRuntime = new TreeMap(appRuntime)
+                      testRuntime.each { id, version ->
+                          assert !appRuntime.containsKey(id) || appRuntime[id] == version : 'App/test runtime conflict: ' + id
+                          effectiveRuntime[id] = version
+                      }
+                      def suppliedByApp = new TreeMap()
+                      snapshots['debugAndroidTestCompileClasspath'].each { id, version ->
+                          assert effectiveRuntime.containsKey(id) : 'Compiled dependency absent from both runtimes: ' + id
+                          assert effectiveRuntime[id] == version : 'Instrumented compile/runtime mismatch: ' + id
+                          if (!testRuntime.containsKey(id)) suppliedByApp[id] = version
+                      }
+                      def evidence = new File(app.rootProject.projectDir, 'validation/compose-effective-instrumentation-runtime.json')
+                      evidence.text = JsonOutput.prettyPrint(JsonOutput.toJson([effectiveRuntime:effectiveRuntime,suppliedByApp:suppliedByApp])) + '\\n'
+                      println 'Compose compile/runtime versions agree; instrumentation dependencies are present in app or test runtime.'
+                  }
+              }
+          }
+          '''))
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Resolve verified command-line tools and install pinned SDK
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, os, subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve()
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          def properties(path):
+              return dict((k.strip(),v.strip()) for line in path.read_text().splitlines() if '=' in line and not line.startswith('#') for k,v in [line.split('=',1)])
+          inventory=[]
+          candidates=[]
+          for source in (sdk/'cmdline-tools').glob('*/source.properties'):
+              values=properties(source)
+              binary=source.parent/'bin/sdkmanager'
+              inventory.append({'directory':str(source.parent),'properties':values,'executable':os.access(binary,os.X_OK)})
+              if values.get('Pkg.Revision')=='23.0' and os.access(binary,os.X_OK):
+                  directory=source.parent.resolve()
+                  directory.relative_to(sdk/'cmdline-tools')
+                  candidates.append(directory)
+          (out/'commandline-inventory.json').write_text(json.dumps(inventory,indent=2)+'\n')
+          assert candidates,'Installed Command-line Tools 23.0 not found; refusing older tools'
+          directory=max(candidates,key=lambda p:(p.name=='16111833',str(p)))
+          manager=str(directory/'bin/sdkmanager')
+          (out/'commandline-source.properties').write_text((directory/'source.properties').read_text())
+          (out/'sdkmanager-path.txt').write_text(manager+'\n')
+          with open(os.environ['GITHUB_ENV'],'a') as env:
+              env.write('FIDO_COMMANDLINE_TOOLS='+str(directory)+'\n')
+          with open(os.environ['GITHUB_PATH'],'a') as path:
+              path.write(str(directory/'bin')+'\n')
+          with (out/'sdkmanager-version.txt').open('w') as log:
+              subprocess.run([manager,'--version'],stdout=log,stderr=subprocess.STDOUT,check=True)
+          with (out/'sdk-packages.txt').open('w') as log:
+              subprocess.run([manager,'--sdk_root='+str(sdk),'--list','--channel=0'],stdout=log,stderr=subprocess.STDOUT,check=True)
+          with (out/'sdk-install.txt').open('w') as log:
+              subprocess.run([manager,'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],stdout=log,stderr=subprocess.STDOUT,check=True)
+      - name: Verify installed SDK identity
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, os
+          import xml.etree.ElementTree as ET
+          sdk=Path(os.environ['ANDROID_HOME'])
+          platform=sdk/'platforms/android-37.2'
+          root=ET.parse(platform/'package.xml').getroot()
+          package=root.find('.//{*}localPackage')
+          assert package is not None and package.get('path')=='platforms;android-37.2','Unexpected installed platform'
+          assert (platform/'android.jar').is_file(),'Missing platform android.jar'
+          properties=dict((k.strip(),v.strip()) for line in (platform/'source.properties').read_text().splitlines() if '=' in line and not line.startswith('#') for k,v in [line.split('=',1)])
+          assert properties.get('AndroidVersion.ApiLevel','').split('.')[0]=='37','Unexpected API major'
+          assert (sdk/'build-tools/37.0.0/aapt2').is_file(),'Missing pinned build tools'
+          tools=Path(os.environ['FIDO_COMMANDLINE_TOOLS'])
+          evidence={'package':'platforms;android-37.2','compileApi':37,'compileMinor':2,'buildTools':'37.0.0','commandLineTools':'23.0','toolsDirectory':str(tools),'targetSdk':35,'minSdk':26,'properties':properties}
+          Path('validation/selected-sdk.json').write_text(json.dumps(evidence,indent=2)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
+              summary.write('## FIDO SDK configuration\nPinned platform: `platforms;android-37.2`. Build Tools: `37.0.0`. Tools directory: `'+str(tools)+'`.\n\nTool identity is verified using package metadata. Dependency checks and all tests must still pass.\n')
+      - name: Check dependency SDK requirements without bypasses
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:checkDebugAarMetadata --no-daemon --stacktrace 2>&1 | tee validation/aar-metadata-check.txt
+      - name: Verify resolved Compose compile and runtime alignment
+        run: |
+          set -euo pipefail
+          bash ./gradlew --init-script validation/verify-compose.init.gradle :app:verifyComposeClasspathAlignment --no-daemon --no-configuration-cache --stacktrace 2>&1 | tee validation/compose-alignment-check.txt
+      - name: Clean build, all unit tests, instrumented compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify test evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              if root=='app/build/test-results':
+                  for name in ['FidoRegistrationContractTest','FidoRegistrationSessionTest','FidoWebOriginPolicyTest']:
+                      assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==10,name
+              else:
+                  assert len([c for c in cases if c.get('classname','').endswith('.ServerDialogTitleTypographyUiTest')])==14
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only reviewed fixes after complete validation
+        run: |
+          set -euo pipefail
+          git fetch origin fido-support
+          test "$(git rev-parse origin/fido-support)" = "${{ github.sha }}" || { echo 'Branch advanced; publication refused'; exit 1; }
+          python3 - <<'PY'
+          import json, subprocess
+          expected=set(json.load(open('validation/observable-resource-fix-files.json')))
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git diff --cached --check
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(compose): align compile and runtime dependencies and observe resources'
+          git push origin HEAD:fido-support

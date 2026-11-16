@@ -8,7 +8,7 @@ Mi cuenta utiliza controles nativos en lugar de los antiguos accesos al navegado
 
 - Cambio de contraseña mediante el diálogo existente y comprobación de contraseña actual.
 - Alta de autenticador TOTP con clave manual y código de seis dígitos; desactivación con confirmación explícita.
-- Consulta y eliminación de claves de seguridad registradas. El inicio de sesión FIDO2 nativo y el alta de claves nuevas no están implementados; no se abre automáticamente un navegador como alternativa de alta.
+- Alta, consulta y baja nativas de llaves, además de login FIDO2/WebAuthn nativo. El usuario confirma alta, baja y login con la llave utilizada, incluido el login por USB; el alta por NFC ya estaba confirmada. El registro permanece en la app con una WebView restringida, sin navegador externo. Consulta [FIDO y alcance de validación](fido.md).
 - Consulta, regeneración y borrado de códigos de respaldo con controles de visibilidad y confirmación. Las respuestas estructuradas conservan el estado de uso informado.
 - Historial web registrado por el servidor; puede no incluir accesos de la aplicación.
 - Creación y consulta de tokens de inicio de sesión, con revocación individual confirmada.

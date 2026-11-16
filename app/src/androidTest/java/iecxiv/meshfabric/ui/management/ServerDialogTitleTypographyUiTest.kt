@@ -1,10 +1,10 @@
 package iecxiv.meshfabric.ui.management
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -39,13 +39,12 @@ class ServerDialogTitleTypographyUiTest {
         var managementExpected:TextStyle?=null
         compose.setContent {
             MeshCentralTheme(if(dark) AppThemeMode.DARK else AppThemeMode.LIGHT,dynamicColor=false) {
-                val context=LocalContext.current
                 title=when {
                     management->"Other management dialog"
-                    kind==1->context.getString(R.string.my_server_backup_dialog_title)
+                    kind==1->stringResource(R.string.my_server_backup_dialog_title)
                     kind==2->"Restore server from backup"
-                    kind==3->context.getString(R.string.my_server_version)
-                    else->context.getString(if(action=="serverconfig") R.string.my_server_config else R.string.my_server_errors)
+                    kind==3->stringResource(R.string.my_server_version)
+                    else->stringResource(if(action=="serverconfig") R.string.my_server_config else R.string.my_server_errors)
                 }
                 managementExpected=MaterialTheme.typography.titleMedium.copy(fontWeight=FontWeight.SemiBold)
                 if(reference.value) AppDialogSurface {Text("Reference title",fontWeight=FontWeight.Bold,fontSize=18.sp)}

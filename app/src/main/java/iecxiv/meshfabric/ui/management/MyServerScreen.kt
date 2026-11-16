@@ -237,7 +237,8 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
 }
 
 @Composable private fun HistoryPanel(raw:String,hours:Int,ready:Boolean,busy:Boolean,onLoad:(Int)->Unit) {
-    val es=LocalConfiguration.current.locales[0].language=="es"
+    val historyLocale=LocalConfiguration.current.locales[0]
+    val es=historyLocale.language=="es"
     var kind by rememberSaveable { mutableIntStateOf(0) }
     var inbound by rememberSaveable { mutableStateOf(true) }
     var outbound by rememberSaveable { mutableStateOf(true) }
@@ -307,7 +308,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
             val grid=MaterialTheme.colorScheme.outlineVariant
             val axis=if(logarithmic) "log10" else ""
             val axisFormat=if(kind==0 && !logarithmic) "%.0f" else "%.3f"
-            Text("$axis ${String.format(java.util.Locale.getDefault(),axisFormat,high)}",style=MaterialTheme.typography.labelSmall)
+            Text("$axis ${String.format(historyLocale,axisFormat,high)}",style=MaterialTheme.typography.labelSmall)
             val description=if(es) "Gráfico temporal. Valores de la última muestra debajo." else "Time chart. Latest sample values follow."
             Canvas(Modifier.fillMaxWidth().height(300.dp).semantics { contentDescription=description }) {
                 val width=(size.width-12.dp.toPx()).coerceAtLeast(1f)
@@ -322,13 +323,13 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
                     if(segment.size==1) drawCircle(seriesColor(i),2.dp.toPx(),position(segment.first()))
                 } }
             }
-            Text("$axis ${String.format(java.util.Locale.getDefault(),axisFormat,low)}",style=MaterialTheme.typography.labelSmall)
+            Text("$axis ${String.format(historyLocale,axisFormat,low)}",style=MaterialTheme.typography.labelSmall)
             val formatter=remember { DateTimeFormatter.ofPattern("dd/MM HH:mm z").withZone(ZoneId.systemDefault()) }
             Text("${formatter.format(Instant.ofEpochMilli(minTime))} — ${formatter.format(Instant.ofEpochMilli(maxTime))}",style=MaterialTheme.typography.labelSmall)
             Text(if(es) "Última muestra:" else "Latest sample:",style=MaterialTheme.typography.titleSmall)
             keys.forEachIndexed { i,key->
                 val value=filtered.lastOrNull()?.values?.get(key)
-                Text("${labels[i]}: ${value?.let { String.format(java.util.Locale.getDefault(),if(kind==0) "%.0f" else "%.3f",it) } ?: "—"}",color=seriesColor(i),style=MaterialTheme.typography.bodySmall)
+                Text("${labels[i]}: ${value?.let { String.format(historyLocale,if(kind==0) "%.0f" else "%.3f",it) } ?: "—"}",color=seriesColor(i),style=MaterialTheme.typography.bodySmall)
             }
         }
     }

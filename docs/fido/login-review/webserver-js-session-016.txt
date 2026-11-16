@@ -1,0 +1,134 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 16 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+eq.query.installflags) == req.query.installflags)) { meshsettings += 'InstallFlags=' + parseInt(req.query.installflags) + '\r\n'; }
+6417:                 }
+6418:                 if (req.query.id == '10006') { // Assistant settings and customizations
+6419:                     if ((req.query.ac != null)) { meshsettings += 'AutoConnect=' + req.query.ac + '\r\n'; } // Set MeshCentral Assistant flags if needed. 0x01 = Always Connected, 0x02 = Not System Tray
+6420:                     if (obj.args.assistantconfig) { for (var i in obj.args.assistantconfig) { meshsettings += obj.args.assistantconfig[i] + '\r\n'; } }
+6421:                     if (domain.assistantconfig) { for (var i in domain.assistantconfig) { meshsettings += domain.assistantconfig[i] + '\r\n'; } }
+6422:                     if ((domain.assistantnoproxy === true) || (obj.args.lanonly == true)) { meshsettings += 'ignoreProxyFile=1\r\n'; }
+6423:                     if ((domain.assistantcustomization != null) && (typeof domain.assistantcustomization == 'object')) {
+6424:                         if (typeof domain.assistantcustomization.title == 'string') { meshsettings += 'Title=' + domain.assistantcustomization.title + '\r\n'; }
+6425:                         if (typeof domain.assistantcustomization.image == 'string') {
+6426:                             try { meshsettings += 'Image=' + Buffer.from(obj.fs.readFileSync(parent.getConfigFilePath(domain.assistantcustomization.image)), 'binary').toString('base64') + '\r\n'; } catch (ex) { console.log(ex); }
+6427:                         }
+6428:                         if (req.query.ac != '4') {
+6429:                             // Send with custom filename followed by device group name
+6430:                             if (typeof domain.assistantcustomization.filename == 'string') { meshfilename = meshfilename.split('MeshCentralAssistant').join(domain.assistantcustomization.filename); }
+6431:                         } else {
+6432:                             // Send with custom filename, no device group name
+6433:                             if (typeof domain.assistantcustomization.filename == 'string') { meshfilename = domain.assistantcustomization.filename + '.exe'; } else { meshfilename = 'MeshCentralAssistant.exe'; }
+6434:                         }
+6435:                     }
+6436:                 } else { // Add agent customization, not for Assistant
+6437:                     if (obj.args.agentconfig) { for (var i in obj.args.agentconfig) { meshsettings += obj.args.agentconfig[i] + '\r\n'; } }
+6438:                     if (domain.agentconfig) { for (var i in domain.agentconfig) { meshsettings += domain.agentconfig[i] + '\r\n'; } }
+6439:                     if ((domain.agentnoproxy === true) || (obj.args.lanonly == true)) { meshsettings += 'ignoreProxyFile=1\r\n'; }
+6440:                     if (domain.agentcustomization != null) {
+6441:                         if (domain.agentcustomization.displayname != null) { meshsettings += 'displayName=' + domain.agentcustomization.displayname + '\r\n'; }
+6442:                         if (domain.agentcustomization.description != null) { meshsettings += 'description=' + domain.agentcustomization.description + '\r\n'; }
+6443:                         if (domain.agentcustomization.companyname != null) { meshsettings += 'companyName=' + domain.agentcustomization.companyname + '\r\n'; }
+6444:                         if (domain.agentcustomization.servicename != null) { meshsettings += 'meshServiceName=' + domain.agentcustomization.servicename + '\r\n'; }
+6445:                         if (domain.agentcustomization.filename != null) { meshsettings += 'fileName=' + domain.agentcustomization.filename + '\r\n'; }
+6446:                         if (domain.agentcustomization.image != null) { meshsettings += 'image=' + domain.agentcustomization.image + '\r\n'; }
+6447:                         if (domain.agentcustomization.foregroundcolor != null) { meshsettings += checkAgentColorString('foreground=', domain.agentcustomization.foregroundcolor); }
+6448:                         if (domain.agentcustomization.backgroundcolor != null) { meshsettings += checkAgentColorString('background=', domain.agentcustomization.backgroundcolor); }
+6449:                     }
+6450:                     if (domain.agentTranslations != null) { meshsettings += 'translation=' + domain.agentTranslations + '\r\n'; } // Translation strings, not for MeshCentral Assistant
+6451:                 }
+6452:                 setContentDispositionHeader(res, 'application/octet-stream', meshfilename, null, argentInfo.rname);
+6453:                 if (argentInfo.mtime != null) { res.setHeader('Last-Modified', argentInfo.mtime.toUTCString()); }
+6454:                 if (domain.meshAgentBinaries && domain.meshAgentBinaries[req.query.id]) {
+6455:                     obj.parent.exeHandler.streamExeWithMeshPolicy({ platform: 'win32', sourceFileName: domain.meshAgentBinaries[req.query.id].path, destinationStream: res, msh: meshsettings, peinfo: domain.meshAgentBinaries[req.query.id].pe });
+6456:                 } else {
+6457:                     obj.parent.exeHandler.streamExeWithMeshPolicy({ platform: 'win32', sourceFileName: obj.parent.meshAgentBinaries[req.query.id].path, destinationStream: res, msh: meshsettings, peinfo: obj.parent.meshAgentBinaries[req.query.id].pe });
+6458:                 }
+6459:                 return;
+6460:             }
+6461:         } else if (req.query.script != null) {
+6462:             if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { try { res.sendStatus(404); } catch (ex) { } return; } // Check 3FA URL key
+6463:
+6464:             // Send a specific mesh install script back
+6465:             var scriptInfo = obj.parent.meshAgentInstallScripts[req.query.script];
+6466:             if (scriptInfo == null) { try { res.sendStatus(404); } catch (ex) { } return; }
+6467:             setContentDispositionHeader(res, 'application/octet-stream', scriptInfo.rname, null, 'script');
+6468:             var data = scriptInfo.data;
+6469:             var cmdoptions = { wgetoptionshttp: '', wgetoptionshttps: '', curloptionshttp: '-L ', curloptionshttps: '-L ' }
+6470:             if (obj.isTrustedCert(domain) != true) {
+6471:                 cmdoptions.wgetoptionshttps += '--no-check-certificate ';
+6472:                 cmdoptions.curloptionshttps += '-k ';
+6473:             }
+6474:             if (domain.agentnoproxy === true) {
+6475:                 cmdoptions.wgetoptionshttp += '--no-proxy ';
+6476:                 cmdoptions.wgetoptionshttps += '--no-proxy ';
+6477:                 cmdoptions.curloptionshttp += '--noproxy \'*\' ';
+6478:                 cmdoptions.curloptionshttps += '--noproxy \'*\' ';
+6479:             }
+6480:             for (var i in cmdoptions) { data = data.split('{{{' + i + '}}}').join(cmdoptions[i]); }
+6481:             res.send(data);
+6482:             return;
+6483:         } else if (req.query.meshcmd != null) {
+6484:             if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { try { res.sendStatus(404); } catch (ex) { } return; } // Check 3FA URL key
+6485:
+6486:             // Send meshcmd for a specific platform back
+6487:             var agentid = parseInt(req.query.meshcmd);
+6488:
+6489:             // If the agentid is 3 or 4, check if we have a signed MeshCmd.exe
+6490:             if ((agentid == 3) && (obj.parent.meshAgentBinaries[11000] != null)) { // Signed Windows MeshCmd.exe x86-32
+6491:                 var stats = null, meshCmdPath = obj.parent.meshAgentBinaries[11000].path;
+6492:                 try { stats = obj.fs.statSync(meshCmdPath); } catch (e) { }
+6493:                 if ((stats != null)) {
+6494:                     setContentDispositionHeader(res, 'application/octet-stream', 'meshcmd.exe', null, 'meshcmd');
+6495:                     res.sendFile(meshCmdPath); return;
+6496:                 }
+6497:             } else if ((agentid == 4) && (obj.parent.meshAgentBinaries[11001] != null)) { // Signed Windows MeshCmd64.exe x86-64
+6498:                 var stats = null, meshCmd64Path = obj.parent.meshAgentBinaries[11001].path;
+6499:                 try { stats = obj.fs.statSync(meshCmd64Path); } catch (e) { }
+6500:                 if ((stats != null)) {
+6501:                     setContentDispositionHeader(res, 'application/octet-stream', 'meshcmd.exe', null, 'meshcmd');
+6502:                     res.sendFile(meshCmd64Path); return;
+6503:                 }
+6504:             } else if ((agentid == 43) && (obj.parent.meshAgentBinaries[11002] != null)) { // Signed Windows MeshCmd64.exe ARM-64
+6505:                 var stats = null, meshCmdAMR64Path = obj.parent.meshAgentBinaries[11002].path;
+6506:                 try { stats = obj.fs.statSync(meshCmdAMR64Path); } catch (e) { }
+6507:                 if ((stats != null)) {
+6508:                     setContentDispositionHeader(res, 'application/octet-stream', 'meshcmd-arm64.exe', null, 'meshcmd');
+6509:                     res.sendFile(meshCmdAMR64Path); return;
+6510:                 }
+6511:             }
+6512:
+6513:             // No signed agents, we are going to merge a new MeshCmd.
+6514:             if (((agentid == 3) || (agentid == 4)) && (obj.parent.meshAgentBinaries[agentid + 10000] != null)) { agentid += 10000; } // Avoid merging javascript to a signed mesh agent.
+6515:             var argentInfo = obj.parent.meshAgentBinaries[agentid];
+6516:             if (domain.meshAgentBinaries && domain.meshAgentBinaries[agentid]) { argentInfo = domain.meshAgentBinaries[agentid]; }
+6517:             if ((argentInfo == null) || (obj.parent.defaultMeshCmd == null)) { try { res.sendStatus(404); } catch (ex) { } return; }
+6518:             setContentDispositionHeader(res, 'application/octet-stream', 'meshcmd' + ((req.query.meshcmd <= 4) ? '.exe' : ''), null, 'meshcmd');
+6519:             res.statusCode = 200;
+6520:
+6521:             if (argentInfo.signedMeshCmdPath != null) {
+6522:                 // If we have a pre-signed MeshCmd, send that.
+6523:                 res.sendFile(argentInfo.signedMeshCmdPath);
+6524:             } else {
+6525:                 // Merge JavaScript to a unsigned agent and send that.
+6526:                 obj.parent.exeHandler.streamExeWithJavaScript({ platform: argentInfo.platform, sourceFileName: argentInfo.path, destinationStream: res, js: Buffer.from(obj.parent.defaultMeshCmd, 'utf8'), peinfo: argentInfo.pe });
+6527:             }
+6528:             return;
+6529:         } else if (req.query.meshaction != null) {
+6530:             if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { try { res.sendStatus(404); } catch (ex) { } return; } // Check 3FA URL key
+6531:             var user = obj.users[req.session.userid];
+6532:             if (user == null) {
+6533:                 // Check if we have an authentication cookie
+6534:                 var c = obj.parent.decodeCookie(req.query.auth, obj.parent.loginCookieEncryptionKey);
+6535:                 if (c == null) { try { res.sendStatus(404); } catch (ex) { } return; }
+6536:
+6537:                 // Download tools using a cookie
+6538:                 if (c.download == req.query.meshaction) {
+6539:                     if (req.query.meshaction == 'winrouter') {
+
+--- webserver.js lines 6615-7161 ---
+6615:                 var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+6616:                 if (obj.args.lanonly != true) { meshaction.serverUrl = 'wss://' + obj.getWebServerName(domain, req) + ':' + httpsPort + '/' + ((domain.id == '') ? '' : ('/' + domain.id)) + 'meshrelay.ashx'; }
+6617:                 setContentDispositionHeader(res, 'application/octet-stream', 'meshaction.txt', null, 'meshaction.txt');
+6618:                 res.send(JSON.stringify(meshaction, null, ' '));
+6619:                 return;
+6620:             } else if (req.query.meshaction == 'winroute

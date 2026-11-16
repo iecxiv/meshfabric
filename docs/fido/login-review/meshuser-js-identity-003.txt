@@ -1,0 +1,51 @@
+MeshCentral 1.3.1 source review: meshuser.js / identity / part 3 of 3
+Parts may continue a source line. Trailing whitespace is omitted.
+        }
+820:                             }
+821:
+822:                             // Compress the meshid's
+823:                             meshid = docs[i].meshid;
+824:                             if (!r[meshid]) { r[meshid] = []; }
+825:                             delete docs[i].meshid;
+826:
+827:                             // Remove push messaging token if present
+828:                             if (docs[i].pmt != null) { docs[i].pmt = 1; }
+829:
+830:                             // Remove SSH credentials if present
+831:                             if (docs[i].ssh != null) {
+832:                                 if ((docs[i].ssh[user._id] != null) && (docs[i].ssh[user._id].u)) {
+833:                                     if (docs[i].ssh.k && docs[i].ssh[user._id].kp) { docs[i].ssh = 2; } // Username, key and password
+834:                                     else if (docs[i].ssh[user._id].k) { docs[i].ssh = 3; } // Username and key. No password.
+835:                                     else if (docs[i].ssh[user._id].p) { docs[i].ssh = 1; } // Username and password
+836:                                     else { delete docs[i].ssh; }
+837:                                 } else {
+838:                                     delete docs[i].ssh;
+839:                                 }
+840:                             }
+841:
+842:                             // Remove RDP credentials if present, only set to 1 if our userid has RDP credentials
+843:                             if ((docs[i].rdp != null) && (docs[i].rdp[user._id] != null)) { docs[i].rdp = 1; } else { delete docs[i].rdp; }
+844:
+845:                             // Remove Intel AMT credential if present
+846:                             if (docs[i].intelamt != null) {
+847:                                 if (docs[i].intelamt.pass != null) { docs[i].intelamt.pass = 1; }
+848:                                 if (docs[i].intelamt.mpspass != null) { docs[i].intelamt.mpspass = 1; }
+849:                             }
+850:
+851:                             // If GeoLocation not enabled, remove any node location information
+852:                             if (domain.geolocation != true) {
+853:                                 if (docs[i].iploc != null) { delete docs[i].iploc; }
+854:                                 if (docs[i].wifiloc != null) { delete docs[i].wifiloc; }
+855:                                 if (docs[i].gpsloc != null) { delete docs[i].gpsloc; }
+856:                                 if (docs[i].userloc != null) { delete docs[i].userloc; }
+857:                             }
+858:
+859:                             // Add device sessions
+860:                             const xagent = parent.wsagents[docs[i]._id];
+861:                             if ((xagent != null) && (xagent.sessions != null)) { docs[i].sessions = xagent.sessions; }
+862:
+863:                             // Add IP-KVM sessions
+864:                             if (parent.parent.ipKvmManager != null) {
+865:                                 const xipkvmport = parent.parent.ipKvmManager.managedPorts[docs[i]._id];
+866:                                 if ((xipkvmport != null) && (xipkvmport.sessions != null)) { docs[i].sessions = xipkvmport.sessions; }
+867:                             }

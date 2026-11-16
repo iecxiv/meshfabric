@@ -1,0 +1,149 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 3 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+int; }
+1960:
+1961:                                 // Save previous password if this feature is enabled
+1962:                                 if ((typeof domain.passwordrequirements.oldpasswordban == 'number') && (domain.passwordrequirements.oldpasswordban > 0)) {
+1963:                                     if (user.oldpasswords == null) { user.oldpasswords = []; }
+1964:                                     user.oldpasswords.push({ salt: user.salt, hash: user.hash, start: user.passchange, end: nowSeconds });
+1965:                                     const extraOldPasswords = user.oldpasswords.length - domain.passwordrequirements.oldpasswordban;
+1966:                                     if (extraOldPasswords > 0) { user.oldpasswords.splice(0, extraOldPasswords); }
+1967:                                 }
+1968:                             }
+1969:
+1970:                             user.salt = salt;
+1971:                             user.hash = hash;
+1972:                             user.passchange = user.access = nowSeconds;
+1973:                             delete user.passtype;
+1974:                             obj.db.SetUser(user);
+1975:
+1976:                             // Event the account change
+1977:                             var event = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'accountchange', msg: 'User password reset', domain: domain.id };
+1978:                             if (obj.db.changeStream) { event.noact = 1; } // If DB change stream is active, don't use this event to change the user. Another event will come.
+1979:                             obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, event);
+1980:
+1981:                             // Login successful
+1982:                             parent.debug('web', 'handleResetPasswordRequest: success');
+1983:                             req.session.userid = userid;
+1984:                             req.session.ip = req.clientIp; // Bind this session to the IP address of the request
+1985:                             setSessionRandom(req);
+1986:                             const sec = parent.decryptSessionData(req.session.e);
+1987:                             completeLoginRequest(req, res, domain, obj.users[userid], userid, sec.tuser, sec.tpass, direct, loginOptions);
+1988:                         }, 0);
+1989:                     }
+1990:                 }, 0);
+1991:             } else {
+1992:                 // Failed, error out.
+1993:                 parent.debug('web', 'handleResetPasswordRequest: failed authenticate()');
+1994:                 delete req.session.e;
+1995:                 delete req.session.u2f;
+1996:                 delete req.session.loginmode;
+1997:                 delete req.session.tuserid;
+1998:                 delete req.session.tuser;
+1999:                 delete req.session.tpass;
+2000:                 delete req.session.temail;
+2001:                 delete req.session.tsms;
+2002:                 delete req.session.tmsg;
+2003:                 delete req.session.tpush;
+2004:                 delete req.session.messageid;
+2005:                 delete req.session.passhint;
+2006:                 delete req.session.cuserid;
+2007:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2008:                 return;
+2009:             }
+2010:         });
+2011:     }
+2012:
+2013:     // Called to process an account reset request
+2014:     function handleResetAccountRequest(req, res, direct) {
+2015:         const domain = checkUserIpAddress(req, res);
+2016:         if (domain == null) { return; }
+2017:         const allowAccountReset = ((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.allowaccountreset !== false));
+2018:         if ((allowAccountReset === false) || (domain.auth == 'sspi') || (domain.auth == 'ldap') || (obj.args.lanonly == true) || (obj.parent.certificates.CommonName == null) || (obj.parent.certificates.CommonName.indexOf('.') == -1)) { parent.debug('web', 'handleResetAccountRequest: check failed'); res.sendStatus(404); return; }
+2019:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+2020:         if (req.session.loginToken != null) { res.sendStatus(404); return; } // Do not allow this command when logged in using a login token
+2021:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+2022:
+2023:         // Always lowercase the email address
+2024:         if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
+2025:
+2026:         // Get the email from the body or session.
+2027:         var email = req.body.email;
+2028:         if ((email == null) || (email == '')) { email = req.session.temail; }
+2029:
+2030:         // Check the email string format
+2031:         if (!email || checkEmail(email) == false) {
+2032:             parent.debug('web', 'handleResetAccountRequest: Invalid email');
+2033:             req.session.loginmode = 3;
+2034:             req.session.messageid = 106; // Invalid email.
+2035:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2036:         } else {
+2037:             obj.db.GetUserWithVerifiedEmail(domain.id, email, function (err, docs) {
+2038:                 // Remove all accounts that start with ~ since they are special accounts.
+2039:                 var cleanDocs = [];
+2040:                 if ((err == null) && (docs.length > 0)) {
+2041:                     for (var i in docs) {
+2042:                         const user = docs[i];
+2043:                         const locked = ((user.siteadmin != null) && (user.siteadmin != 0xFFFFFFFF) && ((user.siteadmin & 1024) != 0)); // No password recovery for locked accounts
+2044:                         const specialAccount = (user._id.split('/')[2].startsWith('~')); // No password recovery for special accounts
+2045:                         if ((specialAccount == false) && (locked == false)) { cleanDocs.push(user); }
+2046:                     }
+2047:                 }
+2048:                 docs = cleanDocs;
+2049:
+2050:                 // Check if we have any account that match this email address
+2051:                 if ((err != null) || (docs.length == 0)) {
+2052:                     parent.debug('web', 'handleResetAccountRequest: Account not found');
+2053:                     req.session.loginmode = 3;
+2054:                     req.session.messageid = 1; // If valid, reset mail sent. Instead of "Account not found" (107), we send this hold on message so users can't know if this account exists or not.
+2055:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2056:                 } else {
+2057:                     // If many accounts have the same validated e-mail, we are going to use the first one for display, but sent a reset email for all accounts.
+2058:                     var responseSent = false;
+2059:                     for (var i in docs) {
+2060:                         var user = docs[i];
+2061:                         if (checkUserOneTimePasswordRequired(domain, user, req) == true) {
+2062:                             // Second factor setup, request it now.
+2063:                             checkUserOneTimePassword(req, domain, user, req.body.token, req.body.hwtoken, function (result, authData) {
+2064:                                 if (result == false) {
+2065:                                     if (i == 0) {
+2066:
+2067:                                         // Check if 2FA is allowed for this IP address
+2068:                                         if (obj.checkAllow2Fa(req) == false) {
+2069:                                             // Wait and redirect the user
+2070:                                             setTimeout(function () {
+2071:                                                 req.session.messageid = 114; // IP address blocked, try again later.
+2072:                                                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+2073:                                             }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095));
+2074:                                             return;
+2075:                                         }
+2076:
+2077:                                         // 2-step auth is required, but the token is not present or not valid.
+2078:                                         parent.debug('web', 'handleResetAccountRequest: Invalid 2FA token, try again');
+2079:                                         if ((req.body.token != null) || (req.body.hwtoken != null)) {
+2080:                                             var sms2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.sms2factor != false)) && (parent.smsserver != null) && (user.phone != null));
+2081:                                             var msg2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.msg2factor != false)) && (parent.msgserver != null) && (parent.msgserver.providers != 0) && (user.msghandle != null));
+2082:                                             if ((req.body.hwtoken == '**sms**') && sms2fa) {
+2083:                                                 // Cause a token to be sent to the user's phone number
+2084:                                                 user.otpsms = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+2085:                                                 obj.db.SetUser(user);
+2086:                                                 parent.debug('web', 'Sending 2FA SMS for password recovery to: ' + user.phone);
+2087:                                                 parent.smsserver.sendToken(domain, user.phone, user.otpsms.k, obj.getLanguageCodes(req));
+2088:                                                 req.session.messageid = 4; // SMS sent.
+2089:                                             } else if ((req.body.hwtoken == '**msg**') && msg2fa) {
+2090:                                                 // Cause a token to be sent to the user's messager account
+2091:                                                 user.otpmsg = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+2092:                                                 obj.db.SetUser(user);
+2093:                                                 parent.debug('web', 'Sending 2FA message for password recovery to: ' + user.msghandle);
+2094:                                                 parent.msgserver.sendToken(domain, user.msghandle, user.otpmsg.k, obj.getLanguageCodes(req));
+2095:                                                 req.session.messageid = 6; // Message sent.
+2096:                                             } else {
+2097:                                                 req.session.messageid = 108; // Invalid token, try again.
+2098:                                                 const ua = obj.getUserAgentInfo(req);
+2099:                                                 obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, { action: 'authfail', username: user.name, userid: user._id, domain: domain.id, msg: 'User login attempt with incorrect 2nd factor from ' + req.clientIp, msgid: 108, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+2100:                                                 obj.setbad2Fa(req);
+2101:                                             }
+2102:                                         }
+2103:                                         req.session.loginmode = 5;
+2104:                                         req.session.temail = email;
+2105:

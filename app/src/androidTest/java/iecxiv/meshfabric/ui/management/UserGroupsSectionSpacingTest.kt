@@ -7,7 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import iecxiv.meshfabric.data.remote.MeshCentralClient
@@ -45,7 +45,7 @@ import java.util.Locale
     @Test fun resultsHeadingPrecedesGroupsAndIsAbsentWhenNoGroupsExist() {Fixture().use {f->
         val state=androidx.compose.runtime.mutableStateOf(ProfileState(listedUserGroups=listOf(JSONObject().put("_id","ugrp//one").put("name","Oficina")),userGroupPhase="ready"))
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {UserGroupsDirectoryPane(f.session,state.value,onOpenUser={},onOpenDeviceGroup={})}}
         }
         compose.onNodeWithTag("user-groups-list-heading").performScrollTo().assertTextEquals("Grupos")

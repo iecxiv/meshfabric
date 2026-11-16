@@ -1,0 +1,10 @@
+<resources>
+<string name="fido_login_action">Use security key</string>
+<string name="fido_login_title">Security key login</string>
+<string name="fido_login_prompt">Use your registered key by USB or NFC. You can cancel this attempt.</string>
+<string name="fido_login_pending">Key response sent. The authenticated account has not yet been verified; access is not complete.</string>
+<string name="fido_login_cancel">Cancel</string>
+<string name="fido_login_failed">The key login attempt could not be completed. Check credentials, connection and server compatibility.</string>
+<string name="fido_login_tls">Key login requires HTTPS with certificate verification. Disable Ignore SSL to use it.</string>
+<string name="fido_login_expired">The key login attempt expired. It was not completed.</string>
+</resources>

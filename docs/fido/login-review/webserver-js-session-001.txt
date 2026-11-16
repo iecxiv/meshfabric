@@ -1,0 +1,191 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 1 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+
+--- webserver.js lines 1634-2183 ---
+1634:             }
+1635:         });
+1636:     }
+1637:
+1638:     function completeLoginRequest(req, res, domain, user, userid, xusername, xpassword, direct, loginOptions) {
+1639:         // Check if we need to change the password
+1640:         if ((typeof user.passchange == 'number') && ((user.passchange == -1) || ((typeof domain.passwordrequirements == 'object') && (typeof domain.passwordrequirements.reset == 'number') && (user.passchange + (domain.passwordrequirements.reset * 86400) < Math.floor(Date.now() / 1000))))) {
+1641:             // Request a password change
+1642:             parent.debug('web', 'handleLoginRequest: login ok, password change requested');
+1643:             req.session.loginmode = 6;
+1644:             req.session.messageid = 113; // Password change requested.
+1645:
+1646:             // Decrypt any session data
+1647:             const sec = parent.decryptSessionData(req.session.e);
+1648:             sec.rtuser = xusername;
+1649:             sec.rtpass = xpassword;
+1650:             sec.rtreset = true;
+1651:             req.session.e = parent.encryptSessionData(sec);
+1652:
+1653:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1654:             return;
+1655:         }
+1656:
+1657:         // Save login time
+1658:         user.pastlogin = user.login;
+1659:         user.login = user.access = Math.floor(Date.now() / 1000);
+1660:         obj.db.SetUser(user);
+1661:
+1662:         // Notify account login
+1663:         const targets = ['*', 'server-users', user._id];
+1664:         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+1665:         const ua = obj.getUserAgentInfo(req);
+1666:         const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login from ' + req.clientIp + ', ' + ua.browserStr + ', ' + ua.osStr, domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], rport: req.connection.remotePort };
+1667:         if (loginOptions != null) {
+1668:             if ((loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) { loginEvent.tokenName = loginOptions.tokenName; loginEvent.tokenUser = loginOptions.tokenUser; } // If a login token was used, add it to the event.
+1669:             if (loginOptions.twoFactorType != null) { loginEvent.twoFactorType = loginOptions.twoFactorType; }
+1670:         }
+1671:         obj.parent.DispatchEvent(targets, obj, loginEvent);
+1672:
+1673:         // Regenerate session when signing in to prevent fixation
+1674:         //req.session.regenerate(function () {
+1675:         // Store the user's primary key in the session store to be retrieved, or in this case the entire user object
+1676:         delete req.session.e;
+1677:         delete req.session.u2f;
+1678:         delete req.session.loginmode;
+1679:         delete req.session.tuserid;
+1680:         delete req.session.tuser;
+1681:         delete req.session.tpass;
+1682:         delete req.session.temail;
+1683:         delete req.session.tsms;
+1684:         delete req.session.tmsg;
+1685:         delete req.session.tduo;
+1686:         delete req.session.tpush;
+1687:         delete req.session.messageid;
+1688:         delete req.session.passhint;
+1689:         delete req.session.cuserid;
+1690:         delete req.session.expire;
+1691:         delete req.session.currentNode;
+1692:         req.session.userid = userid;
+1693:         req.session.ip = req.clientIp;
+1694:         setSessionRandom(req);
+1695:         obj.parent.authLog('https', 'Accepted password for ' + (xusername ? xusername : userid) + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'], sessionid: req.session.x });
+1696:
+1697:         // If a login token was used, add this information and expire time to the session.
+1698:         if ((loginOptions != null) && (loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) {
+1699:             req.session.loginToken = loginOptions.tokenUser;
+1700:             if (loginOptions.expire != null) { req.session.expire = loginOptions.expire; }
+1701:         }
+1702:
+1703:         if (req.body.viewmode) { req.session.viewmode = req.body.viewmode; }
+1704:         if (req.body.host) {
+1705:             // TODO: This is a terrible search!!! FIX THIS.
+1706:             /*
+1707:             obj.db.GetAllType('node', function (err, docs) {
+1708:                 for (var i = 0; i < docs.length; i++) {
+1709:                     if (docs[i].name == req.body.host) {
+1710:                         req.session.currentNode = docs[i]._id;
+1711:                         break;
+1712:                     }
+1713:                 }
+1714:                 console.log("CurrentNode: " + req.session.currentNode);
+1715:                 // This redirect happens after finding node is completed
+1716:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1717:             });
+1718:             */
+1719:             parent.debug('web', 'handleLoginRequest: login ok (1)');
+1720:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); } // Temporary
+1721:         } else {
+1722:             parent.debug('web', 'handleLoginRequest: login ok (2)');
+1723:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1724:         }
+1725:         //});
+1726:     }
+1727:
+1728:     function handleCreateAccountRequest(req, res, direct) {
+1729:         const domain = checkUserIpAddress(req, res);
+1730:         if (domain == null) { return; }
+1731:         if ((domain.auth == 'sspi') || (domain.auth == 'ldap')) { parent.debug('web', 'handleCreateAccountRequest: failed checks.'); res.sendStatus(404); return; }
+1732:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+1733:         if (req.session.loginToken != null) { res.sendStatus(404); return; } // Do not allow this command when logged in using a login token
+1734:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+1735:
+1736:         // Check if we are in maintenance mode
+1737:         if (parent.config.settings.maintenancemode != null) {
+1738:             req.session.messageid = 115; // Server under maintenance
+1739:             req.session.loginmode = 1;
+1740:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1741:             return;
+1742:         }
+1743:
+1744:         // Always lowercase the email address
+1745:         if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
+1746:
+1747:         // If the email is the username, set this here.
+1748:         if (domain.usernameisemail) { req.body.username = req.body.email; }
+1749:
+1750:         // Check if there is domain.newAccountToken, check if supplied token is valid
+1751:         if ((domain.newaccountspass != null) && (domain.newaccountspass != '') && (req.body.newaccountspass != domain.newaccountspass)) {
+1752:             parent.debug('web', 'handleCreateAccountRequest: Invalid account creation token');
+1753:             req.session.loginmode = 2;
+1754:             req.session.messageid = 103; // Invalid account creation token.
+1755:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1756:             return;
+1757:         }
+1758:
+1759:         // If needed, check the new account creation CAPTCHA
+1760:         if ((domain.newaccountscaptcha != null) && (domain.newaccountscaptcha !== false)) {
+1761:             const c = parent.decodeCookie(req.body.captchaargs, parent.loginCookieEncryptionKey, 10); // 10 minute timeout
+1762:             if ((c == null) || (c.type != 'newAccount') || (typeof c.captcha != 'string') || (c.captcha.length < 5) || (c.captcha != req.body.anewaccountcaptcha)) {
+1763:                 req.session.loginmode = 2;
+1764:                 req.session.messageid = 117; // Invalid security check
+1765:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1766:                 return;
+1767:             }
+1768:         }
+1769:
+1770:         // Accounts that start with ~ are not allowed
+1771:         if ((typeof req.body.username != 'string') || (req.body.username.length < 1) || (req.body.username[0] == '~')) {
+1772:             parent.debug('web', 'handleCreateAccountRequest: unable to create account (0)');
+1773:             req.session.loginmode = 2;
+1774:             req.session.messageid = 100; // Unable to create account.
+1775:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1776:             return;
+1777:         }
+1778:
+1779:         // Count the number of users in this domain
+1780:         var domainUserCount = 0;
+1781:         for (var i in obj.users) { if (obj.users[i].domain == domain.id) { domainUserCount++; } }
+1782:
+1783:         // Check if we are allowed to create new users using the login screen
+1784:         if ((domain.newaccounts !== 1) && (domain.newaccounts !== true) && (domainUserCount > 0)) {
+1785:             parent.debug('web', 'handleCreateAccountRequest: domainUserCount > 1.');
+1786:             res.sendStatus(401);
+1787:             return;
+1788:         }
+1789:
+1790:         // Check if this request is for an allows email domain
+1791:         if ((domain.newaccountemaildomains != null) && Array.isArray(domain.newaccountemaildomains)) {
+1792:             var i = -1;
+1793:             if (typeof req.body.email == 'string') { i = req.body.email.indexOf('@'); }
+1794:             if (i == -1) {
+1795:                 parent.debug('web', 'handleCreateAccountRequest: unable to create account (1)');
+1796:                 req.session.loginmode = 2;
+1797:                 req.session.messageid = 100; // Unable to create account.
+1798:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1799:                 return;
+1800:             }
+1801:             var emailok = false, emaildomain = req.body.email.substring(i + 1).toLowerCase();
+1802:             for (var i in domain.newaccountemaildomains) { if (emaildomain == domain.newaccountemaildomains[i].toLowerCase()) { emailok = true; } }
+1803:             if (emailok == false) {
+1804:                 parent.debug('web', 'handleCreateAccountRequest: unable to create account (2)');
+1805:                 req.session.loginmode = 2;
+1806:                 req.session.messageid = 100; // Unable to create account.
+1807:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1808:                 return;
+1809:             }
+1810:         }
+1811:
+1812:         // Check if we exceed the maximum number of user accounts
+1813:         obj.db.isMaxType(domain.limits.maxuseraccounts, 'user', domain.id, function (maxExceed) {
+1814:             if (maxExceed) {
+1815:                 parent.debug('web', 'handleCreateAccountRequest: account limit reached');
+1816:                 req.session.loginmode = 2;
+1817:                 req.session.messageid = 101; // Account limit reached.
+1818:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1819:             } else {
+1820:                 if (!obj

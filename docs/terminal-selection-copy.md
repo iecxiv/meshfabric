@@ -8,8 +8,12 @@ Snapshot extraction uses only the active xterm buffer public line APIs. Physical
 
 The native read is cancellable and times out after three seconds. Closing the dialog cancels its coroutine, so late callbacks cannot reopen or repopulate it. The text is transient UI memory, never logged or persisted. Selection does not pause the terminal or alter its delivery cursor, resize or protocol.
 
-Both partial and whole-snapshot copying use a dialog-local ClipboardManager that marks content sensitive to suppress the Android clipboard preview. This does not encrypt the clipboard or prevent other authorized applications from reading pasted text. Android 13+ provides its own copy feedback; only older versions get a Toast.
+Both partial and whole-snapshot copying use a dialog-local LocalClipboard/Clipboard adapter with suspend setClipEntry operations that marks content sensitive to suppress the Android clipboard preview. This does not encrypt the clipboard or prevent other authorized applications from reading pasted text. Android 13+ provides its own copy feedback; only older versions get a Toast.
 
 Verification: new pure JavaScript snapshot tests plus existing runtime tests. The Android WebView cases also verify snapshot text; an ANSI-color case checks that copying returns rendered characters rather than escape sequences. Another instrumentation case checks ClipData text and sensitive metadata. CI must build app/tests and run JVM, Node and focused Android tests before publishing. Physical-device verification of long-press handles, selection scrolling, layout in landscape, clipboard toolbar and retained terminal state remains necessary.
 
 Paste, IME/focus behavior and special-key/scroll redesign are deliberately excluded from this commit.
+
+## Subsequent device check
+
+On 2026-11-16 the user reported copy/paste working after the terminal/desktop clipboard migrations. This is a physical smoke check, not completion of every layout, lifecycle, host or clipboard edge-case scenario. See [validation scope](fido/README.md).

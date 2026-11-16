@@ -10,7 +10,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
@@ -24,7 +24,7 @@ class ProfileHeaderContinuityUiTest {
         val ready=ProfileState(ready=true,user=JSONObject().put("_id","user//admin"))
         val live=mutableStateOf(ready)
         compose.setContent {
-            val configuration=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val configuration=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             val density=Density(LocalDensity.current.density,scale)
             CompositionLocalProvider(LocalConfiguration provides configuration,LocalDensity provides density) {MaterialTheme {
                 val state=rememberProfileDialogPresentation(live.value,"same-identity","user//admin")

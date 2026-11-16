@@ -1,0 +1,141 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 18 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+'?')[0];
+6762:             for (var agentid in obj.parent.meshAgentBinaries) {
+6763:                 if ((agentid >= 10000) && (agentid != 10005)) continue;
+6764:                 var agentinfo = obj.parent.meshAgentBinaries[agentid];
+6765:                 if (domain.meshAgentBinaries && domain.meshAgentBinaries[agentid]) { argentInfo = domain.meshAgentBinaries[agentid]; }
+6766:                 response += '<tr><td>' + agentinfo.id + '</td><td>' + agentinfo.desc.split(' ').join('&nbsp;') + '</td>';
+6767:                 response += '<td><a download href="' + originalUrl + '?id=' + agentinfo.id + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">' + agentinfo.rname + '</a>';
+6768:                 if ((user.siteadmin == 0xFFFFFFFF) || ((Array.isArray(obj.parent.config.settings.agentcoredumpusers)) && (obj.parent.config.settings.agentcoredumpusers.indexOf(user._id) >= 0))) {
+6769:                     if ((agentid == 3) || (agentid == 4)) { response += ', <a download href="' + originalUrl + '?id=' + agentinfo.id + '&pdb=1' + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">PDB</a>'; }
+6770:                 }
+6771:                 if (agentinfo.zdata != null) { response += ', <a download href="' + originalUrl + '?id=' + agentinfo.id + '&zip=1' + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">ZIP</a>'; }
+6772:                 response += '</td>';
+6773:                 response += '<td>' + agentinfo.size + '</td><td>' + agentinfo.hashhex + '</td>';
+6774:                 response += '<td><a download href="' + originalUrl + '?meshcmd=' + agentinfo.id + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">' + agentinfo.rname.replace('agent', 'cmd') + '</a></td></tr>';
+6775:             }
+6776:             response += '</table>';
+6777:             response += '<a href="' + originalUrl + '?cores=1' + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">MeshCores</a> ';
+6778:             if (coreDumpsAllowed) { response += '<a href="' + originalUrl + '?dumps=1' + (req.query.key ? ('&key=' + encodeURIComponent(req.query.key)) : '') + '">MeshAgent Crash Dumps</a>'; }
+6779:             response += '</body></html>';
+6780:             res.send(response);
+6781:             return;
+6782:         }
+6783:     };
+6784:
+6785:     // generate the server url
+6786:     obj.generateBaseURL = function (domain, req) {
+6787:         var serverName = obj.getWebServerName(domain, req);
+6788:         var httpsPort = ((args.aliasport == null) ? args.port : args.aliasport); // Use HTTPS alias port is specified
+6789:         var xdomain = (domain.dns == null) ? domain.id : '';
+6790:         if (xdomain != '') xdomain += '/';
+6791:         return ('https://' + serverName + ':' + httpsPort + '/' + xdomain);
+6792:     }
+6793:
+6794:     // Get the web server hostname. This may change if using a domain with a DNS name.
+6795:     obj.getWebServerName = function (domain, req) {
+6796:         if (domain.dns != null) return domain.dns;
+6797:         if ((obj.certificates.CommonName == 'un-configured') && (req != null) && (req.headers != null) && (typeof req.headers.host == 'string')) { return req.headers.host.split(':')[0]; }
+6798:         return obj.certificates.CommonName;
+6799:     }
+6800:
+6801:     // Return true if this is an allowed HTTP request origin hostname.
+6802:     obj.CheckWebServerOriginName = function (domain, req) {
+6803:         if (domain.allowedorigin === true) return true; // Ignore origin
+6804:         if (typeof req.headers.origin != 'string') return true; // No origin in the header, this is a desktop app
+6805:         let originUrl; try { originUrl = new URL(req.headers.origin); } catch (ex) { return false; }
+6806:         if (!originUrl.hostname) return false; // Origin hostname is not valid
+6807:         if (Array.isArray(domain.allowedorigin)) return (domain.allowedorigin.indexOf(originUrl.hostname) >= 0); // Check if this is an allowed origin from an explicit list
+6808:         if (domain.dns != null) return (domain.dns == originUrl.hostname); // Match the domain DNS
+6809:         return (obj.getWebServerName(domain, req) == originUrl.hostname); // Match the server hostname
+6810:     }
+6811:
+6812:     // Create a OSX mesh agent installer
+6813:     obj.handleMeshOsxAgentRequest = function (req, res) {
+6814:         const domain = getDomain(req, res);
+6815:         if (domain == null) { parent.debug('web', 'handleRootRequest: invalid domain.'); try { res.sendStatus(404); } catch (ex) { } return; }
+6816:         if (req.query.id == null) { res.sendStatus(404); return; }
+6817:
+6818:         // If required, check if this user has rights to do this
+6819:         if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true)) && (req.session.userid == null)) { res.sendStatus(401); return; }
+6820:
+6821:         // Send a specific mesh agent back
+6822:         var argentInfo = obj.parent.meshAgentBinaries[req.query.id];
+6823:         if (domain.meshAgentBinaries && domain.meshAgentBinaries[req.query.id]) { argentInfo = domain.meshAgentBinaries[req.query.id]; }
+6824:         if ((argentInfo == null) || (req.query.meshid == null)) { res.sendStatus(404); return; }
+6825:
+6826:         // Check if the meshid is a time limited, encrypted cookie
+6827:         var meshcookie = obj.parent.decodeCookie(req.query.meshid, obj.parent.invitationLinkEncryptionKey);
+6828:         if ((meshcookie != null) && (meshcookie.m != null)) { req.query.meshid = meshcookie.m; }
+6829:
+6830:         // We are going to embed the .msh file into the Windows executable (signed or not).
+6831:         // First, fetch the mesh object to build the .msh file
+6832:         var mesh = obj.meshes['mesh/' + domain.id + '/' + req.query.meshid];
+6833:         if (mesh == null) { res.sendStatus(401); return; }
+6834:
+6835:         // If required, check if this user has rights to do this
+6836:         if ((obj.parent.config.settings != null) && ((obj.parent.config.settings.lockagentdownload == true) || (domain.lockagentdownload == true))) {
+6837:             if ((domain.id != mesh.domain) || ((obj.GetMeshRights(req.session.userid, mesh) & 1) == 0)) { res.sendStatus(401); return; }
+6838:         }
+6839:
+6840:         var meshidhex = Buffer.from(req.query.meshid.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
+6841:         var serveridhex = Buffer.from(obj.agentCertificateHashBase64.replace(/\@/g, '+').replace(/\$/g, '/'), 'base64').toString('hex').toUpperCase();
+6842:
+6843:         // Get the agent connection server name
+6844:         var serverName = obj.getWebServerName(domain, req);
+6845:         if (typeof obj.args.agentaliasdns == 'string') { serverName = obj.args.agentaliasdns; }
+6846:
+6847:         // Build the agent connection URL. If we are using a sub-domain or one with a DNS, we need to craft the URL correctly.
+6848:         var xdomain = (domain.dns == null) ? domain.id : '';
+6849:         if (xdomain != '') xdomain += '/';
+6850:         var meshsettings = '\r\nMeshName=' + mesh.name + '\r\nMeshType=' + mesh.mtype + '\r\nMeshID=0x' + meshidhex + '\r\nServerID=' + serveridhex + '\r\n';
+6851:         var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+6852:         if (obj.args.agentport != null) { httpsPort = obj.args.agentport; } // If an agent only port is enabled, use that.
+6853:         if (obj.args.agentaliasport != null) { httpsPort = obj.args.agentaliasport; } // If an agent alias port is specified, use that.
+6854:         if (obj.args.lanonly != true) { meshsettings += 'MeshServer=wss://' + serverName + ':' + httpsPort + '/' + xdomain + 'agent.ashx\r\n'; } else {
+6855:             meshsettings += 'MeshServer=local\r\n';
+6856:             if ((obj.args.localdiscovery != null) && (typeof obj.args.localdiscovery.key == 'string') && (obj.args.localdiscovery.key.length > 0)) { meshsettings += 'DiscoveryKey=' + obj.args.localdiscovery.key + '\r\n'; }
+6857:         }
+6858:         if ((req.query.tag != null) && (typeof req.query.tag == 'string') && (obj.common.isAlphaNumeric(req.query.tag) == true)) { meshsettings += 'Tag=' + encodeURIComponent(req.query.tag) + '\r\n'; }
+6859:         if ((req.query.installflags != null) && (req.query.installflags != 0) && (parseInt(req.query.installflags) == req.query.installflags)) { meshsettings += 'InstallFlags=' + parseInt(req.query.installflags) + '\r\n'; }
+6860:         if ((domain.agentnoproxy === true) || (obj.args.lanonly == true)) { meshsettings += 'ignoreProxyFile=1\r\n'; }
+6861:         if (obj.args.agentconfig) { for (var i in obj.args.agentconfig) { meshsettings += obj.args.agentconfig[i] + '\r\n'; } }
+6862:         if (domain.agentconfig) { for (var i in domain.agentconfig) { meshsettings += domain.agentconfig[i] + '\r\n'; } }
+6863:         if (domain.agentcustomization != null) { // Add agent customization
+6864:             if (domain.agentcustomization.displayname != null) { meshsettings += 'displayName=' + domain.agentcustomization.displayname + '\r\n'; }
+6865:             if (domain.agentcustomization.description != null) { meshsettings += 'description=' + domain.agentcustomization.description + '\r\n'; }
+6866:             if (domain.agentcustomization.companyname != null) { meshsettings += 'companyName=' + domain.agentcustomization.companyname + '\r\n'; }
+6867:             if (domain.agentcustomization.servicename != null) { meshsettings += 'meshServiceName=' + domain.agentcustomization.servicename + '\r\n'; }
+6868:             if (domain.agentcustomization.filename != null) { meshsettings += 'fileName=' + domain.agentcustomization.filename + '\r\n'; }
+6869:             if (domain.agentcustomization.image != null) { meshsettings += 'image=' + domain.agentcustomization.image + '\r\n'; }
+6870:             if (domain.agentcustomization.foregroundcolor != null) { meshsettings += checkAgentColorString('foreground=', domain.agentcustomization.foregroundcolor); }
+6871:             if (domain.agentcustomization.backgroundcolor != null) { meshsettings += checkAgentColorString('background=', domain.agentcustomization.backgroundcolor); }
+6872:         }
+6873:         if (domain.agentTranslations != null) { meshsettings += 'translation=' + domain.agentTranslations + '\r\n'; }
+6874:
+6875:         // Setup the response output
+6876:         // Customize the mesh agent file name
+6877:         var meshfilename = 'MeshAgent-' + mesh.name + '.zip';
+6878:         var meshexecutablename = 'meshagent';
+6879:         var meshpkgname = 'MeshAgent.pkg';
+6880:         if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.filename == 'string')) {
+6881:             meshfilename = meshfilename.split('MeshAgent').join(domain.agentcustomization.filename);
+6882:             meshexecutablename = meshexecutablename.split('meshagent').join(domain.agentcustomization.filename);
+6883:             meshpkgname = meshpkgname.split('MeshAgent').join(domain.agentcustomization.filename);
+6884:         }
+6885:
+6886:         // Customise the mesh agent display name
+6887:         var meshdisplayname = 'Mesh Agent';
+6888:         if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.displayname == 'string')) {
+6889:             meshdisplayname = meshdisplayname.split('Mesh Agent').join(domain.agentcustomization.displayname);
+6890:         }
+6891:
+6892:         // Customise the mesh agent service name
+6893:         var meshservicename = 'meshagent';
+6894:         if ((domain.agentcustomization != null) && (typeof domain.agentcustomization.servicename == 'string')) {
+6895:             meshservicename = meshservicename.split('meshagent').join(domain.agentcustomization.servicename);
+6896:         }
+6897:
+6898:         // Customise the mesh agent company name
+6899:         var meshcompanyname =

@@ -95,7 +95,7 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
                         val nodes=s.nodes?.filter { it.optString("meshid")==id && deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
                         if(nodes==null) Text(t("Listado de dispositivos no disponible. Usa Actualizar.","Device list unavailable. Use Refresh.")) else {
                             Text("${nodes.size} "+t("dispositivos visibles","visible devices"),style=MaterialTheme.typography.bodySmall)
-                            for(node in nodes.take(100)) ListItem(headlineContent={Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis)},leadingContent={Icon(Icons.Default.Computer,null)},trailingContent={if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}})
+                            for(node in nodes.take(100)) ListItem(leadingContent={Icon(Icons.Default.Computer,null)},trailingContent={if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}}) { Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis) }
                             if(nodes.size>100) Text(t("Se muestran 100 resultados; concreta la búsqueda.","Showing 100 results; refine the search."),style=MaterialTheme.typography.bodySmall)
                         }
                     }
@@ -107,7 +107,7 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
                             for(member in members.take(100)) {
                                 val presentation=profileReceivedLinkPresentation(s,group,member,es)
                                 val rights=runCatching { val raw=requireNotNull(links).getJSONObject(member).get("rights"); require(raw is Number); userAdvancedMask(raw) }.getOrNull()
-                                ListItem(headlineContent={Text(presentation.label,maxLines=2,overflow=TextOverflow.Ellipsis)},supportingContent={Text(rights?.let { deviceGroupRightsLabel(it,es) } ?: t("Permisos no informados","Rights not reported"))},leadingContent={Icon(Icons.Default.Group,null)})
+                                ListItem(supportingContent={Text(rights?.let { deviceGroupRightsLabel(it,es) } ?: t("Permisos no informados","Rights not reported"))},leadingContent={Icon(Icons.Default.Group,null)}) { Text(presentation.label,maxLines=2,overflow=TextOverflow.Ellipsis) }
 if(!presentation.usable) Text(t("Acciones no disponibles: falta una ficha con nombre inequívoco.","Actions unavailable: an entry with an unambiguous name is missing."),style=MaterialTheme.typography.bodySmall)
 if(presentation.usable && onOpenUser!=null && profileAccessUserTarget(s,member)!=null) TextButton(enabled=s.canWrite,onClick={onOpenUser(member)}) {Text(t("Abrir usuario","Open user"))}
 if(presentation.usable && onOpenUserGroup!=null && profileReceivedUserGroup(s,member)!=null) TextButton(enabled=s.ready && !s.busy && !s.loading && !s.detailsBusy,onClick={onOpenUserGroup(member)}) {Text(t("Abrir grupo de usuarios","Open user group"))}

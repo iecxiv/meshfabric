@@ -4,7 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -32,7 +32,7 @@ class ProfileDialogContinuityUiTest {
         val live=mutableStateOf(ready())
         try {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     val display=rememberProfileDialogPresentation(live.value,"same-server","user//admin")
                     UserAdministrationDialog(session,display,ProfileForm(true,"edit","user//alice","Alicia","alice@example.invalid"),onDismiss={})
