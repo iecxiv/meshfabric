@@ -11,19 +11,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.*
 import java.util.UUID
 
-internal data class GeneralMeta(val name:String,val tags:List<String>,val rights:Long,val os:String,val mesh:String,val description:String="")
-internal data class GeneralDraft(val name:String,val tags:List<String>,val description:String?=null)
+internal data class GeneralMeta(val name:String,val tags:List<String>,val rights:Long,val os:String,val mesh:String,val description:String="",val consent:Long=0L)
+internal data class GeneralDraft(val name:String,val tags:List<String>,val description:String?=null,val consent:Long?=null)
 internal data class GeneralEditorState(val meta:GeneralMeta?=null,val phase:String="loading",val code:String="") {
     val canEdit:Boolean get()=meta!=null && meta.rights and 4L!=0L && phase in setOf("ready","confirmed")
 }
 internal fun generalDescriptionValid(value:String)=value.length<=1024 && value.none {it<' ' && it!='\n' && it!='\r' && it!='\t'}
-internal fun generalDraft(name:String,tags:String,description:String?=null):GeneralDraft {
+internal fun generalDraft(name:String,tags:String,description:String?=null,consent:Long?=null):GeneralDraft {
     require(name.isNotBlank() && name.length<=256 && name.none { it<' ' })
     require(tags.length<=4096 && tags.none { it<' ' && it!='\n' })
     require(description==null || generalDescriptionValid(description))
+    require(consent==null || consent in 0L..0xffffffffL)
     val values=tags.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
     require(values.all { it.length<64 })
-    return GeneralDraft(name,values,description)
+    return GeneralDraft(name,values,description,consent)
 }
 internal fun generalMeta(packet:JsonObject,nodeId:String,tag:String):GeneralMeta?=runCatching {
     require(packet.get("action")?.asString=="getsysinfo" && packet.get("tag")?.asString==tag)
@@ -40,21 +41,23 @@ internal fun generalMeta(packet:JsonObject,nodeId:String,tag:String):GeneralMeta
     val desc=node.get("desc")
     require(desc==null || desc.isJsonNull || (desc.isJsonPrimitive && desc.asJsonPrimitive.isString))
     val description=if(desc==null || desc.isJsonNull) "" else desc.asString
-    GeneralMeta(node.get("name")?.asString.orEmpty(),list,value.toLong(),node.get("osdesc")?.asString.orEmpty(),node.get("meshid")?.asString.orEmpty(),description)
+    GeneralMeta(node.get("name")?.asString.orEmpty(),list,value.toLong(),node.get("osdesc")?.asString.orEmpty(),node.get("meshid")?.asString.orEmpty(),description,generalConsentValue(node))
 }.getOrNull()
 internal fun generalChange(nodeId:String,responseId:String,before:GeneralMeta,after:GeneralDraft):JsonObject {
     require(before.rights and 4L!=0L)
     require(after.description==null || generalDescriptionValid(after.description))
+    require(after.consent==null || (before.consent in 0L..0xffffffffL && after.consent in 0L..0xffffffffL && (before.consent xor after.consent) and GENERAL_CONSENT_MASK.inv()==0L))
     require(!generalMatches(before,after))
     return JsonObject().apply {
         addProperty("action","changedevice");addProperty("nodeid",nodeId);addProperty("responseid",responseId)
         if(before.name!=after.name) addProperty("name",after.name)
         if(before.tags.toSet()!=after.tags.toSet()) add("tags",JsonArray().apply { after.tags.forEach { add(it) } })
         if(after.description!=null && before.description!=after.description) addProperty("desc",after.description)
+        if(after.consent!=null && before.consent!=after.consent) addProperty("consent",after.consent)
     }
 }
-internal fun generalMatches(meta:GeneralMeta,draft:GeneralDraft)=meta.name==draft.name && meta.tags.toSet()==draft.tags.toSet() && (draft.description==null || meta.description==draft.description)
-internal fun generalBaselineMatches(meta:GeneralMeta,before:GeneralMeta,draft:GeneralDraft)=meta.name==before.name && meta.tags.toSet()==before.tags.toSet() && (draft.description==null || meta.description==before.description)
+internal fun generalMatches(meta:GeneralMeta,draft:GeneralDraft)=meta.name==draft.name && meta.tags.toSet()==draft.tags.toSet() && (draft.description==null || meta.description==draft.description) && (draft.consent==null || meta.consent==draft.consent)
+internal fun generalBaselineMatches(meta:GeneralMeta,before:GeneralMeta,draft:GeneralDraft)=meta.name==before.name && meta.tags.toSet()==before.tags.toSet() && (draft.description==null || meta.description==before.description) && (draft.consent==null || meta.consent==before.consent)
 
 internal class DeviceGeneralEditor(private val source:MeshCentralClient?,private val node:MeshNode,private val scope:CoroutineScope) {
     val state=MutableStateFlow(GeneralEditorState())
