@@ -25,9 +25,18 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Your own user details provide separate password and MFA actions. Password opens its My Account dialog directly; MFA opens a choice of account-security options. Messaging, lock/unlock and administrative deletion are hidden for your own account.
 - Send reviewed Broadcast or individual notifications; server acceptance does not guarantee delivery or reading.
 - Use an encrypted persistent notice inbox per server/account, optional Android background alerts and notification preferences synchronized with the server web settings. Unread notices are not automatically evicted; local read state is saved.
-- Native FIDO2 sign-in and new security-key registration remain pending. Existing keys can be listed and removed.
 
 Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
+
+### Security keys (FIDO2/WebAuthn)
+
+- Native sign-in with a security key and verification of the authenticated account before completing login.
+- Register, list and remove security keys from My Account.
+- Authentication stays inside the app, restricted to the selected server, without an external browser and with cancellation on TLS errors.
+
+Physical checks with the YubiKey 5 NFC used during development cover registration, removal and sign-in, including USB sign-in; NFC registration was also confirmed. These checks do not guarantee every key, transport or server configuration.
+
+Guide: [FIDO support and validation scope](docs/fido/README.md).
 
 ### Notices, Broadcast and Messages
 
@@ -245,9 +254,10 @@ Build configuration:
 | Setting | Value |
 | --- | --- |
 | Minimum SDK | `26` |
-| Compile SDK | `35` |
+| Compile SDK | `37`, minor API `2` (`platforms;android-37.2`) |
 | Target SDK | `35` |
 | Java source/target compatibility | `17` |
+| Build Tools | `37.0.0` |
 
 The build configuration is defined in `app/build.gradle.kts`.
 
@@ -256,11 +266,11 @@ The build configuration is defined in `app/build.gradle.kts`.
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/iecxiv/meshfabric.git
+   git clone --branch main https://github.com/iecxiv/meshfabric.git
    cd meshfabric
    ```
 
-2. Open the project in an Android Studio installation compatible with the Android Gradle Plugin and Gradle wrapper configured in this repository. Install Android SDK Platform 35 and let Gradle synchronize the project.
+2. Open the project in an Android Studio installation compatible with the Android Gradle Plugin and Gradle wrapper configured in this repository. Install Android SDK Platform 37.2 (`platforms;android-37.2`), Build Tools 37.0.0 and Platform Tools, then let Gradle synchronize the project. Validated CI uses Android Command-line Tools 23.0 and also installs Platform 35 for its API 35 test environment. compileSdk does not change the API 26 minimum or targetSdk 35.
 3. Select a Gradle JDK compatible with the configured build tooling. Verification tasks use JDK 21; Java source/target compatibility remains 17. These are separate settings.
 4. Build and run on an Android device or emulator using API 26 or newer.
 
@@ -339,7 +349,6 @@ The following items are not presented as completed features:
 - Broader hardware/software inventory coverage beyond the implemented device-details view.
 - Advanced device filters and favorites, beyond the existing device search and activity filters.
 - Inventory/activity export.
-- Native FIDO2/YubiKey sign-in and registration of new security keys; listing and removing existing keys are available.
 - Multi-file selection and bulk file operations.
 - Automatic terminal reconnection, advanced terminal-state restoration, and broader reconnection validation. Retained output does not restore or prove continuity of the original remote process.
 - Completion of English/Spanish localization for native management features.

@@ -1,0 +1,178 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 14 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+                 }
+5336:                     }
+5337:
+5338:                     // Event that this operation is being performed.
+5339:                     var targets = obj.CreateNodeDispatchTargets(node.meshid, node._id, ['server-users', cmd.user._id]);
+5340:                     var msgid = 103; // "Batch upload of {0} file(s) to folder {1}"
+5341:                     var event = { etype: 'node', userid: cmd.user._id, username: cmd.user.name, nodeid: node._id, action: 'batchupload', msg: 'Performing batch upload of ' + cmd.files.length + ' file(s) to ' + agentPath, msgid: msgid, msgArgs: [cmd.files.length, agentPath], domain: cmd.domain.id };
+5342:                     parent.DispatchEvent(targets, obj, event);
+5343:
+5344:                     // Send the agent commands to perform the batch upload operation
+5345:                     for (var f in cmd.files) {
+5346:                         if (cmd.files[f].name != null) {
+5347:                             const acmd = { action: 'wget', userid: user._id, username: user.name, realname: user.realname, remoteaddr: req.clientIp, consent: consent, rights: rights, overwrite: cmd.overwrite, createFolder: cmd.createFolder, urlpath: '/agentdownload.ashx?c=' + obj.parent.encodeCookie({ a: 'tmpdl', d: cmd.domain.id, nid: node._id, f: cmd.files[f].target }, obj.parent.loginCookieEncryptionKey), path: obj.path.join(agentPath, cmd.files[f].name), folder: agentPath, servertlshash: tlsCertHash };
+5348:                             var agent = obj.wsagents[node._id];
+5349:                             if (agent != null) { try { agent.send(JSON.stringify(acmd)); } catch (ex) { } }
+5350:                             // TODO: Add support for peer servers.
+5351:                         }
+5352:                     }
+5353:                 });
+5354:             }
+5355:
+5356:             res.send('');
+5357:         });
+5358:     }
+5359:
+5360:     // Subscribe to all events we are allowed to receive
+5361:     obj.subscribe = function (userid, target) {
+5362:         const user = obj.users[userid];
+5363:         if (user == null) return;
+5364:         const subscriptions = [userid, 'server-allusers'];
+5365:         if (user.siteadmin != null) {
+5366:             // Allow full site administrators of users with all events rights to see all events.
+5367:             if ((user.siteadmin == 0xFFFFFFFF) || ((user.siteadmin & 2048) != 0)) { subscriptions.push('*'); }
+5368:             else if ((user.siteadmin & 2) != 0) {
+5369:                 if ((user.groups == null) || (user.groups.length == 0)) {
+5370:                     // Subscribe to all user changes
+5371:                     subscriptions.push('server-users');
+5372:                 } else {
+5373:                     // Subscribe to user changes for some groups
+5374:                     for (var i in user.groups) { subscriptions.push('server-users:' + i); }
+5375:                 }
+5376:             }
+5377:         }
+5378:         if (user.links != null) { for (var i in user.links) { subscriptions.push(i); } }
+5379:         obj.parent.RemoveAllEventDispatch(target);
+5380:         obj.parent.AddEventDispatch(subscriptions, target);
+5381:         return subscriptions;
+5382:     };
+5383:
+5384:     // Handle a web socket relay request
+5385:     function handleRelayWebSocket(ws, req, domain, user, cookie) {
+5386:         if (!(req.query.host)) { console.log('ERR: No host target specified'); try { ws.close(); } catch (e) { } return; } // Disconnect websocket
+5387:         parent.debug('web', 'Websocket relay connected from ' + user.name + ' for ' + req.query.host + '.');
+5388:
+5389:         try { ws._socket.setKeepAlive(true, 240000); } catch (ex) { }   // Set TCP keep alive
+5390:
+5391:         // Fetch information about the target
+5392:         obj.db.Get(req.query.host, function (err, docs) {
+5393:             if (docs.length == 0) { console.log('ERR: Node not found'); try { ws.close(); } catch (e) { } return; } // Disconnect websocket
+5394:             var xusername = '', xdevicename = '', xdevicename2 = null, node = null;
+5395:             node = docs[0]; xdevicename2 = node.name; xdevicename = '-' + parent.common.makeFilename(node.name); ws.id = getRandomPassword(); ws.time = Date.now();
+5396:             if (!node.intelamt) { console.log('ERR: Not AMT node'); try { ws.close(); } catch (e) { } return; } // Disconnect websocket
+5397:             var ciraconn = parent.mpsserver.GetConnectionToNode(req.query.host, null, false);
+5398:
+5399:             // Check if this user has permission to manage this computer
+5400:             if ((obj.GetNodeRights(user, node.meshid, node._id) & MESHRIGHT_REMOTECONTROL) == 0) { console.log('ERR: Access denied (3)'); try { ws.close(); } catch (e) { } return; }
+5401:
+5402:             // Check what connectivity is available for this node
+5403:             var state = parent.GetConnectivityState(req.query.host);
+5404:             var conn = 0;
+5405:             if (!state || state.connectivity == 0) { parent.debug('web', 'ERR: No routing possible (1)'); try { ws.close(); } catch (e) { } return; } else { conn = state.connectivity; }
+5406:
+5407:             // Check what server needs to handle this connection
+5408:             if ((obj.parent.multiServer != null) && ((cookie == null) || (cookie.ps != 1))) { // If a cookie is provided and is from a peer server, don't allow the connection to jump again to a different server
+5409:                 var server = obj.parent.GetRoutingServerId(req.query.host, 2); // Check for Intel CIRA connection
+5410:                 if (server != null) {
+5411:                     if (server.serverid != obj.parent.serverId) {
+5412:                         // Do local Intel CIRA routing using a different server
+5413:                         parent.debug('web', 'Route Intel AMT CIRA connection to peer server: ' + server.serverid);
+5414:                         obj.parent.multiServer.createPeerRelay(ws, req, server.serverid, user);
+5415:                         return;
+5416:                     }
+5417:                 } else {
+5418:                     server = obj.parent.GetRoutingServerId(req.query.host, 4); // Check for local Intel AMT connection
+5419:                     if ((server != null) && (server.serverid != obj.parent.serverId)) {
+5420:                         // Do local Intel AMT routing using a different server
+5421:                         parent.debug('web', 'Route Intel AMT direct connection to peer server: ' + server.serverid);
+5422:                         obj.parent.multiServer.createPeerRelay(ws, req, server.serverid, user);
+5423:                         return;
+5424:                     }
+5425:                 }
+5426:             }
+5427:
+5428:             // Setup session recording if needed
+5429:             if (domain.sessionrecording == true || ((typeof domain.sessionrecording == 'object') && ((domain.sessionrecording.protocols == null) || (domain.sessionrecording.protocols.indexOf((req.query.p == 2) ? 101 : 100) >= 0)))) { // TODO 100
+5430:                 // Check again if we need to do recording
+5431:                 var record = true;
+5432:
+5433:                 // Check user or device group recording
+5434:                 if ((typeof domain.sessionrecording == 'object') && ((domain.sessionrecording.onlyselectedusers === true) || (domain.sessionrecording.onlyselecteddevicegroups === true))) {
+5435:                     record = false;
+5436:
+5437:                     // Check device group recording
+5438:                     if (domain.sessionrecording.onlyselecteddevicegroups === true) {
+5439:                         var mesh = obj.meshes[node.meshid];
+5440:                         if ((mesh.flags != null) && ((mesh.flags & 4) != 0)) { record = true; } // Record the session
+5441:                     }
+5442:
+5443:                     // Check user recording
+5444:                     if (domain.sessionrecording.onlyselectedusers === true) {
+5445:                         if ((user.flags != null) && ((user.flags & 2) != 0)) { record = true; } // Record the session
+5446:                     }
+5447:                 }
+5448:
+5449:                 if (record == true) {
+
+--- webserver.js lines 6228-6539 ---
+6228:
+6229:         var user = obj.users[req.session.userid];
+6230:         if ((user == null) || ((user.siteadmin & 1) == 0)) { res.sendStatus(401); return; } // Check if we have server backup rights
+6231:
+6232:         // If the web UI already prepared a backup for this user, send it right away
+6233:         const preparedBackup = obj.preparedBackups[user._id];
+6234:         if (preparedBackup != null) {
+6235:             delete obj.preparedBackups[user._id];
+6236:             if (obj.fs.existsSync(preparedBackup)) {
+6237:                 res.setHeader('Content-Type', 'application/x-zip-compressed');
+6238:                 res.download(preparedBackup);
+6239:                 return;
+6240:             }
+6241:         }
+6242:
+6243:         // start a new backup and async wait for it to finish with a timeout
+6244:         if (parent.config.settings.autobackup.backupintervalhours == -1) { res.status(403).send("Backup disabled."); return; };
+6245:         obj.db.performBackup();
+6246:         const waitFor = ms => new Promise(res => setTimeout(res, ms));
+6247:         var backupStart = Date.now();
+6248:         while ((obj.db.performingBackup) && ((Date.now() - backupStart) < 120 * 1000)) {
+6249:             await waitFor(2000);
+6250:         }
+6251:         if (obj.fs.existsSync(obj.db.newAutoBackupFile) && obj.db.performingBackup == false) {
+6252:             res.setHeader('Content-Type', 'application/x-zip-compressed');
+6253:             res.download(obj.db.newAutoBackupFile);
+6254:         } else {
+6255:             obj.parent.addServerWarning('handleBackupRequest: Backup error', true);
+6256:             res.status(500).send("Backup error.");
+6257:         }
+6258:     }
+6259:
+6260:     // Handle a server restore request
+6261:     function handleRestoreRequest(req, res) {
+6262:         const domain = checkUserIpAddress(req, res);
+6263:         if (domain == null) { return; }
+6264:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+6265:         if ((domain.myserver === false) || ((domain.myserver != null) && (domain.myserver.restore !== true))) { res.sendStatus(401); return; }
+6266:
+6267:         var authUserid = null;
+6268:         if ((req.session != null) && (typeof req.session.userid == 'string')) { authUserid = req.session.userid; }
+6269:         const multiparty = require('multiparty');
+6270:         const form = new multiparty.Form();
+6271:         form.parse(req, function (err, fields, files) {
+6272:             // If an authentication cookie is embedded in the form, use that.
+6273:             if ((fields != null) && (fields.auth != null) && (fields.auth.length == 1) && (typeof fields.auth[0] == 'string')) {
+6274:                 var loginCookie = obj.parent.decodeCookie(fields.auth[0], obj.parent.loginCookieEncryptionKey, 60); // 60 minute timeout
+6275:                 if ((loginCookie != null) && (loginCookie.ip != null) && !checkCookieIp(loginCookie.ip, req.clientIp)) { loginCookie = null; } // Check cookie IP binding.
+6276:                 if ((loginCookie != null) && (domain.id == loginCookie.domainid)) { authUserid = loginCookie.userid; } // Use cookie authentication
+6277:             }
+6278:             if (authUserid == null) { res.sendStatus(401); return; }
+6279:
+6280:             // Get the user
+6281:             const user = obj.users[req.session.userid];
+6282:             if ((user == null) || ((user.siteadmin & 4) == 0)) { res.sendStatus(401); return; } // Check if we have server restore rights
+6283:
+6284:             res.set('Content-Type', 'text/html');
+6285:             const rootUrl = req.protocol + '://' + req.get('host') + (req.query.key ? '/?key=' + req.query.key : '/');
+6286:             res.end('<html><body><scrip

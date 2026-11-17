@@ -1,0 +1,210 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 20 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+ Date(timedoc.getTime() + (localTimeOffset * 60000)).toISOString();
+7077:                                 localTime = localTime.substring(0, localTime.length - 1);
+7078:                             }
+7079:                             if (docs[i].oldPower != null) {
+7080:                                 xevents.push('\"' + timedoc.toISOString() + '\",\"' + localTime + '\",' + docs[i].power + ',' + docs[i].oldPower);
+7081:                             } else {
+7082:                                 xevents.push('\"' + timedoc.toISOString() + '\",\"' + localTime + '\",' + docs[i].power);
+7083:                             }
+7084:                         }
+7085:                     }
+7086:                     res.send(xevents.join('\r\n'));
+7087:                 });
+7088:             }
+7089:         });
+7090:     }
+7091:
+7092:     if (parent.pluginHandler != null) {
+7093:         // Handle a plugin admin request
+7094:         obj.handlePluginAdminReq = function (req, res) {
+7095:             const domain = checkUserIpAddress(req, res);
+7096:             if (domain == null) { return; }
+7097:             if ((!req.session) || (req.session == null) || (!req.session.userid)) { res.sendStatus(401); return; }
+7098:             var user = obj.users[req.session.userid];
+7099:             if (user == null) { res.sendStatus(401); return; }
+7100:
+7101:             parent.pluginHandler.handleAdminReq(req, res, user, obj);
+7102:         }
+7103:
+7104:         obj.handlePluginAdminPostReq = function (req, res) {
+7105:             const domain = checkUserIpAddress(req, res);
+7106:             if (domain == null) { return; }
+7107:             if ((!req.session) || (req.session == null) || (!req.session.userid)) { res.sendStatus(401); return; }
+7108:             var user = obj.users[req.session.userid];
+7109:             if (user == null) { res.sendStatus(401); return; }
+7110:
+7111:             parent.pluginHandler.handleAdminPostReq(req, res, user, obj);
+7112:         }
+7113:
+7114:         obj.handlePluginJS = function (req, res) {
+7115:             const domain = checkUserIpAddress(req, res);
+7116:             if (domain == null) { return; }
+7117:             if ((!req.session) || (req.session == null) || (!req.session.userid)) { res.sendStatus(401); return; }
+7118:             var user = obj.users[req.session.userid];
+7119:             if (user == null) { res.sendStatus(401); return; }
+7120:
+7121:             parent.pluginHandler.refreshJS(req, res);
+7122:         }
+7123:     }
+7124:
+7125:     // Starts the HTTPS server, this should be called after the user/mesh tables are loaded
+7126:     function serverStart() {
+7127:         // Start the server, only after users and meshes are loaded from the database.
+7128:         if (obj.args.tlsoffload) {
+7129:             // Setup the HTTP server without TLS
+7130:             obj.expressWs = require('express-ws')(obj.app, null, { wsOptions: { perMessageDeflate: (args.wscompression === true) } });
+7131:         } else {
+7132:             var ciphers = [
+7133:                 'TLS_AES_256_GCM_SHA384',
+7134:                 'TLS_AES_128_GCM_SHA256',
+7135:                 'TLS_AES_128_CCM_8_SHA256',
+7136:                 'TLS_AES_128_CCM_SHA256',
+7137:                 'TLS_CHACHA20_POLY1305_SHA256',
+7138:                 'ECDHE-RSA-AES256-GCM-SHA384',
+7139:                 'ECDHE-ECDSA-AES256-GCM-SHA384',
+7140:                 'ECDHE-RSA-AES128-GCM-SHA256',
+7141:                 'ECDHE-ECDSA-AES128-GCM-SHA256',
+7142:                 'DHE-RSA-AES128-GCM-SHA256',
+7143:                 'ECDHE-RSA-CHACHA20-POLY1305',      // TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 (0xcca8)
+7144:                 'ECDHE-ARIA128-GCM-SHA256',
+7145:                 'ECDHE-ARIA256-GCM-SHA384',
+7146:                 'ECDHE-RSA-AES128-SHA256',          // SSLlabs considers this cipher suite weak, but it's needed for older browers.
+7147:                 'ECDHE-RSA-AES256-SHA384',          // SSLlabs considers this cipher suite weak, but it's needed for older browers.
+7148:                 '!aNULL',
+7149:                 '!eNULL',
+7150:                 '!EXPORT',
+7151:                 '!DES',
+7152:                 '!RC4',
+7153:                 '!MD5',
+7154:                 '!PSK',
+7155:                 '!SRP',
+7156:                 '!CAMELLIA'
+7157:             ].join(':');
+7158:
+7159:             if (obj.useNodeDefaultTLSCiphers) {
+7160:                 ciphers = require("tls").DEFAULT_CIPHERS;
+7161:             }
+
+--- webserver.js lines 7209-7654 ---
+7209:         obj.app.set('view engine', 'handlebars');
+7210:         if (obj.args.trustedproxy) {
+7211:             // Reverse proxy should add the "X-Forwarded-*" headers
+7212:             try {
+7213:                 obj.app.set('trust proxy', obj.args.trustedproxy);
+7214:             } catch (ex) {
+7215:                 // If there is an error, try to resolve the string
+7216:                 if ((obj.args.trustedproxy.length == 1) && (typeof obj.args.trustedproxy[0] == 'string')) {
+7217:                     require('dns').lookup(obj.args.trustedproxy[0], function (err, address, family) { if (err == null) { obj.app.set('trust proxy', address); obj.args.trustedproxy = [address]; } });
+7218:                 }
+7219:             }
+7220:         }
+7221:         else if (typeof obj.args.tlsoffload == 'object') {
+7222:             // Reverse proxy should add the "X-Forwarded-*" headers
+7223:             try {
+7224:                 obj.app.set('trust proxy', obj.args.tlsoffload);
+7225:             } catch (ex) {
+7226:                 // If there is an error, try to resolve the string
+7227:                 if ((Array.isArray(obj.args.tlsoffload)) && (obj.args.tlsoffload.length == 1) && (typeof obj.args.tlsoffload[0] == 'string')) {
+7228:                     require('dns').lookup(obj.args.tlsoffload[0], function (err, address, family) { if (err == null) { obj.app.set('trust proxy', address); obj.args.tlsoffload = [address]; } });
+7229:                 }
+7230:             }
+7231:         }
+7232:
+7233:         // Setup a keygrip instance with higher default security, default hash is SHA1, we want to bump that up with SHA384
+7234:         // If multiple instances of this server are behind a load-balancer, this secret must be the same for all instances
+7235:         // If args.sessionkey is a string, use it as a single key, but args.sessionkey can also be used as an array of keys.
+7236:         const keygrip = require('keygrip')((typeof obj.args.sessionkey == 'string') ? [obj.args.sessionkey] : obj.args.sessionkey, 'sha384', 'base64');
+7237:
+7238:         // Setup the cookie session
+7239:         const sessionOptions = {
+7240:             name: 'xid', // Recommended security practice to not use the default cookie name
+7241:             httpOnly: true,
+7242:             keys: keygrip,
+7243:             secure: (obj.args.tlsoffload == null), // Use this cookie only over TLS (Check this: https://expressjs.com/en/guide/behind-proxies.html)
+7244:             sameSite: (obj.args.sessionsamesite ? obj.args.sessionsamesite : 'lax')
+7245:         }
+7246:         if (obj.args.sessiontime != null) { sessionOptions.maxAge = (obj.args.sessiontime * 60000); } // sessiontime is minutes
+7247:         obj.app.use(require('cookie-session')(sessionOptions));
+7248:         obj.app.use(function (request, response, next) { // Patch for passport 0.6.0 - https://github.com/jaredhanson/passport/issues/904
+7249:             if (request.session && !request.session.regenerate) {
+7250:                 request.session.regenerate = function (cb) {
+7251:                     cb()
+7252:                 }
+7253:             }
+7254:             if (request.session && !request.session.save) {
+7255:                 request.session.save = function (cb) {
+7256:                     cb()
+7257:                 }
+7258:             }
+7259:             // Special Client Hint Headers for Browser Detection on every request - https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers#client_hints
+7260:             // note: only works in a secure context (localhost or https://)
+7261:             if ((obj.webRelayRouter != null) && (obj.args.relaydns.indexOf(request.hostname) == -1)) {
+7262:                 const secCH = [
+7263:                     'Sec-CH-UA-Arch', 'Sec-CH-UA-Bitness', 'Sec-CH-UA-Form-Factors', 'Sec-CH-UA-Full-Version',
+7264:                     'Sec-CH-UA-Full-Version-List', 'Sec-CH-UA-Mobile', 'Sec-CH-UA-Model', 'Sec-CH-UA-Platform',
+7265:                     'Sec-CH-UA-Platform-Version', 'Sec-CH-UA-WoW64'
+7266:                 ];
+7267:                 response.setHeader('Accept-CH', secCH.join(', '));
+7268:                 response.setHeader('Critical-CH', secCH.join(', '));
+7269:             }
+7270:             next();
+7271:         });
+7272:
+7273:         // Handle all incoming web sockets, see if some need to be handled as web relays
+7274:         obj.app.ws('/*', function (ws, req, next) {
+7275:             // Global error catcher
+7276:             ws.on('error', function (err) { parent.debug('web', 'GENERAL WSERR: ' + err); console.log(err); });
+7277:             if ((obj.webRelayRouter != null) && (obj.args.relaydns.indexOf(req.hostname) >= 0)) { handleWebRelayWebSocket(ws, req); return; }
+7278:             return next();
+7279:         });
+7280:
+7281:         // Add HTTP security headers to all responses
+7282:         obj.app.use(async function (req, res, next) {
+7283:             // Check if a session is destroyed
+7284:             if (typeof req.session.userid == 'string') {
+7285:                 if (typeof req.session.x == 'string') {
+7286:                     if (obj.destroyedSessions[req.session.userid + '/' + req.session.x] != null) {
+7287:                         delete req.session.userid;
+7288:                         delete req.session.ip;
+7289:                         delete req.session.t;
+7290:                         delete req.session.x;
+7291:                     }
+7292:                 } else {
+7293:                     // Legacy session without a random, add one.
+7294:                     setSessionRandom(req);
+7295:                 }
+7296:             }
+7297:
+7298:             // Remove legacy values from the session to keep the session as small as possible
+7299:             delete req.session.u2f;
+7300:             delete req.session.domainid;
+7301:             delete req.session.nowInMinutes;
+7302:             delete req.session.tokenuserid;
+7303:             delete req.session.tokenusername;
+7304:             delete req.session.tokenpassword;
+7305:             delete req.session.tokenemail;
+7306:             delete req.session.tokensms;
+7307:             delete req.session.tokenpush;
+7308:             delete req.session.tusername;
+7309:             delete req.session.tpassword;
+7310:
+7311:             // Useful for debugging reverse proxy issues
+7312:             parent.debug('httpheaders', req.method, req.url, req.headers);
+7313:
+7314:             // If this request came over HTTP, redirect to HTTPS
+7315:             if (req.headers['x-forwarded-proto'] == 'http') {
+7316:                 var host = req.headers.host;
+7317:                 if (typeof host == 'string') { host = host.split(':')[0]; }
+7318:                 if ((host == null) && (obj.certificates != null)) { host = obj.certificates.CommonName; if (obj.certificates.CommonName.indexOf('.') == -1) { host = req.headers.host; } }
+7319:                 var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port is specified
+7320:                 res.redirect('https://' + host + ':' + httpsPort + req.url);
+7321:                 return;
+7322:             }
+7323:
+7324:             // Perform traffic accounting
+7325:             if (req.headers.upgrade == 'websocket') {
+7326:                 // We don't count traffic on WebSockets since it's counted by the handling modules.
+7327:                 obj.trafficStats.httpWebSocketCount++;
+7328:

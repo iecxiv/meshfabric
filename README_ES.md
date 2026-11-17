@@ -25,9 +25,18 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Tu propia ficha ofrece dos acciones de contraseña y MFA. Contraseña abre directamente su diálogo de Mi cuenta; MFA abre un selector de opciones. Mensajes, bloqueo/desbloqueo y eliminación administrativa se ocultan para tu propia cuenta.
 - Envía Broadcast o notificaciones individuales con revisión; la aceptación del servidor no garantiza entrega ni lectura.
 - Utiliza una bandeja de avisos persistente cifrada por servidor/cuenta, alertas Android opcionales en segundo plano y preferencias sincronizadas con la web. Los no leídos no se eliminan automáticamente y se guarda el estado local de lectura.
-- El inicio de sesión FIDO2 nativo y el alta de nuevas claves siguen pendientes. Las claves existentes se pueden consultar y eliminar.
 
 Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
+
+### Llaves de seguridad (FIDO2/WebAuthn)
+
+- Inicio de sesión nativo con llave de seguridad y verificación de la cuenta autenticada antes de completar el acceso.
+- Alta, consulta y baja de llaves desde Mi cuenta.
+- La autenticación permanece dentro de la app, restringida al servidor seleccionado, sin navegador externo y con cancelación ante errores TLS.
+
+Las comprobaciones físicas con la YubiKey 5 NFC utilizada durante el desarrollo incluyen alta, baja y login, también por USB; el alta por NFC ya estaba confirmada. Estas pruebas no garantizan todas las llaves, transportes o configuraciones de servidor.
+
+Guía: [FIDO y alcance de validación](docs/es/fido.md).
 
 ### Avisos, Broadcast y Mensajes
 
@@ -235,9 +244,10 @@ El inventario y sus limitaciones se documentan en [docs/i18n](docs/es/i18n/READM
 | Configuración | Valor |
 | --- | --- |
 | SDK mínimo | `26` |
-| SDK de compilación | `35` |
+| SDK de compilación | `37`, API menor `2` (`platforms;android-37.2`) |
 | SDK objetivo | `35` |
 | Compatibilidad de código fuente/destino Java | `17` |
+| Build Tools | `37.0.0` |
 
 La configuración está en `app/build.gradle.kts`.
 
@@ -246,11 +256,11 @@ La configuración está en `app/build.gradle.kts`.
 1. Clona el repositorio:
 
    ```bash
-   git clone https://github.com/iecxiv/meshfabric.git
+   git clone --branch main https://github.com/iecxiv/meshfabric.git
    cd meshfabric
    ```
 
-2. Abre el proyecto en una versión de Android Studio compatible con Android Gradle Plugin y el wrapper de Gradle configurados en el repositorio. Instala Android SDK Platform 35 y sincroniza Gradle.
+2. Abre el proyecto en una versión de Android Studio compatible con Android Gradle Plugin y el wrapper de Gradle configurados en el repositorio. Instala Android SDK Platform 37.2 (`platforms;android-37.2`), Build Tools 37.0.0 y Platform Tools, y sincroniza Gradle. La CI validada usa Android Command-line Tools 23.0 e instala también Platform 35 para su entorno de pruebas API 35. compileSdk no cambia el mínimo API 26 ni targetSdk 35.
 3. Selecciona un JDK de Gradle compatible con esas herramientas. Las verificaciones usan JDK 21; la compatibilidad del código fuente/destino Java permanece en 17. Son ajustes distintos.
 4. Compila y ejecuta en un dispositivo o emulador con API 26 o posterior.
 
@@ -329,7 +339,6 @@ No se presentan como funciones completadas:
 - Mayor cobertura de inventario de hardware/software más allá de la ficha de dispositivo implementada.
 - Filtros avanzados y favoritos, más allá de búsquedas y filtros actuales.
 - Exportación de inventario/actividad.
-- Inicio de sesión FIDO2/YubiKey nativo y alta de nuevas claves; la consulta y eliminación de claves existentes están disponibles.
 - Selección múltiple y operaciones masivas de archivos.
 - Reconexión automática del terminal, restauración avanzada y validación más amplia de reconexión. La salida retenida no restaura ni demuestra continuidad del proceso remoto original.
 - Localización completa inglés/español de la gestión nativa.

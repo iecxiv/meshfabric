@@ -1,0 +1,95 @@
+name: Refresh README FIDO placement
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/refresh-readme-fido-placement.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: refresh-readme-fido-placement
+  cancel-in-progress: false
+jobs:
+  documentation:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Update only the two README files
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib,re,subprocess
+          expected={'README.md':'e04fbe10c38beb9bd3f4f16cd21aa666c6c0336b','README_ES.md':'52ae8122a3bd1b5a8d4365c746616cb3768aa815'}
+          assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
+          assert subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()==['.github/workflows/refresh-readme-fido-placement.yml']
+          for name,sha in expected.items():
+              p=Path(name); raw=p.read_bytes()
+              assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==sha,'README changed: '+name
+              text=raw.decode('utf-8'); en=name=='README.md'
+              prefix='Current `fido-support` app version:' if en else 'Versión actual de la app en `fido-support`:'
+              paragraphs=text.split('\n\n')
+              assert paragraphs[2].startswith(prefix)
+              del paragraphs[2]
+              text='\n\n'.join(paragraphs)
+              text,count=re.subn(r'^\| (?:App version(?:Name|Code)|version(?:Name|Code) de la app) \|[^\n]*\n','',text,flags=re.M)
+              assert count==2,(name,'app version rows',count)
+              clone='git clone --branch fido-support https://github.com/iecxiv/meshfabric.git'
+              assert text.count(clone)==1
+              text=text.replace(clone,'git clone --branch main https://github.com/iecxiv/meshfabric.git',1)
+              feature_prefix='- Native FIDO2/WebAuthn sign-in' if en else '- Están implementados el login FIDO2/WebAuthn'
+              candidates=[line for line in text.splitlines() if line.startswith(feature_prefix)]
+              assert len(candidates)==1,(name,'existing FIDO feature')
+              text=text.replace(candidates[0]+'\n','',1)
+              lines=[]; roadmap=False; removed=0; headings=0
+              for line in text.splitlines(keepends=True):
+                  if line.startswith('## '):
+                      roadmap=any(term in line.casefold() for term in ['roadmap','hoja de ruta'])
+                      headings+=int(roadmap)
+                  if roadmap and re.search(r'fido|webauthn',line,re.I):
+                      assert line.lstrip().startswith(('- ','* ')),('Unexpected roadmap format',name,line)
+                      removed+=1
+                      continue
+                  lines.append(line)
+              assert headings==1 and removed==1,(name,'roadmap headings/items',headings,removed)
+              text=''.join(lines)
+              if en:
+                  heading='### Security keys (FIDO2/WebAuthn)'
+                  body=['- Native sign-in with a security key and verification of the authenticated account before completing login.','- Register, list and remove security keys from My Account.','- Authentication stays inside the app, restricted to the selected server, without an external browser and with cancellation on TLS errors.','','Physical checks with the YubiKey 5 NFC used during development cover registration, removal and sign-in, including USB sign-in; NFC registration was also confirmed. These checks do not guarantee every key, transport or server configuration.','','Guide: [FIDO support and validation scope](docs/fido/README.md).']
+                  anchor='### Notices, Broadcast and Messages'
+              else:
+                  heading='### Llaves de seguridad (FIDO2/WebAuthn)'
+                  body=['- Inicio de sesión nativo con llave de seguridad y verificación de la cuenta autenticada antes de completar el acceso.','- Alta, consulta y baja de llaves desde Mi cuenta.','- La autenticación permanece dentro de la app, restringida al servidor seleccionado, sin navegador externo y con cancelación ante errores TLS.','','Las comprobaciones físicas con la YubiKey 5 NFC utilizada durante el desarrollo incluyen alta, baja y login, también por USB; el alta por NFC ya estaba confirmada. Estas pruebas no garantizan todas las llaves, transportes o configuraciones de servidor.','','Guía: [FIDO y alcance de validación](docs/es/fido.md).']
+                  anchor='### Avisos, Broadcast y Mensajes'
+              assert text.count(anchor)==1 and heading not in text
+              text=text.replace(anchor,heading+'\n\n'+'\n'.join(body)+'\n\n'+anchor,1)
+              assert not re.search(r'1\.3\.8|fido-support|versionName|versionCode',text)
+              assert '### Security keys (FIDO2/WebAuthn)' in text if en else '### Llaves de seguridad (FIDO2/WebAuthn)' in text
+              p.write_bytes(text.encode('utf-8'))
+          subprocess.run(['git','diff','--check'],check=True)
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==set(expected)
+      - name: Publish only the reviewed README changes
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch origin refs/heads/main
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'main advanced; refusing publication'; exit 1; }
+          git diff --check
+          test "$(git diff --name-only | sort)" = "$(printf 'README.md\nREADME_ES.md\n' | sort)"
+          git add -- README.md README_ES.md
+          test "$(git diff --cached --name-only | sort)" = "$(printf 'README.md\nREADME_ES.md\n' | sort)"
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'docs: present FIDO as an available feature without app version notices'
+          git push origin HEAD:refs/heads/main
+          printf 'Updated only README.md and README_ES.md in `%s`; no application changes.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

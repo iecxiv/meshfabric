@@ -1,0 +1,160 @@
+name: Validate and publish FIDO login UI block
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/fido/login-ui-candidate.json', '.github/workflows/validate-fido-login-ui.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fido-login-ui-block
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify and prepare the reviewed UI candidate with explicit English resources
+        shell: python
+        run: |
+          from pathlib import Path
+          import base64,gzip,hashlib,json,subprocess
+          import xml.etree.ElementTree as ET
+          meta=json.loads(Path('.github/fido/login-ui-candidate.json').read_text())
+          assert meta['encoding']=='gzip+base64' and len(meta['payload'])<100000
+          raw=gzip.decompress(base64.b64decode(meta['payload'],validate=True))
+          digest='f86658830e63d776d7a7af4de45e98a75791742ca620eb0719c63ad0be723a9a'
+          assert len(raw)<262144 and meta['sha256']==digest and hashlib.sha256(raw).hexdigest()==digest
+          data=json.loads(raw)
+          assert set(data)=={'sources','patches'} and len(data['sources'])==7 and len(data['patches'])==5
+          english='app/src/main/res/values-en/fido_login.xml'
+          assert english not in data['sources'] and english not in data['patches']
+          additions=set(data['sources'])|{english}; originals=set(data['patches'])
+          assert not originals & additions and all(n.startswith('app/') and '..' not in Path(n).parts for n in originals|additions)
+          changes=dict(data['sources'])
+          expected_strings={'fido_login_'+n for n in ['action','title','prompt','pending','cancel','failed','tls','expired']}
+          for locale in ['values','values-es']:
+              root=ET.fromstring(changes['app/src/main/res/'+locale+'/fido_login.xml'])
+              elements=list(root)
+              assert len(elements)==8 and all(e.tag=='string' and e.text for e in elements)
+              assert {e.get('name') for e in elements}==expected_strings
+          changes[english]=changes['app/src/main/res/values/fido_login.xml']
+          for name in additions: assert not Path(name).exists(),'Already exists: '+name
+          for name,patch in data['patches'].items():
+              old=Path(name).read_bytes()
+              assert hashlib.sha1(b'blob '+str(len(old)).encode()+b'\0'+old).hexdigest()==patch['sha'],'Source changed: '+name
+              text=old.decode('utf-8')
+              for before,after in patch['edits']:
+                  assert text.count(before)==1,('Anchor changed',name,before)
+                  text=text.replace(before,after)
+              changes[name]=text
+          for name,text in changes.items():
+              p=Path(name); p.parent.mkdir(parents=True,exist_ok=True); p.write_text(text,encoding='utf-8')
+          subprocess.run(['git','add','--',*sorted(changes)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==originals|additions
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          (out/'ui-candidate.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+          (out/'app-source-digests.json').write_text(json.dumps({n:hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in sorted(changes)},indent=2)+'\n')
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve(); tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve(); candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Clean build, all unit tests, instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite including UI and mocked WebView assertion
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete test evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              checks=[('FidoLoginFlowTest',6),('FidoLoginChallengePageTest',12),('FidoLoginHttpTransportTest',9),('FidoLoginExchangeTest',18),('FidoLoginContractTest',16),('FidoRegistrationContractTest',10),('FidoRegistrationSessionTest',10),('FidoWebOriginPolicyTest',10),('FidoRegistrationPageTest',14),('NativeAccountFidoStatusTest',6)] if root=='app/build/test-results' else [('FidoLoginControlsTest',2),('FidoAssertionScriptTest',1),('FidoHostLifecycleTest',2),('ServerDialogTitleTypographyUiTest',14)]
+              for name,count in checks: assert len([c for c in cases if c.get('classname','').endswith('.'+name)])==count,name
+              totals[root]=len(cases)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          Path('validation/VALIDATED.txt').write_text('UI/assertion candidate with explicit English resources passed build, all unit tests, lint and complete instrumentation. WebView assertion test uses a simulated credential, not hardware. No session is saved and no login success is announced by the new flow. Authenticated account verification and real login remain pending.\n')
+      - name: Upload patch and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fido-login-ui-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only the thirteen validated UI-block app files
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin refs/heads/fido-support
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess
+          import base64,gzip
+          meta=json.loads(Path('.github/fido/login-ui-candidate.json').read_text())
+          raw=gzip.decompress(base64.b64decode(meta['payload'],validate=True))
+          assert hashlib.sha256(raw).hexdigest()=='f86658830e63d776d7a7af4de45e98a75791742ca620eb0719c63ad0be723a9a'
+          data=json.loads(raw); expected=set(data['sources'])|set(data['patches'])|{'app/src/main/res/values-en/fido_login.xml'}; assert len(expected)==13
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert Path('validation/VALIDATED.txt').is_file()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/ui-candidate.patch').read_bytes()
+          digests=json.loads(Path('validation/app-source-digests.json').read_text()); assert set(digests)==expected
+          assert all(hashlib.sha256(Path(n).read_bytes()).hexdigest()==v for n,v in digests.items())
+          assert Path('app/src/main/res/values-en/fido_login.xml').read_bytes()==Path('app/src/main/res/values/fido_login.xml').read_bytes()
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(fido): connect assertion WebView and login screen'
+          git push origin HEAD:refs/heads/fido-support
+          printf 'Published UI block `%s`; authenticated account verification and real hardware login remain pending.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

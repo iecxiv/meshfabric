@@ -20,7 +20,7 @@ Server permissions and policy remain authoritative. Missing records or failed re
 
 Sensitive access changes use reviewed data and separate confirmation. Changed identity, permissions, data or connection can invalidate the review. Unknown outcomes are not success and writes are not automatically retried. Reads and writes are not atomic; concurrent administrator changes remain possible.
 
-Native FIDO2 sign-in and new security-key registration remain pending. Listing/removing existing keys is available. Automated checks do not replace live-server and physical-device validation of every operation.
+Native FIDO2/WebAuthn sign-in and security-key registration, listing and removal are implemented. The user reports successful physical registration, removal and sign-in, including USB sign-in, for the key used in this work. See [FIDO support and validation scope](fido/README.md). These checks do not establish universal compatibility or validation of every account operation.
 
 ## Background/resume continuity
 

@@ -1,0 +1,139 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 29 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+okiedurationdays == 'number') { twoFactorCookieDays = domain.twofactorcookiedurationdays; }
+9464:
+9465:                             // Figure out if email 2FA is allowed
+9466:                             var email2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.email2factor != false)) && (domain.mailserver != null) && (user.otpekey != null));
+9467:                             var sms2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.sms2factor != false)) && (parent.smsserver != null) && (user.phone != null));
+9468:                             var msg2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.msg2factor != false)) && (parent.msgserver != null) && (parent.msgserver.providers != 0) && (user.msghandle != null));
+9469:                             if (s.length != 3) {
+9470:                                 try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9471:                             } else {
+9472:                                 checkUserOneTimePassword(req, domain, user, s[2], null, function (result, authData) {
+9473:                                     if (result == false) {
+9474:                                         if ((s[2] == '**email**') && (email2fa == true)) {
+9475:                                             // Cause a token to be sent to the user's registered email
+9476:                                             user.otpekey = { k: obj.common.zeroPad(getRandomEightDigitInteger(), 8), d: Date.now() };
+9477:                                             obj.db.SetUser(user);
+9478:                                             parent.debug('web', 'Sending 2FA email to: ' + user.email);
+9479:                                             domain.mailserver.sendAccountLoginMail(domain, user.email, user.otpekey.k, obj.getLanguageCodes(req), req.query.key);
+9480:                                             // Ask for a login token & confirm email was sent
+9481:                                             try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', email2fa: email2fa, email2fasent: true, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9482:                                         } else if ((s[2] == '**sms**') && (sms2fa == true)) {
+9483:                                             // Cause a token to be sent to the user's phone number
+9484:                                             user.otpsms = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+9485:                                             obj.db.SetUser(user);
+9486:                                             parent.debug('web', 'Sending 2FA SMS to: ' + user.phone);
+9487:                                             parent.smsserver.sendToken(domain, user.phone, user.otpsms.k, obj.getLanguageCodes(req));
+9488:                                             // Ask for a login token & confirm sms was sent
+9489:                                             try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', sms2fa: sms2fa, sms2fasent: true, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9490:                                         } else if ((s[2] == '**msg**') && (msg2fa == true)) {
+9491:                                             // Cause a token to be sent to the user's phone number
+9492:                                             user.otpmsg = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+9493:                                             obj.db.SetUser(user);
+9494:                                             parent.debug('web', 'Sending 2FA message to: ' + user.msghandle);
+9495:                                             parent.msgserver.sendToken(domain, user.msghandle, user.otpmsg.k, obj.getLanguageCodes(req));
+9496:                                             // Ask for a login token & confirm sms was sent
+9497:                                             try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', msg2fa: msg2fa, msg2fasent: true, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9498:                                         } else {
+9499:                                             // Ask for a login token
+9500:                                             try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'tokenrequired', email2fa: email2fa, sms2fa: sms2fa, msg2fa: msg2fa, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9501:                                         }
+9502:                                     } else {
+9503:                                         // We are authenticated with 2nd factor.
+9504:                                         // Check email verification
+9505:                                         if (emailcheck && (user.email != null) && (!(user._id.split('/')[2].startsWith('~'))) && (user.emailVerified !== true)) {
+9506:                                             parent.debug('web', 'Invalid login, asking for email validation');
+9507:                                             try { ws.send(JSON.stringify({ action: 'close', cause: 'emailvalidation', msg: 'emailvalidationrequired', email2fa: email2fa, email2fasent: true, twoFactorCookieDays: twoFactorCookieDays })); ws.close(); } catch (e) { }
+9508:                                         } else {
+9509:                                             func(ws, req, domain, user, null, authData);
+9510:                                         }
+9511:                                     }
+9512:                                 });
+9513:                             }
+9514:                         } else {
+9515:                             // We are authenticated
+9516:                             // Check email verification
+9517:                             if (emailcheck && (user.email != null) && (!(user._id.split('/')[2].startsWith('~'))) && (user.emailVerified !== true)) {
+9518:                                 parent.debug('web', 'Invalid login, asking for email validation');
+9519:                                 try { ws.send(JSON.stringify({ action: 'close', cause: 'emailvalidation', msg: 'emailvalidationrequired', email2fa: email2fa, email2fasent: true })); ws.close(); } catch (e) { }
+9520:                             } else {
+9521:                                 req.session.userid = user._id;
+9522:                                 req.session.ip = req.clientIp;
+9523:                                 if ((loginOptions != null) && (loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) {
+9524:                                     req.session.tokenUser = loginOptions.tokenUser;
+9525:                                     req.session.tokenName = loginOptions.tokenName;
+9526:                                 }
+9527:                                 setSessionRandom(req);
+9528:                                 func(ws, req, domain, user);
+9529:                             }
+9530:                         }
+9531:                     } else {
+9532:                         // Failed to authenticate, see if a default user is active
+9533:                         if (obj.args.user && obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]) {
+9534:                             // A default user is active
+9535:                             func(ws, req, domain, obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]);
+9536:                         } else {
+9537:                             // If not authenticated, close the websocket connection
+9538:                             parent.debug('web', 'ERR: Websocket bad user/pass auth');
+9539:                             //parent.debug('web', "Failed login for user:", s[0]);
+9540:                             obj.setbadLogin(req, s[0]);
+9541:                             try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'noauth-2d' })); ws.close(); } catch (e) { }
+9542:                         }
+9543:                     }
+9544:                 });
+9545:                 return;
+9546:             }
+9547:
+9548:             if (obj.args.user && obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]) {
+9549:                 // A default user is active
+9550:                 func(ws, req, domain, obj.users['user/' + domain.id + '/' + obj.args.user.toLowerCase()]);
+9551:                 return;
+9552:             }
+9553:
+9554:             if (req.session && (req.session.userid != null) && (req.session.userid.split('/')[1] == domain.id) && (obj.users[req.session.userid])) {
+9555:                 // This user is logged in using the ExpressJS session
+9556:                 func(ws, req, domain, obj.users[req.session.userid]);
+9557:                 return;
+9558:             }
+9559:
+9560:             if (noAuthOk != true) {
+9561:                 // If not authenticated, close the websocket connection
+9562:                 parent.debug('web', 'ERR: Websocket no auth');
+9563:                 try { ws.send(JSON.stringify({ action: 'close', cause: 'noauth', msg: 'noauth-4' })); ws.close(); } catch (e) { }
+9564:             } else {
+9565:                 // Continue this session without user authentication,
+9566:                 // this is expected if the agent is connecting for a tunnel.
+9567:                 func(ws, req, domain, null);
+9568:             }
+9569:         } catch (e) { console.log(e); }
+9570:     }
+9571:
+9572:     // Find a free port starting with the specified one and going up.
+9573:     function CheckListenPort(port, addr, func) {
+9574:         var s = obj.net.createServer(function (socket) { });
+9575:         obj.tcpServer = s.listen(port, addr, function () { s.close(function () { if (func) { func(port, addr); } }); }).on('error', function (err) {
+9576:             if (args.exactports) { console.error('ERROR: MeshCentral HTTPS server port ' + port + ' not available.'); process.exit(); }
+9577:             else { if (port < 65535) { CheckListenPort(port + 1, addr, func); } else { if (func) { func(0); } } }
+9578:         });
+9579:     }
+9580:
+9581:     // Start the ExpressJS web server
+9582:     function StartWebServer(port, addr) {
+9583:         if ((port < 1) || (port > 65535)) return;
+9584:         obj.args.port = port;
+9585:         if (obj.tlsServer != null) {
+9586:             if (obj.args.lanonly == true) {
+9587:                 obj.tcpServer = obj.tlsServer.listen(port, addr, function () { console.log('MeshCentral HTTPS server running on port ' + port + ((typeof args.aliasport == 'number') ? (', alias port ' + args.aliasport) : '') + '.'); });
+9588:             } else {
+9589:                 obj.tcpServer = obj.tlsServer.listen(port, addr, function () {
+9590:                     console.log('MeshCentral HTTPS server running on ' + certificates.CommonName + ':' + port + ((typeof args.aliasport == 'number') ? (', alias port ' + args.aliasport) : '') + '.');
+9591:                     if (args.relaydns != null) { console.log('MeshCentral HTTPS relay server running on ' + args.relaydns[0] + ':' + port + ((typeof args.aliasport == 'number') ? (', alias port ' + args.aliasport) : '') + '.'); }
+9592:                 });
+9593:                 obj.parent.updateServerState('servername', certificates.CommonName);
+9594:             }
+9595:             obj.parent.debug('https', 'Server listening on ' + ((addr != null) ? addr : '0.0.0.0') + ' port ' + port + '.');
+9596:             obj.parent.updateServerState('https-port', port);
+9597:             if (args.aliasport != null) { obj.parent.updateServerState('https-aliasport', args.aliasport); }
+9598:         } else {
+9599:             ob

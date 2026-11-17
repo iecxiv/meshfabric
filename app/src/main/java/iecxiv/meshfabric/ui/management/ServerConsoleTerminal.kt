@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.ui.management
 
 import android.annotation.SuppressLint
+import android.content.ClipData
 import android.content.Context
 import android.content.MutableContextWrapper
 import android.os.SystemClock
@@ -23,10 +24,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,6 +37,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.gson.Gson
 import java.io.ByteArrayInputStream
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 private class ServerConsoleRenderer(context:Context,private val canSend:()->Boolean,private val command:(String)->Boolean,private val status:(Boolean?,String)->Unit) {
@@ -106,7 +108,7 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
         view.evaluateJavascript("window.serverConsoleFocus && window.serverConsoleFocus()") { value->
             if(value=="true") view.post {
                 if(!destroyed && !broken && ready && view.isAttachedToWindow && canSend()) {
-                    (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(view,InputMethodManager.SHOW_IMPLICIT)
+                    (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(view,0)
                 }
             }
         }
@@ -264,7 +266,8 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
 
 @Composable internal fun ServerConsoleTerminal(output:List<String>,onClear:()->Unit,enabled:Boolean=false,canSend:()->Boolean={false},onCommand:(String)->Boolean={false}) {
     val context=LocalContext.current
-    val clipboard=LocalClipboardManager.current
+    val clipboard=LocalClipboard.current
+    val scope=rememberCoroutineScope()
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun label(a:String,b:String)=if(es) a else b
@@ -291,13 +294,21 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
         onDispose { lifecycle.removeObserver(observer); renderer.close() }
     }
     val payload=remember(snapshot,font,es) { serverConsolePayload(snapshot,label("Consola administrativa MeshCentral","MeshCentral administrative console"),label("Sin salida recibida.","No output received."),font,if(es) "es" else "en") }
+    val pasteAllowed=active && loaded && enabled && !failed
+    val currentPasteAllowed by rememberUpdatedState(pasteAllowed)
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
             TextButton(enabled=font>10,onClick={ font-- },contentPadding=PaddingValues(6.dp)) { Text("A−") }
             TextButton(enabled=font<20,onClick={ font++ },contentPadding=PaddingValues(6.dp)) { Text("A+") }
-            TextButton(enabled=snapshot.isNotEmpty(),onClick={ clipboard.setText(AnnotatedString(snapshot)) }) { Text(label("Copiar salida","Copy output")) }
+            TextButton(enabled=snapshot.isNotEmpty(),onClick={ scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("plain text",snapshot))) } }) { Text(label("Copiar salida","Copy output")) }
             TextButton(onClick=onClear) { Text(label("Limpiar","Clear")) }
-            TextButton(enabled=active && loaded && enabled && !failed,onClick={ clipboard.getText()?.text?.let { renderer.paste(it) } }) { Text(label("Pegar","Paste")) }
+            TextButton(enabled=pasteAllowed,onClick={
+                scope.launch {
+                    val clip=clipboard.getClipEntry()?.clipData
+                    val text=clip?.takeIf { it.itemCount>0 }?.getItemAt(0)?.text?.toString()
+                    if(currentPasteAllowed && text!=null) renderer.paste(text)
+                }
+            }) { Text(label("Pegar","Paste")) }
         }
         Text(label("Búfer local: ${output.size} entradas · ${snapshot.length} caracteres","Local buffer: ${output.size} entries · ${snapshot.length} characters"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text(label("Visor xterm: ","xterm view: ")+stage,style=MaterialTheme.typography.labelSmall,color=if(failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)

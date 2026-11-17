@@ -42,7 +42,7 @@ import java.util.UUID
 val LocalDeviceActionMenu=staticCompositionLocalOf<@Composable (MeshNode)->Unit> { {} }
 private fun json(vararg pairs:Pair<String,Any?>)=JSONObject().apply { pairs.forEach { (k,v)->put(k,v) } }
 private fun JSONObject.value(k:String)=if(isNull(k)) "" else optString(k,"")
-private data class State(val ready:Boolean=false,val status:String="Sin conexión de acciones",val notes:DeviceNotes?=null)
+private data class State(val ready:Boolean=false,val status:String=managementText("Sin conexión de acciones","Action channel disconnected"),val notes:DeviceNotes?=null)
 private class Management(private val source:MeshCentralClient,private val desktop:DesktopRelayClient,context:Context):ViewModel() {
     val state=MutableStateFlow(State())
     val inbox=NoticeInbox(context,source)
@@ -75,7 +75,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
         if(connecting || state.value.ready || source.authCookie.isBlank() || source.isUserLogout) return
         identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
         val epoch=++generation
-        connecting=true; state.update { it.copy(status="Conectando acciones…") }
+        connecting=true; state.update { it.copy(status=managementText("Conectando acciones…","Connecting action channel…")) }
         socket=OkHttpHelper.createClient(identity.third).newWebSocket(Request.Builder()
             .url(OkHttpHelper.toWebSocketUrl(identity.first,"/control.ashx?moreargs=1"))
             .header("Cookie",identity.second).build(),object:WebSocketListener() {
@@ -96,7 +96,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
                         "ping"->webSocket.send(json("action" to "pong").toString())
                         "userinfo"->if(!j.optJSONObject("userinfo")?.value("_id").isNullOrBlank()) {
                             inbox.bind(j.getJSONObject("userinfo").getString("_id"),identity)
-                            connecting=false; state.update { it.copy(ready=true,status="Acciones conectadas") }
+                            connecting=false; state.update { it.copy(ready=true,status=managementText("Acciones conectadas","Action channel connected")) }
                         }
                         "authcookie","serverinfo","pong"->Unit
                         "close","stopped"->fail(epoch)
@@ -124,7 +124,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
         feedback.interrupted(); activity.interrupted()
         generation++; connecting=false; socket?.cancel(); socket=null
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
-        state.update { it.copy(ready=false,status="Acciones desconectadas; las sesiones remotas no se han cerrado",
+        state.update { it.copy(ready=false,status=managementText("Acciones desconectadas; las sesiones remotas no se han cerrado","Action channel disconnected; remote sessions have not been closed"),
             notes=it.notes?.failed("Sin conexión. El borrador local se conserva; el guardado no está confirmado.")) }
     }
     @Synchronized fun send(title:String,payload:JSONObject,write:Boolean):Boolean {
@@ -272,7 +272,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             } else if(page==4) {
                 NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},onDeviceMessage={node->
                     operationNode=node.id
-                    operation=Operation("Notificación remota · ${node.name}",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications) {values->
+                    operation=Operation(managementText("Notificación remota · ${node.name}","Remote notification · ${node.name}"),listOf("title" to managementText("Título","Title"),"msg" to managementText("Mensaje","Message")),true,Icons.Default.Notifications) {values->
                         val title=values.getValue("title")
                         val message=values.getValue("msg")
                         require(title.isNotBlank() && title.length<=160 && !title.contains('\u0000')) { "Escribe un título válido (máximo 160 caracteres)" }
@@ -295,7 +295,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         var review by remember { mutableStateOf(singleConfirmation) }
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
-        val confirmLabel=if(op.directSend) "Enviar" else if(singleConfirmation) op.title.substringBefore(" · ") else if(review) "Confirmar envío" else "Revisar"
+        val confirmLabel=if(op.directSend) managementText("Enviar","Send") else if(singleConfirmation) op.title.substringBefore(" · ") else if(review) managementText("Confirmar envío","Confirm send") else managementText("Revisar","Review")
         OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
             runCatching {
                 if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { "Elige un intérprete válido para este equipo" }
@@ -308,7 +308,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                         if(!management.feedback.handles(payload)) uiScope.launch {
                             snackbar.currentSnackbarData?.dismiss()
                             val result=snackbar.showSnackbar(message="${op.title}: solicitud enviada; ejecución sin confirmar.",
-                                actionLabel="Ver actividad",withDismissAction=true,duration=SnackbarDuration.Long)
+                                actionLabel=managementText("Ver actividad","View activity"),withDismissAction=true,duration=SnackbarDuration.Long)
                             if(result==SnackbarResult.ActionPerformed) page=1
                         }
                     } else error="No se ha podido enviar la solicitud. Revisa la conexión; no se reintentará automáticamente."
@@ -354,26 +354,26 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val targets=JSONArray(listOf(node.id))
     val interpreters=commandInterpreters(node.osdesc)
     val actions=listOf(
-        Operation("Ejecutar comando",listOf("cmds" to "Comando / script","shell" to "Intérprete"),true,Icons.Default.Terminal) { v->
+        Operation(managementText("Ejecutar comando","Run command"),listOf("cmds" to managementText("Comando / script","Command / script"),"shell" to managementText("Intérprete","Interpreter")),true,Icons.Default.Terminal) { v->
             val interpreter=interpreters.find { it.key==v["shell"] } ?: error("Intérprete no válido para este equipo")
             require(v.getValue("cmds").isNotBlank()) { "Escribe un comando" }
             require(v.getValue("cmds").length<=64000) { "Máximo 64000 caracteres" }
             json("action" to "runcommands","nodeids" to targets,"type" to interpreter.type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
         },
-        Operation("Notificación remota",listOf("title" to "Título","msg" to "Mensaje"),true,Icons.Default.Notifications,directSend=true) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
-        Operation("Abrir URL remota",listOf("url" to "URL HTTP/HTTPS"),true,Icons.AutoMirrored.Filled.OpenInNew) {
+        Operation(managementText("Notificación remota","Remote notification"),listOf("title" to managementText("Título","Title"),"msg" to managementText("Mensaje","Message")),true,Icons.Default.Notifications,directSend=true) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
+        Operation(managementText("Abrir URL remota","Open remote URL"),listOf("url" to "URL HTTP/HTTPS"),true,Icons.AutoMirrored.Filled.OpenInNew) {
             val url=it.getValue("url").trim(); require(url.startsWith("https://") || url.startsWith("http://")) { "URL no válida" }
             json("action" to "msg","type" to "openUrl","nodeid" to node.id,"url" to url)
         },
-        Operation("Despertar (WoL)",emptyList(),icon=Icons.Default.PowerSettingsNew) { json("action" to "wakedevices","nodeids" to targets) },
-        Operation("Reiniciar",emptyList(),true,Icons.Default.Refresh,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 3) },
-        Operation("Apagar",emptyList(),true,Icons.Default.PowerSettingsNew,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 2) },
-        Operation("Suspender",emptyList(),true,Icons.Default.Pause,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 4) }
+        Operation(managementText("Despertar (WoL)","Wake up (WoL)"),emptyList(),icon=Icons.Default.PowerSettingsNew) { json("action" to "wakedevices","nodeids" to targets) },
+        Operation(managementText("Reiniciar","Restart"),emptyList(),true,Icons.Default.Refresh,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 3) },
+        Operation(managementText("Apagar","Shut down"),emptyList(),true,Icons.Default.PowerSettingsNew,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 2) },
+        Operation(managementText("Suspender","Sleep"),emptyList(),true,Icons.Default.Pause,true) { json("action" to "poweraction","nodeids" to targets,"actiontype" to 4) }
     )
     val visibleActions=actions.filter { actionVisible(it.requiresAgent,agentOnline) }
     val (regularActions,powerActions)=visibleActions.partition { it.fields.isNotEmpty() }
     Box {
-        IconButton(onClick={ expanded=true }) { Icon(Icons.Default.MoreVert,contentDescription="Acciones de ${node.name}",tint=MaterialTheme.colorScheme.onSurfaceVariant) }
+        IconButton(onClick={ expanded=true }) { Icon(Icons.Default.MoreVert,contentDescription=managementText("Acciones de ${node.name}","Actions for ${node.name}"),tint=MaterialTheme.colorScheme.onSurfaceVariant) }
         DropdownMenu(expanded=expanded,onDismissRequest={ expanded=false },modifier=Modifier.heightIn(max=menuMaxHeight),
             shape=MaterialTheme.shapes.medium,containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
             tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
@@ -384,8 +384,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
             }
-            MenuEntry("Leer notas",Icons.Default.Description,ready) { expanded=false; onRead() }
-            MenuEntry("Guardar notas",Icons.Default.Edit,ready) { expanded=false; onEdit() }
+            MenuEntry(managementText("Leer notas","Read notes"),Icons.Default.Description,ready) { expanded=false; onRead() }
+            MenuEntry(managementText("Guardar notas","Save notes"),Icons.Default.Edit,ready) { expanded=false; onEdit() }
             if(regularActions.isNotEmpty()) {
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 regularActions.forEach { op->MenuEntry(op.title,op.icon,ready,op.dangerous) { expanded=false; onSelect(op) } }

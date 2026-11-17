@@ -1,0 +1,219 @@
+name: Validate and publish final clipboard migrations
+on:
+  push:
+    branches: [fido-support]
+    paths: ['.github/workflows/fix-final-clipboard-warnings.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: final-clipboard-warning-fixes
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/fido-support'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - name: Prepare exact clipboard migrations without rewriting other content
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib,json,subprocess,textwrap
+          base='4c48b993b57bd7ff53de0d99b2a7bdffd0909cb1'
+          workflow='.github/workflows/fix-final-clipboard-warnings.yml'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==base,'Base changed; review required'
+          assert subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()==[workflow]
+          assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
+          def block(spaces,text): return textwrap.indent(textwrap.dedent(text).strip('\n'),' '*spaces)
+          imports=('import androidx.compose.runtime.remember\n','import androidx.compose.runtime.remember\nimport androidx.compose.runtime.rememberCoroutineScope\nimport androidx.compose.runtime.rememberUpdatedState\nimport kotlinx.coroutines.launch\n')
+          local=('import androidx.compose.ui.platform.LocalClipboardManager\n','import androidx.compose.ui.platform.LocalClipboard\n')
+          old_read=block(36,'''
+          val clip = clipboardManager.getText()?.text ?: ""
+          if (clip.isNotEmpty()) {
+              TARGET = clip
+              Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+          } else {
+              Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+          }
+          ''')
+          terminal='app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt'
+          desktop='app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt'
+          pinned={terminal:'d04f2d5d825e54fb679e0c7f248db296bce1ddc9',desktop:'d05b156982f7af8329a93538905df48c9b9eab2b'}
+          edits={terminal:[
+              imports,local,
+              ('    val clipboardManager = LocalClipboardManager.current\n','    val clipboard = LocalClipboard.current\n    val clipboardScope = rememberCoroutineScope()\n'),
+              ("    val ctrlLetters = remember { ('A'..'Z').toList() }\n","    val ctrlLetters = remember { ('A'..'Z').toList() }\n    val clipboardEpoch = remember(renderer, showCommandDialog) { Any() }\n    val currentClipboardEpoch = rememberUpdatedState(clipboardEpoch)\n    val clipboardInputAllowed = rememberUpdatedState(inputEnabled && showCommandDialog)\n"),
+              (old_read.replace('TARGET','commandInput'),block(36,'''
+          val draft = commandInput
+          clipboardScope.launch {
+              if (currentClipboardEpoch.value !== clipboardEpoch || !clipboardInputAllowed.value) return@launch
+              val data = clipboard.getClipEntry()?.clipData
+              val clip = data?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString().orEmpty()
+              if (currentClipboardEpoch.value !== clipboardEpoch || !clipboardInputAllowed.value || commandInput != draft) return@launch
+              if (clip.isNotEmpty()) {
+                  commandInput = clip
+                  Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+              } else {
+                  Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+              }
+          }
+          '''))
+          ],desktop:[
+              imports,
+              ('import androidx.compose.ui.platform.LocalClipboardManager\n','import android.content.ClipData\nimport androidx.compose.ui.platform.ClipEntry\nimport androidx.compose.ui.platform.LocalClipboard\n'),
+              ('import androidx.compose.ui.text.AnnotatedString\n',''),
+              ('    val clipboardManager = LocalClipboardManager.current\n','    val clipboard = LocalClipboard.current\n    val clipboardScope = rememberCoroutineScope()\n    val clipboardEpoch = remember(nodeId, showClipboardDialog) { Any() }\n    val currentClipboardEpoch = rememberUpdatedState(clipboardEpoch)\n'),
+              (old_read.replace('TARGET','sendClipboardInput'),block(36,'''
+          val draft = sendClipboardInput
+          clipboardScope.launch {
+              if (currentClipboardEpoch.value !== clipboardEpoch) return@launch
+              val data = clipboard.getClipEntry()?.clipData
+              val clip = data?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString().orEmpty()
+              if (currentClipboardEpoch.value !== clipboardEpoch || sendClipboardInput != draft) return@launch
+              if (clip.isNotEmpty()) {
+                  sendClipboardInput = clip
+                  Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+              } else {
+                  Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+              }
+          }
+          ''')),
+              (block(40,'''
+          clipboardManager.setText(AnnotatedString(remoteClipboardText))
+          Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()
+          '''),block(40,'''
+          clipboardScope.launch {
+              if (currentClipboardEpoch.value !== clipboardEpoch) return@launch
+              clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("plain text", remoteClipboardText)))
+              if (currentClipboardEpoch.value === clipboardEpoch) Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()
+          }
+          '''))
+          ]}
+          changes={}; inventory={}
+          for name,sha in pinned.items():
+              raw=Path(name).read_bytes()
+              assert hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==sha,'Source changed: '+name
+              text=raw.decode('utf-8'); updated=text
+              for before,after in edits[name]:
+                  assert updated.count(before)==1,('Anchor changed',name,before)
+                  updated=updated.replace(before,after,1)
+              assert 'LocalClipboardManager' not in updated and 'clipboardManager' not in updated,name
+              assert updated.count('clipboard.getClipEntry()')==1,name
+              assert updated.count('clipboard.setClipEntry(')==(1 if name==desktop else 0),name
+              changes[name]=updated
+              inventory[name]={'originalBlob':sha,'edits':edits[name]}
+          for name,text in changes.items(): Path(name).write_bytes(text.encode('utf-8'))
+          subprocess.run(['git','add','--',*sorted(pinned)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==set(pinned)
+          out=Path('validation'); out.mkdir(exist_ok=True)
+          (out/'clipboard.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+          (out/'source-digests.json').write_text(json.dumps({n:hashlib.sha256(Path(n).read_bytes()).hexdigest() for n in sorted(pinned)},indent=2)+'\n')
+          (out/'migration-inventory.json').write_text(json.dumps(inventory,indent=2,ensure_ascii=False)+'\n')
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve(); tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve(); candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK): tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          selected=sorted(tools)[0]
+          subprocess.run([str(selected/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as f: f.write(str(selected/'bin')+'\n')
+      - name: Clean build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete test evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import json
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              totals[root]=len(cases)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          Path('validation/VALIDATED.txt').write_text('Terminal and desktop clipboard migrations passed build, all unit tests, lint and complete instrumentation. Existing test sources, remote commands, clipboard transfer protocol, dependencies and versions are unchanged. Physical clipboard checks remain separate.\n')
+      - name: Upload reports and exact patch only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-clipboard-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only the two validated screen files
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/fido-support'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git fetch origin refs/heads/fido-support
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_HEAD" || { echo 'Branch advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt'}
+          digests=json.loads(Path('validation/source-digests.json').read_text())
+          inventory=json.loads(Path('validation/migration-inventory.json').read_text())
+          assert set(digests)==set(inventory)==expected
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          assert Path('validation/VALIDATED.txt').is_file()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/clipboard.patch').read_bytes()
+          for name,digest in digests.items():
+              assert hashlib.sha256(Path(name).read_bytes()).hexdigest()==digest,name
+              original=subprocess.check_output(['git','show','HEAD:'+name])
+              sha=hashlib.sha1(b'blob '+str(len(original)).encode()+b'\0'+original).hexdigest()
+              assert sha==inventory[name]['originalBlob'],name
+              text=original.decode('utf-8')
+              for before,after in inventory[name]['edits']:
+                  assert text.count(before)==1,name
+                  text=text.replace(before,after,1)
+              assert text.encode('utf-8')==Path(name).read_bytes(),name
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(warnings): migrate terminal and desktop clipboard to LocalClipboard'
+          git push origin HEAD:refs/heads/fido-support
+          printf 'Published validated clipboard migrations in `%s`. No APK uploaded.\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"

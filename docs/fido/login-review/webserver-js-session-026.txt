@@ -1,0 +1,152 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 26 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+ } catch (ex) { console.log(ex); }
+8089:                 });
+8090:
+8091:                 // Setup MQTT broker over websocket
+8092:                 if (obj.parent.mqttbroker != null) {
+8093:                     obj.app.ws(url + 'mqtt.ashx', function (ws, req) {
+8094:                         var domain = checkAgentIpAddress(ws, req);
+8095:                         if (domain == null) { parent.debug('web', 'Got agent connection with bad domain or blocked IP address ' + req.clientIp + ', holding.'); return; }
+8096:                         var serialtunnel = SerialTunnel();
+8097:                         serialtunnel.xtransport = 'ws';
+8098:                         serialtunnel.xdomain = domain;
+8099:                         serialtunnel.xip = req.clientIp;
+8100:                         ws.on('message', function (b) { serialtunnel.updateBuffer(Buffer.from(b, 'binary')) });
+8101:                         serialtunnel.forwardwrite = function (b) { ws.send(b, 'binary') }
+8102:                         ws.on('close', function () { serialtunnel.emit('end'); });
+8103:                         obj.parent.mqttbroker.handle(serialtunnel); // Pass socket wrapper to MQTT broker
+8104:                     });
+8105:                 }
+8106:
+8107:                 // Setup any .well-known folders
+8108:                 var p = obj.parent.path.join(obj.parent.datapath, '.well-known' + ((parent.config.domains[i].id == '') ? '' : ('-' + parent.config.domains[i].id)));
+8109:                 if (obj.parent.fs.existsSync(p)) { obj.app.use(url + '.well-known', obj.express.static(p)); }
+8110:
+8111:                 // Setup the alternative agent-only port
+8112:                 if (obj.agentapp) {
+8113:                     // Receive mesh agent connections on alternate port
+8114:                     obj.agentapp.ws(url + 'agent.ashx', function (ws, req) {
+8115:                         var domain = checkAgentIpAddress(ws, req);
+8116:                         if (domain == null) { parent.debug('web', 'Got agent connection with bad domain or blocked IP address ' + req.clientIp + ', holding.'); return; }
+8117:                         if (domain.agentkey && ((req.query.key == null) || (domain.agentkey.indexOf(req.query.key) == -1))) { return; } // If agent key is required and not provided or not valid, just hold the websocket and do nothing.
+8118:                         try { obj.meshAgentHandler.CreateMeshAgent(obj, obj.db, ws, req, obj.args, domain); } catch (e) { console.log(e); }
+8119:                     });
+8120:
+8121:                     // Setup mesh relay on alternative agent-only port
+8122:                     obj.agentapp.ws(url + 'meshrelay.ashx', function (ws, req) {
+8123:                         PerformWSSessionAuth(ws, req, true, function (ws1, req1, domain, user, cookie, authData) {
+8124:                             if (((parent.config.settings.desktopmultiplex === true) || (domain.desktopmultiplex === true)) && (req.query.p == 2)) {
+8125:                                 obj.meshDesktopMultiplexHandler.CreateMeshRelay(obj, ws1, req1, domain, user, cookie); // Desktop multiplexor 1-to-n
+8126:                             } else {
+8127:                                 obj.meshRelayHandler.CreateMeshRelay(obj, ws1, req1, domain, user, cookie); // Normal relay 1-to-1
+8128:                             }
+8129:                         });
+8130:                     });
+8131:
+8132:                     // Allows agents to transfer files
+8133:                     obj.agentapp.ws(url + 'devicefile.ashx', function (ws, req) { obj.meshDeviceFileHandler.CreateMeshDeviceFile(obj, ws, null, req, domain); });
+8134:
+8135:                     // Setup agent to/from server file transfer handler
+8136:                     obj.agentapp.ws(url + 'agenttransfer.ashx', handleAgentFileTransfer); // Setup agent to/from server file transfer handler
+8137:
+8138:                     // Setup agent downloads for meshcore updates
+8139:                     obj.agentapp.get(url + 'meshagents', obj.handleMeshAgentRequest);
+8140:
+8141:                     // Setup agent file downloads
+8142:                     obj.agentapp.get(url + 'agentdownload.ashx', handleAgentDownloadFile);
+8143:
+8144:                     // Setup APF.ashx for AMT communication
+8145:                     if (obj.parent.mpsserver != null) {
+8146:                         obj.agentapp.ws(url + 'apf.ashx', function (ws, req) { obj.parent.mpsserver.onWebSocketConnection(ws, req); })
+8147:                     }
+8148:                 }
+8149:
+8150:                 // Setup web relay on this web server if needed
+8151:                 // We set this up when a DNS name is used as a web relay instead of a port
+8152:                 if (obj.args.relaydns != null) {
+8153:                     obj.webRelayRouter = require('express').Router();
+8154:
+8155:                     // This is the magic URL that will setup the relay session
+8156:                     obj.webRelayRouter.get('/control-redirect.ashx', function (req, res, next) {
+8157:                         if (obj.args.relaydns.indexOf(req.hostname) == -1) { res.sendStatus(404); return; }
+8158:                         if ((req.session.userid == null) && obj.args.user && obj.users['user//' + obj.args.user.toLowerCase()]) { req.session.userid = 'user//' + obj.args.user.toLowerCase(); } // Use a default user if needed
+8159:                         res.set({ 'Cache-Control': 'no-store' });
+8160:                         parent.debug('web', 'webRelaySetup');
+8161:
+8162:                         // Decode the relay cookie
+8163:                         if (req.query.c == null) { res.sendStatus(404); return; }
+8164:
+8165:                         // Decode and check if this relay cookie is valid
+8166:                         var userid, domainid, domain, nodeid, addr, port, appid, webSessionId, expire, publicid;
+8167:                         const urlCookie = obj.parent.decodeCookie(req.query.c, parent.loginCookieEncryptionKey, 32); // Allow cookies up to 32 minutes old. The web page will renew this cookie every 30 minutes.
+8168:                         if (urlCookie == null) { res.sendStatus(404); return; }
+8169:
+8170:                         // Decode the incoming cookie
+8171:                         if ((urlCookie.ruserid != null) && (urlCookie.x != null)) {
+8172:                             if (parent.webserver.destroyedSessions[urlCookie.ruserid + '/' + urlCookie.x] != null) { res.sendStatus(404); return; }
+8173:
+8174:                             // This is a standard user, figure out what our web relay will be.
+8175:                             if (req.session.x != urlCookie.x) { req.session.x = urlCookie.x; } // Set the sessionid if missing
+8176:                             if (req.session.userid != urlCookie.ruserid) { req.session.userid = urlCookie.ruserid; } // Set the session userid if missing
+8177:                             if (req.session.z) { delete req.session.z; } // Clear the web relay guest session
+8178:                             userid = req.session.userid;
+8179:                             domainid = userid.split('/')[1];
+8180:                             domain = parent.config.domains[domainid];
+8181:                             nodeid = ((req.query.relayid != null) ? req.query.relayid : req.query.n);
+8182:                             addr = (req.query.addr != null) ? req.query.addr : '127.0.0.1';
+8183:                             port = parseInt(req.query.p);
+8184:                             appid = parseInt(req.query.appid);
+8185:                             webSessionId = req.session.userid + '/' + req.session.x;
+8186:
+8187:                             // Check that all the required arguments are present
+8188:                             if ((req.session.userid == null) || (req.session.x == null) || (req.query.n == null) || (req.query.p == null) || (parent.webserver.destroyedSessions[webSessionId] != null) || ((req.query.appid != 1) && (req.query.appid != 2))) { res.redirect('/'); return; }
+8189:                         } else if (urlCookie.r == 8) {
+8190:                             // This is a guest user, figure out what our web relay will be.
+8191:                             userid = urlCookie.userid;
+8192:                             domainid = userid.split('/')[1];
+8193:                             domain = parent.config.domains[domainid];
+8194:                             nodeid = urlCookie.nid;
+8195:                             addr = (urlCookie.addr != null) ? urlCookie.addr : '127.0.0.1';
+8196:                             port = urlCookie.port;
+8197:                             appid = (urlCookie.p == 16) ? 2 : 1; // appid: 1 = HTTP, 2 = HTTPS
+8198:                             webSessionId = userid + '/' + urlCookie.pid;
+8199:                             publicid = urlCookie.pid;
+8200:                             if (req.session.x) { delete req.session.x; } // Clear the web relay sessionid
+8201:                             if (req.session.userid) { delete req.session.userid; }  // Clear the web relay userid
+8202:                             if (req.session.z != webSessionId) { req.session.z = webSessionId; } // Set the web relay guest session
+8203:                             expire = urlCookie.expire;
+8204:                             if ((expire != null) && (expire <= Date.now())) { parent.debug('webrelay', 'expired link'); res.sendStatus(404); return; }
+8205:                         }
+8206:
+8207:                         // No session identifier was setup, exit now
+8208:                         if (webSessionId == null) { res.sendStatus(404); return; }
+8209:
+8210:                         // Check that we have an exact session on any of the relay DNS names
+8211:                         var xrelaySessionId, xrelaySession, freeRelayHost, oldestRelayTime, oldestRelayHost;
+8212:                         for (var hostIndex in obj.args.relaydns) {
+8213:                             const host = obj.args.relaydns[hostIndex];
+8214:                             xrelaySessionId = webSessionId + '/' + host;
+8215:                             xrelaySession = webRelaySessions[xrelaySessionId];
+8216:                             if (xrelaySession == null) {
+8217:                                 // We found an unused hostname, save this as it could be useful.
+8218:                                 if (freeRelayHost == null) { freeRelayHost = host; }
+8219:                             } else {
+8220:                                 // Check if we already have a relay session that matches exactly what we want
+8221:                                 if ((xrelaySession.domain.id == domain.id) && (xrelaySession.userid == userid) && (xrelaySession.nodeid == nodeid) && (xrelaySession.addr == addr) && (xrelaySession.port == port) && (xrelaySession.appid == appid)) {
+8222:                                     // We found an exact match, we are all setup already, redirect to root of that DNS name
+8223:                                     if (host == req.hostname) {
+8224:                                         // Request was made on the same host, redirect to root.
+8225:                                         res.redirect('/');
+8226:                                     } else {
+8227:                                         // Request was made to a different host
+8228:                                         const httpport = ((args.aliasport != null) ? args.aliasport : args.port);
+8229:                                         res.redirect('https://' + host + ((httpport != 443) ? (':' + httpport) : '') + '/');
+8230:                                     }
+8231:                                     return;
+8232:                                 }
+8233:
+8234:                                 // Keep a record of the oldest web relay session, this could be useful.
+8235:                                 if (oldestRelayHost == null) {
+8236:                                     // Oldest host not set yet, set it
+8237:

@@ -32,6 +32,9 @@ import java.io.File
 
 class MainActivity : ComponentActivity() {
 
+    internal lateinit var fidoClient: com.yubico.yubikit.fido.android.ui.FidoClient
+        private set
+
     internal var desktopMouseCapture: iecxiv.meshfabric.ui.desktop.DesktopMouseCapture? = null
 
     private fun cancelDesktopPointerGesture(downTime: Long, eventTime: Long) {
@@ -89,6 +92,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        fidoClient = com.yubico.yubikit.fido.android.ui.FidoClient(this)
         iecxiv.meshfabric.ui.management.NoticeNavigation.receive(intent)
         enableEdgeToEdge()
         installDesktopMouseWindowCallback()

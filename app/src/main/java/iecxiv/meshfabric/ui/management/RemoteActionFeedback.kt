@@ -28,11 +28,11 @@ internal class RemoteActionFeedback(private val scope:CoroutineScope,private val
             mutable.update { it.copy(commands=(listOf(command)+it.commands).take(20)) }
             val sent=sendPacket(JSONObject(payload.toString()).put("responseid",id))
             mutable.update { s->s.copy(commandWindow=if(sent) id else s.commandWindow,clipboardWindow=if(sent) false else s.clipboardWindow,commands=s.commands.map {
-                if(it.id==id && !sent) it.copy(phase=CommandPhase.ERROR,message="No se pudo enviar el comando.") else it
+                if(it.id==id && !sent) it.copy(phase=CommandPhase.ERROR,message=managementText("No se pudo enviar el comando.","The command could not be sent.")) else it
             }) }
             if(sent) scope.launch {
                 delay(60000)
-                mutable.update { s->s.copy(commands=s.commands.map { if(it.id==id) it.interrupted("Sin salida confirmada tras 60 segundos. El comando puede seguir ejecutándose; no se ha reenviado.") else it }) }
+                mutable.update { s->s.copy(commands=s.commands.map { if(it.id==id) it.interrupted(managementText("Sin salida confirmada tras 60 segundos. El comando puede seguir ejecutándose; no se ha reenviado.","No confirmed output after 60 seconds. The command may still be running; it has not been resent.")) else it }) }
             }
             return sent
         }
@@ -43,12 +43,12 @@ internal class RemoteActionFeedback(private val scope:CoroutineScope,private val
         val id=payload.optString("responseid").ifBlank { UUID.randomUUID().toString() }
         val pending=PendingClipboard(id,node,text)
         pendingClip.set(pending)
-        mutable.update { it.copy(clipboard=ClipboardFeedback(id,node,title,"Agente (canal de control)"),clipboardWindow=false) }
+        mutable.update { it.copy(clipboard=ClipboardFeedback(id,node,title,managementText("Agente (canal de control)","Agent (control channel)")),clipboardWindow=false) }
         val native=runCatching { nativeClipboard(node,text) }.getOrNull()
         val sent=if(native==true) true else sendPacket(JSONObject(payload.toString()).put("responseid",id))
-        mutable.update { s->if(s.clipboard?.id==id) s.copy(clipboard=s.clipboard?.copy(transport=if(native==true) "Escritorio nativo ya conectado" else "Agente (canal de control)",
+        mutable.update { s->if(s.clipboard?.id==id) s.copy(clipboard=s.clipboard?.copy(transport=if(native==true) managementText("Escritorio nativo ya conectado","Already connected native desktop") else managementText("Agente (canal de control)","Agent (control channel)"),
             phase=if(sent) ClipboardPhase.VERIFYING else ClipboardPhase.ERROR,
-            message=if(sent) "Texto enviado; esperando verificación…" else "No se pudo enviar el texto."),clipboardWindow=sent,commandWindow=if(sent) null else s.commandWindow) else s }
+            message=if(sent) managementText("Texto enviado; esperando verificación…","Text sent; waiting for verification…") else managementText("No se pudo enviar el texto.","The text could not be sent.")),clipboardWindow=sent,commandWindow=if(sent) null else s.commandWindow) else s }
         if(sent) clipboardJob=scope.launch {
             repeat(4) { attempt->
                 delay(600L+400L*attempt)
@@ -103,8 +103,8 @@ internal class RemoteActionFeedback(private val scope:CoroutineScope,private val
     fun closeClipboard() { mutable.update { it.copy(clipboardWindow=false) } }
     fun interrupted() {
         clipboardJob?.cancel(); pendingClip.set(null)
-        mutable.update { s->s.copy(commands=s.commands.map { it.interrupted("Conexión interrumpida. Resultado desconocido; no se repetirá el comando.") },
-            clipboard=s.clipboard?.let { if(it.phase==ClipboardPhase.VERIFYING) it.copy(phase=ClipboardPhase.UNKNOWN,message="Conexión interrumpida. No se ha confirmado la actualización del portapapeles.") else it }) }
+        mutable.update { s->s.copy(commands=s.commands.map { it.interrupted(managementText("Conexión interrumpida. Resultado desconocido; no se repetirá el comando.","Connection interrupted. Result unknown; the command will not be repeated.")) },
+            clipboard=s.clipboard?.let { if(it.phase==ClipboardPhase.VERIFYING) it.copy(phase=ClipboardPhase.UNKNOWN,message=managementText("Conexión interrumpida. No se ha confirmado la actualización del portapapeles.","Connection interrupted. The clipboard update is not confirmed.")) else it }) }
     }
     fun clear() { clipboardJob?.cancel(); pendingClip.set(null); mutable.value=ActionFeedbackState() }
 }

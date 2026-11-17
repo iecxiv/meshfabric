@@ -1,0 +1,195 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 11 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+ull)) { res.sendStatus(404); return; }
+4733:
+4734:         // Find the correct MeshCommander language to send
+4735:         const acceptableLanguages = obj.getLanguageCodes(req);
+4736:         const commandLanguageTranslations = { 'en': '', 'de': '-de', 'es': '-es', 'fr': '-fr', 'it': '-it', 'ja': '-ja', 'ko': '-ko', 'nl': '-nl', 'pt': '-pt', 'ru': '-ru', 'zh-chs': '-zh-chs', 'zh-cht': '-zh-chs' };
+4737:         for (var i in acceptableLanguages) {
+4738:             const meshCommanderLanguage = commandLanguageTranslations[acceptableLanguages[i]];
+4739:             if (meshCommanderLanguage != null) {
+4740:                 try { res.sendFile(obj.parent.path.join(parent.webPublicPath, 'commander' + meshCommanderLanguage + '.htm')); } catch (ex) { }
+4741:                 return;
+4742:             }
+4743:         }
+4744:
+4745:         // Send out the default english MeshCommander
+4746:         try { res.sendFile(obj.parent.path.join(parent.webPublicPath, 'commander.htm')); } catch (ex) { }
+4747:     }
+4748:
+4749:     // Upload a MeshCore.js file to the server
+4750:     function handleUploadMeshCoreFile(req, res) {
+4751:         const domain = checkUserIpAddress(req, res);
+4752:         if (domain == null) { return; }
+4753:         if (domain.id !== '') { res.sendStatus(401); return; }
+4754:
+4755:         var authUserid = null;
+4756:         if ((req.session != null) && (typeof req.session.userid == 'string')) { authUserid = req.session.userid; }
+4757:
+4758:         const multiparty = require('multiparty');
+4759:         const form = new multiparty.Form();
+4760:         form.parse(req, function (err, fields, files) {
+4761:             // If an authentication cookie is embedded in the form, use that.
+4762:             if ((fields != null) && (fields.auth != null) && (fields.auth.length == 1) && (typeof fields.auth[0] == 'string')) {
+4763:                 var loginCookie = obj.parent.decodeCookie(fields.auth[0], obj.parent.loginCookieEncryptionKey, 60); // 60 minute timeout
+4764:                 if ((loginCookie != null) && (loginCookie.ip != null) && !checkCookieIp(loginCookie.ip, req.clientIp)) { loginCookie = null; } // Check cookie IP binding.
+4765:                 if ((loginCookie != null) && (domain.id == loginCookie.domainid)) { authUserid = loginCookie.userid; } // Use cookie authentication
+4766:             }
+4767:             if (authUserid == null) { res.sendStatus(401); return; }
+4768:             if ((fields == null) || (fields.attrib == null) || (fields.attrib.length != 1)) { res.sendStatus(404); return; }
+4769:
+4770:             // Get the user
+4771:             const user = obj.users[authUserid];
+4772:             if (user == null) { res.sendStatus(401); return; } // Check this user exists
+4773:
+4774:             // Get the node and check node rights
+4775:             const nodeid = fields.attrib[0];
+4776:             obj.GetNodeWithRights(domain, user, nodeid, function (node, rights, visible) {
+4777:                 if ((node == null) || (rights != 0xFFFFFFFF) || (visible == false)) { res.sendStatus(404); return; } // We don't have remote control rights to this device
+4778:                 for (var i in files.files) {
+4779:                     var file = files.files[i];
+4780:                     const uploadTempPath = resolveSafeUploadTempPath(file.path);
+4781:                     if (uploadTempPath == null) { res.sendStatus(400); return; }
+4782:                     obj.fs.readFile(uploadTempPath, 'utf8', function (err, data) {
+4783:                         if (err != null) return;
+4784:                         data = obj.common.IntToStr(0) + data; // Add the 4 bytes encoding type & flags (Set to 0 for raw)
+4785:                         obj.sendMeshAgentCore(user, domain, fields.attrib[0], 'custom', data); // Upload the core
+4786:                         try { obj.fs.unlinkSync(uploadTempPath); } catch (e) { }
+4787:                     });
+4788:                 }
+4789:                 res.send('');
+4790:             });
+4791:         });
+4792:     }
+4793:
+4794:     // Upload a MeshCore.js file to the server
+4795:     function handleOneClickRecoveryFile(req, res) {
+4796:         const domain = checkUserIpAddress(req, res);
+4797:         if (domain == null) { return; }
+4798:         if (domain.id !== '') { res.sendStatus(401); return; }
+4799:
+4800:         var authUserid = null;
+4801:         if ((req.session != null) && (typeof req.session.userid == 'string')) { authUserid = req.session.userid; }
+4802:
+4803:         const multiparty = require('multiparty');
+4804:         const form = new multiparty.Form();
+4805:         form.parse(req, function (err, fields, files) {
+4806:             // If an authentication cookie is embedded in the form, use that.
+4807:             if ((fields != null) && (fields.auth != null) && (fields.auth.length == 1) && (typeof fields.auth[0] == 'string')) {
+4808:                 var loginCookie = obj.parent.decodeCookie(fields.auth[0], obj.parent.loginCookieEncryptionKey, 60); // 60 minute timeout
+4809:                 if ((loginCookie != null) && (loginCookie.ip != null) && !checkCookieIp(loginCookie.ip, req.clientIp)) { loginCookie = null; } // Check cookie IP binding.
+4810:                 if ((loginCookie != null) && (domain.id == loginCookie.domainid)) { authUserid = loginCookie.userid; } // Use cookie authentication
+4811:             }
+4812:             if (authUserid == null) { res.sendStatus(401); return; }
+4813:             if ((fields == null) || (fields.attrib == null) || (fields.attrib.length != 1)) { res.sendStatus(404); return; }
+4814:
+4815:             // Get the user
+4816:             const user = obj.users[authUserid];
+4817:             if (user == null) { res.sendStatus(401); return; } // Check this user exists
+4818:
+4819:             // Get the node and check node rights
+4820:             const nodeid = fields.attrib[0];
+4821:             obj.GetNodeWithRights(domain, user, nodeid, function (node, rights, visible) {
+4822:                 if ((node == null) || (rights != 0xFFFFFFFF) || (visible == false)) { res.sendStatus(404); return; } // We don't have remote control rights to this device
+4823:                 for (var i in files.files) {
+4824:                     var file = files.files[i];
+4825:                     const uploadTempPath = resolveSafeUploadTempPath(file.path);
+4826:                     if (uploadTempPath == null) { res.sendStatus(400); return; }
+4827:
+4828:                     // Event Intel AMT One Click Recovery, this will cause Intel AMT wake operations on this and other servers.
+4829:                     parent.DispatchEvent('*', obj, { action: 'oneclickrecovery', userid: user._id, username: user.name, nodeids: [node._id], domain: domain.id, nolog: 1, file: uploadTempPath });
+4830:
+4831:                     //try { obj.fs.unlinkSync(uploadTempPath); } catch (e) { } // TODO: Remove this file after 30 minutes.
+4832:                 }
+4833:                 res.send('');
+4834:             });
+4835:         });
+4836:     }
+4837:
+4838:     // Upload a file to the server
+4839:     function getCustomIconUserKey(user) {
+4840:         if ((user == null) || (typeof user._id !== 'string') || (user._id.length === 0)) { return null; }
+4841:         return obj.crypto.createHash('sha256').update(user._id).digest('hex');
+4842:     }
+4843:
+4844:     function getCustomIconUserDir(user) {
+4845:         const userKey = getCustomIconUserKey(user);
+4846:         if (userKey == null) { return null; }
+4847:         return obj.path.join(obj.parent.datapath, 'icons', 'custom', userKey);
+4848:     }
+4849:
+4850:     // Maximum accepted custom icon upload size, in bytes.
+4851:     const customIconMaxFileSize = 10485760;
+4852:     // Maximum accepted width or height for uploaded PNG/JPEG sidebar icons, in pixels.
+4853:     const customIconMaxDimension = 64;
+4854:     // Image extensions accepted for uploaded custom sidebar icons.
+4855:     const customIconAllowedExtensions = new Set(['.svg', '.png', '.jpg', '.jpeg']);
+4856:
+4857:     /**
+4858:      * Return the HTTP response MIME type for a stored custom icon filename.
+4859:      *
+4860:      * @param {string} iconName Filename or path segment for the stored custom icon.
+4861:      * @returns {string|null} MIME type for supported icons, or null for unsupported extensions.
+4862:      */
+4863:     function getCustomIconMimeType(iconName) {
+4864:         const lower = iconName.toLowerCase();
+4865:         if (lower.endsWith('.svg')) { return 'image/svg+xml'; }
+4866:         if (lower.endsWith('.png')) { return 'image/png'; }
+4867:         if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) { return 'image/jpeg'; }
+4868:         return null;
+4869:     }
+4870:
+4871:     /**
+4872:      * Reject SVG content that can execute script or load external content.
+4873:      *
+4874:      * @param {string} svgContent Raw UTF-8 SVG content from the uploaded file.
+4875:      * @returns {string|null} SVG content safe to store, or null if it is invalid or unsafe.
+4876:      */
+4877:     function cleanSvg(svgContent) {
+4878:         if (typeof svgContent !== 'string') { return null; }
+4879:         const cleaned = (svgContent.charCodeAt(0) === 0xFEFF) ? svgContent.substring(1) : svgContent;
+4880:         if (cleaned.search(/<svg[\s>]/i) < 0) { return null; }
+4881:         if (cleaned.search(/<\s*(script|foreignObject|iframe|object|embed|applet|link|meta)\b/i) >= 0) { return null; }
+4882:         if (cleaned.search(/\s+on[a-z0-9_-]+\s*=/i) >= 0) { return null; }
+4883:         if (cleaned.search(/\s+(href|xlink:href|src)\s*=\s*(['"]?)\s*(?!#)/i) >= 0) { return null; }
+4884:         return cleaned;
+4885:     }
+4886:
+4887:     /**
+4888:      * Check if a JPEG marker is a Start Of Frame marker that contains image dimensions.
+4889:      *
+4890:      * @param {number} marker JPEG marker byte after the 0xFF prefix.
+4891:      * @returns {boolean} True when the marker segment contains width and height fields.
+4892:      */
+4893:     function isJpegStartOfFrameMarker(marker) {
+4894:         return ((marker >= 0xC0) && (marker <= 0xC3)) || ((marker >= 0xC5) && (marker <= 0xC7)) || ((marker >= 0xC9) && (marker <= 0xCB)) || ((marker >= 0xCD) && (marker <= 0xCF));
+4895:     }
+4896:
+4897:     /**
+4898:      * Read JPEG dimensions from header bytes without fully decoding the image.
+4899:      *
+4900:      * @param {Buffer} data Initial bytes from the uploaded JPEG file.
+4901:      * @returns {{width:number,height:number}|null} Parsed dimensions, or null if the JPEG header is invalid or incomplete.
+4902:      */
+4903:     function getJpegDimensions(data) {
+4904:         // JPEG files must start with the SOI marker.
+4905:         if ((data.length < 4) || (data[0] !== 0xFF) || (data[1] !== 0xD8)) { return null; }
+4906:         // Start scanning after the SOI marker.
+4907:         var offset = 2;
+4908:         while (offset + 9 < data.length) {
+4909:             // Each JPEG segment starts with a marker prefix.
+4910:             if (data[offset] !== 0xFF) { return null; }
+4911:             // Skip fill bytes before the marker value.
+4912:             while ((offset < data.length) && (data[offset] === 0xFF)) { offset++; }
+4913:             const marker = data[offset++];
+4914:             // SOI/EOI and restart markers do not carry segment lengths.
+4915:             if ((marker === 0xD8) || (marker === 0xD9)) { continue; }
+4916:             if ((marker >= 0xD0) && (marker <= 0xD7)) { continue; }
+4917:             // Remaining markers should include a two-byte segment length.
+4918:             if (offset + 2 > data.length) { return null; }
+4919:             const segmentLength = data.readUInt16BE(offset);
+4920:             if (segmentLength < 2) { return null; }
+4921:             if (isJpegStartOfFrameMarker(marker)) {
+4922:                 // SOF payload layout: precision, height, width.
+4923:                 if (offset + 7 > data.length) { return null; }
+4924:                 return { width: data.readUInt16BE(offse

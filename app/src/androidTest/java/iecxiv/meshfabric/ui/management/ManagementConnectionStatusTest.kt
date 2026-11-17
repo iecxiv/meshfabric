@@ -8,7 +8,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.*
@@ -21,7 +21,7 @@ class ManagementConnectionStatusTest {
     private fun compact(scale:Float,width:Int,es:Boolean=true) {
         val ready=mutableStateOf(true);val connecting=mutableStateOf(false);var retries=0
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale(if(es) "es" else "en"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag(if(es) "es" else "en"))}
             val density=Density(LocalDensity.current.density,scale)
             CompositionLocalProvider(LocalConfiguration provides config,LocalDensity provides density) {MaterialTheme {Column(Modifier.width(width.dp)) {
                 ManagementConnectionStatus(ready.value,connecting.value,onReconnect={retries++})
@@ -73,7 +73,7 @@ class ManagementConnectionStatusTest {
     }
     @Test fun englishReadyTakesPrecedenceWithoutReconnectSlot() {
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("en"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("en"))}
             CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {ManagementConnectionStatus(true,true,onReconnect={})}}
         }
         compose.onNodeWithText("Management channel connected. The server validates permissions.").assertIsDisplayed()

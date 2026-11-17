@@ -4,7 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import kotlinx.coroutines.CoroutineScope
@@ -31,7 +31,7 @@ import java.util.Locale
         val state=ProfileState(ready=true,user=actor,users=listOf(user),groups=if(groupMode=="ambiguous") listOf(mesh,JSONObject(mesh.toString()).put("_id","mesh//other")) else listOf(mesh),nodes=if(nodesLoading) null else if(duplicateDeviceId) listOf(node,JSONObject(node.toString())) else if(ambiguousDevice) listOf(node,JSONObject(node.toString()).put("_id","node//other")) else listOf(node),detailsBusy=nodesLoading,userGroups=if(groupDataMissing) null else listOf(team),listedUserGroups=listOf(team),userGroupPhase="ready")
         init {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     UserAdministrationDialog(session,state,ProfileForm(true,"edit",uid,"Alicia","alice@example.invalid"),onOpenGroup={openedGroup=it},onOpenDevice={openedDevice=it},canOpenDevice={deviceCanOpen && (it==nid || (ambiguousDevice && it=="node//other"))},onDismiss={})
                 }}

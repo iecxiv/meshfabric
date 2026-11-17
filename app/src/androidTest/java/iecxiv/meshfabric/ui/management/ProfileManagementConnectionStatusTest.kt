@@ -4,7 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -15,7 +15,7 @@ class ProfileManagementConnectionStatusTest {
     @Test fun profileChannelStatesStayIndependentAndReconnectOnlyOnClick() {
         val state=mutableStateOf(ProfileState(notice="connecting"));var retries=0
         compose.setContent {
-            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+            val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
             CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                 ProfileManagementConnectionStatus(state.value,onReconnect={retries++})
             }}

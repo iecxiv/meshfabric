@@ -36,7 +36,7 @@ internal enum class ActivityStatus { SENT, ACCEPTED, OUTPUT, CONFIRMED, ERROR, U
 internal data class ActivityEntry(val id:String,val nodeId:String,val deviceName:String,val title:String,val description:String,
     val status:ActivityStatus,val summary:String,val time:Long=System.currentTimeMillis(),val updated:Long=time,
     val actor:String="",val requestId:String="",val kind:ActivityKind=ActivityKind.ACTION,val action:String="",val receivedTime:Boolean=false,val meshId:String="",val groupName:String="") {
-    val target:String get()=if(deviceName.isNotBlank()) deviceName+if(groupName.isBlank()) "" else " ($groupName)" else if(nodeId.isNotBlank()) "Equipo no identificado" else groupName.ifBlank { if(kind==ActivityKind.SERVER) "Servidor" else "Origen no identificado" }
+    val target:String get()=if(deviceName.isNotBlank()) deviceName+if(groupName.isBlank()) "" else " ($groupName)" else if(nodeId.isNotBlank()) managementText("Equipo no identificado","Unidentified device") else groupName.ifBlank { if(kind==ActivityKind.SERVER) managementText("Servidor","Server") else managementText("Origen no identificado","Unidentified source") }
 }
 private fun JSONObject.str(key:String):String=opt(key) as? String ?: ""
 internal class ActivityJournal(private val resolveName:(String)->String,private val currentActor:()->String,private val inventory:()->ServerEventInventory={ ServerEventInventory() }) {
@@ -56,15 +56,15 @@ internal class ActivityJournal(private val resolveName:(String)->String,private 
         val node=j.str("nodeid").ifBlank { j.optJSONArray("nodeids")?.optString(0).orEmpty() }.ifBlank { j.str("id").takeIf { it.startsWith("node/") }.orEmpty() }
         val action=j.str("action")
         val description=when {
-            action=="toast" -> "Título: ${j.str("title").take(160)}"
-            action=="runcommands" -> "Comando remoto; su salida se consulta en la ventana de resultado."
+            action=="toast" -> managementText("Título: ${j.str("title").take(160)}","Title: ${j.str("title").take(160)}")
+            action=="runcommands" -> managementText("Comando remoto; su salida se consulta en la ventana de resultado.","Remote command; view its output in the result window.")
             action=="msg" && j.str("type")=="openUrl" -> runCatching {
                 val u=java.net.URI(j.str("url")); java.net.URI(u.scheme,null,u.host,u.port,u.path,null,null).toString()
-            }.getOrDefault("URL enviada (parámetros ocultos)")
+            }.getOrDefault(managementText("URL enviada (parámetros ocultos)","URL sent (parameters hidden)"))
             else -> ""
         }
-        val summary=if(!sent) "No se pudo enviar la solicitud." else if(action=="toast")
-            "Enviada al servidor; visualización en el equipo no confirmada." else "Enviada al servidor; ejecución en el equipo sin confirmar."
+        val summary=if(!sent) managementText("No se pudo enviar la solicitud.","The request could not be sent.") else if(action=="toast")
+            managementText("Enviada al servidor; visualización en el equipo no confirmada.","Sent to the server; display on the device is not confirmed.") else managementText("Enviada al servidor; ejecución en el equipo sin confirmar.","Sent to the server; execution on the device is not confirmed.")
         put(ActivityEntry(id,node,name(node).ifBlank { if(node.isNotBlank()) title.substringAfter(" · ","") else "" },
             title.substringBefore(" · "),description,if(sent) ActivityStatus.SENT else ActivityStatus.ERROR,summary,
             actor=currentActor(),requestId=id,action=action))
@@ -73,14 +73,14 @@ internal class ActivityJournal(private val resolveName:(String)->String,private 
         val id=j.str("responseid")
         if(id.isBlank()) return
         val node=j.str("nodeid")
-        val result=when(val r=j.opt("result")) { is String->r; true->"OK"; false->"Solicitud rechazada"; else->"" }
-        val error=j.str("error").ifBlank { if(j.has("success") && !j.optBoolean("success")) "Solicitud rechazada" else "" }
+        val result=when(val r=j.opt("result")) { is String->r; true->"OK"; false->managementText("Solicitud rechazada","Request rejected"); else->"" }
+        val error=j.str("error").ifBlank { if(j.has("success") && !j.optBoolean("success")) managementText("Solicitud rechazada","Request rejected") else "" }
         val output=j.str("action")=="msg" && j.str("type")=="runcommands" && (j.has("result") || j.has("value"))
-        val rejected=error.isNotBlank() || listOf("denied","error","invalid","failed","forbidden","rechazad").any { result.contains(it,true) }
+        val rejected=error.isNotBlank() || listOf("denied","error","invalid","failed","forbidden","rejected","rechazad").any { result.contains(it,true) }
         val accepted=result.equals("ok",true) || (j.has("success") && j.optBoolean("success"))
         if(!output && !rejected && !accepted && result.isBlank()) return
         val status=when { output->ActivityStatus.OUTPUT; rejected->ActivityStatus.ERROR; accepted->ActivityStatus.ACCEPTED; else->ActivityStatus.UNKNOWN }
-        val message=when { output->"Salida recibida del agente."; rejected->error.ifBlank { result }.take(600); accepted->"Aceptada por el servidor; ejecución todavía sin confirmar."; else->"Respuesta recibida, resultado no interpretado: ${result.take(300)}" }
+        val message=when { output->managementText("Salida recibida del agente.","Output received from the agent."); rejected->error.ifBlank { result }.take(600); accepted->managementText("Aceptada por el servidor; ejecución todavía sin confirmar.","Accepted by the server; execution is still not confirmed."); else->managementText("Respuesta recibida, resultado no interpretado: ${result.take(300)}","Response received, result not interpreted: ${result.take(300)}") }
         data.update { rows->rows.map { if(it.requestId==id && (node.isBlank() || it.nodeId==node)) it.copy(status=status,summary=message,updated=System.currentTimeMillis()) else it } }
     }
     fun event(j:JSONObject) {
@@ -105,13 +105,13 @@ internal class ActivityJournal(private val resolveName:(String)->String,private 
         val body=j.str("error").ifBlank { j.str("result") }.ifBlank { if(j.str("type")=="notify") j.str("value").ifBlank { j.str("msg") } else "" }
         if(body.isBlank()) return
         val node=j.str("nodeid")
-        put(ActivityEntry(UUID.randomUUID().toString(),node,name(node),"Mensaje sin operación vinculada","",ActivityStatus.UNKNOWN,body.take(600),
+        put(ActivityEntry(UUID.randomUUID().toString(),node,name(node),managementText("Mensaje sin operación vinculada","Message without a linked operation"),"",ActivityStatus.UNKNOWN,body.take(600),
             kind=ActivityKind.MESSAGE,action=j.str("action"),receivedTime=true))
     }
     fun unconfirmed(id:String) { data.update { rows->rows.map { if(it.requestId==id && it.status in setOf(ActivityStatus.SENT,ActivityStatus.ACCEPTED))
-        it.copy(status=ActivityStatus.UNKNOWN,summary="No hay confirmación de ejecución. Comprueba el equipo antes de repetir la acción.",updated=System.currentTimeMillis()) else it } } }
+        it.copy(status=ActivityStatus.UNKNOWN,summary=managementText("No hay confirmación de ejecución. Comprueba el equipo antes de repetir la acción.","Execution is not confirmed. Check the device before repeating the action."),updated=System.currentTimeMillis()) else it } } }
     fun interrupted() { data.update { rows->rows.map { if(it.status in setOf(ActivityStatus.SENT,ActivityStatus.ACCEPTED))
-        it.copy(status=ActivityStatus.UNKNOWN,summary="Conexión interrumpida; resultado desconocido. No se repetirá la solicitud.",updated=System.currentTimeMillis()) else it } } }
+        it.copy(status=ActivityStatus.UNKNOWN,summary=managementText("Conexión interrumpida; resultado desconocido. No se repetirá la solicitud.","Connection interrupted; result unknown. The request will not be repeated."),updated=System.currentTimeMillis()) else it } } }
     fun clear() { data.value=emptyList(); names.clear() }
 }
 private fun ActivityEntry.withCommand(command:CommandFeedback?):ActivityEntry {
@@ -119,9 +119,11 @@ private fun ActivityEntry.withCommand(command:CommandFeedback?):ActivityEntry {
     val s=when(command.phase) { CommandPhase.WAITING->ActivityStatus.SENT; CommandPhase.ACCEPTED->ActivityStatus.ACCEPTED; CommandPhase.OUTPUT->ActivityStatus.OUTPUT; CommandPhase.ERROR->ActivityStatus.ERROR; CommandPhase.UNKNOWN->ActivityStatus.UNKNOWN }
     return copy(status=s,summary=command.message)
 }
-private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Solicitud enviada"; ActivityStatus.ACCEPTED->"Aceptada"; ActivityStatus.OUTPUT->"Salida recibida"; ActivityStatus.CONFIRMED->"Confirmada"; ActivityStatus.ERROR->"Rechazada / error"; ActivityStatus.UNKNOWN->"Sin confirmación"; ActivityStatus.INFO->"Evento" }
+private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->managementText("Solicitud enviada","Request sent"); ActivityStatus.ACCEPTED->managementText("Aceptada","Accepted"); ActivityStatus.OUTPUT->managementText("Salida recibida","Output received"); ActivityStatus.CONFIRMED->managementText("Confirmada","Confirmed"); ActivityStatus.ERROR->managementText("Rechazada / error","Rejected / error"); ActivityStatus.UNKNOWN->managementText("Sin confirmación","Unconfirmed"); ActivityStatus.INFO->managementText("Evento","Event") }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun ActivityTimeline(journal:ActivityJournal,feedback:RemoteActionFeedback,modifier:Modifier=Modifier,query:String="") {
+    val language=androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language
+    fun managementText(es:String,en:String)=iecxiv.meshfabric.ui.management.managementText(es,en,language)
     val records by journal.entries.collectAsState()
     val remote by feedback.state.collectAsState()
     var filter by rememberSaveable { mutableIntStateOf(0) }
@@ -129,7 +131,7 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
     var menu by remember { mutableStateOf(false) }
     val scheme=MaterialTheme.colorScheme
     val devices=records.filter { it.nodeId.isNotBlank() }.distinctBy { it.nodeId }.map { it.nodeId to it.target }.sortedBy { it.second.lowercase() }
-    val choices=listOf("" to "Todos los dispositivos","__server" to "Servidor","__unknown" to "Origen no identificado")+devices
+    val choices=listOf("" to managementText("Todos los dispositivos","All devices"),"__server" to managementText("Servidor","Server"),"__unknown" to managementText("Origen no identificado","Unidentified source"))+devices
     val search=query.trim()
     val entries=records.map { entry->entry.withCommand(remote.commands.find { it.id==entry.requestId }) }.filter { entry->
         val kind=when(filter) { 1->entry.kind==ActivityKind.ACTION; 2->entry.kind==ActivityKind.SERVER; 3->entry.status==ActivityStatus.ERROR; else->true }
@@ -138,7 +140,7 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
     }.sortedByDescending { it.time }
     Column(modifier.fillMaxWidth()) {
         FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp,Alignment.CenterHorizontally),verticalArrangement=Arrangement.spacedBy(0.dp)) {
-            listOf("Todos","Mis acciones","Servidor","Errores").forEachIndexed { i,label->
+            listOf(managementText("Todos","All"),managementText("Mis acciones","My actions"),managementText("Servidor","Server"),managementText("Errores","Errors")).forEachIndexed { i,label->
                 FilterChip(selected=filter==i,onClick={ filter=i },shape=MaterialTheme.shapes.medium,
                     border=BorderStroke(1.dp,if(filter==i) scheme.primary else scheme.outlineVariant),
                     colors=FilterChipDefaults.filterChipColors(containerColor=scheme.surfaceVariant,labelColor=scheme.onSurface,
@@ -153,7 +155,7 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
                     colors=ButtonDefaults.outlinedButtonColors(containerColor=scheme.surfaceVariant,contentColor=scheme.onSurface),
                     border=BorderStroke(1.dp,scheme.outlineVariant)) {
                     Box(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {
-                        Text(choices.find { it.first==device }?.second ?: "Todos los dispositivos",modifier=Modifier.fillMaxWidth().padding(horizontal=24.dp),
+                        Text(choices.find { it.first==device }?.second ?: managementText("Todos los dispositivos","All devices"),modifier=Modifier.fillMaxWidth().padding(horizontal=24.dp),
                             textAlign=TextAlign.Center,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
                         Icon(Icons.Default.ArrowDropDown,null,Modifier.size(20.dp).align(Alignment.CenterEnd))
                     }
@@ -167,7 +169,7 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->"Sol
             }
         }
         LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp),contentPadding=PaddingValues(vertical=6.dp)) {
-            if(entries.isEmpty()) item { Text("No hay actividad que coincida con los filtros.",style=MaterialTheme.typography.bodyMedium,color=scheme.onSurfaceVariant) }
+            if(entries.isEmpty()) item { Text(managementText("No hay actividad que coincida con los filtros.","No activity matches the filters."),style=MaterialTheme.typography.bodyMedium,color=scheme.onSurfaceVariant) }
             entries.groupBy { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it.time)) }.forEach { (date,group)->
                 item(key="date-$date") {
                     Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=scheme.primaryContainer) {
@@ -184,7 +186,7 @@ CardDefaults.cardColors(containerColor=scheme.surfaceVariant)
                             Row(verticalAlignment=Alignment.CenterVertically) {
                                 Text(entry.target,Modifier.weight(1f),style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(8.dp))
-                                Text((if(entry.receivedTime) "Recibido " else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant))
+                                Text((if(entry.receivedTime) managementText("Recibido ","Received ") else "")+DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(entry.time)),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant))
                             }
                             Row(verticalAlignment=Alignment.CenterVertically) {
                                 ActivityEntryIcon(entry)
@@ -192,26 +194,26 @@ CardDefaults.cardColors(containerColor=scheme.surfaceVariant)
                                 Text(entry.title,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis)
                                 Spacer(Modifier.width(6.dp))
                                 Surface(shape=MaterialTheme.shapes.small,color=color.copy(alpha=0.12f)) {
-                                    Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp),color=color,style=MaterialTheme.typography.labelSmall)
+                                    Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp).testTag("activity-status-${entry.id}"),color=color,style=MaterialTheme.typography.labelSmall)
                                 }
                             }
-                            Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=2,overflow=TextOverflow.Ellipsis)
-                            if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(LocalContentColor.current),maxLines=1,overflow=TextOverflow.Ellipsis)
+                            Text(entry.summary,modifier=Modifier.testTag("activity-summary-${entry.id}"),style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=2,overflow=TextOverflow.Ellipsis)
+                            if(entry.description.isNotBlank()) Text(entry.description,modifier=Modifier.testTag("activity-description-${entry.id}"),style=MaterialTheme.typography.bodySmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(LocalContentColor.current),maxLines=1,overflow=TextOverflow.Ellipsis)
                             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                                Text(if(entry.actor.isNotBlank()) "Por ${entry.actor}" else "",Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=1,overflow=TextOverflow.Ellipsis)
-                                if(remote.commands.any { it.id==entry.requestId }) TextButton(onClick={ feedback.openCommand(entry.requestId) },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text("Ver salida",style=MaterialTheme.typography.labelLarge) }
-                                TextButton(onClick={ details=!details },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(if(details) "Ocultar" else "Detalles",style=MaterialTheme.typography.labelLarge) }
+                                Text(if(entry.actor.isNotBlank()) managementText("Por ${entry.actor}","By ${entry.actor}") else "",Modifier.weight(1f).testTag("activity-actor-${entry.id}"),style=MaterialTheme.typography.labelSmall,color=iecxiv.meshfabric.ui.theme.activityCardTextColor(scheme.onSurfaceVariant),maxLines=1,overflow=TextOverflow.Ellipsis)
+                                if(remote.commands.any { it.id==entry.requestId }) TextButton(onClick={ feedback.openCommand(entry.requestId) },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(managementText("Ver salida","View output"),style=MaterialTheme.typography.labelLarge) }
+                                TextButton(onClick={ details=!details },contentPadding=PaddingValues(horizontal=8.dp,vertical=0.dp)) { Text(if(details) managementText("Ocultar","Hide") else managementText("Detalles","Details"),style=MaterialTheme.typography.labelLarge) }
                             }
                             if(details) {
                                 HorizontalDivider(color=scheme.outlineVariant)
                                 Text(entry.title,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium)
                                 Text(entry.summary,style=MaterialTheme.typography.bodySmall)
                                 if(entry.description.isNotBlank()) Text(entry.description,style=MaterialTheme.typography.bodySmall)
-                                if(entry.nodeId.isNotBlank()) Text("ID del equipo: ${entry.nodeId}",style=MaterialTheme.typography.bodySmall)
-                                if(entry.requestId.isNotBlank()) Text("Petición: ${entry.requestId}",style=MaterialTheme.typography.bodySmall)
-                                if(entry.action.isNotBlank()) Text("Tipo técnico: ${entry.action}",style=MaterialTheme.typography.bodySmall)
-                                if(entry.updated!=entry.time) Text("Última actualización: ${DateFormat.getDateTimeInstance().format(Date(entry.updated))}",style=MaterialTheme.typography.bodySmall)
-                                if(entry.action=="runcommands" && remote.commands.none { it.id==entry.requestId }) Text("La salida ya no se conserva en esta sesión.",style=MaterialTheme.typography.bodySmall)
+                                if(entry.nodeId.isNotBlank()) Text(managementText("ID del equipo: ${entry.nodeId}","Device ID: ${entry.nodeId}"),style=MaterialTheme.typography.bodySmall)
+                                if(entry.requestId.isNotBlank()) Text(managementText("Petición: ${entry.requestId}","Request: ${entry.requestId}"),style=MaterialTheme.typography.bodySmall)
+                                if(entry.action.isNotBlank()) Text(managementText("Tipo técnico: ${entry.action}","Technical type: ${entry.action}"),style=MaterialTheme.typography.bodySmall)
+                                if(entry.updated!=entry.time) Text(managementText("Última actualización: ${DateFormat.getDateTimeInstance().format(Date(entry.updated))}","Last updated: ${DateFormat.getDateTimeInstance().format(Date(entry.updated))}"),style=MaterialTheme.typography.bodySmall)
+                                if(entry.action=="runcommands" && remote.commands.none { it.id==entry.requestId }) Text(managementText("La salida ya no se conserva en esta sesión.","The output is no longer retained in this session."),style=MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

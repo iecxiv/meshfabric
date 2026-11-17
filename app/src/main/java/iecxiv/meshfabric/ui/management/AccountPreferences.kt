@@ -27,7 +27,7 @@ internal fun accountConnectionChange(before:Int?,after:Int):Pair<Int,Int> = if(b
 internal fun accountLanguageValid(tag:String)=tag.matches(Regex("[A-Za-z]{2,8}(-[A-Za-z0-9]{2,8})*"))
 internal fun accountDefaultLanguage(tag:String)=tag.ifBlank { "*" }
 internal fun accountLanguageTags(a:JSONArray?):List<String> = a?.let { (0 until it.length()).mapNotNull { i->(it.opt(i) as? String)?.takeIf(::accountLanguageValid) }.distinct() }.orEmpty()
-internal fun accountLocaleLabel(tag:String,es:Boolean)=Locale.forLanguageTag(tag).getDisplayName(if(es) Locale("es") else Locale.ENGLISH).ifBlank { tag }+" ($tag)"
+internal fun accountLocaleLabel(tag:String,es:Boolean)=Locale.forLanguageTag(tag).getDisplayName(if(es) Locale.forLanguageTag("es") else Locale.ENGLISH).ifBlank { tag }+" ($tag)"
 internal fun accountLocaleChoices(es:Boolean):List<Pair<String,String>> = listOf("" to if(es) "Predeterminado del sistema" else "System default")+Locale.getAvailableLocales().filter { it.language.isNotBlank() }.map { it.toLanguageTag() }.filter { it!="und" }.distinct().map { it to accountLocaleLabel(it,es) }.sortedBy { it.second.lowercase() }
 internal fun accountTime(instant:Instant,tag:String,hours24:Boolean):String=runCatching {
 val locale=if(tag.isBlank()) Locale.getDefault() else Locale.forLanguageTag(tag)

@@ -1,0 +1,205 @@
+name: Repair SDK and validate activity translations
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/repair-activity-translations-sdk.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: activity-translations-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Configure Android SDK and command-line tools
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Verify sdkmanager and install SDK packages
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          sdkmanager --version
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+      - name: Apply translation preparation and bilingual recognition tests
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, subprocess, textwrap
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='9aece8a73e8f45aca7b9bb52e00eaa4170e36e89', 'Repair base changed; review required'
+          path=Path('.github/workflows/publish-activity-translations.yml')
+          assert subprocess.check_output(['git','hash-object',str(path)],text=True).strip()=='041819b33d22f6f97fc1ce20699d5030c3a4afc2', 'Original translation preparation changed'
+          source=path.read_text()
+          section=source.split('      - name: Prepare localized source and translation inventory\n',1)[1]
+          section=section.split('        run: |\n',1)[1].split('      - name: Install SDK\n',1)[0]
+          code=textwrap.dedent(section)
+          lines=code.splitlines(keepends=True)
+          guards=[line for line in lines if line.startswith('assert subprocess.check_output(') and 'Preparation base changed' in line]
+          assert len(guards)==1, 'Expected exactly one original preparation-base guard'
+          code=code.replace(guards[0],'',1)
+          exec(compile(code,'approved-translation-preparation','exec'),{'__name__':'__main__'})
+          unit=Path('app/src/test/java/iecxiv/meshfabric/ui/management/ActivityRecognitionTest.kt')
+          assert subprocess.check_output(['git','hash-object',str(unit)],text=True).strip()=='0c45c5f86fbc2b80252b8f32a8e070f41a47353b', 'Recognition unit tests changed'
+          text=unit.read_text()
+          header='class ActivityRecognitionTest {'
+          replacement='''@org.junit.runner.RunWith(org.junit.runners.Parameterized::class)
+          class ActivityRecognitionTest(private val language:String) {
+              companion object {
+                  @JvmStatic
+                  @org.junit.runners.Parameterized.Parameters(name="{0}")
+                  fun languages():Collection<Array<String>> = listOf(arrayOf("es"),arrayOf("en"))
+              }
+              private lateinit var previousLocale:java.util.Locale
+              @org.junit.Before fun selectLanguage() {
+                  previousLocale=java.util.Locale.getDefault()
+                  java.util.Locale.setDefault(java.util.Locale.forLanguageTag(language))
+              }
+              @org.junit.After fun restoreLanguage() { java.util.Locale.setDefault(previousLocale) }
+          '''
+          assert text.count(header)==1
+          text=text.replace(header,textwrap.dedent(replacement),1)
+          for es,en in {'Equipo no identificado':'Unidentified device','Comando remoto':'Remote command','Evento del servidor':'Server event','Servidor':'Server'}.items():
+              old=json.dumps(es,ensure_ascii=False)
+              assert old in text,es
+              text=text.replace(old,'(if(language=="es") '+old+' else '+json.dumps(en,ensure_ascii=False)+')')
+          assert text.count('@Test fun ')==8, 'All eight original tests must remain'
+          unit.write_text(text)
+          timeline=Path('app/src/main/java/iecxiv/meshfabric/ui/management/ActivityTimeline.kt')
+          text=timeline.read_text()
+          edits=[
+              ('Text(entry.summary,style=MaterialTheme.typography.bodySmall,color=', 'Text(entry.summary,modifier=Modifier.testTag("activity-summary-${entry.id}"),style=MaterialTheme.typography.bodySmall,color='),
+              ('Text(entry.description,style=MaterialTheme.typography.bodySmall,color=', 'Text(entry.description,modifier=Modifier.testTag("activity-description-${entry.id}"),style=MaterialTheme.typography.bodySmall,color='),
+              (',Modifier.weight(1f),style=MaterialTheme.typography.labelSmall,color=', ',Modifier.weight(1f).testTag("activity-actor-${entry.id}"),style=MaterialTheme.typography.labelSmall,color='),
+              ('Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp),', 'Text(entry.status.label(),Modifier.padding(horizontal=6.dp,vertical=2.dp).testTag("activity-status-${entry.id}"),'),
+              ('"Título: ${j.str("title").take(160)}"', 'managementText("Título: ${j.str("title").take(160)}","Title: ${j.str("title").take(160)}")')
+          ]
+          for old,new in edits:
+              assert text.count(old)==1,old
+              text=text.replace(old,new,1)
+          timeline.write_text(text)
+          contrast=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/theme/DarkContrastUiTest.kt')
+          assert subprocess.check_output(['git','hash-object',str(contrast)],text=True).strip()=='5b87c7a0981ffd6d9359f4dd75613cb8c29f8db4', 'Contrast tests changed'
+          text=contrast.read_text()
+          edits=[
+              ('private fun textColor(text:String):Color', 'private fun textColor(tag:String):Color'),
+              ('compose.onNodeWithText(text).performSemanticsAction', 'compose.onNodeWithTag(tag).performSemanticsAction'),
+              ('textColor("Por Operador")','textColor("activity-actor-contrast")'),
+              ('textColor("Enviada al servidor; visualización en el equipo no confirmada.")','textColor("activity-summary-contrast")'),
+              ('textColor("Título: Prueba")','textColor("activity-description-contrast")'),
+              ('textColor("Solicitud enviada")','textColor("activity-status-contrast")'),
+              ('var expected=Color.Unspecified;var state=Color.Unspecified','var expected=Color.Unspecified;var state=Color.Unspecified;var spanish=false'),
+              ('            expected=if(dark)','            spanish=androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es"\n            expected=if(dark)')
+          ]
+          for old,new in edits:
+              assert text.count(old)==1,old
+              text=text.replace(old,new,1)
+          anchor='        assertEquals(state,textColor("activity-status-contrast"))'
+          extra='''
+                  compose.onNodeWithTag("activity-actor-contrast").assertTextEquals(if(spanish) "Por Operador" else "By Operador")
+                  compose.onNodeWithTag("activity-summary-contrast").assertTextEquals(if(spanish) "Enviada al servidor; visualización en el equipo no confirmada." else "Sent to the server; display on the device is not confirmed.")
+                  compose.onNodeWithTag("activity-description-contrast").assertTextEquals(if(spanish) "Título: Prueba" else "Title: Prueba")
+                  compose.onNodeWithTag("activity-status-contrast").assertTextEquals(if(spanish) "Solicitud enviada" else "Request sent")
+          '''
+          assert text.count(anchor)==1
+          text=text.replace(anchor,anchor+textwrap.dedent(extra),1)
+          assert text.count('@Test fun ')==5, 'All five contrast tests must remain'
+          contrast.write_text(text)
+          subprocess.run(['git','add','--',str(unit),str(timeline),str(contrast)],check=True)
+          manifest=Path('validation/changed-files.json')
+          changed=json.loads(manifest.read_text())
+          for p in [unit,contrast]:
+              assert str(p) not in changed
+              changed.append(str(p))
+          assert str(timeline) in changed
+          manifest.write_text(json.dumps(changed))
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          Path('validation/translations.diff').write_text(subprocess.check_output(['git','diff','--cached'],text=True))
+      - name: Build, all unit tests, instrumented compilation and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify complete evidence
+        shell: python
+        run: |
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find('failure') is not None or c.find('error') is not None or c.find('skipped') is not None for c in cases),root
+              if 'androidTest' in root:
+                  assert {c.get('name') for c in cases if c.get('classname','').endswith('.ActivityTranslationUiTest')}=={'englishLight','englishDark','spanishLight','spanishDark'}
+                  assert len([c for c in cases if c.get('classname','').endswith('.DarkContrastUiTest')])==5
+              else:
+                  recognition=[c for c in cases if c.get('classname','').endswith('.ActivityRecognitionTest')]
+                  assert len(recognition)==16, 'Expected eight recognition tests in each language'
+                  for language in ['es','en']:
+                      assert sum(c.get('name','').endswith('['+language+']') for c in recognition)==8, language
+      - name: Summarize test failures without requiring full logs
+        if: always()
+        shell: python
+        run: |
+          from pathlib import Path
+          import os, xml.etree.ElementTree as ET
+          lines=[]
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              for p in Path(root).rglob('*.xml'):
+                  for case in ET.parse(p).getroot().iter('testcase'):
+                      for tag in ['failure','error']:
+                          failure=case.find(tag)
+                          if failure is not None:
+                              lines.append(case.get('classname','')+'.'+case.get('name','')+'\n'+failure.get('message','')+'\n'+(failure.text or '')[:6000])
+          Path('validation').mkdir(exist_ok=True)
+          body='\n\n'.join(lines) or 'No failing test XML found. This does not establish that all validation steps ran or passed.'
+          Path('validation/test-failures.txt').write_text(body)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
+              summary.write('## Test failure details\n\n```text\n'+body[:40000]+'\n```\n')
+      - name: Upload reports and translation inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: activity-translations-sdk-repair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 14
+      - name: Publish only validated changes to unchanged dev
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse origin/dev)" = "${{ github.sha }}" || { echo 'dev advanced; refusing publication'; exit 1; }
+          python3 - <<'PY'
+          import json,subprocess
+          expected=set(json.load(open('validation/changed-files.json')))
+          actual=set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())
+          assert actual==expected,(actual,expected)
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(i18n): localize activity and related action feedback in English and Spanish'
+          git push origin HEAD:dev

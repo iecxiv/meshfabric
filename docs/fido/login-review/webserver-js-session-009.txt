@@ -1,0 +1,182 @@
+MeshCentral 1.3.1 source review: webserver.js / session / part 9 of 31
+Parts may continue a source line. Trailing whitespace is omitted.
+                    if (req.query.sitestyle == 3) { uiViewMode = 'default3'; }
+
+--- webserver.js lines 4408-4674 ---
+4408:             obj.fs.exists(obj.path.join(domain.webpublicpath, imagefile), function (exists) {
+4409:                 if (exists) {
+4410:                     // Use the domain logo picture
+4411:                     try { res.sendFile(obj.path.join(domain.webpublicpath, imagefile)); } catch (ex) { res.sendStatus(404); }
+4412:                 } else {
+4413:                     // Use the default logo picture
+4414:                     try { res.sendFile(obj.path.join(obj.parent.webPublicPath, imagefile)); } catch (ex) { res.sendStatus(404); }
+4415:                 }
+4416:             });
+4417:         } else if (parent.webPublicOverridePath) {
+4418:             obj.fs.exists(obj.path.join(obj.parent.webPublicOverridePath, imagefile), function (exists) {
+4419:                 if (exists) {
+4420:                     // Use the override logo picture
+4421:                     try { res.sendFile(obj.path.join(obj.parent.webPublicOverridePath, imagefile)); } catch (ex) { res.sendStatus(404); }
+4422:                 } else {
+4423:                     // Use the default logo picture
+4424:                     try { res.sendFile(obj.path.join(obj.parent.webPublicPath, imagefile)); } catch (ex) { res.sendStatus(404); }
+4425:                 }
+4426:             });
+4427:         } else {
+4428:             // Use the default logo picture
+4429:             try { res.sendFile(obj.path.join(obj.parent.webPublicPath, imagefile)); } catch (ex) { res.sendStatus(404); }
+4430:         }
+4431:     }
+4432:
+4433:     // Download a session recording
+4434:     function handleGetRecordings(req, res) {
+4435:         const domain = checkUserIpAddress(req, res);
+4436:         if (domain == null) return;
+4437:
+4438:         // Check the query
+4439:         if ((domain.sessionrecording == null) || (req.query.file == null) || (obj.common.IsFilenameValid(req.query.file) !== true) || (!req.query.file.endsWith('.mcrec') && !req.query.file.endsWith('.txt'))) { res.sendStatus(401); return; }
+4440:
+4441:         // Get the recording path
+4442:         var recordingsPath = null;
+4443:         if (domain.sessionrecording.filepath) { recordingsPath = domain.sessionrecording.filepath; } else { recordingsPath = parent.recordpath; }
+4444:         if (recordingsPath == null) { res.sendStatus(401); return; }
+4445:
+4446:         // Get the user and check user rights
+4447:         var authUserid = null;
+4448:         if ((req.session != null) && (typeof req.session.userid == 'string')) { authUserid = req.session.userid; }
+4449:         if (authUserid == null) { res.sendStatus(401); return; }
+4450:         const user = obj.users[authUserid];
+4451:         if (user == null) { res.sendStatus(401); return; }
+4452:         if ((user.siteadmin & 512) == 0) { res.sendStatus(401); return; } // Check if we have right to get recordings
+4453:
+4454:         // Send the recorded file
+4455:         setContentDispositionHeader(res, 'application/octet-stream', req.query.file, null, 'recording.mcrec');
+4456:         try { res.sendFile(obj.path.join(recordingsPath, req.query.file)); } catch (ex) { res.sendStatus(404); }
+4457:     }
+4458:
+4459:     // Stream a session recording
+4460:     function handleGetRecordingsWebSocket(ws, req) {
+4461:         var domain = checkAgentIpAddress(ws, req);
+4462:         if (domain == null) { parent.debug('web', 'Got recordings file transfer connection with bad domain or blocked IP address ' + req.clientIp + ', dropping.'); try { ws.close(); } catch (ex) { } return; }
+4463:
+4464:         // Check the query
+4465:         if ((domain.sessionrecording == null) || (req.query.file == null) || (obj.common.IsFilenameValid(req.query.file) !== true) || (req.query.file.endsWith('.mcrec') == false)) { try { ws.close(); } catch (ex) { } return; }
+4466:
+4467:         // Get the recording path
+4468:         var recordingsPath = null;
+4469:         if (domain.sessionrecording.filepath) { recordingsPath = domain.sessionrecording.filepath; } else { recordingsPath = parent.recordpath; }
+4470:         if (recordingsPath == null) { try { ws.close(); } catch (ex) { } return; }
+4471:
+4472:         // Get the user and check user rights
+4473:         var authUserid = null;
+4474:         if ((req.session != null) && (typeof req.session.userid == 'string')) { authUserid = req.session.userid; }
+4475:         if (authUserid == null) { try { ws.close(); } catch (ex) { } return; }
+4476:         const user = obj.users[authUserid];
+4477:         if (user == null) { try { ws.close(); } catch (ex) { } return; }
+4478:         if ((user.siteadmin & 512) == 0) { try { ws.close(); } catch (ex) { } return; } // Check if we have right to get recordings
+4479:         const filefullpath = obj.path.join(recordingsPath, req.query.file);
+4480:
+4481:         obj.fs.stat(filefullpath, function (err, stats) {
+4482:             if (err) {
+4483:                 try { ws.close(); } catch (ex) { } // File does not exist
+4484:             } else {
+4485:                 obj.fs.open(filefullpath, 'r', function (err, fd) {
+4486:                     if (err == null) {
+4487:                         // When data is received from the web socket
+4488:                         ws.on('message', function (msg) {
+4489:                             if (typeof msg != 'string') return;
+4490:                             var command;
+4491:                             try { command = JSON.parse(msg); } catch (e) { return; }
+4492:                             if ((command == null) || (typeof command.action != 'string')) return;
+4493:                             switch (command.action) {
+4494:                                 case 'get': {
+4495:                                     if (!Number.isInteger(command.size) || !Number.isInteger(command.ptr) || (command.size < 0) || (command.size > 1048576) || (command.ptr < 0)) break;
+4496:                                     try {
+4497:                                         const buffer = Buffer.alloc(8 + command.size);
+4498:                                         //buffer.writeUInt32BE((command.ptr >> 32), 0);
+4499:                                         buffer.writeUInt32BE((command.ptr & 0xFFFFFFFF), 4);
+4500:                                         obj.fs.read(fd, buffer, 8, command.size, command.ptr, function (err, bytesRead, buffer) { if (err != null) return; if (bytesRead > (buffer.length - 8)) { buffer = buffer.slice(0, bytesRead + 8); } ws.send(buffer); });
+4501:                                     } catch (ex) { }
+4502:                                     break;
+4503:                                 }
+4504:                             }
+4505:                         });
+4506:
+4507:                         // If error, do nothing
+4508:                         ws.on('error', function (err) { try { ws.close(); } catch (ex) { } obj.fs.close(fd, function (err) { }); });
+4509:
+4510:                         // If the web socket is closed
+4511:                         ws.on('close', function (req) { try { ws.close(); } catch (ex) { } obj.fs.close(fd, function (err) { }); });
+4512:
+4513:                         ws.send(JSON.stringify({ "action": "info", "name": req.query.file, "size": stats.size }));
+4514:                     } else {
+4515:                         try { ws.close(); } catch (ex) { }
+4516:                     }
+4517:                 });
+4518:             }
+4519:         });
+4520:     }
+4521:
+4522:     // Serve the player page
+4523:     function handlePlayerRequest(req, res) {
+4524:         const domain = checkUserIpAddress(req, res);
+4525:         if (domain == null) { return; }
+4526:
+4527:         parent.debug('web', 'handlePlayerRequest: sending player');
+4528:         res.set({ 'Cache-Control': 'no-store' });
+4529:         render(req, res, getRenderPage('player', req, domain), getRenderArgs({}, req, domain));
+4530:     }
+4531:
+4532:     // Serve the guest sharing page
+4533:     function handleSharingRequest(req, res) {
+4534:         const domain = getDomain(req, res);
+4535:         if (domain == null) { return; }
+4536:         if (req.query.c == null) { res.sendStatus(404); return; }
+4537:         if (domain.guestdevicesharing === false) { res.sendStatus(404); return; } // This feature is not allowed.
+4538:
+4539:         // Check the inbound guest sharing cookie
+4540:         var c = obj.parent.decodeCookie(req.query.c, obj.parent.invitationLinkEncryptionKey, 9999999999); // Decode cookies with unlimited time.
+4541:         if (c == null) { res.sendStatus(404); return; }
+4542:
+4543:         if (c.a === 5) {
+4544:             // This is the older style sharing cookie with everything encoded within it.
+4545:             // This cookie style gives a very large URL, so it's not used anymore.
+4546:             if ((typeof c.p !== 'number') || (c.p < 1) || (c.p > 7) || (typeof c.uid != 'string') || (typeof c.nid != 'string') || (typeof c.gn != 'string') || (typeof c.cf != 'number') || (typeof c.pid != 'string')) { res.sendStatus(404); return; }
+4547:             handleSharingRequestEx(req, res, domain, c);
+4548:             return;
+4549:         }
+4550:         if (c.a === 6) {
+4551:             // This is the new style sharing cookie, just encodes the pointer to the sharing information in the database.
+4552:             // Gives a much more compact URL.
+4553:             if (typeof c.pid != 'string') { res.sendStatus(404); return; }
+4554:
+4555:             // Check the expired time, expire message.
+4556:             if ((c.e != null) && (c.e <= Date.now())) { res.status(404); render(req, res, getRenderPage((domain.sitestyle >= 2) ? 'message2' : 'message', req, domain), getRenderArgs({ titleid: 2, msgid: 12, domainurl: encodeURIComponent(domain.url).replace(/'/g, '%27') }, req, domain)); return; }
+4557:
+4558:             obj.db.Get('deviceshare-' + c.pid, function (err, docs) {
+4559:                 if ((err != null) || (docs == null) || (docs.length != 1)) { res.sendStatus(404); return; }
+4560:                 const doc = docs[0];
+4561:
+4562:                 // If this is a recurrent share, check if we are at the correct time to make use of it
+4563:                 if (typeof doc.recurring == 'number') {
+4564:                     const now = Date.now();
+4565:                     if (now >= doc.startTime) { // We don't want to move the validity window before the start time
+4566:                         const deltaTime = (now - doc.startTime);
+4567:                         if (doc.recurring === 1) {
+4568:                             // This moves the start time to the next valid daily window
+4569:                             const oneDay = (24 * 60 * 60 * 1000);
+4570:                             var addition = Math.floor(deltaTime / oneDay);
+4571:                             if ((deltaTime - (addition * oneDay)) > (doc.duration * 60000)) { addition++; } // If we are passed the current windows, move to the next one. This will show link as not being valid yet.
+4572:                             doc.startTime += (addition * oneDay);
+4573:                         } else if (doc.recurring === 2) {
+4574:                             // This moves the start time to the next valid weekly window
+4575:                             const oneWeek = (7 * 24 * 60 * 60 * 1000);
+4576:                             var addition = Math.floor(deltaTime / oneWeek);
+4577:                             if ((deltaTime - (addition * oneWeek)) > (doc.duration * 60000)) { addition++; } // If we are passed the current windows, move to the next one. This will show link as not being valid yet.
+4578:                             doc.startTime += (addition * oneWeek);
+4579:                         }
+4580:                     }
+4581:                 }
+4582:
+4583:                 // Generate an old style cookie from the information in the database
+4584:                 var cookie = { a: 5, p: doc.p, gn: doc.guestName, nid: doc.nodeid, cf: doc.

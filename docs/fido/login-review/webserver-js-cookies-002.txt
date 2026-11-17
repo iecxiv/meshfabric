@@ -1,0 +1,178 @@
+MeshCentral 1.3.1 source review: webserver.js / cookies / part 2 of 5
+Parts may continue a source line. Trailing whitespace is omitted.
+        sec.rtpass = xpassword;
+1650:             sec.rtreset = true;
+1651:             req.session.e = parent.encryptSessionData(sec);
+1652:
+1653:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1654:             return;
+1655:         }
+1656:
+1657:         // Save login time
+1658:         user.pastlogin = user.login;
+1659:         user.login = user.access = Math.floor(Date.now() / 1000);
+1660:         obj.db.SetUser(user);
+1661:
+1662:         // Notify account login
+1663:         const targets = ['*', 'server-users', user._id];
+1664:         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+1665:         const ua = obj.getUserAgentInfo(req);
+1666:         const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login from ' + req.clientIp + ', ' + ua.browserStr + ', ' + ua.osStr, domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], rport: req.connection.remotePort };
+1667:         if (loginOptions != null) {
+1668:             if ((loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) { loginEvent.tokenName = loginOptions.tokenName; loginEvent.tokenUser = loginOptions.tokenUser; } // If a login token was used, add it to the event.
+1669:             if (loginOptions.twoFactorType != null) { loginEvent.twoFactorType = loginOptions.twoFactorType; }
+1670:         }
+1671:         obj.parent.DispatchEvent(targets, obj, loginEvent);
+1672:
+1673:         // Regenerate session when signing in to prevent fixation
+1674:         //req.session.regenerate(function () {
+1675:         // Store the user's primary key in the session store to be retrieved, or in this case the entire user object
+1676:         delete req.session.e;
+1677:         delete req.session.u2f;
+1678:         delete req.session.loginmode;
+1679:         delete req.session.tuserid;
+1680:         delete req.session.tuser;
+1681:         delete req.session.tpass;
+1682:         delete req.session.temail;
+1683:         delete req.session.tsms;
+1684:         delete req.session.tmsg;
+1685:         delete req.session.tduo;
+1686:         delete req.session.tpush;
+1687:         delete req.session.messageid;
+1688:         delete req.session.passhint;
+1689:         delete req.session.cuserid;
+1690:         delete req.session.expire;
+1691:         delete req.session.currentNode;
+1692:         req.session.userid = userid;
+1693:         req.session.ip = req.clientIp;
+1694:         setSessionRandom(req);
+1695:         obj.parent.authLog('https', 'Accepted password for ' + (xusername ? xusername : userid) + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'], sessionid: req.session.x });
+1696:
+1697:         // If a login token was used, add this information and expire time to the session.
+1698:         if ((loginOptions != null) && (loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) {
+1699:             req.session.loginToken = loginOptions.tokenUser;
+1700:             if (loginOptions.expire != null) { req.session.expire = loginOptions.expire; }
+1701:         }
+1702:
+1703:         if (req.body.viewmode) { req.session.viewmode = req.body.viewmode; }
+1704:         if (req.body.host) {
+1705:             // TODO: This is a terrible search!!! FIX THIS.
+1706:             /*
+1707:             obj.db.GetAllType('node', function (err, docs) {
+1708:                 for (var i = 0; i < docs.length; i++) {
+1709:                     if (docs[i].name == req.body.host) {
+1710:                         req.session.currentNode = docs[i]._id;
+1711:                         break;
+1712:                     }
+1713:                 }
+1714:                 console.log("CurrentNode: " + req.session.currentNode);
+1715:                 // This redirect happens after finding node is completed
+1716:                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1717:             });
+1718:             */
+1719:             parent.debug('web', 'handleLoginRequest: login ok (1)');
+1720:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); } // Temporary
+1721:         } else {
+1722:             parent.debug('web', 'handleLoginRequest: login ok (2)');
+1723:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1724:         }
+1725:         //});
+1726:     }
+1727:
+1728:     function handleCreateAccountRequest(req, res, direct) {
+1729:         const domain = checkUserIpAddress(req, res);
+1730:         if (domain == null) { return; }
+1731:         if ((domain.auth == 'sspi') || (domain.auth == 'ldap')) { parent.debug('web', 'handleCreateAccountRequest: failed checks.'); res.sendStatus(404); return; }
+1732:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.sendStatus(404); return; } // Check 3FA URL key
+1733:         if (req.session.loginToken != null) { res.sendStatus(404); return; } // Do not allow this command when logged in using a login token
+1734:         if (req.body == null) { res.sendStatus(404); return; } // Post body is empty or can't be parsed
+1735:
+1736:         // Check if we are in maintenance mode
+1737:         if (parent.config.settings.maintenancemode != null) {
+1738:             req.session.messageid = 115; // Server under maintenance
+1739:             req.session.loginmode = 1;
+1740:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1741:             return;
+1742:         }
+1743:
+1744:         // Always lowercase the email address
+1745:         if (req.body.email) { req.body.email = req.body.email.toLowerCase(); }
+1746:
+1747:         // If the email is the username, set this here.
+1748:         if (domain.usernameisemail) { req.body.username = req.body.email; }
+1749:
+1750:         // Check if there is domain.newAccountToken, check if supplied token is valid
+1751:         if ((domain.newaccountspass != null) && (domain.newaccountspass != '') && (req.body.newaccountspass != domain.newaccountspass)) {
+1752:             parent.debug('web', 'handleCreateAccountRequest: Invalid account creation token');
+1753:             req.session.loginmode = 2;
+1754:             req.session.messageid = 103; // Invalid account creation token.
+
+--- webserver.js lines 3810-4050 ---
+3810:                 oidcButtonIcon2x: oidcButtonIcon2x || 'images/login/oidc64.png 2x',
+3811:                 loginpicture: (typeof domain.loginpicture == 'string'),
+3812:                 tokenTimeout: twoFactorTimeout, // Two-factor authentication screen timeout in milliseconds,
+3813:                 renderLanguages: obj.renderLanguages,
+3814:                 showLanguageSelect: domain.showlanguageselect ? domain.showlanguageselect : false,
+3815:             }, req, domain, (domain.sitestyle >= 2) ? 'login2' : 'login'));
+3816:     }
+3817:
+3818:     // Handle a post request on the root
+3819:     function handleRootPostRequest(req, res) {
+3820:         const domain = checkUserIpAddress(req, res);
+3821:         if (domain == null) { return; }
+3822:         if ((domain.loginkey != null) && (domain.loginkey.indexOf(req.query.key) == -1)) { res.end("Not Found"); return; } // Check 3FA URL key
+3823:         if (req.body == null) { req.body = {}; }
+3824:         parent.debug('web', 'handleRootPostRequest, action: ' + req.body.action);
+3825:
+3826:         // If a HTTP header is required, check new UserRequiredHttpHeader
+3827:         if (domain.userrequiredhttpheader && (typeof domain.userrequiredhttpheader == 'object')) { var ok = false; for (var i in req.headers) { if (domain.userrequiredhttpheader[i.toLowerCase()] == req.headers[i]) { ok = true; } } if (ok == false) { res.sendStatus(404); return; } }
+3828:
+3829:         switch (req.body.action) {
+3830:             case 'login': { handleLoginRequest(req, res, true); break; }
+3831:             case 'tokenlogin': {
+3832:                 if (req.body.hwstate) {
+3833:                     var cookie = obj.parent.decodeCookie(req.body.hwstate, obj.parent.loginCookieEncryptionKey, 10);
+3834:                     if (cookie != null) { req.session.e = parent.encryptSessionData({ tuser: cookie.u, tpass: cookie.p, u2f: cookie.c }); }
+3835:                 }
+3836:                 handleLoginRequest(req, res, true); break;
+3837:             }
+3838:             case 'pushlogin': {
+3839:                 if (req.body.hwstate) {
+3840:                     var cookie = obj.parent.decodeCookie(req.body.hwstate, obj.parent.loginCookieEncryptionKey, 1);
+3841:                     if ((cookie != null) && (typeof cookie.u == 'string') && (cookie.d == domain.id) && (cookie.a == 'pushAuth')) {
+3842:                         // Push authentication is a success, login the user
+3843:                         req.session = { userid: cookie.u };
+3844:
+3845:                         // Check if we need to remember this device
+3846:                         if ((req.body.remembertoken === 'on') && ((domain.twofactorcookiedurationdays == null) || (domain.twofactorcookiedurationdays > 0))) {
+3847:                             var maxCookieAge = domain.twofactorcookiedurationdays;
+3848:                             if (typeof maxCookieAge != 'number') { maxCookieAge = 30; }
+3849:                             const twoFactorCookie = obj.parent.encodeCookie({ userid: cookie.u, expire: maxCookieAge * 24 * 60 /*, ip: req.clientIp*/ }, obj.parent.loginCookieEncryptionKey);
+3850:                             res.cookie('twofactor', twoFactorCookie, { maxAge: (maxCookieAge * 24 * 60 * 60 * 1000), httpOnly: true, sameSite: parent.config.settings.sessionsamesite, secure: true });
+3851:                         }
+3852:                         var user = obj.users[cookie.u];
+3853:                         // Notify account login
+3854:                         var targets = ['*', 'server-users', user._id];
+3855:                         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+3856:                         const ua = obj.getUserAgentInfo(req);
+3857:                         const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login', domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], twoFactorType: 'pushlogin' };
+3858:                         obj.parent.DispatchEvent(targets, obj, loginEvent);
+3859:                         handleRootRequestEx(req, res, domain);
+3860:                         return;
+3861:                     }
+3862:                 }
+3863:                 handleLoginRequest(req, res, true); break;
+3864:             }
+3865:             case 'changepassword': { handlePasswordChangeRequest(req, res, true); break; }
+3866:             case 'deleteaccount': { handleDeleteAccountRequest(req, res, true); break; }
+3867:             case 'createaccount': { handleCreateAccountRequest(req, res, true); break; }
+3868:             case 'resetpassword': { handleResetPasswordRequest(req, res, true); break; }
+3869:             case 'resetaccount': { handleResetAccountRequest(req, res, true); break; }
+3870:             case 'checkemail': { handleCheckAccountEmailRequest(req, res, true); break; }
+3871:             default: { handleLoginRequest(req, res, true); break; }
+3872:         }
+3873:     }
+3874:
+3875:     // Return true if it looks like we are using a real TLS certificate.
+3876:     obj.isTrustedCert = function (domain) {
+3877:         if ((domain != null) && (typeof domain.t

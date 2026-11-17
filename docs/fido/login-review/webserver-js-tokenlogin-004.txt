@@ -1,0 +1,161 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 4 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+d, tuser: xusername, tpass: xpassword });
+1546:                                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1547:                             }, randomWaitTime);
+1548:                         } else {
+1549:                             // Check if we need to remember this device
+1550:                             if ((req.body.remembertoken === 'on') && ((domain.twofactorcookiedurationdays == null) || (domain.twofactorcookiedurationdays > 0))) {
+1551:                                 var maxCookieAge = domain.twofactorcookiedurationdays;
+1552:                                 if (typeof maxCookieAge != 'number') { maxCookieAge = 30; }
+1553:                                 const twoFactorCookie = obj.parent.encodeCookie({ userid: user._id, expire: maxCookieAge * 24 * 60 /*, ip: req.clientIp*/ }, obj.parent.loginCookieEncryptionKey);
+1554:                                 res.cookie('twofactor', twoFactorCookie, { maxAge: (maxCookieAge * 24 * 60 * 60 * 1000), httpOnly: true, sameSite: parent.config.settings.sessionsamesite, secure: true });
+1555:                             }
+1556:
+1557:                             // Check if email address needs to be confirmed
+1558:                             const emailcheck = ((domain.mailserver != null) && (obj.parent.certificates.CommonName != null) && (obj.parent.certificates.CommonName.indexOf('.') != -1) && (obj.args.lanonly != true) && (domain.auth != 'sspi') && (domain.auth != 'ldap'))
+1559:                             if (emailcheck && (user.emailVerified !== true)) {
+1560:                                 parent.debug('web', 'Redirecting using ' + user.name + ' to email check login page');
+1561:                                 req.session.messageid = 3; // "Email verification required" message
+1562:                                 req.session.loginmode = 7;
+1563:                                 req.session.passhint = user.email;
+1564:                                 req.session.cuserid = userid;
+1565:                                 if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1566:                                 return;
+1567:                             }
+1568:
+1569:                             // Login successful
+1570:                             parent.debug('web', 'handleLoginRequest: successful 2FA login');
+1571:                             if (authData != null) { if (loginOptions == null) { loginOptions = {}; } loginOptions.twoFactorType = authData.twoFactorType; }
+1572:                             completeLoginRequest(req, res, domain, user, userid, xusername, xpassword, direct, loginOptions);
+1573:                         }
+1574:                     });
+1575:                     return;
+1576:                 }
+1577:
+1578:                 // Check if email address needs to be confirmed
+1579:                 const emailcheck = ((domain.mailserver != null) && (obj.parent.certificates.CommonName != null) && (obj.parent.certificates.CommonName.indexOf('.') != -1) && (obj.args.lanonly != true) && (domain.auth != 'sspi') && (domain.auth != 'ldap'))
+1580:                 if (emailcheck && (user.emailVerified !== true)) {
+1581:                     parent.debug('web', 'Redirecting using ' + user.name + ' to email check login page');
+1582:                     req.session.messageid = 3; // "Email verification required" message
+1583:                     req.session.loginmode = 7;
+1584:                     req.session.passhint = user.email;
+1585:                     req.session.cuserid = userid;
+1586:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1587:                     return;
+1588:                 }
+1589:
+1590:                 // Login successful
+1591:                 parent.debug('web', 'handleLoginRequest: successful login');
+1592:                 if (twoFactorSkip != null) { if (loginOptions == null) { loginOptions = {}; } loginOptions.twoFactorType = twoFactorSkip.twoFactorType; }
+1593:                 completeLoginRequest(req, res, domain, user, userid, xusername, xpassword, direct, loginOptions);
+1594:             } else {
+1595:                 // Login failed, log the error
+1596:                 obj.parent.authLog('https', 'Failed password for ' + xusername + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'] });
+1597:
+1598:                 // Wait a random delay
+1599:                 setTimeout(function () {
+1600:                     // If the account is locked, display that.
+1601:                     if (typeof xusername == 'string') {
+1602:                         var xuserid = 'user/' + domain.id + '/' + xusername.toLowerCase();
+1603:                         if (err == 'locked') {
+1604:                             parent.debug('web', 'handleLoginRequest: login failed, locked account');
+1605:                             req.session.messageid = 110; // Account locked.
+1606:                             const ua = obj.getUserAgentInfo(req);
+1607:                             obj.parent.DispatchEvent(['*', 'server-users', xuserid], obj, { action: 'authfail', userid: xuserid, username: xusername, domain: domain.id, msg: 'User login attempt on locked account from ' + req.clientIp, msgid: 109, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1608:                             obj.setbadLogin(req, xusername);
+1609:                         } else if (err == 'denied') {
+1610:                             parent.debug('web', 'handleLoginRequest: login failed, access denied');
+1611:                             req.session.messageid = 111; // Access denied.
+1612:                             const ua = obj.getUserAgentInfo(req);
+1613:                             obj.parent.DispatchEvent(['*', 'server-users', xuserid], obj, { action: 'authfail', userid: xuserid, username: xusername, domain: domain.id, msg: 'Denied user login from ' + req.clientIp, msgid: 155, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1614:                             obj.setbadLogin(req, xusername);
+1615:                         } else {
+1616:                             parent.debug('web', 'handleLoginRequest: login failed, bad username and password');
+1617:                             req.session.messageid = 112; // Login failed, check username and password.
+1618:                             const ua = obj.getUserAgentInfo(req);
+1619:                             obj.parent.DispatchEvent(['*', 'server-users', xuserid], obj, { action: 'authfail', userid: xuserid, username: xusername, domain: domain.id, msg: 'Invalid user login attempt from ' + req.clientIp, msgid: 110, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1620:                             obj.setbadLogin(req, xusername);
+1621:                         }
+1622:                     }
+1623:
+1624:                     // Clean up login mode and display password hint if present.
+1625:                     delete req.session.loginmode;
+1626:                     if ((passhint != null) && (passhint.length > 0)) {
+1627:                         req.session.passhint = passhint;
+1628:                     } else {
+1629:                         delete req.session.passhint;
+1630:                     }
+1631:
+1632:                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1633:                 }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095)); // Wait for 2 to ~6 seconds.
+1634:             }
+1635:         });
+1636:     }
+1637:
+1638:     function completeLoginRequest(req, res, domain, user, userid, xusername, xpassword, direct, loginOptions) {
+1639:         // Check if we need to change the password
+1640:         if ((typeof user.passchange == 'number') && ((user.passchange == -1) || ((typeof domain.passwordrequirements == 'object') && (typeof domain.passwordrequirements.reset == 'number') && (user.passchange + (domain.passwordrequirements.reset * 86400) < Math.floor(Date.now() / 1000))))) {
+1641:             // Request a password change
+1642:             parent.debug('web', 'handleLoginRequest: login ok, password change requested');
+1643:             req.session.loginmode = 6;
+1644:             req.session.messageid = 113; // Password change requested.
+1645:
+1646:             // Decrypt any session data
+1647:             const sec = parent.decryptSessionData(req.session.e);
+1648:             sec.rtuser = xusername;
+1649:             sec.rtpass = xpassword;
+1650:             sec.rtreset = true;
+1651:             req.session.e = parent.encryptSessionData(sec);
+1652:
+1653:             if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1654:             return;
+1655:         }
+1656:
+1657:         // Save login time
+1658:         user.pastlogin = user.login;
+1659:         user.login = user.access = Math.floor(Date.now() / 1000);
+1660:         obj.db.SetUser(user);
+1661:
+1662:         // Notify account login
+1663:         const targets = ['*', 'server-users', user._id];
+1664:         if (user.groups) { for (var i in user.groups) { targets.push('server-users:' + i); } }
+1665:         const ua = obj.getUserAgentInfo(req);
+1666:         const loginEvent = { etype: 'user', userid: user._id, username: user.name, account: obj.CloneSafeUser(user), action: 'login', msgid: 107, msgArgs: [req.clientIp, ua.browserStr, ua.osStr], msg: 'Account login from ' + req.clientIp + ', ' + ua.browserStr + ', ' + ua.osStr, domain: domain.id, ip: req.clientIp, userAgent: req.headers['user-agent'], rport: req.connection.remotePort };
+1667:         if (loginOptions != null) {
+1668:             if ((loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) { loginEvent.tokenName = loginOptions.tokenName; loginEvent.tokenUser = loginOptions.tokenUser; } // If a login token was used, add it to the event.
+1669:             if (loginOptions.twoFactorType != null) { loginEvent.twoFactorType = loginOptions.twoFactorType; }
+1670:         }
+1671:         obj.parent.DispatchEvent(targets, obj, loginEvent);
+1672:
+1673:         // Regenerate session when signing in to prevent fixation
+1674:         //req.session.regenerate(function () {
+1675:         // Store the user's primary key in the session store to be retrieved, or in this case the entire user object
+1676:         delete req.session.e;
+1677:         delete req.session.u2f;
+1678:         delete req.session.loginmode;
+1679:         delete req.session.tuserid;
+1680:         delete req.session.tuser;
+1681:         delete req.session.tpass;
+1682:         delete req.session.temail;
+1683:         delete req.session.tsms;
+1684:         delete req.session.tmsg;
+1685:         delete req.session.tduo;
+1686:         delete req.session.tpush;
+1687:         delete req.session.messageid;
+1688:         delete req.session.passhint;
+1689:         delete req.session.cuserid;
+1690:         delete req.session.expire;
+1691:         delete req.session.currentNode;
+1692:         req.session.userid = userid;
+1693:         req.session.ip = req.clientIp;
+1694:         setSessionRandom(req);
+1695:         obj.parent.authLog('https', 'Accepted password for ' + (xusername ? xusername : userid) + ' from ' + req.clientIp + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'], sessionid: req.session.x });
+1696:
+1697:         // If a login token was used, add this information and expire time to the session.
+1698:         if ((loginOptions != null) && (loginOptions.tokenName != null) && (loginOptions.tokenUser != null)) {
+1699:             req.session.loginToken = loginOptions.tokenUser;
+1700:             if (loginOptions.expire != null) { req.session.expire = loginOptions.expire; }
+1701:         }
+1702:
+1703:         if (

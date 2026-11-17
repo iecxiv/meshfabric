@@ -14,24 +14,24 @@ import com.google.gson.JsonParser
 import org.json.JSONObject
 
 internal fun activityEventTitle(action:String):String = when(action) {
-    "nodeconnect" -> "Equipo conectado"
-    "nodedisconnect" -> "Equipo desconectado"
-    "nodemeshchange" -> "Equipo movido de grupo"
-    "meshchange" -> "Grupo actualizado"
-    "createmesh" -> "Grupo creado"
-    "deletemesh" -> "Grupo eliminado"
-    "accountchange" -> "Cuenta actualizada"
-    "accountcreate" -> "Cuenta creada"
-    "accountremove" -> "Cuenta eliminada"
+    "nodeconnect" -> managementText("Equipo conectado","Device connected")
+    "nodedisconnect" -> managementText("Equipo desconectado","Device disconnected")
+    "nodemeshchange" -> managementText("Equipo movido de grupo","Device moved to another group")
+    "meshchange" -> managementText("Grupo actualizado","Group updated")
+    "createmesh" -> managementText("Grupo creado","Group created")
+    "deletemesh" -> managementText("Grupo eliminado","Group deleted")
+    "accountchange" -> managementText("Cuenta actualizada","Account updated")
+    "accountcreate" -> managementText("Cuenta creada","Account created")
+    "accountremove" -> managementText("Cuenta eliminada","Account deleted")
     else -> when(ServerEventType.fromAction(action)) {
-        ServerEventType.AGENT -> "Registro del agente"
-        ServerEventType.RELAY -> "Registro de conexión remota"
-        ServerEventType.MANUAL -> "Evento manual"
-        ServerEventType.COMMAND -> "Comando remoto"
-        ServerEventType.UPLOAD -> "Carga de archivos"
-        ServerEventType.CHANGE -> "Datos del equipo actualizados"
-        ServerEventType.REMOVE -> "Equipo eliminado"
-        ServerEventType.ALL -> "Evento del servidor"
+        ServerEventType.AGENT -> managementText("Registro del agente","Agent log")
+        ServerEventType.RELAY -> managementText("Registro de conexión remota","Remote connection log")
+        ServerEventType.MANUAL -> managementText("Evento manual","Manual event")
+        ServerEventType.COMMAND -> managementText("Comando remoto","Remote command")
+        ServerEventType.UPLOAD -> managementText("Carga de archivos","File upload")
+        ServerEventType.CHANGE -> managementText("Datos del equipo actualizados","Device information updated")
+        ServerEventType.REMOVE -> managementText("Equipo eliminado","Device deleted")
+        ServerEventType.ALL -> managementText("Evento del servidor","Server event")
     }
 }
 internal fun activityEventDevice(packet:JSONObject):EventDevice {
@@ -42,7 +42,7 @@ internal fun activityEventMessage(packet:JSONObject):String = when(val value=pac
     is String -> value
     is Number -> value.toString()
     else -> ""
-}.ifBlank { "El servidor no incluyó una descripción adicional." }.take(1000)
+}.ifBlank { managementText("El servidor no incluyó una descripción adicional.","The server did not include an additional description.") }.take(1000)
 internal fun resolveActivityEntry(entry:ActivityEntry,inventory:ServerEventInventory):ActivityEntry {
     val record=ServerEventRecord(entry.action,"",entry.actor,entry.nodeId,entry.deviceName,null,
         meshId=entry.meshId,groupName=entry.groupName).withInventory(inventory)

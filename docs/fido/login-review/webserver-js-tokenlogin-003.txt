@@ -1,0 +1,139 @@
+MeshCentral 1.3.1 source review: webserver.js / tokenlogin / part 3 of 11
+Parts may continue a source line. Trailing whitespace is omitted.
+nts != 'object') || (domain.passwordrequirements.email2factor != false)) && (domain.mailserver != null) && (user.email != null) && (user.emailVerified == true) && (user.otpekey != null));
+1410:                 var sms2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.sms2factor != false)) && (parent.smsserver != null) && (user.phone != null));
+1411:                 var msg2fa = (((typeof domain.passwordrequirements != 'object') || (domain.passwordrequirements.msg2factor != false)) && (parent.msgserver != null) && (parent.msgserver.providers != 0) && (user.msghandle != null));
+1412:                 var push2fa = ((parent.firebase != null) && (user.otpdev != null));
+1413:                 var duo2fa = ((((typeof domain.duo2factor == 'object') && (typeof domain.duo2factor.integrationkey == 'string') && (typeof domain.duo2factor.secretkey == 'string') && (typeof domain.duo2factor.apihostname == 'string')) || ((typeof domain.passwordrequirements == 'object') && (domain.passwordrequirements.duo2factor != false))) && (user.otpduo != null));
+1414:
+1415:                 // Check if two factor can be skipped
+1416:                 const twoFactorSkip = checkUserOneTimePasswordSkip(domain, user, req, loginOptions);
+1417:
+1418:                 // Check if this user has 2-step login active
+1419:                 if ((twoFactorSkip == null) && (req.session.loginmode != 6) && checkUserOneTimePasswordRequired(domain, user, req, loginOptions)) {
+1420:                     if ((req.body.hwtoken == '**timeout**')) {
+1421:                         delete req.session; // Clear the session
+1422:                         res.redirect(domain.url + getQueryPortion(req));
+1423:                         return;
+1424:                     }
+1425:
+1426:                     if ((req.body.hwtoken == '**email**') && email2fa) {
+1427:                         user.otpekey = { k: obj.common.zeroPad(getRandomEightDigitInteger(), 8), d: Date.now() };
+1428:                         obj.db.SetUser(user);
+1429:                         parent.debug('web', 'Sending 2FA email to: ' + user.email);
+1430:                         domain.mailserver.sendAccountLoginMail(domain, user.email, user.otpekey.k, obj.getLanguageCodes(req), req.query.key);
+1431:                         req.session.messageid = 2; // "Email sent" message
+1432:                         req.session.loginmode = 4;
+1433:                         if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1434:                         return;
+1435:                     }
+1436:
+1437:                     if ((req.body.hwtoken == '**sms**') && sms2fa) {
+1438:                         // Cause a token to be sent to the user's phone number
+1439:                         user.otpsms = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+1440:                         obj.db.SetUser(user);
+1441:                         parent.debug('web', 'Sending 2FA SMS to: ' + user.phone);
+1442:                         parent.smsserver.sendToken(domain, user.phone, user.otpsms.k, obj.getLanguageCodes(req));
+1443:                         // Ask for a login token & confirm sms was sent
+1444:                         req.session.messageid = 4; // "SMS sent" message
+1445:                         req.session.loginmode = 4;
+1446:                         if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1447:                         return;
+1448:                     }
+1449:
+1450:                     if ((req.body.hwtoken == '**msg**') && msg2fa) {
+1451:                         // Cause a token to be sent to the user's messenger account
+1452:                         user.otpmsg = { k: obj.common.zeroPad(getRandomSixDigitInteger(), 6), d: Date.now() };
+1453:                         obj.db.SetUser(user);
+1454:                         parent.debug('web', 'Sending 2FA message to: ' + user.msghandle);
+1455:                         parent.msgserver.sendToken(domain, user.msghandle, user.otpmsg.k, obj.getLanguageCodes(req));
+1456:                         // Ask for a login token & confirm message was sent
+1457:                         req.session.messageid = 6; // "Message sent" message
+1458:                         req.session.loginmode = 4;
+1459:                         if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1460:                         return;
+1461:                     }
+1462:
+1463:                     if ((req.body.hwtoken == '**duo**') && duo2fa && (typeof domain.duo2factor == 'object') && (typeof domain.duo2factor.integrationkey == 'string') && (typeof domain.duo2factor.secretkey == 'string') && (typeof domain.duo2factor.apihostname == 'string')) {
+1464:                         // Redirect to duo here
+1465:                         const duo = require('@duosecurity/duo_universal');
+1466:                         const client = new duo.Client({
+1467:                             clientId: domain.duo2factor.integrationkey,
+1468:                             clientSecret: domain.duo2factor.secretkey,
+1469:                             apiHost: domain.duo2factor.apihostname,
+1470:                             redirectUrl: obj.generateBaseURL(domain, req) + 'auth-duo' + (domain.loginkey != null ? ('?key=' + domain.loginkey) : '')
+1471:                         });
+1472:                         // Decrypt any session data
+1473:                         const sec = parent.decryptSessionData(req.session.e);
+1474:                         sec.duostate = client.generateState();
+1475:                         req.session.e = parent.encryptSessionData(sec);
+1476:                         parent.debug('web', 'Redirecting user ' + user._id + ' to Duo');
+1477:                         res.redirect(client.createAuthUrl(user._id.split('/')[2], sec.duostate));
+1478:                         return;
+1479:                     }
+1480:
+1481:                     // Handle device push notification 2FA request
+1482:                     // We create a browser cookie, send it back and when the browser connects it's web socket, it will trigger the push notification.
+1483:                     if ((req.body.hwtoken == '**push**') && push2fa && ((domain.passwordrequirements == null) || (domain.passwordrequirements.push2factor != false))) {
+1484:                         const logincodeb64 = Buffer.from(obj.common.zeroPad(getRandomSixDigitInteger(), 6)).toString('base64');
+1485:                         const sessioncode = obj.crypto.randomBytes(24).toString('base64');
+1486:
+1487:                         // Create a browser cookie so the browser can connect using websocket and wait for device accept/reject.
+1488:                         const browserCookie = parent.encodeCookie({ a: 'waitAuth', c: logincodeb64, u: user._id, n: user.otpdev, s: sessioncode, d: domain.id });
+1489:
+1490:                         // Get the HTTPS port
+1491:                         var httpsPort = ((obj.args.aliasport == null) ? obj.args.port : obj.args.aliasport); // Use HTTPS alias port if specified
+1492:
+1493:                         // Get the agent connection server name
+1494:                         var serverName = obj.getWebServerName(domain, req);
+1495:                         if (typeof obj.args.agentaliasdns == 'string') { serverName = obj.args.agentaliasdns; }
+1496:
+1497:                         // Build the connection URL. If we are using a sub-domain or one with a DNS, we need to craft the URL correctly.
+1498:                         var xdomain = (domain.dns == null) ? domain.id : '';
+1499:                         if (xdomain != '') xdomain += '/';
+1500:                         var url = 'wss://' + serverName + ':' + httpsPort + '/' + xdomain + '2fahold.ashx?c=' + browserCookie;
+1501:
+1502:                         // Request that the login page wait for device auth
+1503:                         req.session.messageid = 5; // "Sending notification..." message
+1504:                         req.session.passhint = url;
+1505:                         req.session.loginmode = 8;
+1506:                         if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1507:                         return;
+1508:                     }
+1509:
+1510:                     checkUserOneTimePassword(req, domain, user, req.body.token, req.body.hwtoken, function (result, authData) {
+1511:                         if (result == false) {
+1512:                             var randomWaitTime = 0;
+1513:
+1514:                             // Check if 2FA is allowed for this IP address
+1515:                             if (obj.checkAllow2Fa(req) == false) {
+1516:                                 // Wait and redirect the user
+1517:                                 setTimeout(function () {
+1518:                                     req.session.messageid = 114; // IP address blocked, try again later.
+1519:                                     if (direct === true) { handleRootRequestEx(req, res, domain); } else { res.redirect(domain.url + getQueryPortion(req)); }
+1520:                                 }, 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095));
+1521:                                 return;
+1522:                             }
+1523:
+1524:                             // 2-step auth is required, but the token is not present or not valid.
+1525:                             if ((req.body.token != null) || (req.body.hwtoken != null)) {
+1526:                                 randomWaitTime = 2000 + (obj.crypto.randomBytes(2).readUInt16BE(0) % 4095); // This is a fail, wait a random time. 2 to 6 seconds.
+1527:                                 req.session.messageid = 108; // Invalid token, try again.
+1528:                                 obj.parent.authLog('https', 'Failed 2FA for ' + xusername + ' from ' + cleanRemoteAddr(req.clientIp) + ' port ' + req.connection.remotePort, { useragent: req.headers['user-agent'] });
+1529:                                 parent.debug('web', 'handleLoginRequest: invalid 2FA token');
+1530:                                 const ua = obj.getUserAgentInfo(req);
+1531:                                 obj.parent.DispatchEvent(['*', 'server-users', user._id], obj, { action: 'authfail', username: user.name, userid: user._id, domain: domain.id, msg: 'User login attempt with incorrect 2nd factor from ' + req.clientIp, msgid: 108, msgArgs: [req.clientIp, ua.browserStr, ua.osStr] });
+1532:                                 obj.setbad2Fa(req);
+1533:                             } else {
+1534:                                 parent.debug('web', 'handleLoginRequest: 2FA token required');
+1535:                             }
+1536:
+1537:                             // Wait and redirect the user
+1538:                             setTimeout(function () {
+1539:                                 req.session.loginmode = 4;
+1540:                                 if ((user.email != null) && (user.emailVerified == true) && (domain.mailserver != null) && (user.otpekey != null)) { req.session.temail = 1; } else { delete req.session.temail; }
+1541:                                 if ((user.phone != null) && (parent.smsserver != null)) { req.session.tsms = 1; } else { delete req.session.tsms; }
+1542:                                 if ((user.msghandle != null) && (parent.msgserver != null) && (parent.msgserver.providers != 0)) { req.session.tmsg = 1; } else { delete req.session.tmsg; }
+1543:                                 if ((user.otpdev != null) && (parent.firebase != null)) { req.session.tpush = 1; } else { delete req.session.tpush; }
+1544:                                 if ((user.otpduo != null)) { req.session.tduo = 1; } else { delete req.session.tduo; }
+1545:                                 req.session.e = parent.encryptSessionData({ tuserid: useri

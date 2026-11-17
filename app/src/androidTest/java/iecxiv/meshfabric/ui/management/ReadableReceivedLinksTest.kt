@@ -6,7 +6,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 import kotlinx.coroutines.CoroutineScope
@@ -51,7 +51,7 @@ import java.util.Locale
         var openedUser="";var openedMesh=""
         init {
             compose.setContent {
-                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale("es"))}
+                val config=Configuration(LocalConfiguration.current).apply {setLocale(Locale.forLanguageTag("es"))}
                 CompositionLocalProvider(LocalConfiguration provides config) {MaterialTheme {
                     if(received) ReceivedUserGroupDialog(session,s,gid) {} else UserGroupsDirectoryPane(session,s,Modifier.fillMaxSize(),onOpenUser={openedUser=it},onOpenDeviceGroup={openedMesh=it})
                 }}
