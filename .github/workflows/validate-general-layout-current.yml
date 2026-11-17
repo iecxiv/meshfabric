@@ -1,0 +1,141 @@
+name: Validate General layout on synchronized branch
+on:
+  push:
+    branches: [device-other-options]
+    paths: ['.github/workflows/validate-general-layout-current.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: general-layout-current-validation
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/device-other-options'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify base and prepare candidate only inside runner
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          base='f8c3db2bdd132f56ce1cfb5914d71d42a89665eb'
+          workflow='.github/workflows/validate-general-layout-current.yml'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==base
+          assert subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()==[workflow]
+          assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
+          preparer=Path('tools/ui/general-dialog-layout/apply.py')
+          pinned={str(preparer):'903f3bf03a9d3fc60132827561ea64ac0cc0d393','tools/ui/general-dialog-layout/DeviceGeneralFrame.kt':'95e8aaf4c5ff88b018c85e5dea04f53ae9dad12f','tools/ui/general-dialog-layout/DeviceGeneralLayoutUiTest.kt':'a77553fea635e0c514c01814f715d313d8f2593d','app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt':'9e061e560e6b35cb44198155959f66b34ad7cd69'}
+          for name,sha in pinned.items():
+              assert subprocess.check_output(['git','hash-object',name],text=True).strip()==sha,name
+          code=preparer.read_text()
+          old='98d20abd6ceced92caeb7c6b3deb79b11c601097'
+          assert code.count(old)==1
+          code=code.replace(old,pinned['app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt'],1)
+          exec(compile(code,str(preparer),'exec'),{'__name__':'__main__','__file__':str(preparer)})
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceGeneralLayoutUiTest.kt')
+          original=test.read_text()
+          before='import androidx.compose.ui.test.junit4.createComposeRule'
+          after='import androidx.compose.ui.test.junit4.v2.createComposeRule'
+          assert original.count(before)==1 and after not in original
+          updated=original.replace(before,after,1)
+          assert updated.replace(after,before,1)==original and updated.count('@Test fun ')==4
+          test.write_text(updated)
+          subprocess.run(['git','add','--',str(test)],check=True)
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt','app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralFrame.kt',str(test)}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          dialog=Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt').read_text()
+          assert 'val groupedDevices=source?.groupedDevices?.collectAsState()?.value.orEmpty()' in dialog
+          assert 'val group=groupedDevices.firstOrNull' in dialog
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          out=Path('validation');out.mkdir(exist_ok=True)
+          (out/'candidate.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+          (out/'candidate-tree.txt').write_bytes(subprocess.check_output(['git','write-tree']))
+          (out/'source-commit.txt').write_bytes(subprocess.check_output(['git','rev-parse','HEAD']))
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK with verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve();tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              candidate=p.parent.resolve();candidate.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK):tools.append(candidate)
+          assert tools,'Verified tools 23.0 missing'
+          subprocess.run([str(sorted(tools)[0]/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+      - name: Clean build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: All standalone JavaScript tests
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          scripts=sorted(Path('app/src/test/js').glob('*.test.js'));assert len(scripts)>=3
+          with Path('validation/javascript-tests.txt').open('w') as out:
+              for script in scripts:
+                  out.write(str(script)+'\n');out.flush()
+                  subprocess.run(['node',str(script)],stdout=out,stderr=subprocess.STDOUT,check=True)
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify all evidence and unchanged candidate
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              if root.endswith('androidTest-results'):
+                  found=[c.get('name') for c in cases if c.get('classname','')=='iecxiv.meshfabric.ui.devices.DeviceGeneralLayoutUiTest']
+                  expected={'lightMatchesDetails','darkMatchesDetails','compactWindowKeepsHeightBoundAndFooter','headerCloseUsesDismissCallback'}
+                  assert len(found)==4 and set(found)==expected,found
+              totals[root]=len(cases)
+          assert subprocess.check_output(['git','write-tree'])==Path('validation/candidate-tree.txt').read_bytes()
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==Path('validation/candidate.patch').read_bytes()
+          subprocess.run(['git','diff','--exit-code'],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('General layout candidate passed build, all JVM and JavaScript tests, lint and complete instrumentation, including all four layout methods. Candidate exists only in runner; no app publication or APK upload. Physical UI review remains separate.\n')
+      - name: Upload reports and exact candidate patch only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: general-layout-current-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: error
+          retention-days: 14
