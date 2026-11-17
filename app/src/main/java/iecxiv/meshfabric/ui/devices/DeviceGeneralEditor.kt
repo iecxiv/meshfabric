@@ -11,17 +11,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.*
 import java.util.UUID
 
-internal data class GeneralMeta(val name:String,val tags:List<String>,val rights:Long,val os:String,val mesh:String)
-internal data class GeneralDraft(val name:String,val tags:List<String>)
+internal data class GeneralMeta(val name:String,val tags:List<String>,val rights:Long,val os:String,val mesh:String,val description:String="")
+internal data class GeneralDraft(val name:String,val tags:List<String>,val description:String?=null)
 internal data class GeneralEditorState(val meta:GeneralMeta?=null,val phase:String="loading",val code:String="") {
     val canEdit:Boolean get()=meta!=null && meta.rights and 4L!=0L && phase in setOf("ready","confirmed")
 }
-internal fun generalDraft(name:String,tags:String):GeneralDraft {
+internal fun generalDescriptionValid(value:String)=value.length<=1024 && value.none {it<' ' && it!='\n' && it!='\r' && it!='\t'}
+internal fun generalDraft(name:String,tags:String,description:String?=null):GeneralDraft {
     require(name.isNotBlank() && name.length<=256 && name.none { it<' ' })
     require(tags.length<=4096 && tags.none { it<' ' && it!='\n' })
+    require(description==null || generalDescriptionValid(description))
     val values=tags.split(',', '\n').map { it.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
     require(values.all { it.length<64 })
-    return GeneralDraft(name,values)
+    return GeneralDraft(name,values,description)
 }
 internal fun generalMeta(packet:JsonObject,nodeId:String,tag:String):GeneralMeta?=runCatching {
     require(packet.get("action")?.asString=="getsysinfo" && packet.get("tag")?.asString==tag)
@@ -35,18 +37,24 @@ internal fun generalMeta(packet:JsonObject,nodeId:String,tag:String):GeneralMeta
     val tags=node.get("tags")
     require(tags==null || tags.isJsonArray)
     val list=tags?.asJsonArray?.map { require(it.isJsonPrimitive && it.asJsonPrimitive.isString);it.asString }?.distinct()?.sorted().orEmpty()
-    GeneralMeta(node.get("name")?.asString.orEmpty(),list,value.toLong(),node.get("osdesc")?.asString.orEmpty(),node.get("meshid")?.asString.orEmpty())
+    val desc=node.get("desc")
+    require(desc==null || desc.isJsonNull || (desc.isJsonPrimitive && desc.asJsonPrimitive.isString))
+    val description=if(desc==null || desc.isJsonNull) "" else desc.asString
+    GeneralMeta(node.get("name")?.asString.orEmpty(),list,value.toLong(),node.get("osdesc")?.asString.orEmpty(),node.get("meshid")?.asString.orEmpty(),description)
 }.getOrNull()
 internal fun generalChange(nodeId:String,responseId:String,before:GeneralMeta,after:GeneralDraft):JsonObject {
     require(before.rights and 4L!=0L)
-    require(before.name!=after.name || before.tags.toSet()!=after.tags.toSet())
+    require(after.description==null || generalDescriptionValid(after.description))
+    require(!generalMatches(before,after))
     return JsonObject().apply {
         addProperty("action","changedevice");addProperty("nodeid",nodeId);addProperty("responseid",responseId)
         if(before.name!=after.name) addProperty("name",after.name)
         if(before.tags.toSet()!=after.tags.toSet()) add("tags",JsonArray().apply { after.tags.forEach { add(it) } })
+        if(after.description!=null && before.description!=after.description) addProperty("desc",after.description)
     }
 }
-internal fun generalMatches(meta:GeneralMeta,draft:GeneralDraft)=meta.name==draft.name && meta.tags.toSet()==draft.tags.toSet()
+internal fun generalMatches(meta:GeneralMeta,draft:GeneralDraft)=meta.name==draft.name && meta.tags.toSet()==draft.tags.toSet() && (draft.description==null || meta.description==draft.description)
+internal fun generalBaselineMatches(meta:GeneralMeta,before:GeneralMeta,draft:GeneralDraft)=meta.name==before.name && meta.tags.toSet()==before.tags.toSet() && (draft.description==null || meta.description==before.description)
 
 internal class DeviceGeneralEditor(private val source:MeshCentralClient?,private val node:MeshNode,private val scope:CoroutineScope) {
     val state=MutableStateFlow(GeneralEditorState())
@@ -118,7 +126,7 @@ internal class DeviceGeneralEditor(private val source:MeshCentralClient?,private
                 if(!sent) {
                     val baseline=before!!
                     if(meta.rights and 4L==0L) { fail("denied");return }
-                    if(meta.name!=baseline.name || meta.tags.toSet()!=baseline.tags.toSet()) { fail("conflict");return }
+                    if(!generalBaselineMatches(meta,baseline,draft)) { fail("conflict");return }
                     val change=generalChange(node.id,writeTag,meta,draft)
                     sent=true
                     if(!send(change)) { fail("unconfirmed");return }

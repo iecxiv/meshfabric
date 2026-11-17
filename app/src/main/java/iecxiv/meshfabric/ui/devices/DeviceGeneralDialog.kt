@@ -29,16 +29,17 @@ import iecxiv.meshfabric.data.model.MeshNode
     val state by editor.state.collectAsState()
     var name by remember(source,identity,node.id) { mutableStateOf(node.name) }
     var tags by remember(source,identity,node.id) { mutableStateOf("") }
+    var description by remember(source,identity,node.id) { mutableStateOf("") }
     var initialized by remember(source,identity,node.id) { mutableStateOf(false) }
     var review by remember(source,identity,node.id) { mutableStateOf<GeneralDraft?>(null) }
     var invalid by remember(source,identity,node.id) { mutableStateOf(false) }
     var discard by remember(source,identity,node.id) { mutableStateOf(false) }
     var editing by remember(source,identity,node.id) { mutableStateOf<String?>(null) }
     val meta=state.meta
-    val dirty=initialized && meta!=null && (name!=meta.name || runCatching { generalDraft(name,tags).tags.toSet()!=meta.tags.toSet() }.getOrDefault(true))
+    val dirty=initialized && meta!=null && runCatching {!generalMatches(meta,generalDraft(name,tags,description))}.getOrDefault(true)
     LaunchedEffect(meta,state.phase) {
         if(meta!=null && (!initialized || state.phase=="confirmed")) {
-            name=meta.name;tags=meta.tags.joinToString(", ");initialized=true
+            name=meta.name;tags=meta.tags.joinToString(", ");description=meta.description;initialized=true
         }
     }
     DisposableEffect(editor,owner) {
@@ -64,6 +65,8 @@ import iecxiv.meshfabric.data.model.MeshNode
                 val group=groupedDevices.firstOrNull { it.first.id==meta.mesh }?.first?.name
                 if(!group.isNullOrBlank()) Text(text("Grupo: ","Group: ")+group)
                 GeneralValueRow(text("Nombre","Name"),name,state.canEdit,"general_name",text("Editar nombre","Edit name")) {editing="name"}
+                GeneralValueRow(text("Descripción","Description"),description.ifBlank {text("Sin descripción","No description")},state.canEdit,"general_description",text("Editar descripción","Edit description")) {editing="description"}
+                Text(text("Descripción: máximo 1024 caracteres.","Description: up to 1024 characters."),style=MaterialTheme.typography.bodySmall)
                 GeneralValueRow(text("Etiquetas","Tags"),tags.ifBlank {text("Sin etiquetas","No tags")},state.canEdit,"general_tags",text("Editar etiquetas","Edit tags")) {editing="tags"}
                 if(dirty) Text(text("Borrador local pendiente de revisar y guardar.","Local draft awaiting review and save."),style=MaterialTheme.typography.bodySmall)
                 if(meta.rights and 4L==0L) Text(text("Solo consulta: sin permiso para administrar dispositivos.","Read-only: no permission to manage devices."))
@@ -75,27 +78,35 @@ import iecxiv.meshfabric.data.model.MeshNode
             }
             if(state.phase=="confirmed") Text(text("Guardado confirmado por relectura.","Save confirmed by re-reading."),modifier=Modifier.testTag("general_saved"))
             if(code.isNotEmpty()) Text(code,color=MaterialTheme.colorScheme.error)
-            if(invalid) Text(text("Nombre válido de hasta 256 caracteres; cada etiqueta debe tener menos de 64 caracteres.","Use a valid name up to 256 characters; each tag must contain fewer than 64 characters."),color=MaterialTheme.colorScheme.error)
+            if(invalid) Text(text("Revisa el nombre, las etiquetas y la descripción (máximo 1024 caracteres).","Check the name, tags and description (up to 1024 characters)."),color=MaterialTheme.colorScheme.error)
             TextButton(onClick={ retry++ },enabled=state.phase!="saving") { Text(text("Recargar datos y permisos","Reload device data and permissions")) }
         },
         footer={ TextButton(enabled=state.canEdit && dirty,onClick={
-            runCatching { generalDraft(name,tags) }.onSuccess { review=it }.onFailure { invalid=true }
+            runCatching { generalDraft(name,tags,description) }.onSuccess { review=it }.onFailure { invalid=true }
         },modifier=Modifier.testTag("general_save")) { Text(text("Revisar guardado","Review save")) }
             TextButton(onClick=close) { Text(text("Cerrar","Close")) }
         })
     editing?.let { field->key(source,identity,node.id,field) {
-        GeneralFieldDialog(
-            label=if(field=="name") text("Nombre","Name") else text("Etiquetas, separadas por comas","Comma-separated tags"),
-            initialValue=if(field=="name") name else tags,
-            multiline=field=="tags",enabled=state.canEdit,es=es,onDismiss={editing=null},
+        val label=when(field) {
+            "name"->text("Nombre","Name")
+            "description"->text("Descripción","Description")
+            else->text("Etiquetas, separadas por comas","Comma-separated tags")
+        }
+        GeneralFieldDialog(label=label,initialValue=when(field) {"name"->name;"description"->description;else->tags},
+            multiline=field!="name",enabled=state.canEdit,es=es,onDismiss={editing=null},
             onApply={value->
-                if(!state.canEdit) false else runCatching {generalDraft(if(field=="name") value else name,if(field=="tags") value else tags)}
-                    .onSuccess {draft->name=draft.name;tags=draft.tags.joinToString(", ");invalid=false;editing=null}.isSuccess
+                if(!state.canEdit) false else runCatching {generalDraft(if(field=="name") value else name,if(field=="tags") value else tags,if(field=="description") value else description)}
+                    .onSuccess {draft->name=draft.name;tags=draft.tags.joinToString(", ");description=requireNotNull(draft.description);invalid=false;editing=null}.isSuccess
             })
     }}
     review?.let { draft->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ review=null },
         title={ Text(text("Confirmar cambios","Confirm changes"),fontSize=18.sp,fontWeight=FontWeight.Bold) },
-        text={ Column { Text(text("Dispositivo: ","Device: ")+node.name);Text(text("Nombre: ","Name: ")+draft.name);Text(text("Etiquetas: ","Tags: ")+draft.tags.joinToString(", ")) } },
+        text={ Column {
+            Text(text("Dispositivo: ","Device: ")+node.name)
+            Text(text("Nombre: ","Name: ")+draft.name)
+            Text(text("Descripción: ","Description: ")+draft.description.orEmpty())
+            Text(text("Etiquetas: ","Tags: ")+draft.tags.joinToString(", "))
+        } },
         confirmButton={ TextButton(enabled=state.canEdit,onClick={ review=null;editor.save(draft) }) { Text(text("Guardar","Save")) } },
         dismissButton={ TextButton(onClick={ review=null }) { Text(text("Cancelar","Cancel")) } }) }
     if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ discard=false },

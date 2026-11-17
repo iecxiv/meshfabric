@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.sp
                 modifier=Modifier.fillMaxWidth().testTag("general_field_input"))
             Text(text("Aplicar modifica el borrador local. Después usa Revisar guardado en General para enviarlo al servidor.","Apply updates the local draft. Then use Review save in General to send it to the server."),style=MaterialTheme.typography.bodySmall)
             if(!enabled) Text(text("No se puede aplicar sin datos y permisos verificados.","Cannot apply without verified data and permissions."),color=MaterialTheme.colorScheme.error)
-            if(invalid) Text(text("Valor no válido: nombre obligatorio de hasta 256 caracteres y etiquetas de menos de 64 caracteres cada una.","Invalid value: a name is required, up to 256 characters; each tag must contain fewer than 64 characters."),color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("general_field_error"))
+            if(invalid) Text(text("Valor no válido. Revisa el formato y la longitud del campo.","Invalid value. Check the field format and length."),color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("general_field_error"))
         }},
         confirmButton={TextButton(enabled=enabled,onClick={invalid=!onApply(value)},modifier=Modifier.testTag("general_field_apply")) {Text(text("Aplicar al borrador","Apply to draft"))}},
         dismissButton={TextButton(onClick=onDismiss,modifier=Modifier.testTag("general_field_cancel")) {Text(text("Cancelar","Cancel"))}})
