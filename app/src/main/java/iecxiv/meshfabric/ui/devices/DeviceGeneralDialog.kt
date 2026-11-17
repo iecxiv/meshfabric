@@ -69,6 +69,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 GeneralValueRow(text("Descripción","Description"),description.ifBlank {text("Sin descripción","No description")},state.canEdit,"general_description",text("Editar descripción","Edit description")) {editing="description"}
                 Text(text("Descripción: máximo 1024 caracteres.","Description: up to 1024 characters."),style=MaterialTheme.typography.bodySmall)
                 GeneralValueRow(text("Consentimiento del usuario","User consent"),generalConsentLabel(consent,es),state.canEdit,"general_consent",text("Editar consentimiento","Edit consent")) {editing="consent"}
+                DeviceNotificationSection(node)
                 GeneralValueRow(text("Etiquetas","Tags"),tags.ifBlank {text("Sin etiquetas","No tags")},state.canEdit,"general_tags",text("Editar etiquetas","Edit tags")) {editing="tags"}
                 if(dirty) Text(text("Borrador local pendiente de revisar y guardar.","Local draft awaiting review and save."),style=MaterialTheme.typography.bodySmall)
                 if(meta.rights and 4L==0L) Text(text("Solo consulta: sin permiso para administrar dispositivos.","Read-only: no permission to manage devices."))
