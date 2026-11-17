@@ -56,12 +56,8 @@ import iecxiv.meshfabric.data.model.MeshNode
         ""->""
         else->text("Conexión o respuesta no disponible. El borrador local se conserva.","Connection or response unavailable. The local draft is preserved.")
     }
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=close,
-        title={ Text(node.name,fontSize=18.sp,fontWeight=FontWeight.Bold) },
-        text={ Column(Modifier.fillMaxWidth().heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text("General",style=MaterialTheme.typography.titleSmall)
-            Text(text("Sistema: ","OS: ")+(meta?.os ?: node.osdesc.orEmpty()).ifBlank { text("Sin datos","No data") })
-            Text(if(node.isOnline) text("Conectado","Connected") else text("Desconectado","Disconnected"))
+    DeviceGeneralFrame(node.copy(osdesc=meta?.os ?: node.osdesc),close,
+        body={
             if(meta==null) Text(text("Nombre: ","Name: ")+node.name)
             if(meta!=null) {
                 val group=groupedDevices.firstOrNull { it.first.id==meta.mesh }?.first?.name
@@ -81,11 +77,12 @@ import iecxiv.meshfabric.data.model.MeshNode
             if(code.isNotEmpty()) Text(code,color=MaterialTheme.colorScheme.error)
             if(invalid) Text(text("Nombre válido de hasta 256 caracteres; cada etiqueta debe tener menos de 64 caracteres.","Use a valid name up to 256 characters; each tag must contain fewer than 64 characters."),color=MaterialTheme.colorScheme.error)
             TextButton(onClick={ retry++ },enabled=state.phase!="saving") { Text(text("Recargar datos y permisos","Reload device data and permissions")) }
-        } },
-        confirmButton={ TextButton(enabled=state.canEdit && dirty,onClick={
+        },
+        footer={ TextButton(enabled=state.canEdit && dirty,onClick={
             runCatching { generalDraft(name,tags) }.onSuccess { review=it }.onFailure { invalid=true }
-        },modifier=Modifier.testTag("general_save")) { Text(text("Revisar guardado","Review save")) } },
-        dismissButton={ TextButton(onClick=close) { Text(text("Cerrar","Close")) } })
+        },modifier=Modifier.testTag("general_save")) { Text(text("Revisar guardado","Review save")) }
+            TextButton(onClick=close) { Text(text("Cerrar","Close")) }
+        })
     review?.let { draft->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ review=null },
         title={ Text(text("Confirmar cambios","Confirm changes"),fontSize=18.sp,fontWeight=FontWeight.Bold) },
         text={ Column { Text(text("Dispositivo: ","Device: ")+node.name);Text(text("Nombre: ","Name: ")+draft.name);Text(text("Etiquetas: ","Tags: ")+draft.tags.joinToString(", ")) } },
