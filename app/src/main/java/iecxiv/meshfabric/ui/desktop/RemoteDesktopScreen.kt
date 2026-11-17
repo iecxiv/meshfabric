@@ -82,6 +82,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -139,6 +141,7 @@ fun RemoteDesktopScreen(
     }
     var isFullScreen by rememberSaveable { mutableStateOf(false) }
     var barRelativeY by rememberSaveable { mutableFloatStateOf(0f) }
+    var controlsBarHeightPx by remember(isControlsBarCollapsed) { mutableIntStateOf(0) }
 
     var isSoftKeyboardOpen by remember { mutableStateOf(false) }
     var softKeyboardTextFieldValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -344,7 +347,9 @@ fun RemoteDesktopScreen(
                 )
             )
             val maxContainerHeightPx = constraints.maxHeight.toFloat()
-            val maxUpwardOffsetPx = -(maxContainerHeightPx - with(density) { 80.dp.toPx() }).coerceAtLeast(0f)
+            val maxUpwardOffsetPx = desktopControlsBarLimit(
+                maxContainerHeightPx, controlsBarHeightPx, with(density) { 12.dp.toPx() }
+            )
             val currentOffsetY = if (maxUpwardOffsetPx < 0f) barRelativeY * maxUpwardOffsetPx else 0f
             val bitmap = desktopBitmap
             if (bitmap != null) {
@@ -542,8 +547,9 @@ drawDiagnostics[0]++
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(12.dp)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                         .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
                             detectVerticalDragGestures { change, dragAmount ->
@@ -596,8 +602,9 @@ drawDiagnostics[0]++
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(12.dp)
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
                         .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
                             detectVerticalDragGestures { change, dragAmount ->
