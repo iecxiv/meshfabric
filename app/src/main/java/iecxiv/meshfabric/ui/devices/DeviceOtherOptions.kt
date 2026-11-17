@@ -64,10 +64,12 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
 
 @Composable private fun DeviceOptionButton(label:String,icon:ImageVector,key:String,width:androidx.compose.ui.unit.Dp,enabled:Boolean,onClick:()->Unit) {
     val contentColor=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onSurface
-    OutlinedButton(onClick=onClick,enabled=enabled,modifier=Modifier.width(width).testTag("device_option_$key"),
+    val compact=key in setOf("general","events","details","console")
+    val buttonModifier=Modifier.width(width).then(if(compact) Modifier.heightIn(min=28.dp) else Modifier).testTag("device_option_$key")
+    OutlinedButton(onClick=onClick,enabled=enabled,modifier=buttonModifier,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
         colors=ButtonDefaults.outlinedButtonColors(contentColor=contentColor,disabledContentColor=contentColor.copy(alpha=0.38f)),
-        contentPadding=PaddingValues(horizontal=2.dp,vertical=4.dp)) {
+        contentPadding=PaddingValues(horizontal=2.dp,vertical=if(compact) 2.dp else 4.dp)) {
         Icon(icon,null,Modifier.size(14.dp))
         Spacer(Modifier.width(2.dp))
         Text(label,fontSize=10.sp,maxLines=1,softWrap=false)
