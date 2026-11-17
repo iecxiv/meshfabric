@@ -24,7 +24,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     key(source,identity,actor,node.id) {
         var opened by remember {mutableStateOf(false)}
         var history by remember {mutableStateOf(false)}
-        OutlinedButton(enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_log_event")) {Text(t("Registrar evento","Log event"))}
+        DeviceGeneralActionButton(label=t("Registrar evento","Log event"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_log_event"))
         if(opened) {
             var retry by remember {mutableIntStateOf(0)}
             var text by remember {mutableStateOf("")}

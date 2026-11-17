@@ -20,7 +20,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
         var opened by remember {mutableStateOf(false)}
-        OutlinedButton(enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_notes")) {Text(t("Notas","Notes"))}
+        DeviceGeneralActionButton(label=t("Notas","Notes"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_notes"))
         if(opened) {
             var retry by remember {mutableIntStateOf(0)}
             var draft by remember {mutableStateOf("")}

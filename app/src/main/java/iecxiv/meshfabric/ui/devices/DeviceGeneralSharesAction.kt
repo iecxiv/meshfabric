@@ -24,7 +24,7 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
         var opened by remember {mutableStateOf(false)}
-        OutlinedButton(enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_shares")) {Text(t("Compartir","Share"))}
+        DeviceGeneralActionButton(label=t("Compartir","Share"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_shares"))
         if(opened) {
             var retry by remember {mutableIntStateOf(0)}
             var review by remember {mutableStateOf<GeneralShare?>(null)}

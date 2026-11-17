@@ -21,7 +21,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
         var opened by remember {mutableStateOf(false)}
-        OutlinedButton(enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_message")) {Text(t("Mensaje","Message"))}
+        DeviceGeneralActionButton(label=t("Mensaje","Message"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_message"))
         if(opened) {
             val defaultTitle=remember {t("Mensaje remoto","Remote message")}
             var title by remember {mutableStateOf(defaultTitle)}

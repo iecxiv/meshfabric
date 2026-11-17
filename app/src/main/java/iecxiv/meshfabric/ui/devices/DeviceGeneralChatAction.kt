@@ -21,7 +21,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
         var opened by remember {mutableStateOf(false)}
-        OutlinedButton(enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_chat")) {Text("Chat")}
+        DeviceGeneralActionButton(label="Chat",enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_chat"))
         if(opened) {
             val session=remember {DeviceGeneralChatSession(source,node.id)}
             val state by session.state.collectAsState()

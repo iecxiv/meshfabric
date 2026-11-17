@@ -24,7 +24,7 @@ import iecxiv.meshfabric.ui.management.defaultInterpreterKey
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
         var opened by remember {mutableStateOf(false)}
-        OutlinedButton(enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_run")) {Text(t("Ejecutar","Run"))}
+        DeviceGeneralActionButton(label=t("Ejecutar","Run"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_run"))
         if(opened) {
             var retry by remember {mutableIntStateOf(0)}
             var command by remember {mutableStateOf("")}
@@ -91,7 +91,7 @@ import iecxiv.meshfabric.ui.management.defaultInterpreterKey
                 TextButton(onClick=close) {Text(t("Cerrar","Close"))}
             },subtitle=t("Ejecutar","Run"),tagPrefix="device_run")
             ActionFeedbackDialogs(editor.feedback)
-            if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Ejecutar","Close Run"))},text={Text(t("Se perderá el borrador y se cerrará el seguimiento local de salida. Un comando ya enviado no se detiene ni se revierte.","The draft will be lost and local output monitoring will close. An already sent command is not stopped or undone."))},confirmButton={TextButton(onClick={opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Ejecutar","Close Run"))},text={Text(t("Se perderá el borrador y se cerrará el seguimiento local de salida. Un comando ya enviado no se detiene ni se revierte.","The local draft and output monitoring will close. An already sent command is not stopped or undone."))},confirmButton={TextButton(onClick={opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
         }
     }
 }
