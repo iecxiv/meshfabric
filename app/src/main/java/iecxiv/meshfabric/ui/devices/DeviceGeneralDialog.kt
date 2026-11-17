@@ -33,6 +33,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     var review by remember(source,identity,node.id) { mutableStateOf<GeneralDraft?>(null) }
     var invalid by remember(source,identity,node.id) { mutableStateOf(false) }
     var discard by remember(source,identity,node.id) { mutableStateOf(false) }
+    var editing by remember(source,identity,node.id) { mutableStateOf<String?>(null) }
     val meta=state.meta
     val dirty=initialized && meta!=null && (name!=meta.name || runCatching { generalDraft(name,tags).tags.toSet()!=meta.tags.toSet() }.getOrDefault(true))
     LaunchedEffect(meta,state.phase) {
@@ -62,10 +63,9 @@ import iecxiv.meshfabric.data.model.MeshNode
             if(meta!=null) {
                 val group=groupedDevices.firstOrNull { it.first.id==meta.mesh }?.first?.name
                 if(!group.isNullOrBlank()) Text(text("Grupo: ","Group: ")+group)
-                OutlinedTextField(name,{ name=it;invalid=false },label={ Text(text("Nombre","Name")) },readOnly=!state.canEdit,
-                    singleLine=true,modifier=Modifier.fillMaxWidth().testTag("general_name"))
-                OutlinedTextField(tags,{ tags=it;invalid=false },label={ Text(text("Etiquetas, separadas por comas","Comma-separated tags")) },readOnly=!state.canEdit,
-                    modifier=Modifier.fillMaxWidth().testTag("general_tags"))
+                GeneralValueRow(text("Nombre","Name"),name,state.canEdit,"general_name",text("Editar nombre","Edit name")) {editing="name"}
+                GeneralValueRow(text("Etiquetas","Tags"),tags.ifBlank {text("Sin etiquetas","No tags")},state.canEdit,"general_tags",text("Editar etiquetas","Edit tags")) {editing="tags"}
+                if(dirty) Text(text("Borrador local pendiente de revisar y guardar.","Local draft awaiting review and save."),style=MaterialTheme.typography.bodySmall)
                 if(meta.rights and 4L==0L) Text(text("Solo consulta: sin permiso para administrar dispositivos.","Read-only: no permission to manage devices."))
             }
             DevicePowerSection(node.id)
@@ -83,6 +83,16 @@ import iecxiv.meshfabric.data.model.MeshNode
         },modifier=Modifier.testTag("general_save")) { Text(text("Revisar guardado","Review save")) }
             TextButton(onClick=close) { Text(text("Cerrar","Close")) }
         })
+    editing?.let { field->key(source,identity,node.id,field) {
+        GeneralFieldDialog(
+            label=if(field=="name") text("Nombre","Name") else text("Etiquetas, separadas por comas","Comma-separated tags"),
+            initialValue=if(field=="name") name else tags,
+            multiline=field=="tags",enabled=state.canEdit,es=es,onDismiss={editing=null},
+            onApply={value->
+                if(!state.canEdit) false else runCatching {generalDraft(if(field=="name") value else name,if(field=="tags") value else tags)}
+                    .onSuccess {draft->name=draft.name;tags=draft.tags.joinToString(", ");invalid=false;editing=null}.isSuccess
+            })
+    }}
     review?.let { draft->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ review=null },
         title={ Text(text("Confirmar cambios","Confirm changes"),fontSize=18.sp,fontWeight=FontWeight.Bold) },
         text={ Column { Text(text("Dispositivo: ","Device: ")+node.name);Text(text("Nombre: ","Name: ")+draft.name);Text(text("Etiquetas: ","Tags: ")+draft.tags.joinToString(", ")) } },
