@@ -348,7 +348,7 @@ fun RemoteDesktopScreen(
             )
             val maxContainerHeightPx = constraints.maxHeight.toFloat()
             val maxUpwardOffsetPx = desktopControlsBarLimit(
-                maxContainerHeightPx, controlsBarHeightPx, with(density) { 12.dp.toPx() }
+                maxContainerHeightPx, controlsBarHeightPx, 0f
             )
             val currentOffsetY = if (maxUpwardOffsetPx < 0f) barRelativeY * maxUpwardOffsetPx else 0f
             val bitmap = desktopBitmap
@@ -547,7 +547,7 @@ drawDiagnostics[0]++
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                        .padding(horizontal = 12.dp)
                         .offset { IntOffset(0, currentOffsetY.roundToInt()) }
                         .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
@@ -602,7 +602,7 @@ drawDiagnostics[0]++
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp)
+                        .padding(horizontal = 12.dp)
                         .offset { IntOffset(0, currentOffsetY.roundToInt()) }
                         .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
