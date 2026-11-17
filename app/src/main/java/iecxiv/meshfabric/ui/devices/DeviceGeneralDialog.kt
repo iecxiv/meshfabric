@@ -5,6 +5,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
@@ -16,6 +17,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun DeviceGeneralDialog(node:MeshNode,onDismiss:()->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun text(a:String,b:String)=if(es) a else b
@@ -72,12 +74,15 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(dirty) Text(text("Borrador local pendiente de revisar y guardar.","Local draft awaiting review and save."),style=MaterialTheme.typography.bodySmall)
                 if(meta.rights and 4L==0L) Text(text("Solo consulta: sin permiso para administrar dispositivos.","Read-only: no permission to manage devices."))
             }
-            DeviceGeneralNotesAction(node)
-            DeviceManualEventAction(node)
-            DeviceGeneralRunAction(node)
-            DeviceGeneralMessageAction(node)
-            DeviceGeneralChatAction(node)
-            DeviceGeneralSharesAction(node)
+            FlowRow(Modifier.fillMaxWidth().testTag("general_action_rows"),horizontalArrangement=Arrangement.spacedBy(6.dp,Alignment.CenterHorizontally),verticalArrangement=Arrangement.spacedBy(0.dp)) {
+                DeviceGeneralActionsAction(node)
+                DeviceGeneralNotesAction(node)
+                DeviceManualEventAction(node)
+                DeviceGeneralRunAction(node)
+                DeviceGeneralMessageAction(node)
+                DeviceGeneralChatAction(node)
+                DeviceGeneralSharesAction(node)
+            }
             DevicePowerSection(node.id)
             DeviceAuthorizationSection(node.id,meta?.mesh.orEmpty())
             if(state.phase in setOf("loading","saving")) {
