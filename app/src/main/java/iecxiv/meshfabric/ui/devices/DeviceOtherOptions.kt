@@ -41,6 +41,7 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
 @Composable internal fun DeviceOptionsRow(node:MeshNode) {
     val es=spanish()
     val actions=LocalDeviceOptionActions.current
+    val openConsole=LocalDeviceAgentConsoleOpen.current
     var details by rememberSaveable(node.id) { mutableStateOf(false) }
     var general by rememberSaveable(node.id) { mutableStateOf(false) }
     var events by rememberSaveable(node.id) { mutableStateOf(false) }
@@ -52,7 +53,7 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
             DeviceOptionButton(if(es) "General" else "General",Icons.Default.Dashboard,"general",width,true) { general=true }
             DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,true) { events=true }
             DeviceOptionButton(if(es) "Detalles" else "Details",Icons.Default.Info,"details",width,true) { details=true }
-            DeviceOptionButton(if(es) "Consola" else "Console",Icons.Default.Code,"console",width,actions.console!=null) { actions.console?.invoke(node) }
+            DeviceOptionButton(if(es) "Consola" else "Console",Icons.Default.Code,"console",width,openConsole!=null) { openConsole?.invoke(node) }
             if(software) DeviceOptionButton("Software",Icons.Default.Apps,"software",width,true) { actions.software?.invoke(node) }
         }
     }
