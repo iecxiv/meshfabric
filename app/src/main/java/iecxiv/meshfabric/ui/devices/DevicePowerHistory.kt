@@ -38,7 +38,7 @@ internal fun decodePower(a:JsonArray,now:Long):PowerHistory {
     }
     return PowerHistory(points,now)
 }
-internal fun powerDays(now:Long,zone:ZoneId):List<LocalDate> { val today=Instant.ofEpochMilli(now).atZone(zone).toLocalDate();return (6 downTo 0).map { today.minusDays(it.toLong()) } }
+internal fun powerDays(now:Long,zone:ZoneId):List<LocalDate> { val today=Instant.ofEpochMilli(now).atZone(zone).toLocalDate();return (0..6).map { today.minusDays(it.toLong()) } }
 internal fun powerSpans(h:PowerHistory,start:Long,end:Long):List<PowerSpan> {
     require(end>start)
     val limit=minOf(end,h.sampledAt)
