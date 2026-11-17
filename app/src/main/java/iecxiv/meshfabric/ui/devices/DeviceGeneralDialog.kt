@@ -20,6 +20,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun text(a:String,b:String)=if(es) a else b
     val source=LocalDeviceDetailsClient.current
+    val groupedDevices=source?.groupedDevices?.collectAsState()?.value.orEmpty()
     val scope=rememberCoroutineScope()
     val owner=LocalLifecycleOwner.current
     var retry by remember { mutableIntStateOf(0) }
@@ -63,7 +64,7 @@ import iecxiv.meshfabric.data.model.MeshNode
             Text(if(node.isOnline) text("Conectado","Connected") else text("Desconectado","Disconnected"))
             if(meta==null) Text(text("Nombre: ","Name: ")+node.name)
             if(meta!=null) {
-                val group=source?.groupedDevices?.value?.firstOrNull { it.first.id==meta.mesh }?.first?.name
+                val group=groupedDevices.firstOrNull { it.first.id==meta.mesh }?.first?.name
                 if(!group.isNullOrBlank()) Text(text("Grupo: ","Group: ")+group)
                 OutlinedTextField(name,{ name=it;invalid=false },label={ Text(text("Nombre","Name")) },readOnly=!state.canEdit,
                     singleLine=true,modifier=Modifier.fillMaxWidth().testTag("general_name"))

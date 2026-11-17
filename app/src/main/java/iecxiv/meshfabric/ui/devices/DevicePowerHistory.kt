@@ -31,7 +31,7 @@ internal fun decodePower(a:JsonArray,now:Long):PowerHistory {
     fun millis(v:Double):Long { require(v<=Long.MAX_VALUE.toDouble()/1000);return (v*1000).toLong() }
     var time=millis(first)
     require(time<=now)
-    val points=mutableListOf(PowerPoint(time,state(2)))
+    val points=mutableListOf<PowerPoint>(PowerPoint(time,state(2)))
     for(i in 3 until a.size() step 2) {
         val delta=millis(number(i));require(delta<=now-time);time+=delta
         points.add(PowerPoint(time,state(i+1)))
@@ -66,22 +66,22 @@ internal fun devicePowerTimeline(b:PowerBinding,key:String)=callbackFlow {
         if(!b.matches() || b.cookie.isBlank() || !b.source.connectionState.value) finish(PowerLoad(key,"disconnected"))
         else {
             socket=OkHttpHelper.createClient(b.tls).newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(b.url,"/control.ashx?moreargs=1")).header("Cookie",b.cookie).build(),object:WebSocketListener() {
-                override fun onOpen(ws:WebSocket,response:Response) { synchronized(lock) {
-                    if(!active || !b.matches()) { ws.cancel();return }
+                override fun onOpen(webSocket:WebSocket,response:Response) { synchronized(lock) {
+                    if(!active || !b.matches()) { webSocket.cancel();return }
                     val auth=JsonObject().apply { addProperty("action","urlargs");add("args",JsonObject().apply { addProperty("auth",b.source.extractRawToken(b.cookie)) }) }
-                    if(!ws.send(auth.toString()) || !ws.send("{\"action\":\"userinfo\"}")) finish(PowerLoad(key,"connection"))
+                    if(!webSocket.send(auth.toString()) || !webSocket.send("{\"action\":\"userinfo\"}")) finish(PowerLoad(key,"connection"))
                 } }
-                override fun onMessage(ws:WebSocket,text:String) { synchronized(lock) {
+                override fun onMessage(webSocket:WebSocket,text:String) { synchronized(lock) {
                     if(!active || !b.matches()) { finish(PowerLoad(key,"disconnected"));return }
                     if(text.length>2000000) { finish(PowerLoad(key,"invalid"));return }
                     val p=runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull() ?: return
                     runCatching { when(p.get("action")?.asString) {
-                        "ping"->ws.send("{\"action\":\"pong\"}")
+                        "ping"->webSocket.send("{\"action\":\"pong\"}")
                         "close","stopped"->finish(PowerLoad(key,"denied"))
                         "userinfo"->if(!started && !p.getAsJsonObject("userinfo")?.get("_id")?.asString.isNullOrBlank()) {
                             started=true
                             val request=JsonObject().apply { addProperty("action","powertimeline");addProperty("nodeid",b.node);addProperty("tag",tag) }
-                            if(!ws.send(request.toString())) finish(PowerLoad(key,"connection"))
+                            if(!webSocket.send(request.toString())) finish(PowerLoad(key,"connection"))
                         }
                         "powertimeline"->if(p.get("nodeid")?.asString==b.node && p.get("tag")?.asString==tag) {
                             if(p.has("error") || (p.has("result") && p.get("result").asString!="ok")) finish(PowerLoad(key,"denied"))
@@ -89,9 +89,9 @@ internal fun devicePowerTimeline(b:PowerBinding,key:String)=callbackFlow {
                         }
                     } }.onFailure { finish(PowerLoad(key,"invalid")) }
                 } }
-                override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) { finish(PowerLoad(key,"connection")) }
-                override fun onClosing(ws:WebSocket,code:Int,reason:String) { finish(PowerLoad(key,"connection"));ws.close(code,"") }
-                override fun onClosed(ws:WebSocket,code:Int,reason:String) { finish(PowerLoad(key,"connection")) }
+                override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) { finish(PowerLoad(key,"connection")) }
+                override fun onClosing(webSocket:WebSocket,code:Int,reason:String) { finish(PowerLoad(key,"connection"));webSocket.close(code,"") }
+                override fun onClosed(webSocket:WebSocket,code:Int,reason:String) { finish(PowerLoad(key,"connection")) }
             })
             synchronized(lock) { if(!active) socket?.cancel() }
         }
