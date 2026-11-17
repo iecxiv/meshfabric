@@ -34,7 +34,9 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun DeviceAgentConsoleScreen(source:MeshCentralClient,nodeId:String,nodeName:String,onBack:()->Unit) {
-    val actor=source.userInfo.collectAsState().value?.id.orEmpty()
+    val user=source.userInfo.collectAsState().value
+    val actor=user?.id.orEmpty()
+    val siteadmin=user?.siteadmin ?: 0
     val connected by source.connectionState.collectAsState()
     val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
     val es=LocalConfiguration.current.locales[0].language=="es"
@@ -51,9 +53,13 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
         var history by remember {mutableStateOf(false)}
         var clear by remember {mutableStateOf(false)}
         var leave by remember {mutableStateOf(false)}
+        var actions by remember {mutableStateOf(false)}
+        var review by remember {mutableStateOf<AgentConsoleAction?>(null)}
         var follow by remember {mutableStateOf(true)}
         var copyStatus by remember {mutableStateOf("")}
         val scroll=rememberScrollState()
+        val rights=state.rights
+        fun actionEnabled(a:AgentConsoleAction)=connected && state.phase=="ready" && rights!=null && agentActionAllowed(a,rights,siteadmin)
         DisposableEffect(session,owner) {
             var initialStarted=false
             fun initial() {if(!initialStarted) {initialStarted=true;session.connect()}}
@@ -78,8 +84,10 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
         Scaffold(modifier=Modifier.fillMaxSize().safeDrawingPadding().imePadding(),contentWindowInsets=WindowInsets(0,0,0,0),topBar={TopAppBar(
             title={Column {Text(nodeName,maxLines=1,overflow=TextOverflow.Ellipsis);Text(t("Consola del agente","Agent console"),style=MaterialTheme.typography.labelSmall)}},
             navigationIcon={IconButton(onClick=exit) {Icon(Icons.AutoMirrored.Filled.ArrowBack,t("Volver","Back"))}},actions={Box {
-                IconButton(onClick={menu=true}) {Icon(Icons.Default.MoreVert,t("Herramientas de consola","Console tools"))}
+                IconButton(onClick={menu=true},modifier=Modifier.testTag("agent_console_menu")) {Icon(Icons.Default.MoreVert,t("Herramientas de consola","Console tools"))}
                 DropdownMenu(menu,{menu=false}) {
+                    DropdownMenuItem(text={Text(t("Acciones del agente…","Agent actions…"))},enabled=state.phase=="ready" && connected,onClick={actions=true;menu=false},modifier=Modifier.testTag("agent_console_actions"))
+                    HorizontalDivider()
                     DropdownMenuItem(text={Text(t("Filtrar salida local","Filter local output"))},onClick={searching=!searching;if(!searching) query="";menu=false})
                     DropdownMenuItem(text={Text(t("Copiar salida visible","Copy visible output"))},enabled=visible.isNotEmpty(),onClick={
                         menu=false;copyStatus=if(runCatching {val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: error("Clipboard unavailable");clipboard.setPrimaryClip(ClipData.newPlainText("Agent console",visible))}.isSuccess) t("Salida copiada; puede contener datos sensibles.","Output copied; it may contain sensitive data.") else t("No se pudo copiar.","Copy failed.")
@@ -110,6 +118,16 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
             }
             Text(t("Una línea, máximo 4096 caracteres. No se evalúa HTML/ANSI ni se guardan registros en disco. No introduzcas secretos.","One line, up to 4096 characters. HTML/ANSI is not evaluated and logs are not saved to disk. Do not enter secrets."),style=MaterialTheme.typography.labelSmall)
         }}
+        if(actions) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={actions=false},title={Text(t("Acciones del agente","Agent actions"))},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(2.dp)) {
+            Text(t("Actúan sobre el agente de este equipo, no sobre la salida local. Cada acción se revisa y se envía una sola vez.","These act on this device's agent, not on local output. Each action is reviewed and sent once."),style=MaterialTheme.typography.bodySmall)
+            AgentConsoleAction.values().forEach {action->TextButton(enabled=actionEnabled(action),onClick={review=action;actions=false},modifier=Modifier.testTag("agent_action_"+action.name.lowercase())) {Text(agentActionLabel(action,es))}}
+            Text(t("Las acciones no disponibles requieren permisos que tu cuenta no tiene sobre este equipo. La carga de un archivo de núcleo local no está incluida.","Unavailable actions need permissions your account does not have on this device. Uploading a local core file is not included."),style=MaterialTheme.typography.labelSmall)
+        }},confirmButton={TextButton(onClick={actions=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={actions=false}) {Text(t("Volver","Back"))}})
+        review?.let {action->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={review=null},title={Text(agentActionLabel(action,es))},text={Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            Text(t("Dispositivo: ","Device: ")+nodeName);Text(nodeId,style=MaterialTheme.typography.labelSmall)
+            Text(agentActionDetail(action,es))
+            Text(t("Se reverificará identidad, permisos y agente conectado antes de enviar una sola solicitud. No hay confirmación de finalización ni reenvío automático; una acción ya enviada no se puede cancelar desde aquí.","Identity, permissions and the connected agent are rechecked before one request is sent. Completion is not confirmed and nothing is resent automatically; a sent action cannot be canceled from here."),style=MaterialTheme.typography.bodySmall)
+        }},confirmButton={TextButton(enabled=actionEnabled(action),onClick={if(session.perform(action)) follow=true;review=null},modifier=Modifier.testTag("agent_action_confirm")) {Text(t("Enviar una vez","Send once"))}},dismissButton={TextButton(onClick={review=null}) {Text(t("Cancelar","Cancel"))}})}
         if(clear) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={clear=false},title={Text(t("Limpiar salida local","Clear local output"))},text={Text(t("Solo borra el búfer visible de esta consola. No borra el núcleo ni modifica el agente; el historial de comandos se conserva.","Only clears this console's local output buffer. Does not clear the core or modify the agent; command history is retained."))},confirmButton={TextButton(onClick={session.clearOutput();clear=false}) {Text(t("Limpiar","Clear"))}},dismissButton={TextButton(onClick={clear=false}) {Text(t("Cancelar","Cancel"))}})
         if(leave) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={leave=false},title={Text(t("Cerrar consola","Close console"))},text={Text(t("Se perderán borrador, salida e historial locales. Un comando ya enviado no se cancela ni se revierte.","Local draft, output and history will be lost. An already sent command is not canceled or undone."))},confirmButton={TextButton(onClick={session.disconnect();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={leave=false}) {Text(t("Volver","Back"))}})
     }

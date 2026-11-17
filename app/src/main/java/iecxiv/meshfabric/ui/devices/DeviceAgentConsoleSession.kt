@@ -35,13 +35,13 @@ internal fun agentConsoleBounded(lines:List<AgentConsoleLine>):List<AgentConsole
     while(size>256000 && result.isNotEmpty()) size-=result.removeAt(0).text.length
     return result
 }
-internal data class AgentConsoleState(val phase:String="closed",val code:String="",val lines:List<AgentConsoleLine> = emptyList(),val history:List<String> = emptyList())
+internal data class AgentConsoleState(val phase:String="closed",val code:String="",val lines:List<AgentConsoleLine> = emptyList(),val history:List<String> = emptyList(),val rights:Long?=null)
 internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,private val node:String) {
     val state=MutableStateFlow(AgentConsoleState())
     private val jobs=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val url=source.serverUrl;private val cookie=source.authCookie;private val tls=source.ignoreSsl;private val actor=source.userInfo.value?.id.orEmpty()
     private var socket:WebSocket?=null;private var generation=0L;private var disposed=false;private var revoked=false
-    private var tag="";private var pending:String?=null;private var meta:GeneralMeta?=null;private var timer:Job?=null
+    private var tag="";private var pending:String?=null;private var pendingAction:AgentConsoleAction?=null;private var meta:GeneralMeta?=null;private var timer:Job?=null
     private fun identity()=!source.isUserLogout && actor.isNotBlank() && source.userInfo.value?.id==actor && source.serverUrl==url && source.authCookie==cookie && source.ignoreSsl==tls
     private fun current(ws:WebSocket,g:Long)=!disposed && generation==g && socket===ws
     private fun append(kind:String,text:String) {state.value=state.value.copy(lines=agentConsoleBounded(state.value.lines+AgentConsoleLine(kind,text)))}
@@ -50,9 +50,10 @@ internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,pr
     @Synchronized private fun retire(code:String,clear:Boolean=false) {
         generation++;timer?.cancel();tag="";meta=null
         val old=socket;socket=null;old?.cancel()
-        if(clear) {revoked=true;pending=null;state.value=AgentConsoleState(code=code)} else {
+        if(clear) {revoked=true;pending=null;pendingAction=null;state.value=AgentConsoleState(code=code)} else {
             if(pending!=null) append("not_sent",requireNotNull(pending))
-            pending=null;state.value=state.value.copy(phase="closed",code=code)
+            pendingAction?.let {append("not_sent",it.wire)}
+            pending=null;pendingAction=null;state.value=state.value.copy(phase="closed",code=code,rights=null)
         }
     }
     init {jobs.launch {while(isActive) {delay(500);synchronized(this@DeviceAgentConsoleSession) {
@@ -96,20 +97,35 @@ internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,pr
                 if(!agentConsoleAvailable(node,received,source.groupedDevices.value)) {retire("denied");return}
                 meta=received;tag="";timer?.cancel()
                 val command=pending
+                val action=pendingAction
                 if(command!=null) {
                     val change=agentConsolePacket(node,command,received,source.groupedDevices.value)
                     pending=null;state.value=state.value.copy(history=(state.value.history.filterNot {it==command}+command).takeLast(50))
                     val sent=send(change);append(if(sent) "queued" else "unknown",command)
                     if(!sent) {retire("connection");return}
+                } else if(action!=null) {
+                    val change=runCatching {agentActionPacket(node,action,received,source.groupedDevices.value,source.userInfo.value?.siteadmin ?: 0)}.getOrNull()
+                    pendingAction=null
+                    if(change==null) {append("not_sent",action.wire);retire("changed");return}
+                    val sent=send(change);append(if(sent) "queued" else "unknown",action.wire)
+                    if(!sent) {retire("connection");return}
                 }
-                state.value=state.value.copy(phase="ready",code="")
+                state.value=state.value.copy(phase="ready",code="",rights=received.rights)
             }
             "msg"->if(meta!=null && state.value.phase in setOf("ready","checking_send")) agentConsoleOutput(p,node)?.let {append("output",it)}
         }
     }
     @Synchronized fun submit(command:String):Boolean {
-        if(disposed || revoked || !identity() || !source.connectionState.value || state.value.phase!="ready" || !agentConsoleCommandValid(command) || pending!=null) return false
+        if(disposed || revoked || !identity() || !source.connectionState.value || state.value.phase!="ready" || !agentConsoleCommandValid(command) || pending!=null || pendingAction!=null) return false
         pending=command;state.value=state.value.copy(phase="checking_send")
+        if(!read()) retire("connection")
+        return true
+    }
+    @Synchronized fun perform(action:AgentConsoleAction):Boolean {
+        if(disposed || revoked || !identity() || !source.connectionState.value || state.value.phase!="ready" || pending!=null || pendingAction!=null) return false
+        val known=meta ?: return false
+        if(runCatching {agentActionPacket(node,action,known,source.groupedDevices.value,source.userInfo.value?.siteadmin ?: 0)}.isFailure) return false
+        pendingAction=action;state.value=state.value.copy(phase="checking_send")
         if(!read()) retire("connection")
         return true
     }
