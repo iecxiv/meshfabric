@@ -60,6 +60,14 @@ jobs:
           updated=updated.replace(height,extra+'\n'+height,1)
           assert updated.count('@Test fun ')==4 and height in updated
           assert all(line in updated for line in original.splitlines() if 'assert' in line)
+          density_assert='        assertEquals("Subtitle density must match Details",referenceLayout.layoutInput.density,generalLayout.layoutInput.density)'
+          density_capture='        val referenceLayout=textLayout(compose.onNodeWithText(subtitle,useUnmergedTree=true))'
+          assert updated.count(density_assert)==1 and updated.count(density_capture)==1
+          updated=updated.replace(density_capture,density_capture+'\n        val referenceSubtitleDensity=referenceLayout.layoutInput.density.density\n        val referenceSubtitleFontScale=referenceLayout.layoutInput.density.fontScale',1)
+          density_checks='        assertEquals("Subtitle density must match Details",referenceSubtitleDensity,generalLayout.layoutInput.density.density,0f)\n        assertEquals("Subtitle font scale must match Details",referenceSubtitleFontScale,generalLayout.layoutInput.density.fontScale,0f)'
+          updated=updated.replace(density_assert,density_checks,1)
+          assert density_assert not in updated and updated.count('@Test fun ')==4
+          assert all(line in updated for line in original.splitlines() if 'assert' in line and line!=density_assert)
           test.write_text(updated)
           subprocess.run(['git','add','--',str(test),str(frame)],check=True)
           expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt',str(frame),str(test)}
