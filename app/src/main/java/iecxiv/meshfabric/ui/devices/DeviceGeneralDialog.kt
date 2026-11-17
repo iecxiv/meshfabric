@@ -75,6 +75,7 @@ import iecxiv.meshfabric.data.model.MeshNode
             DeviceGeneralNotesAction(node)
             DeviceManualEventAction(node)
             DeviceGeneralRunAction(node)
+            DeviceGeneralMessageAction(node)
             DevicePowerSection(node.id)
             DeviceAuthorizationSection(node.id,meta?.mesh.orEmpty())
             if(state.phase in setOf("loading","saving")) {
