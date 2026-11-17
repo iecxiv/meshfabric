@@ -58,9 +58,13 @@ fun MeshCentralTheme(
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
     }
+    val effectiveScheme = darkContrastScheme(colorScheme,darkTheme)
 
     MaterialTheme(
-        colorScheme = darkContrastScheme(colorScheme,darkTheme),
-        content = { CompositionLocalProvider(LocalAppDarkTheme provides darkTheme, content = content) }
+        colorScheme = effectiveScheme,
+        content = {
+            AppStatusBarContrast(effectiveScheme.background)
+            CompositionLocalProvider(LocalAppDarkTheme provides darkTheme, content = content)
+        }
     )
 }
