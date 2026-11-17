@@ -72,6 +72,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(dirty) Text(text("Borrador local pendiente de revisar y guardar.","Local draft awaiting review and save."),style=MaterialTheme.typography.bodySmall)
                 if(meta.rights and 4L==0L) Text(text("Solo consulta: sin permiso para administrar dispositivos.","Read-only: no permission to manage devices."))
             }
+            DeviceManualEventAction(node)
             DevicePowerSection(node.id)
             DeviceAuthorizationSection(node.id,meta?.mesh.orEmpty())
             if(state.phase in setOf("loading","saving")) {
