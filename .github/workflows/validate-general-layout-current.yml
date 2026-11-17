@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - name: Verify base and prepare candidate only inside runner
         shell: python
@@ -27,8 +27,8 @@ jobs:
           import subprocess
           base='f8c3db2bdd132f56ce1cfb5914d71d42a89665eb'
           workflow='.github/workflows/validate-general-layout-current.yml'
-          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==base
-          assert subprocess.check_output(['git','diff','--name-only','HEAD^','HEAD'],text=True).splitlines()==[workflow]
+          subprocess.run(['git','merge-base','--is-ancestor',base,'HEAD'],check=True)
+          assert subprocess.check_output(['git','diff','--name-only',base,'HEAD'],text=True).splitlines()==[workflow]
           assert not subprocess.check_output(['git','status','--porcelain'],text=True).strip()
           preparer=Path('tools/ui/general-dialog-layout/apply.py')
           pinned={str(preparer):'903f3bf03a9d3fc60132827561ea64ac0cc0d393','tools/ui/general-dialog-layout/DeviceGeneralFrame.kt':'95e8aaf4c5ff88b018c85e5dea04f53ae9dad12f','tools/ui/general-dialog-layout/DeviceGeneralLayoutUiTest.kt':'a77553fea635e0c514c01814f715d313d8f2593d','app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt':'9e061e560e6b35cb44198155959f66b34ad7cd69'}
@@ -39,16 +39,30 @@ jobs:
           assert code.count(old)==1
           code=code.replace(old,pinned['app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt'],1)
           exec(compile(code,str(preparer),'exec'),{'__name__':'__main__','__file__':str(preparer)})
+          frame=Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralFrame.kt')
+          original_frame=frame.read_text()
+          anchor='                        IconButton(onClick=onClose'
+          assert original_frame.count(anchor)==1
+          frame.write_text(original_frame.replace(anchor,'                        Spacer(Modifier.size(48.dp))\n'+anchor,1))
           test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceGeneralLayoutUiTest.kt')
           original=test.read_text()
           before='import androidx.compose.ui.test.junit4.createComposeRule'
           after='import androidx.compose.ui.test.junit4.v2.createComposeRule'
           assert original.count(before)==1 and after not in original
           updated=original.replace(before,after,1)
-          assert updated.replace(after,before,1)==original and updated.count('@Test fun ')==4
+          assert updated.replace(after,before,1)==original
+          capture='        val titleHeight=compose.onNodeWithText(node.name).fetchSemanticsNode().boundsInRoot.height'
+          assert updated.count(capture)==1
+          updated=updated.replace(capture,capture+'\n        val referenceTitleBounds=compose.onNodeWithText(node.name).fetchSemanticsNode().boundsInRoot\n        val referenceTitleLayout=textLayout(compose.onNodeWithText(node.name))',1)
+          height='        assertEquals(titleHeight,compose.onNodeWithText(node.name).fetchSemanticsNode().boundsInRoot.height,1f)'
+          assert updated.count(height)==1
+          extra='\n'.join(['        val generalTitleBounds=compose.onNodeWithText(node.name).fetchSemanticsNode().boundsInRoot','        val generalTitleLayout=textLayout(compose.onNodeWithText(node.name))','        assertEquals("Title width must match Details",referenceTitleBounds.width,generalTitleBounds.width,1f)','        assertEquals("Title available width must match Details",referenceTitleLayout.layoutInput.constraints.maxWidth,generalTitleLayout.layoutInput.constraints.maxWidth)','        assertEquals("Title line count must match Details",referenceTitleLayout.lineCount,generalTitleLayout.lineCount)','        assertEquals("Title style must match Details",referenceTitleLayout.layoutInput.style,generalTitleLayout.layoutInput.style)','        assertFalse("Details title must not overflow vertically",referenceTitleLayout.didOverflowHeight)','        assertFalse("General title must not overflow vertically",generalTitleLayout.didOverflowHeight)'])
+          updated=updated.replace(height,extra+'\n'+height,1)
+          assert updated.count('@Test fun ')==4 and height in updated
+          assert all(line in updated for line in original.splitlines() if 'assert' in line)
           test.write_text(updated)
-          subprocess.run(['git','add','--',str(test)],check=True)
-          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt','app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralFrame.kt',str(test)}
+          subprocess.run(['git','add','--',str(test),str(frame)],check=True)
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt',str(frame),str(test)}
           assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
           dialog=Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt').read_text()
           assert 'val groupedDevices=source?.groupedDevices?.collectAsState()?.value.orEmpty()' in dialog
@@ -80,6 +94,7 @@ jobs:
               if props.get('Pkg.Revision')=='23.0' and os.access(candidate/'bin/sdkmanager',os.X_OK):tools.append(candidate)
           assert tools,'Verified tools 23.0 missing'
           subprocess.run([str(sorted(tools)[0]/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+          with open(os.environ['GITHUB_PATH'],'a') as out:out.write(str(sorted(tools)[0]/'bin')+'\n')
       - name: Clean build all unit tests instrumentation compilation and lint
         run: |
           set -euo pipefail
@@ -104,6 +119,24 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Summarize failed test methods
+        if: always()
+        shell: python
+        run: |
+          from pathlib import Path
+          import os
+          import xml.etree.ElementTree as ET
+          lines=[]
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              for p in Path(root).rglob('*.xml'):
+                  for c in ET.parse(p).getroot().iter('testcase'):
+                      for tag in ['failure','error']:
+                          e=c.find(tag)
+                          if e is not None:lines.append(c.get('classname','')+'.'+c.get('name','')+'\n'+e.get('message','')+'\n'+(e.text or '')[:6000])
+          Path('validation').mkdir(exist_ok=True)
+          body='\n\n'.join(lines) or 'No failing test XML found; this does not prove validation passed.'
+          Path('validation/test-failures.txt').write_text(body)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:out.write('## Test diagnostics\n\n```text\n'+body[:40000]+'\n```\n')
       - name: Verify all evidence and unchanged candidate
         shell: python
         run: |
