@@ -58,7 +58,7 @@ jobs:
           Mis acciones|My actions
           Errores|Errors
           No hay actividad que coincida con los filtros.|No activity matches the filters.
-          Recibido |Received 
+          Recibido |Received\x20
           Por ${entry.actor}|By ${entry.actor}
           Ver salida|View output
           Ocultar|Hide
