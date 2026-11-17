@@ -20,22 +20,42 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify inputs and merge only inside runner
+      - name: Verify pinned inputs and merge only inside runner
         run: |
           set -euo pipefail
           mkdir -p validation
           BASE=55b84dd7d5e7196de97970609df941dd3dd24b59
           MAIN=ceab88194422550f897cd9dcb0c0098059f694c6
-          test "$(git rev-parse HEAD^)" = "$BASE"
-          test "$(git diff --name-only HEAD^ HEAD)" = '.github/workflows/validate-device-options-main-integration.yml'
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git diff --name-only "$BASE" HEAD)" = '.github/workflows/validate-device-options-main-integration.yml'
           test "$(git rev-parse origin/main)" = "$MAIN"
           test "$(git rev-parse origin/device-other-options)" = "$GITHUB_SHA"
           printf 'workflow=%s\nbase=%s\nmain=%s\n' "$GITHUB_SHA" "$BASE" "$MAIN" > validation/inputs.txt
           git checkout --detach "$BASE"
           git -c user.name=integration-validator -c user.email=validator@example.invalid merge --no-commit --no-ff "$MAIN"
-          git diff --cached --check
-          git write-tree > validation/integration-tree.txt
-          git diff --cached --stat > validation/integration-stat.txt
+          git write-tree > validation/original-integration-tree.txt
+      - name: Preserve exact translation literal without trailing source whitespace
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast,subprocess
+          name='.github/workflows/publish-activity-translations.yml'
+          p=Path(name)
+          assert subprocess.check_output(['git','hash-object',name],text=True).strip()=='041819b33d22f6f97fc1ce20699d5030c3a4afc2'
+          raw=p.read_bytes()
+          before=b'          Recibido |Received \n'
+          after=b'          Recibido |Received'+bytes([92])+b'x20\n'
+          assert raw.count(before)==1 and after not in raw
+          assert ast.literal_eval('"""'+before.decode()+'"""')==ast.literal_eval('"""'+after.decode()+'"""')
+          p.write_bytes(raw.replace(before,after,1))
+          patch=subprocess.check_output(['git','diff','--',name])
+          Path('validation/translation-whitespace-fix.patch').write_bytes(patch)
+          assert subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()==[name]
+          subprocess.run(['git','add','--',name],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          Path('validation/tested-integration-tree.txt').write_bytes(subprocess.check_output(['git','write-tree']))
+          Path('validation/integration-stat.txt').write_bytes(subprocess.check_output(['git','diff','--cached','--stat']))
+          Path('validation/SCOPE.txt').write_text('Tests cover the corrected integration tree, not the original merge tree. The exact historical-workflow correction must be included in the final integration. No application source or General layout candidate was modified.\n')
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -85,7 +105,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
-      - name: Verify test evidence and unchanged integration tree
+      - name: Verify test evidence and unchanged corrected tree
         shell: python
         run: |
           from pathlib import Path
@@ -97,12 +117,12 @@ jobs:
               assert cases,root
               assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
               totals[root]=len(cases)
-          assert subprocess.check_output(['git','write-tree'],text=True).strip()==Path('validation/integration-tree.txt').read_text().strip()
+          assert subprocess.check_output(['git','write-tree'],text=True).strip()==Path('validation/tested-integration-tree.txt').read_text().strip()
           subprocess.run(['git','diff','--exit-code'],check=True)
           subprocess.run(['git','diff','--cached','--check'],check=True)
           Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
-              out.write('Pinned integration passed build, JVM, JavaScript, lint and complete instrumentation. No merge or code publication performed. General layout candidate was not applied. Physical FIDO and device behavior require separate checks.\n')
+              out.write('Corrected integration passed build, JVM, JavaScript, lint and complete instrumentation. The recorded translation-whitespace patch must accompany the final integration. No merge or code publication performed; General layout candidate not applied. Physical checks remain separate.\n')
       - name: Upload reports only
         if: always()
         uses: actions/upload-artifact@v4
