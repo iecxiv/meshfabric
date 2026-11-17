@@ -37,6 +37,9 @@ class MainActivity : ComponentActivity() {
 
     internal var desktopMouseCapture: iecxiv.meshfabric.ui.desktop.DesktopMouseCapture? = null
 
+    internal fun desktopPrimaryMouse(point: iecxiv.meshfabric.ui.desktop.DesktopWheelPoint?, phase: iecxiv.meshfabric.ui.desktop.DesktopPrimaryPhase): Boolean =
+        if (::desktopViewModel.isInitialized) desktopViewModel.desktopPrimaryMouse(point, phase) else false
+
     private fun cancelDesktopPointerGesture(downTime: Long, eventTime: Long) {
         val cancel = android.view.MotionEvent.obtain(downTime, eventTime,
             android.view.MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
