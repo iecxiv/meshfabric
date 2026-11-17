@@ -15,6 +15,20 @@ private fun JsonObject.eventText(key:String,unboundedMessage:Boolean=false):Stri
     if(!(value.isJsonNull || (value.isJsonPrimitive && (value.asJsonPrimitive.isString || (key=="msg" && value.asJsonPrimitive.isNumber))))) eventDecodeFailure(ServerEventsIssueKind.FIELD_TYPE,key,value)
     return if(value.isJsonNull) "" else value.asString.also {if(!(key=="msg" && unboundedMessage) && it.length>4096) eventDecodeFailure(ServerEventsIssueKind.FIELD_LENGTH,key,value,it.length)}
 }
+private fun sameEventNode(id:String,expected:String):Boolean=
+    id==expected || (id.isNotBlank() && !id.contains('/') && id==expected.substringAfterLast('/'))
+private fun scopedEventNode(item:JsonObject,expected:String,envelopeVerified:Boolean):String {
+    val direct=item.eventText("nodeid")
+    val nested=item.get("node")?.takeIf {it.isJsonObject}?.asJsonObject
+    val nestedId=nested?.eventText("_id").orEmpty()
+    if(direct.isNotBlank() && !sameEventNode(direct,expected))
+        eventDecodeFailure(ServerEventsIssueKind.IDENTITY,"nodeid",item.get("nodeid"))
+    if(nestedId.isNotBlank() && !sameEventNode(nestedId,expected))
+        eventDecodeFailure(ServerEventsIssueKind.IDENTITY,"nodeid",nested?.get("_id"))
+    if(direct.isBlank() && nestedId.isBlank() && !envelopeVerified)
+        eventDecodeFailure(ServerEventsIssueKind.IDENTITY,"nodeid",item.get("nodeid"))
+    return expected
+}
 private fun eventTime(item:JsonObject):Long?=runCatching {
     val value=item.get("time") ?: return@runCatching null
     if(!value.isJsonPrimitive) return@runCatching null
@@ -62,22 +76,23 @@ internal class ServerEventsReadGate {
             return true
         }
         val decoded=runCatching {
+            val expected=selected.nodeId
+            val envelopeId=if(expected!=null && packet.has("nodeid")) packet.eventText("nodeid") else ""
+            if(expected!=null && packet.has("nodeid") && !sameEventNode(envelopeId,expected))
+                eventDecodeFailure(ServerEventsIssueKind.IDENTITY,"nodeid",packet.get("nodeid"))
+            val envelopeVerified=expected!=null && sameEventNode(envelopeId,expected)
             val value=packet.get("events")
             if(value==null || !value.isJsonArray || (selected.limit?.let {value.asJsonArray.size()>it}==true)) eventDecodeFailure(ServerEventsIssueKind.HISTORY_SHAPE,"events",value,if(value?.isJsonArray==true) value.asJsonArray.size() else null)
             value.asJsonArray.map {element->
                 if(!element.isJsonObject) eventDecodeFailure(ServerEventsIssueKind.RECORD_SHAPE,value=element)
                 val item=element.asJsonObject
                 val device=serverEventDevice(item)
-                ServerEventRecord(item.eventText("action"),item.eventText("msg",selected.limit==null),item.eventText("username"),item.eventText("nodeid").ifBlank {device.nodeId},item.eventText("nodename").ifBlank {device.name},eventTime(item),serverEventDetails(item),device.meshId,device.group)
+                val nodeId=if(expected==null) item.eventText("nodeid").ifBlank {device.nodeId} else scopedEventNode(item,expected,envelopeVerified)
+                ServerEventRecord(item.eventText("action"),item.eventText("msg",selected.limit==null),item.eventText("username"),nodeId,item.eventText("nodename").ifBlank {device.name},eventTime(item),serverEventDetails(item),device.meshId,device.group)
             }.sortedWith(compareByDescending<ServerEventRecord> {it.time ?: Long.MIN_VALUE})
         }
         val issue=decoded.exceptionOrNull()?.let {(it as? ServerEventsDecodeException)?.issue ?: ServerEventsIssue(ServerEventsIssueKind.INTERNAL)}
-        state=if(issue!=null) ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue) else {
-            val records=decoded.getOrThrow()
-            if(selected.nodeId!=null && records.any {it.nodeId!=selected.nodeId})
-                ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=ServerEventsIssue(ServerEventsIssueKind.IDENTITY))
-            else ServerEventsSnapshot(ServerEventsPhase.READY,records)
-        }
+        state=if(issue!=null) ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue) else ServerEventsSnapshot(ServerEventsPhase.READY,decoded.getOrThrow())
         return true
     }
 }
