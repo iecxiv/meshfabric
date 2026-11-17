@@ -38,7 +38,7 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
     }
 }
 
-@Composable internal fun DeviceOptionsRow(node:MeshNode) {
+@Composable internal fun DeviceOptionsRow(node:MeshNode,buttonHeight:androidx.compose.ui.unit.Dp=28.dp) {
     val es=spanish()
     val actions=LocalDeviceOptionActions.current
     val openConsole=LocalDeviceAgentConsoleOpen.current
@@ -50,10 +50,10 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
         val count=if(software) 5 else 4
         val width=((maxWidth-((count-1)*4).dp)/count).coerceAtLeast(76.dp)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("device_options_row"),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-            DeviceOptionButton(if(es) "General" else "General",Icons.Default.Dashboard,"general",width,true) { general=true }
-            DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,true) { events=true }
-            DeviceOptionButton(if(es) "Detalles" else "Details",Icons.Default.Info,"details",width,true) { details=true }
-            DeviceOptionButton(if(es) "Consola" else "Console",Icons.Default.Code,"console",width,openConsole!=null) { openConsole?.invoke(node) }
+            DeviceOptionButton(if(es) "General" else "General",Icons.Default.Dashboard,"general",width,true,buttonHeight) { general=true }
+            DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,true,buttonHeight) { events=true }
+            DeviceOptionButton(if(es) "Detalles" else "Details",Icons.Default.Info,"details",width,true,buttonHeight) { details=true }
+            DeviceOptionButton(if(es) "Consola" else "Console",Icons.Default.Code,"console",width,openConsole!=null,buttonHeight) { openConsole?.invoke(node) }
             if(software) DeviceOptionButton("Software",Icons.Default.Apps,"software",width,true) { actions.software?.invoke(node) }
         }
     }
@@ -62,16 +62,17 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
     if(events) DeviceEventsDialog(node) { events=false }
 }
 
-@Composable private fun DeviceOptionButton(label:String,icon:ImageVector,key:String,width:androidx.compose.ui.unit.Dp,enabled:Boolean,onClick:()->Unit) {
+@Composable private fun DeviceOptionButton(label:String,icon:ImageVector,key:String,width:androidx.compose.ui.unit.Dp,enabled:Boolean,height:androidx.compose.ui.unit.Dp=28.dp,onClick:()->Unit) {
     val contentColor=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onSurface
     val compact=key in setOf("general","events","details","console")
-    val buttonModifier=Modifier.width(width).then(if(compact) Modifier.heightIn(min=28.dp) else Modifier).testTag("device_option_$key")
+    val buttonModifier=Modifier.width(width).then(if(compact) Modifier.height(height) else Modifier).testTag("device_option_$key")
     OutlinedButton(onClick=onClick,enabled=enabled,modifier=buttonModifier,
         border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
         colors=ButtonDefaults.outlinedButtonColors(contentColor=contentColor,disabledContentColor=contentColor.copy(alpha=0.38f)),
-        contentPadding=PaddingValues(horizontal=2.dp,vertical=if(compact) 2.dp else 4.dp)) {
+        contentPadding=PaddingValues(horizontal=2.dp,vertical=if(compact) 0.dp else 4.dp)) {
         Icon(icon,null,Modifier.size(14.dp))
         Spacer(Modifier.width(2.dp))
-        Text(label,fontSize=10.sp,maxLines=1,softWrap=false)
+        if(compact) Text(label,fontSize=10.sp,lineHeight=12.sp,maxLines=1,softWrap=false)
+        else Text(label,fontSize=10.sp,maxLines=1,softWrap=false)
     }
 }

@@ -20,6 +20,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -180,6 +183,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
     fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit,showNetworkInfo:Boolean=true) {
     val os=node.osDisplayName.ifEmpty { stringResource(R.string.device_os_unknown) }
     var otherExpanded by androidx.compose.runtime.saveable.rememberSaveable(node.id) { mutableStateOf(false) }
+    var statusBadgeHeight by remember(node.id) { mutableStateOf(0.dp) }
+    val statusBadgeDensity=LocalDensity.current
     Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
         border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
         colors= iecxiv.meshfabric.ui.theme.appCardColors(
@@ -203,7 +208,7 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                         Text(node.name.ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f,fill=false),
                             style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else LocalContentColor.current)
                         Spacer(Modifier.width(8.dp))
-                        Surface(shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
+                        Surface(modifier=Modifier.onSizeChanged { statusBadgeHeight=with(statusBadgeDensity) { it.height.toDp() } }.testTag("device_connection_badge_${node.id}"),shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
                             Text(if(node.isOnline) "ONLINE" else "OFFLINE",Modifier.padding(horizontal=6.dp,vertical=2.dp),color=Color.White,fontSize=9.sp,fontWeight=FontWeight.Bold)
                         }
                         DeviceDetailsButton(node)
@@ -223,9 +228,9 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                     }
                 }
             }
-            AnimatedVisibility(otherExpanded) { DeviceOptionsRow(node) }
+            AnimatedVisibility(otherExpanded) { DeviceOptionsRow(node,if(statusBadgeHeight>0.dp) statusBadgeHeight else 28.dp) }
             if(node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE }) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(if(otherExpanded) 4.dp else 8.dp))
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                     if(node.supportsDesktop || desktopStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.desktop),Icons.Default.DesktopWindows,desktopStatus,onOpenDesktop,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
                     if(node.supportsTerminal || terminalStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.terminal),Icons.Default.Terminal,terminalStatus,onOpenTerminal,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
