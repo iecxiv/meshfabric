@@ -42,7 +42,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.layout.layout
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -55,7 +55,6 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -141,7 +140,7 @@ fun RemoteDesktopScreen(
     }
     var isFullScreen by rememberSaveable { mutableStateOf(false) }
     var barRelativeY by rememberSaveable { mutableFloatStateOf(0f) }
-    var controlsBarHeightPx by remember(isControlsBarCollapsed) { mutableIntStateOf(0) }
+    var controlsBarHeightPx by remember { mutableIntStateOf(0) }
 
     var isSoftKeyboardOpen by remember { mutableStateOf(false) }
     var softKeyboardTextFieldValue by remember { mutableStateOf(TextFieldValue("")) }
@@ -350,7 +349,6 @@ fun RemoteDesktopScreen(
             val maxUpwardOffsetPx = desktopControlsBarLimit(
                 maxContainerHeightPx, controlsBarHeightPx, 0f
             )
-            val currentOffsetY = if (maxUpwardOffsetPx < 0f) barRelativeY * maxUpwardOffsetPx else 0f
             val bitmap = desktopBitmap
             if (bitmap != null) {
                 BoxWithConstraints(
@@ -548,7 +546,17 @@ drawDiagnostics[0]++
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(horizontal = 12.dp)
-                        .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .layout { measurable, barConstraints ->
+                            val placeable = measurable.measure(barConstraints)
+                            val limit = desktopControlsBarLimit(
+                                maxContainerHeightPx, placeable.height, 0f
+                            )
+                            layout(placeable.width, placeable.height) {
+                                placeable.placeRelative(
+                                    0, (barRelativeY.coerceIn(0f, 1f) * limit).roundToInt()
+                                )
+                            }
+                        }
                         .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
@@ -603,7 +611,17 @@ drawDiagnostics[0]++
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
-                        .offset { IntOffset(0, currentOffsetY.roundToInt()) }
+                        .layout { measurable, barConstraints ->
+                            val placeable = measurable.measure(barConstraints)
+                            val limit = desktopControlsBarLimit(
+                                maxContainerHeightPx, placeable.height, 0f
+                            )
+                            layout(placeable.width, placeable.height) {
+                                placeable.placeRelative(
+                                    0, (barRelativeY.coerceIn(0f, 1f) * limit).roundToInt()
+                                )
+                            }
+                        }
                         .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
@@ -1114,7 +1132,7 @@ androidx.compose.ui.unit.Dp(0f)
 
                             // Encoding
                             Text(stringResource(R.string.encoding), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Spacer(modifier = Modifier.height(4.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
