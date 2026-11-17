@@ -8,7 +8,7 @@ internal enum class ServerEventsPhase { IDLE, LOADING, READY, DENIED, ERROR, INV
 internal data class ServerEventsSnapshot(val phase:ServerEventsPhase=ServerEventsPhase.IDLE,val records:List<ServerEventRecord> = emptyList(),val issue:ServerEventsIssue?=null,val selection:ServerEventsQuery?=null,val lifecyclePause:Boolean=false)
 internal fun serverEventsRequest(tag:String,selection:ServerEventsQuery=legacyServerEventsQuery):JsonObject {
     require(tag.isNotBlank() && tag.length<=128)
-    return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);if(selection.limit!=null) addProperty("limit",selection.limit);if(selection.type!=ServerEventType.ALL) addProperty("filter",selection.type.wire)}
+    return JsonObject().apply {addProperty("action","events");addProperty("tag",tag);if(selection.limit!=null) addProperty("limit",selection.limit);if(selection.type!=ServerEventType.ALL) addProperty("filter",selection.type.wire);if(selection.nodeId!=null) addProperty("nodeid",selection.nodeId)}
 }
 private fun JsonObject.eventText(key:String,unboundedMessage:Boolean=false):String {
     val value=get(key) ?: return ""
@@ -72,7 +72,12 @@ internal class ServerEventsReadGate {
             }.sortedWith(compareByDescending<ServerEventRecord> {it.time ?: Long.MIN_VALUE})
         }
         val issue=decoded.exceptionOrNull()?.let {(it as? ServerEventsDecodeException)?.issue ?: ServerEventsIssue(ServerEventsIssueKind.INTERNAL)}
-        state=if(issue!=null) ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue) else ServerEventsSnapshot(ServerEventsPhase.READY,decoded.getOrThrow())
+        state=if(issue!=null) ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=issue) else {
+            val records=decoded.getOrThrow()
+            if(selected.nodeId!=null && records.any {it.nodeId!=selected.nodeId})
+                ServerEventsSnapshot(ServerEventsPhase.INVALID,issue=ServerEventsIssue(ServerEventsIssueKind.IDENTITY))
+            else ServerEventsSnapshot(ServerEventsPhase.READY,records)
+        }
         return true
     }
 }

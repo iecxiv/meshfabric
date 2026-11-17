@@ -43,13 +43,14 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
     val actions=LocalDeviceOptionActions.current
     var details by rememberSaveable(node.id) { mutableStateOf(false) }
     var general by rememberSaveable(node.id) { mutableStateOf(false) }
+    var events by rememberSaveable(node.id) { mutableStateOf(false) }
     val software=actions.software!=null && actions.softwareAllowed(node)
     BoxWithConstraints(Modifier.fillMaxWidth().padding(top=8.dp)) {
         val count=if(software) 5 else 4
         val width=((maxWidth-((count-1)*4).dp)/count).coerceAtLeast(76.dp)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("device_options_row"),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
             DeviceOptionButton(if(es) "General" else "General",Icons.Default.Dashboard,"general",width,true) { general=true }
-            DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,actions.events!=null) { actions.events?.invoke(node) }
+            DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,true) { events=true }
             DeviceOptionButton(if(es) "Detalles" else "Details",Icons.Default.Info,"details",width,true) { details=true }
             DeviceOptionButton(if(es) "Consola" else "Console",Icons.Default.Code,"console",width,actions.console!=null) { actions.console?.invoke(node) }
             if(software) DeviceOptionButton("Software",Icons.Default.Apps,"software",width,true) { actions.software?.invoke(node) }
@@ -57,6 +58,7 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
     }
     if(details) DeviceDetailsDialog(node) { details=false }
     if(general) DeviceGeneralDialog(node) { general=false }
+    if(events) DeviceEventsDialog(node) { events=false }
 }
 
 @Composable private fun DeviceOptionButton(label:String,icon:ImageVector,key:String,width:androidx.compose.ui.unit.Dp,enabled:Boolean,onClick:()->Unit) {

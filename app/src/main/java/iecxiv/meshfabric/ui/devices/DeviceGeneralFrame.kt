@@ -25,7 +25,10 @@ import iecxiv.meshfabric.data.model.MeshNode
     node:MeshNode,
     onClose:()->Unit,
     body:@Composable ColumnScope.()->Unit,
-    footer:@Composable RowScope.()->Unit
+    footer:@Composable RowScope.()->Unit,
+    subtitle:String="General",
+    tagPrefix:String="device_general",
+    scrollBody:Boolean=true
 ) {
     val configuration=LocalConfiguration.current
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false)) {
@@ -35,7 +38,7 @@ import iecxiv.meshfabric.data.model.MeshNode
             tonalElevation=iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
             modifier=Modifier.padding(horizontal=16.dp,vertical=24.dp)
                 .widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp)
-                .testTag("device_general_surface")
+                .testTag("${tagPrefix}_surface")
         ) {
             Column {
                 Column(Modifier.padding(start=20.dp,end=12.dp,top=12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
@@ -43,10 +46,10 @@ import iecxiv.meshfabric.data.model.MeshNode
                         Icon(Icons.Default.Computer,null,Modifier.size(22.dp),tint=MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
                             Text(node.name.ifBlank { stringResource(R.string.unknown_device) },style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
-                            Text("General",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.testTag("device_general_subtitle"))
+                            Text(subtitle,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.testTag("${tagPrefix}_subtitle"))
                         }
                         Spacer(Modifier.size(48.dp))
-                        IconButton(onClick=onClose,modifier=Modifier.testTag("device_general_close")) {
+                        IconButton(onClick=onClose,modifier=Modifier.testTag("${tagPrefix}_close")) {
                             Icon(Icons.Default.Close,stringResource(R.string.device_details_close))
                         }
                     }
@@ -59,8 +62,10 @@ import iecxiv.meshfabric.data.model.MeshNode
                     }
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-                Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp),
-                    verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
+                val bodyModifier=if(scrollBody) {
+                    Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)
+                } else Modifier.weight(1f).fillMaxWidth()
+                Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,
                     verticalAlignment=Alignment.CenterVertically,content=footer)
