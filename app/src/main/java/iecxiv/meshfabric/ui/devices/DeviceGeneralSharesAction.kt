@@ -14,7 +14,7 @@ import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
 
-private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || value==0L) {if(es) "No informado" else "Not reported"} else DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT,if(es) Locale("es") else Locale.ENGLISH).format(Date(value))
+private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || value==0L) {if(es) "No informado" else "Not reported"} else DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT,if(es) Locale.forLanguageTag("es") else Locale.ENGLISH).format(Date(value))
 @Composable internal fun DeviceGeneralSharesAction(node:MeshNode) {
     val source=LocalDeviceDetailsClient.current
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()

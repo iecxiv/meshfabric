@@ -41,20 +41,20 @@ internal class DeviceManualEventEditor(private val source:MeshCentralClient?,pri
         deadline()
         jobs.launch {while(isActive) {delay(500);synchronized(this@DeviceManualEventEditor) {if(active && !same()) {fail("disconnected");socket?.cancel()}}}}
         try {socket=OkHttpHelper.createClient(tls).newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1")).header("Cookie",cookie).build(),object:WebSocketListener() {
-            override fun onOpen(ws:WebSocket,response:Response) {synchronized(this@DeviceManualEventEditor) {
-                if(!active || !same()) {ws.cancel();return}
+            override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@DeviceManualEventEditor) {
+                if(!active || !same()) {webSocket.cancel();return}
                 val auth=packet("urlargs").apply {add("args",JsonObject().apply {addProperty("auth",source!!.extractRawToken(cookie))})}
-                if(!ws.send(auth.toString()) || !ws.send(packet("userinfo").toString())) fail("connection")
+                if(!webSocket.send(auth.toString()) || !webSocket.send(packet("userinfo").toString())) fail("connection")
             }}
-            override fun onMessage(ws:WebSocket,text:String) {synchronized(this@DeviceManualEventEditor) {
+            override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@DeviceManualEventEditor) {
                 if(!active) return
                 if(!same()) {fail("disconnected");return}
                 if(text.length>2_000_000) {fail("invalid");return}
                 runCatching {receive(JsonParser.parseString(text).asJsonObject)}.onFailure {fail("invalid")}
             }}
-            override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceManualEventEditor) {if(active) fail("connection")}}
-            override fun onClosing(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceManualEventEditor) {if(active) fail("connection");ws.close(code,"")}}
-            override fun onClosed(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceManualEventEditor) {if(active) fail("connection")}}
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceManualEventEditor) {if(active) fail("connection")}}
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceManualEventEditor) {if(active) fail("connection");webSocket.close(code,"")}}
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceManualEventEditor) {if(active) fail("connection")}}
         })} catch(_:Exception) {fail("connection")}
     }
     private fun receive(p:JsonObject) {
@@ -69,7 +69,7 @@ internal class DeviceManualEventEditor(private val source:MeshCentralClient?,pri
                 val meta=generalMeta(p,node,tag) ?: run {fail("unverified");return}
                 if(meta.rights and 4L==0L) {fail("denied");return}
                 val message=target
-                timer?.cancel();tag=""
+                timer?.cancel();tag="";
                 if(message==null) {state.value=ManualEventState("ready",rights=meta.rights);return}
                 val change=manualEventPacket(node,message,meta.rights)
                 target=null;attempted=true
