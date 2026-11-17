@@ -45,19 +45,19 @@ internal class DeviceGeneralChatSession(private val source:MeshCentralClient?,pr
         }}}
         try {control=OkHttpHelper.createClient(tls).newBuilder().followRedirects(false).followSslRedirects(false).build().newWebSocket(
             Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1")).header("Cookie",cookie).build(),object:WebSocketListener() {
-            override fun onOpen(ws:WebSocket,response:Response) {synchronized(this@DeviceGeneralChatSession) {
-                if(!active || !same()) {ws.cancel();return}
+            override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@DeviceGeneralChatSession) {
+                if(!active || !same()) {webSocket.cancel();return}
                 val auth=packet("urlargs").apply {add("args",JsonObject().apply {addProperty("auth",source!!.extractRawToken(cookie))})}
-                if(!ws.send(auth.toString()) || !ws.send(packet("userinfo").toString())) stop("connection")
+                if(!webSocket.send(auth.toString()) || !webSocket.send(packet("userinfo").toString())) stop("connection")
             }}
-            override fun onMessage(ws:WebSocket,text:String) {synchronized(this@DeviceGeneralChatSession) {
+            override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@DeviceGeneralChatSession) {
                 if(!active) return
                 if(!same() || text.length>2_000_000) {stop("connection");return}
                 runCatching {receiveControl(JsonParser.parseString(text).asJsonObject)}.onFailure {stop("invalid")}
             }}
-            override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
-            override fun onClosing(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
-            override fun onClosed(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
         })} catch(_:Exception) {stop("connection")}
     }
     private fun receiveControl(p:JsonObject) {
@@ -101,18 +101,18 @@ internal class DeviceGeneralChatSession(private val source:MeshCentralClient?,pr
         state.value=state.value.copy(phase="connecting");deadline(20_000,"timeout")
         try {relay=OkHttpHelper.createClient(tls).newBuilder().followRedirects(false).followSslRedirects(false).build().newWebSocket(
             Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,generalChatRelayPath(node,actor,token))).header("Cookie",cookie).build(),object:WebSocketListener() {
-            override fun onOpen(ws:WebSocket,response:Response) {synchronized(this@DeviceGeneralChatSession) {
+            override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@DeviceGeneralChatSession) {
                 val meta=state.value.meta
-                if(!active || !same() || meta==null || !available(meta) || invited) {ws.cancel();stop("unavailable");return}
+                if(!active || !same() || meta==null || !available(meta) || invited) {webSocket.cancel();stop("unavailable");return}
                 invited=true
                 if(control?.send(packet("meshmessenger").apply {addProperty("nodeid",node)}.toString())!=true) {stop("invitation_unknown");return}
                 state.value=state.value.copy(phase="waiting");deadline(120_000,"waiting_timeout")
             }}
-            override fun onMessage(ws:WebSocket,text:String) {synchronized(this@DeviceGeneralChatSession) {receiveRelay(text)}}
-            override fun onMessage(ws:WebSocket,bytes:ByteString) {synchronized(this@DeviceGeneralChatSession) {if(bytes.size<=32768) receiveRelay(bytes.utf8()) else stop("invalid")}}
-            override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
-            override fun onClosing(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
-            override fun onClosed(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
+            override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@DeviceGeneralChatSession) {receiveRelay(text)}}
+            override fun onMessage(webSocket:WebSocket,bytes:ByteString) {synchronized(this@DeviceGeneralChatSession) {if(bytes.size<=32768) receiveRelay(bytes.utf8()) else stop("invalid")}}
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralChatSession) {stop("connection")}}
         })} catch(_:Exception) {stop("connection")}
     }
     private fun receiveRelay(text:String) {

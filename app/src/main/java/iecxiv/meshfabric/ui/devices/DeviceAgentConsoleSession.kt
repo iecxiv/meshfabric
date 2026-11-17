@@ -67,20 +67,20 @@ internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,pr
         if(!identity() || cookie.isBlank() || !source.connectionState.value || a.size!=3 || a[0]!="user" || a[2].isBlank() || n.size!=3 || n[0]!="node" || n[2].isBlank() || a[1]!=n[1]) {retire("unavailable");return}
         state.value=state.value.copy(phase="connecting",code="");deadline();val g=++generation
         try {socket=OkHttpHelper.createClient(tls).newBuilder().followRedirects(false).followSslRedirects(false).build().newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1")).header("Cookie",cookie).build(),object:WebSocketListener() {
-            override fun onOpen(ws:WebSocket,response:Response) {synchronized(this@DeviceAgentConsoleSession) {
-                if(!current(ws,g) || !identity()) {ws.cancel();return}
+            override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@DeviceAgentConsoleSession) {
+                if(!current(webSocket,g) || !identity()) {webSocket.cancel();return}
                 val auth=packet("urlargs").apply {add("args",JsonObject().apply {addProperty("auth",source.extractRawToken(cookie))})}
-                if(!ws.send(auth.toString()) || !ws.send(packet("userinfo").toString())) retire("connection")
+                if(!webSocket.send(auth.toString()) || !webSocket.send(packet("userinfo").toString())) retire("connection")
             }}
-            override fun onMessage(ws:WebSocket,text:String) {synchronized(this@DeviceAgentConsoleSession) {
-                if(!current(ws,g)) return
+            override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@DeviceAgentConsoleSession) {
+                if(!current(webSocket,g)) return
                 if(!identity()) {retire("identity",true);return}
                 if(text.length>2_000_000) {retire("invalid");return}
                 runCatching {receive(JsonParser.parseString(text).asJsonObject)}.onFailure {retire("invalid")}
             }}
-            override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceAgentConsoleSession) {if(current(ws,g)) retire("connection")}}
-            override fun onClosing(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceAgentConsoleSession) {if(current(ws,g)) retire("connection")}}
-            override fun onClosed(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceAgentConsoleSession) {if(current(ws,g)) retire("connection")}}
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceAgentConsoleSession) {if(current(webSocket,g)) retire("connection")}}
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceAgentConsoleSession) {if(current(webSocket,g)) retire("connection")}}
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceAgentConsoleSession) {if(current(webSocket,g)) retire("connection")}}
         })} catch(_:Exception) {retire("connection")}
     }
     private fun receive(p:JsonObject) {

@@ -58,19 +58,19 @@ internal class DeviceGeneralActionsEditor(private val source:MeshCentralClient?,
         if(!same() || cookie.isBlank() || a.size!=3 || a[0]!="user" || a[2].isBlank() || n.size!=3 || n[0]!="node" || n[2].isBlank() || a[1]!=n[1]) {fail("identity");return}
         deadline();jobs.launch {while(isActive) {delay(500);synchronized(this@DeviceGeneralActionsEditor) {if(active && !same()) fail("identity")}}}
         try {socket=OkHttpHelper.createClient(tls).newBuilder().followRedirects(false).followSslRedirects(false).build().newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1")).header("Cookie",cookie).build(),object:WebSocketListener() {
-            override fun onOpen(ws:WebSocket,response:Response) {synchronized(this@DeviceGeneralActionsEditor) {
-                if(!active || !same()) {ws.cancel();return}
+            override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@DeviceGeneralActionsEditor) {
+                if(!active || !same()) {webSocket.cancel();return}
                 val auth=packet("urlargs").apply {add("args",JsonObject().apply {addProperty("auth",source!!.extractRawToken(cookie))})}
-                if(!ws.send(auth.toString()) || !ws.send(packet("userinfo").toString())) fail("connection")
+                if(!webSocket.send(auth.toString()) || !webSocket.send(packet("userinfo").toString())) fail("connection")
             }}
-            override fun onMessage(ws:WebSocket,text:String) {synchronized(this@DeviceGeneralActionsEditor) {
+            override fun onMessage(webSocket:WebSocket,text:String) {synchronized(this@DeviceGeneralActionsEditor) {
                 if(!active) return
                 if(!same() || text.length>2_000_000) {fail("connection");return}
                 runCatching {receive(JsonParser.parseString(text).asJsonObject)}.onFailure {fail("invalid")}
             }}
-            override fun onFailure(ws:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceGeneralActionsEditor) {fail("connection")}}
-            override fun onClosing(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralActionsEditor) {fail("connection")}}
-            override fun onClosed(ws:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralActionsEditor) {fail("connection")}}
+            override fun onFailure(webSocket:WebSocket,t:Throwable,response:Response?) {synchronized(this@DeviceGeneralActionsEditor) {fail("connection")}}
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralActionsEditor) {fail("connection")}}
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String) {synchronized(this@DeviceGeneralActionsEditor) {fail("connection")}}
         })} catch(_:Exception) {fail("connection")}
     }
     private fun receive(p:JsonObject) {
