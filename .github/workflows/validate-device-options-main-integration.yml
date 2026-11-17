@@ -24,7 +24,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p validation
-          BASE=55b84dd7d5e7196de97970609df941dd3dd24b59
+          BASE=d1c6fd9e72ed3d3a2bdc441432941080a01bf377
           MAIN=ceab88194422550f897cd9dcb0c0098059f694c6
           git merge-base --is-ancestor "$BASE" HEAD
           test "$(git diff --name-only "$BASE" HEAD)" = '.github/workflows/validate-device-options-main-integration.yml'
