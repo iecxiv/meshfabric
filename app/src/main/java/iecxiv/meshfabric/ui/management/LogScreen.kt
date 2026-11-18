@@ -61,7 +61,7 @@ import java.util.Date
         ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
     }
 }
-@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory(),scopeLabel:String?=null) {
+@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory(),scopeLabel:String?=null,showDeviceLabel:Boolean=true) {
     var detail by remember(selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}
     LaunchedEffect(state,enabled,selection,inventory) {
         detail=detail?.takeIf {opened->
@@ -111,7 +111,7 @@ androidx.compose.material3.CardDefaults.cardColors()
                     ServerEventIcon(row.action)
                     Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                     Text(row.message.ifBlank {stringResource(R.string.log_event)},style=MaterialTheme.typography.bodyMedium)
-                    if(row.deviceLabel().isNotBlank()) Text(row.deviceLabel(),Modifier.testTag("log-event-device-$index"),style=MaterialTheme.typography.labelMedium)
+                    if(showDeviceLabel && row.deviceLabel().isNotBlank()) Text(row.deviceLabel(),Modifier.testTag("log-event-device-$index"),style=MaterialTheme.typography.labelMedium)
                     if(row.actor.isNotBlank()) Text(row.actor,style=MaterialTheme.typography.labelSmall)
                     Text(row.time?.let {DateFormat.getDateTimeInstance().format(Date(it))} ?: stringResource(R.string.log_time_unknown),style=MaterialTheme.typography.labelSmall)
                 }}}

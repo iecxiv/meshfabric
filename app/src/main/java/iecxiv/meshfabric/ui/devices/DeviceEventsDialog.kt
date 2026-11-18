@@ -50,7 +50,8 @@ import kotlinx.coroutines.awaitCancellation
                 OutlinedTextField(query,{query=it},singleLine=true,label={Text(text("Buscar eventos","Search events"))},modifier=Modifier.fillMaxWidth().testTag("device_events_search"))
                 ServerEventsPanel(visible,query,{query=it},enabled,{reader.load(selection)},Modifier.weight(1f).fillMaxWidth(),
                     selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory,
-                    scopeLabel=text("Eventos de este dispositivo: ","Events for this device: ")+node.name)
+                    scopeLabel=text("Eventos de este dispositivo: ","Events for this device: ")+node.name,
+                    showDeviceLabel=false)
             },
             footer={
                 TextButton(onClick={reader.load(selection)},enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("device_events_refresh")) {Text(text("Actualizar","Refresh"))}
