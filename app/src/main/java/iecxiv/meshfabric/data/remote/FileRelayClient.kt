@@ -2409,7 +2409,7 @@ class FileSession(
                 }
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesPaste", "FileRelayClient.kt:2410 Error al solicitar copiar/mover", e)
-                _statusMessage.value = fileText(R.string.files_transport_paste_failed, e.localizedMessage.toString())
+                _statusMessage.value = fileText(R.string.files_transport_paste_failed, (e.localizedMessage ?: e.javaClass.simpleName))
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != source.path }
             }
         }
@@ -2593,7 +2593,7 @@ class FileSession(
                 webSocket?.send(readReq.toString())
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:2594 WS copy fetch error:", e)
-                _statusMessage.value = fileText(R.string.files_transport_copy_failed, e.localizedMessage.toString())
+                _statusMessage.value = fileText(R.string.files_transport_copy_failed, (e.localizedMessage ?: e.javaClass.simpleName))
                 activeCopyMoveSessions.remove(destPath)
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
                 tempFile?.delete()
@@ -2909,7 +2909,7 @@ class FileSession(
                 }
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDelete", "FileRelayClient.kt:2920 No se pudo solicitar el borrado de", e)
-                _statusMessage.value = fileText(R.string.files_transport_delete_failed, e.localizedMessage.toString())
+                _statusMessage.value = fileText(R.string.files_transport_delete_failed, (e.localizedMessage ?: e.javaClass.simpleName))
             }
         }
     }
@@ -3009,7 +3009,7 @@ class FileSession(
                 }
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRename", "FileRelayClient.kt:3020 Error al renombrar", e)
-                _statusMessage.value = fileText(R.string.files_transport_rename_failed, e.localizedMessage.toString())
+                _statusMessage.value = fileText(R.string.files_transport_rename_failed, (e.localizedMessage ?: e.javaClass.simpleName))
             }
         }
     }
