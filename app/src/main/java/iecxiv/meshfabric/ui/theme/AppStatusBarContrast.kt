@@ -10,8 +10,10 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.core.view.OneShotPreDrawListener
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -32,19 +34,33 @@ private fun Context.statusBarActivity():Activity? {
     val view=LocalView.current
     val activity=LocalContext.current.statusBarActivity()
     val owner=LocalLifecycleOwner.current
+    val configuration=LocalConfiguration.current
     val darkIcons=rememberUpdatedState(statusBarUsesDarkIcons(background.luminance()))
     if(view.isInEditMode || activity==null) return
     val window=activity.window
     SideEffect {WindowCompat.getInsetsController(window,view).isAppearanceLightStatusBars=darkIcons.value}
-    DisposableEffect(window,view,owner) {
+    DisposableEffect(window,view,owner,configuration.orientation,configuration.screenWidthDp,configuration.screenHeightDp,configuration.uiMode,configuration.densityDpi) {
         fun applyContrast() {WindowCompat.getInsetsController(window,view).isAppearanceLightStatusBars=darkIcons.value}
-        val lifecycleObserver=LifecycleEventObserver {_,event->if(event==Lifecycle.Event.ON_RESUME) applyContrast()}
-        val focusObserver=ViewTreeObserver.OnWindowFocusChangeListener {focused->if(focused) applyContrast()}
+        var pendingPreDraw:OneShotPreDrawListener?=null
+        fun refreshContrast() {
+            applyContrast()
+            pendingPreDraw?.removeListener()
+            // Reapply after the configuration layout, before the next frame is drawn.
+            pendingPreDraw=OneShotPreDrawListener.add(view) {
+                pendingPreDraw=null
+                applyContrast()
+            }
+            view.invalidate()
+        }
+        val lifecycleObserver=LifecycleEventObserver {_,event->if(event==Lifecycle.Event.ON_RESUME) refreshContrast()}
+        val focusObserver=ViewTreeObserver.OnWindowFocusChangeListener {focused->if(focused) refreshContrast()}
         owner.lifecycle.addObserver(lifecycleObserver)
         val tree=view.viewTreeObserver
         tree.addOnWindowFocusChangeListener(focusObserver)
-        applyContrast()
+        refreshContrast()
         onDispose {
+            pendingPreDraw?.removeListener()
+            pendingPreDraw=null
             owner.lifecycle.removeObserver(lifecycleObserver)
             if(tree.isAlive) tree.removeOnWindowFocusChangeListener(focusObserver)
         }
