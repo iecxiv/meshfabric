@@ -126,7 +126,10 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                 },style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f).testTag("agent_console_status"))
                 if(state.phase=="closed") TextButton(enabled=connected,onClick={session.connect()},modifier=Modifier.testTag("agent_console_reconnect")) {Text(t("Reconectar","Reconnect"))}
             }
-            if(state.phase=="closed" && state.code.isNotBlank()) Text(t("Motivo: ","Reason: ")+state.code,style=MaterialTheme.typography.labelSmall)
+            if(state.phase=="closed" && state.code.isNotBlank()) {
+                Text(t("Motivo: ","Reason: ")+agentConsoleReasonText(state.code,es),style=MaterialTheme.typography.labelSmall)
+                Text(t("Código técnico: ","Technical code: ")+state.code,style=MaterialTheme.typography.labelSmall)
+            }
             if(searching) OutlinedTextField(query,{query=it.take(128)},singleLine=true,label={Text(t("Filtrar líneas de salida","Filter output lines"))},modifier=Modifier.fillMaxWidth())
             SelectionContainer(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)) {Text(visible.ifEmpty {t("Sin salida recibida.","No output received.")},fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.fillMaxWidth().testTag("agent_console_output"))}
             if(!follow) TextButton(onClick={query="";follow=true}) {Text(t("Ir al final y seguir salida","Go to end and follow output"))}
