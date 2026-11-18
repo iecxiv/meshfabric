@@ -13,6 +13,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
+import iecxiv.meshfabric.data.model.platform
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 
 private class HostedDeviceChat(val source:MeshCentralClient,val node:MeshNode,initialY:Float) {
@@ -51,7 +52,7 @@ private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode,()->Unit)->U
                 if(!chat.minimized) DeviceChatWindow(chat) {chats.remove(chat)}
             }}
             if(chats.any {it.minimized}) DeviceChatBubbles(
-                chats.filter {it.minimized}.map {DeviceChatBubble(it.node.id,it.node.name,it.bubblePosition)},
+                chats.filter {it.minimized}.map {DeviceChatBubble(it.node.id,it.node.name,it.bubblePosition,it.node.platform)},
                 onRestore={id->chats.forEach {it.minimized=it.node.id!=id}},
                 onClose={id->chats.firstOrNull {it.node.id==id}?.let {it.session.close();chats.remove(it)}})
         }
