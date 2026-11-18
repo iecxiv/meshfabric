@@ -56,8 +56,9 @@ internal fun powerLabel(state:Int?,es:Boolean,future:Boolean=false):String {
     HorizontalDivider()
     Text(label("Energía · últimos 7 días","Power · last 7 days"),style=MaterialTheme.typography.titleSmall,modifier=Modifier.testTag("power_heading"))
     Text(label("Estados guardados por MeshCentral, no lectura física en tiempo real. Conexión no equivale a encendido.","States stored by MeshCentral, not a live physical reading. Connectivity does not imply power on."),style=MaterialTheme.typography.bodySmall)
-    Row {
+    Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
         TextButton(onClick={ retry++ },enabled=state.phase!="loading") { Text(label("Actualizar energía","Refresh power")) }
+        Spacer(Modifier.weight(1f))
         DevicePowerCsv(binding,state.phase=="ready")
     }
     if(state.phase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -83,7 +84,7 @@ internal fun powerLabel(state:Int?,es:Boolean,future:Boolean=false):String {
             else->missing
         }
         Text(label("Muestra: ","Sample: ")+timeFormat.format(Instant.ofEpochMilli(history.sampledAt))+" · "+zone.id,style=MaterialTheme.typography.labelSmall)
-        if(history.currentOnly) Text(label("El servidor solo ha devuelto una muestra actual; no se reconstruyen días anteriores.","The server returned only a current sample; earlier days are not reconstructed."),style=MaterialTheme.typography.bodySmall)
+        if(history.currentOnly) Text(label("El servidor solo ha devuelto una muestra actual; no se reconstruyen días anteriores.","The server returned only a current sample; earlier days are not reconstructed."),style=MaterialTheme.typography.labelSmall)
         for(day in powerDays(history.sampledAt,zone)) {
             val start=day.atStartOfDay(zone).toInstant().toEpochMilli()
             val end=day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()

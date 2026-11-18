@@ -4,6 +4,8 @@ import android.provider.DocumentsContract
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -50,6 +52,7 @@ private suspend fun fetchPowerCsv(b:PowerBinding,language:String):ByteArray=with
         out.toByteArray().also { require(b.matches() && powerCsvValid(it,response.header("Content-Type").orEmpty())) }
     }
 }
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun DevicePowerCsv(b:PowerBinding?,enabled:Boolean) {
     val context=LocalContext.current;val language=LocalConfiguration.current.locales[0].language;val es=language=="es"
     val scope=rememberCoroutineScope()
@@ -81,8 +84,11 @@ private suspend fun fetchPowerCsv(b:PowerBinding,language:String):ByteArray=with
             }
         }
     }
-    TextButton(enabled=enabled && b!=null && b.matches() && !busy,modifier=Modifier.testTag("power_csv"),onClick={
-        pending=b;busy=true
-        runCatching { picker.launch("powerevents.csv") }.onFailure { pending=null;busy=false }
-    }) { Text(if(busy) { if(es) "Preparando CSV…" else "Preparing CSV…" } else "powerevents.csv") }
+    val downloadLabel=if(busy) {if(es) "Preparando CSV…" else "Preparing CSV…"} else {if(es) "Descargar powerevents.csv" else "Download powerevents.csv"}
+    TooltipBox(positionProvider=TooltipDefaults.rememberTooltipPositionProvider(positioning=TooltipAnchorPosition.Above),tooltip={PlainTooltip {Text(downloadLabel)}},state=rememberTooltipState()) {
+        IconButton(enabled=enabled && b!=null && b.matches() && !busy,modifier=Modifier.testTag("power_csv"),onClick={
+            pending=b;busy=true
+            runCatching { picker.launch("powerevents.csv") }.onFailure { pending=null;busy=false }
+        }) {Icon(Icons.Default.Download,contentDescription=downloadLabel)}
+    }
 }
