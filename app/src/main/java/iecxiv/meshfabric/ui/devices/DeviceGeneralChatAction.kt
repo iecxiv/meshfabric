@@ -9,9 +9,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 import iecxiv.meshfabric.data.model.platform
 import iecxiv.meshfabric.data.remote.MeshCentralClient
@@ -41,13 +38,11 @@ private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode,()->Unit)->U
         }
         Box(Modifier.fillMaxSize()) {
             CompositionLocalProvider(LocalDeviceChatOpen provides open) {content()}
-            val owner=LocalLifecycleOwner.current
             chats.forEach {chat->key(chat.node.id) {
-                DisposableEffect(chat,owner) {
-                    val observer=LifecycleEventObserver {_,event->if(event==Lifecycle.Event.ON_STOP) chat.session.close()}
-                    owner.lifecycle.addObserver(observer)
-                    if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) chat.session.start() else chat.session.close()
-                    onDispose {owner.lifecycle.removeObserver(observer);chat.session.close()}
+                DisposableEffect(chat) {
+                    DeviceChatKeepAlive.register(chat.session)
+                    chat.session.start()
+                    onDispose {chat.session.close();DeviceChatKeepAlive.unregister(chat.session)}
                 }
                 if(!chat.minimized) DeviceChatWindow(chat) {chats.remove(chat)}
             }}
@@ -95,7 +90,7 @@ private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode,()->Unit)->U
         Text(status,modifier=Modifier.testTag("general_chat_status"))
         Text(t("Iniciar solicita al agente abrir el chat en el navegador del equipo seleccionado. Requiere agente conectado, permisos de control remoto y chat/notificaciones y un navegador remoto compatible. Otra sesión de chat con esta misma cuenta y equipo puede entrar en conflicto.","Starting asks the agent to open chat in the selected device's browser. Requires a connected agent, remote-control and chat/notification permissions and a compatible remote browser. Another chat with this same account and device may conflict."),style=MaterialTheme.typography.bodySmall)
         if(state.recorded) Text(t("El servidor indica que esta sesión está siendo grabada.","The server indicates that this session is being recorded."),color=MaterialTheme.colorScheme.error)
-        Text(t("Solo texto: sin archivos, audio ni vídeo. Sin confirmaciones de entrega o lectura. Historial local limitado a 100 mensajes y 64000 caracteres, no guardado en disco; el servidor puede registrar la sesión según su política. Minimizar conserva el chat y el borrador dentro de la aplicación. Cerrar o pasar la app a segundo plano desconecta este chat; no retira mensajes ni cierra el navegador remoto.","Text only: no files, audio or video. No delivery or read receipts. Local history limited to 100 messages and 64000 characters, not saved to disk; the server may record the session according to policy. Minimizing keeps the chat and draft within the app. Closing or backgrounding the app disconnects this chat; it does not retract messages or close the remote browser."),style=MaterialTheme.typography.bodySmall)
+        Text(t("Solo texto: sin archivos, audio ni vídeo. Sin confirmaciones de entrega o lectura. Historial local limitado a 100 mensajes y 64000 caracteres, no guardado en disco; el servidor puede registrar la sesión según su política. Minimizar y pasar la app a segundo plano conservan el chat abierto mediante el servicio de sesiones activas mientras el proceso siga disponible. Cerrar desconecta este chat; no retira mensajes ni cierra el navegador remoto.","Text only: no files, audio or video. No delivery or read receipts. Local history limited to 100 messages and 64000 characters, not saved to disk; the server may record the session according to policy. Minimizing and backgrounding the app keep the chat open through the active sessions service while the process remains available. Closing disconnects this chat; it does not retract messages or close the remote browser."),style=MaterialTheme.typography.bodySmall)
         if(state.phase in setOf("loading","checking","connecting","checking_send")) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.entries.forEach {entry->
             HorizontalDivider()

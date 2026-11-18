@@ -22,6 +22,7 @@ import iecxiv.meshfabric.data.remote.TerminalRelayClient
 import iecxiv.meshfabric.service.KeepAliveService
 import iecxiv.meshfabric.ui.desktop.RemoteDesktopViewModel
 import iecxiv.meshfabric.ui.devices.DeviceListViewModel
+import iecxiv.meshfabric.ui.devices.DeviceChatKeepAlive
 import iecxiv.meshfabric.ui.files.FileManagerViewModel
 import iecxiv.meshfabric.ui.login.LoginViewModel
 import iecxiv.meshfabric.ui.navigation.MeshCentralNavGraph
@@ -92,6 +93,27 @@ class MainActivity : ComponentActivity() {
     private lateinit var terminalViewModel: TerminalViewModel
     private lateinit var fileManagerViewModel: FileManagerViewModel
     private lateinit var settingsViewModel: SettingsViewModel
+    private var appInForeground = true
+    private var closingSessions = false
+    private val chatSessionsChanged: () -> Unit = { updateBackgroundSessionService() }
+
+    private fun updateBackgroundSessionService() {
+        if (appInForeground || closingSessions || !::terminalClient.isInitialized ||
+            !::desktopClient.isInitialized || !::fileClient.isInitialized) return
+        val chatCount = DeviceChatKeepAlive.activeCount()
+        val totalActiveSessions = terminalClient.getSessionCount() + desktopClient.getSessionCount() +
+            fileClient.getSessionCount() + chatCount
+        val hasActiveConnected = terminalClient.hasActiveSessions() || desktopClient.hasActiveSessions() ||
+            fileClient.hasActiveSessions() || chatCount > 0
+        val hasDisconnectedSessions = terminalClient.hasDisconnectedWithBuffer() ||
+            desktopClient.hasDisconnectedWithBuffer() || fileClient.hasDisconnectedWithBuffer()
+        if (totalActiveSessions > 0) {
+            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions,
+                desktopClient.hasActiveSessions() && chatCount == 0)
+        } else {
+            KeepAliveService.stopService(applicationContext)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,11 +135,14 @@ class MainActivity : ComponentActivity() {
         terminalViewModel = TerminalViewModel(meshClient, terminalClient)
         fileManagerViewModel = FileManagerViewModel(meshClient, fileClient)
         settingsViewModel = SettingsViewModel(sessionManager)
+        DeviceChatKeepAlive.onChanged = chatSessionsChanged
 
         val isSaveBuffersEnabled = sessionManager.isSaveTerminalBuffersEnabled()
         terminalClient.initBuffersFromDisk(applicationContext, meshClient, isSaveBuffersEnabled)
 
         KeepAliveService.onTaskRemovedListener = {
+            closingSessions = true
+            DeviceChatKeepAlive.closeAll()
             terminalViewModel.cancelPendingReconnections()
             val isSaveBuffersEnabledOnExit = sessionManager.isSaveTerminalBuffersEnabled()
             meshClient.disconnect()
@@ -131,16 +156,7 @@ class MainActivity : ComponentActivity() {
             terminalClient.onNetworkChanged()
             desktopClient.onNetworkChanged()
             fileClient.onNetworkChanged()
-
-            val hasActiveConnected = terminalClient.hasActiveSessions() ||
-                    desktopClient.hasActiveSessions() ||
-                    fileClient.hasActiveSessions()
-
-            val hasDisconnected = terminalClient.hasDisconnectedWithBuffer() ||
-                    desktopClient.hasDisconnectedWithBuffer() ||
-                    fileClient.hasDisconnectedWithBuffer()
-
-            KeepAliveService.updateNotification(applicationContext, hasActiveConnected, hasDisconnected, desktopClient.hasActiveSessions())
+            updateBackgroundSessionService()
         }
 
         setContent {
@@ -198,6 +214,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        appInForeground = true
         iecxiv.meshfabric.ui.management.NoticeVisibility.visible = true
         KeepAliveService.stopService(applicationContext)
     }
@@ -218,29 +235,15 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         desktopMouseCapture?.reset()
+        appInForeground = false
         iecxiv.meshfabric.ui.management.NoticeVisibility.visible = false
         super.onStop()
         terminalClient.checkpointHistory()
-        val totalActiveSessions = terminalClient.getSessionCount() +
-                desktopClient.getSessionCount() +
-                fileClient.getSessionCount()
-
-        val hasActiveConnected = terminalClient.hasActiveSessions() ||
-                desktopClient.hasActiveSessions() ||
-                fileClient.hasActiveSessions()
-
-        val hasDisconnectedSessions = terminalClient.hasDisconnectedWithBuffer() ||
-                desktopClient.hasDisconnectedWithBuffer() ||
-                fileClient.hasDisconnectedWithBuffer()
-
-        if (totalActiveSessions > 0) {
-            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions, desktopClient.hasActiveSessions())
-        } else {
-            KeepAliveService.stopService(applicationContext)
-        }
+        updateBackgroundSessionService()
     }
 
     override fun onDestroy() {
+        if (DeviceChatKeepAlive.onChanged === chatSessionsChanged) DeviceChatKeepAlive.onChanged = null
         desktopWindowKeys?.let { callback ->
             if (window.callback === callback) window.callback = callback.original
         }
