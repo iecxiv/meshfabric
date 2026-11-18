@@ -14,14 +14,24 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-@Composable internal fun DesktopRightClickHeaderGlyph(active: Boolean, label: String?, rightButtonBlue: Boolean = true) {
+@Composable internal fun DesktopRightClickHeaderGlyph(active: Boolean, label: String?, rightButtonBlue: Boolean = true, iconSize: Dp = 24.dp, leftButtonBlue: Boolean = false) {
     val blue = Color(0xFF2196F3)
     val body = if (active) blue else LocalContentColor.current
     val accessibility = if (label != null) Modifier.semantics { contentDescription = label } else Modifier
-    Canvas(Modifier.size(24.dp).then(accessibility)) {
+    Canvas(Modifier.size(iconSize).then(accessibility)) {
         scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
+            if (leftButtonBlue) {
+                val leftButton = Path().apply {
+                    moveTo(11f, 3f)
+                    cubicTo(7.8f, 3.4f, 6f, 6f, 6f, 9f)
+                    lineTo(11f, 9f)
+                    close()
+                }
+                drawPath(leftButton, blue)
+            }
             val rightButton = Path().apply {
                 moveTo(13f, 3f)
                 cubicTo(16.2f, 3.4f, 18f, 6f, 18f, 9f)

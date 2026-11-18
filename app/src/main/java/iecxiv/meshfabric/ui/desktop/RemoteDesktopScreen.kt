@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -28,9 +29,9 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,6 +52,8 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -58,6 +61,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.RemoteHeaderActions
+import iecxiv.meshfabric.ui.components.RemoteHeaderIcon
 import iecxiv.meshfabric.data.remote.ClipboardTransferState
 import iecxiv.meshfabric.data.remote.DesktopEncoding
 import iecxiv.meshfabric.data.remote.FrameRateOption
@@ -67,6 +72,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDesktopViewModel, onBack: () -> Unit) {
     val isConnected by viewModel.isConnected(nodeId).collectAsState()
+    val displayState by viewModel.displays(nodeId).collectAsState()
     val desktopBitmap by viewModel.desktopBitmap(nodeId).collectAsState()
     val frameVersion by viewModel.frameVersion(nodeId).collectAsState()
     val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
@@ -83,7 +89,22 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
     var scale by viewport.scale
     var offsetX by viewport.offsetX
     var offsetY by viewport.offsetY
-    var selectedMode by remember { mutableStateOf(MouseMode.LEFT_CLICK) }
+    val previousDisplay = remember(nodeId) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(nodeId, displayState.selectedId) {
+        val selected = displayState.selectedId
+        if (selected != null) {
+            if (previousDisplay.value != null && previousDisplay.value != selected) {
+                scale = 1f
+                offsetX = 0f
+                offsetY = 0f
+                viewModel.releaseDesktopKeys(nodeId)
+                rightClickAssist.latch.cancel()
+            }
+            previousDisplay.value = selected
+        }
+    }
+    var selectedMode by rememberSaveable(nodeId) { mutableStateOf(MouseMode.LEFT_CLICK) }
+    var lastClickMode by rememberSaveable(nodeId) { mutableStateOf(MouseMode.LEFT_CLICK) }
     var isControlsBarCollapsed by rememberSaveable { mutableStateOf(viewModel.isDesktopBarCollapsed()) }
     var isFullScreen by rememberSaveable { mutableStateOf(false) }
     var barRelativeY by viewport.barRelativeY
@@ -113,7 +134,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
         DesktopKeyboardRouter { key, down -> viewModel.sendDesktopKeyEvent(nodeId, key, down) }
     }
     val desktopLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-    val desktopKeyboardActive = isConnected && !showKeyboardDialog && !showClipboardDialog && !showSettingsDialog && !showGestureHelp &&
+    val desktopKeyboardActive = isConnected && displayState.pendingId == null && !displayState.selectionUnconfirmed && !showKeyboardDialog && !showClipboardDialog && !showSettingsDialog && !showGestureHelp &&
         desktopLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
     DesktopRightClickAssistBinding(rightClickAssist, desktopMouseCapture, desktopKeyboardActive)
     LaunchedEffect(desktopKeyboard, desktopKeyboardActive) {
@@ -143,7 +164,10 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
             insetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         } else insetsController.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
     }
-    DisposableEffect(nodeId) {
+    DisposableEffect(nodeId, viewModel) {
+        val newSession = viewModel.desktopClient.getSession(viewModel.meshClient, nodeId).isUserDisconnect
+        selectedMode = desktopToolbarStartMouseMode(newSession, selectedMode)
+        lastClickMode = desktopToolbarStartMouseMode(newSession, lastClickMode)
         viewModel.startSession(nodeId)
         onDispose { viewModel.pauseSession(nodeId) }
     }
@@ -161,24 +185,35 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
+                    IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) { RemoteHeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
                 },
                 actions = {
-                    DesktopRightClickAssistHeader(rightClickAssist)
-                    IconButton(onClick = { showKeyboardDialog = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.keyboard_and_shortcuts))
-                    }
-                    IconButton(onClick = { showClipboardDialog = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.clipboard))
-                    }
-                    IconButton(onClick = { showSettingsDialog = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.options))
-                    }
-                    IconButton(onClick = { viewModel.refreshDisplay(nodeId) }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
-                    }
-                    IconButton(onClick = { viewModel.stopSession(nodeId); onBack() }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.disconnect_desktop), tint = Color.Red)
+                    RemoteHeaderActions {
+                        DesktopRightClickAssistHeader(rightClickAssist)
+                        IconButton(onClick = { showKeyboardDialog = true }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.keyboard_and_shortcuts))
+                        }
+                        IconButton(onClick = { showClipboardDialog = true }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.clipboard))
+                        }
+                        DesktopDisplaySelector(
+                            state = displayState,
+                            connected = isConnected,
+                            onOpen = { viewModel.requestDisplays(nodeId) },
+                            onSelect = { displayId, generation ->
+                                rightClickAssist.latch.cancel()
+                                viewModel.selectDisplay(nodeId, displayId, generation)
+                            }
+                        )
+                        IconButton(onClick = { showSettingsDialog = true }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Settings, contentDescription = stringResource(R.string.options))
+                        }
+                        IconButton(onClick = { viewModel.refreshDisplay(nodeId) }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
+                        }
+                        IconButton(onClick = { viewModel.stopSession(nodeId); onBack() }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Close, contentDescription = stringResource(R.string.disconnect_desktop), tint = Color.Red)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
@@ -424,9 +459,21 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                 }
             }
             DesktopRightAssistLayout(rightClickAssist, desktopMouseCapture, barRelativeY, isControlsBarCollapsed, desktopKeyboardActive) {
+                val diameterPx = with(density) {
+                    desktopToolbarDiameter(constraints.maxWidth, constraints.maxHeight,
+                        42.dp.roundToPx(), 12.dp.roundToPx(), 8.dp.roundToPx())
+                }
+                val paddingPx = with(density) { minOf(4.dp.roundToPx(), diameterPx / 2) }
+                val controlsDiameter = with(density) { diameterPx.toDp() }
+                val controlsPadding = with(density) { paddingPx.toDp() }
+                val controlsSlot = with(density) { (diameterPx - paddingPx * 2).toDp() }
+                val controlsColor = iecxiv.meshfabric.ui.theme.appCardBackground(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+                val controlsContentColor = contentColorFor(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+                val controlsElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(0.dp)
                 if (isControlsBarCollapsed) {
-                    Surface(
-                        modifier = Modifier.onSizeChanged { controlsBarHeightPx = it.height }.desktopMouseLocalControls(desktopMouseCapture)
+                    Row(
+                        modifier = Modifier.height(controlsDiameter).onSizeChanged { controlsBarHeightPx = it.height }
+                            .desktopMouseLocalControls(desktopMouseCapture)
                             .pointerInput(maxUpwardOffsetPx) {
                                 detectVerticalDragGestures { change, dragAmount ->
                                     change.consume()
@@ -437,22 +484,29 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     }
                                 }
                             },
-                        shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f), shadowElevation = 6.dp
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(2.dp)) {
-                            IconButton(onClick = { isControlsBarCollapsed = false; viewModel.setDesktopBarCollapsed(false) }, modifier = Modifier.size(40.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = stringResource(R.string.expand_controls), tint = MaterialTheme.colorScheme.onSurface)
+                        Surface(modifier = Modifier.size(controlsDiameter), shape = CircleShape,
+                            color = controlsColor, contentColor = controlsContentColor,
+                            shadowElevation = 8.dp, tonalElevation = controlsElevation) {
+                            IconButton(onClick = { isControlsBarCollapsed = false; viewModel.setDesktopBarCollapsed(false) }, modifier = Modifier.fillMaxSize()) {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = stringResource(R.string.expand_controls), modifier = Modifier.size(20.dp))
                             }
-                            if (isFullScreen) {
-                                IconButton(onClick = { isFullScreen = false }, modifier = Modifier.size(40.dp)) {
-                                    Icon(Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.exit_fullscreen), tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                        if (isFullScreen) {
+                            Surface(modifier = Modifier.size(controlsDiameter), shape = CircleShape,
+                                color = controlsColor, contentColor = controlsContentColor,
+                                shadowElevation = 8.dp, tonalElevation = controlsElevation) {
+                                IconButton(onClick = { isFullScreen = false }, modifier = Modifier.fillMaxSize()) {
+                                    Icon(Icons.Default.FullscreenExit, contentDescription = stringResource(R.string.exit_fullscreen), modifier = Modifier.size(20.dp))
                                 }
                             }
                         }
                     }
                 } else {
                     Surface(
-                        modifier = Modifier.fillMaxWidth().onSizeChanged { controlsBarHeightPx = it.height }.desktopMouseLocalControls(desktopMouseCapture)
+                        modifier = Modifier.fillMaxWidth().height(controlsDiameter).onSizeChanged { controlsBarHeightPx = it.height }.desktopMouseLocalControls(desktopMouseCapture)
                             .pointerInput(maxUpwardOffsetPx) {
                                 detectVerticalDragGestures { change, dragAmount ->
                                     change.consume()
@@ -464,28 +518,50 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                 }
                             },
                         shape = RoundedCornerShape(24.dp),
-                        color = iecxiv.meshfabric.ui.theme.appCardBackground(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+                        color = controlsColor,
                         shadowElevation = 8.dp,
-                        contentColor = contentColorFor(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-                        tonalElevation = iecxiv.meshfabric.ui.theme.appCardTonalElevation(androidx.compose.ui.unit.Dp(0f))
+                        contentColor = controlsContentColor,
+                        tonalElevation = controlsElevation
                     ) {
-                        Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                            Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
-                                IconButton(onClick = { isControlsBarCollapsed = true; viewModel.setDesktopBarCollapsed(true) }, modifier = Modifier.size(34.dp)) {
+                        Row(modifier = Modifier.padding(controlsPadding).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Surface(modifier = Modifier.size(controlsSlot), shape = RoundedCornerShape(10.dp), color = Color.Transparent) {
+                                IconButton(onClick = { isControlsBarCollapsed = true; viewModel.setDesktopBarCollapsed(true) }, modifier = Modifier.fillMaxSize()) {
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.collapse_controls), modifier = Modifier.size(20.dp))
                                 }
                             }
-                            FilterChip(selected = selectedMode == MouseMode.LEFT_CLICK, onClick = { selectedMode = MouseMode.LEFT_CLICK },
-                                label = { Text(stringResource(R.string.left_click), fontSize = 10.sp) },
-                                leadingIcon = { Icon(Icons.Default.Mouse, contentDescription = null, modifier = Modifier.size(13.dp)) }, modifier = Modifier.height(32.dp))
-                            FilterChip(selected = selectedMode == MouseMode.RIGHT_CLICK, onClick = { selectedMode = MouseMode.RIGHT_CLICK },
-                                label = { Text(stringResource(R.string.right_click), fontSize = 10.sp) }, modifier = Modifier.height(32.dp))
-                            FilterChip(selected = selectedMode == MouseMode.SCROLL, onClick = { selectedMode = MouseMode.SCROLL },
-                                label = { Text(stringResource(R.string.scroll), fontSize = 10.sp) }, modifier = Modifier.height(32.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                                IconButton(onClick = { showGestureHelp = true }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Info, contentDescription = stringResource(R.string.desktop_gestures_title), modifier = Modifier.size(18.dp), tint = Color(0xFF9E9E9E))
+                            val clickMode = desktopRememberedClickMode(selectedMode, lastClickMode)
+                            val mouseModeActive = selectedMode == MouseMode.LEFT_CLICK || selectedMode == MouseMode.RIGHT_CLICK
+                            val mouseModeDescription = stringResource(
+                                if (!mouseModeActive) R.string.scroll
+                                else if (clickMode == MouseMode.RIGHT_CLICK) R.string.right_click else R.string.left_click
+                            )
+                            FilterChip(selected = mouseModeActive, onClick = {
+                                viewModel.releaseDesktopKeys(nodeId)
+                                rightClickAssist.latch.cancel()
+                                val next = desktopToggleClickMode(selectedMode, lastClickMode)
+                                lastClickMode = next
+                                selectedMode = next
+                            }, label = {
+                                Text(stringResource(if (clickMode == MouseMode.RIGHT_CLICK) R.string.desktop_mouse_mode_right_short
+                                    else R.string.desktop_mouse_mode_left_short), fontSize = 10.sp)
+                            }, leadingIcon = {
+                                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
+                                    DesktopRightClickHeaderGlyph(active = false, label = null,
+                                        rightButtonBlue = mouseModeActive && clickMode == MouseMode.RIGHT_CLICK,
+                                        iconSize = 18.dp,
+                                        leftButtonBlue = mouseModeActive && clickMode == MouseMode.LEFT_CLICK)
                                 }
+                            }, modifier = Modifier.height(32.dp).semantics { stateDescription = mouseModeDescription })
+                            FilterChip(selected = selectedMode == MouseMode.SCROLL, onClick = {
+                                viewModel.releaseDesktopKeys(nodeId)
+                                rightClickAssist.latch.cancel()
+                                lastClickMode = desktopRememberedClickMode(selectedMode, lastClickMode)
+                                selectedMode = MouseMode.SCROLL
+                            }, label = { Text(stringResource(R.string.scroll), fontSize = 10.sp) },
+                                leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                modifier = Modifier.height(32.dp))
+                            Spacer(modifier = Modifier.weight(1f))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                                 IconButton(onClick = { isSoftKeyboardOpen = !isSoftKeyboardOpen }, modifier = Modifier.size(32.dp)) {
                                     Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.on_screen_keyboard), tint = if (isImeVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                                 }
@@ -494,6 +570,9 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                 }
                                 IconButton(onClick = { isFullScreen = !isFullScreen }, modifier = Modifier.size(32.dp)) {
                                     Icon(if (isFullScreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, contentDescription = if (isFullScreen) stringResource(R.string.exit_fullscreen) else stringResource(R.string.fullscreen))
+                                }
+                                IconButton(onClick = { showGestureHelp = true }, modifier = Modifier.size(32.dp)) {
+                                    Icon(Icons.Default.Info, contentDescription = stringResource(R.string.desktop_gestures_title), modifier = Modifier.size(18.dp), tint = Color(0xFF9E9E9E))
                                 }
                             }
                         }

@@ -91,6 +91,17 @@ class RemoteDesktopViewModel(
     fun remoteClipboardText(nodeId: String): StateFlow<String> = desktopClient.getRemoteClipboardText(meshClient, nodeId)
     fun clipboardReadState(nodeId: String) = desktopClient.getSession(meshClient, nodeId).clipboardReadState
     fun clipboardWriteState(nodeId: String) = desktopClient.getSession(meshClient, nodeId).clipboardWriteState
+    fun displays(nodeId: String) = desktopClient.getSession(meshClient, nodeId).displays
+    fun requestDisplays(nodeId: String) = desktopClient.getSession(meshClient, nodeId).requestDisplays()
+
+    fun selectDisplay(nodeId: String, displayId: Int, generation: Long): Boolean {
+        val session = desktopClient.getSession(meshClient, nodeId)
+        synchronized(session) {
+            if (session.displays.value.connectionGeneration != generation) return false
+            releaseDesktopKeys(nodeId)
+            return session.sendDisplaySelect(displayId, generation)
+        }
+    }
 
     fun startSession(nodeId: String) {
         val session = desktopClient.getSession(meshClient, nodeId)

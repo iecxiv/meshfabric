@@ -74,6 +74,10 @@ class DesktopSession(
     private val _viewerCount = MutableStateFlow<Int?>(null)
     val viewerCount: StateFlow<Int?> = _viewerCount.asStateFlow()
 
+    private val _displays = MutableStateFlow(DesktopDisplayState())
+    val displays: StateFlow<DesktopDisplayState> = _displays.asStateFlow()
+    private var displaySelectionTimeout: Job? = null
+
     private val _screenResolution = MutableStateFlow(Pair(1024, 768))
     val screenResolution: StateFlow<Pair<Int, Int>> = _screenResolution.asStateFlow()
 
@@ -250,6 +254,9 @@ class DesktopSession(
     }
 
     private fun retireSocket() {
+        displaySelectionTimeout?.cancel()
+        displaySelectionTimeout = null
+        _displays.value = DesktopDisplayState()
         _viewerCount.value = null
         logFrameDiagnostics("retire", true)
         clipboardReadTimeout?.cancel()
@@ -319,6 +326,7 @@ class DesktopSession(
                                     val settings = _settings.value
                                     sendCompressionSettings(settings.encoding.code, settings.quality, settings.scale)
                                     sendUnPause()
+                                    requestDisplays()
                                     requestRemoteClipboard()
                                 }
                             }
@@ -370,7 +378,10 @@ class DesktopSession(
 
     @Synchronized
     fun refreshOrReconnect() {
-        if (isConnected()) refreshDisplay() else {
+        if (isConnected()) {
+            requestDisplays()
+            refreshDisplay()
+        } else {
             isUserDisconnect = false
             forceReconnect()
         }
@@ -402,7 +413,10 @@ class DesktopSession(
                 "metadata" -> {
                     _viewerCount.value = desktopViewerCount(json)
                 }
-                "displays", "desktop", "uiprompt" -> {
+                "displays" -> {
+                    requestDisplays()
+                }
+                "desktop", "uiprompt" -> {
                     refreshDisplay()
                 }
                 "clipboard", "getclip", "setclip" -> {
@@ -446,6 +460,16 @@ class DesktopSession(
         if (cmd == 3) run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagImagePackets++ }; Unit }
         if (cmd == 27) run { if (iecxiv.meshfabric.diagnostics.AppDiagnostics.enabled) { diagJumboPackets++ }; Unit }
         when (cmd) {
+            11 -> {
+                val received = DesktopDisplayProtocol.decode(data) ?: return
+                val pending = _displays.value.pendingId
+                displaySelectionTimeout?.cancel()
+                displaySelectionTimeout = null
+                _displays.value = received.copy(
+                    selectionUnconfirmed = pending != null && received.selectedId != pending,
+                    connectionGeneration = epoch
+                )
+            }
             7 -> {
                 if (data.size < 8) return
                 val width = ((data[4].toInt() and 0xFF) shl 8) or (data[5].toInt() and 0xFF)
@@ -762,16 +786,43 @@ class DesktopSession(
         }
     }
 
-    fun sendDisplaySelect(displayIndex: Int = 0) {
-        if (!_connectionState.value || webSocket == null) return
-        val packet = ByteArray(6)
-        packet[0] = 0x00
-        packet[1] = 0x0B
-        packet[2] = 0x00
-        packet[3] = 0x06
-        packet[4] = ((displayIndex shr 8) and 0xFF).toByte()
-        packet[5] = (displayIndex and 0xFF).toByte()
-        webSocket?.send(ByteString.of(*packet))
+    @Synchronized
+    fun requestDisplays(): Boolean {
+        if (isUserDisconnect || meshClient.isUserLogout || !meshClient.connectionState.value || !isConnected()) return false
+        return webSocket?.send(ByteString.of(*DesktopDisplayProtocol.request())) == true
+    }
+
+    @Synchronized
+    fun sendDisplaySelect(displayIndex: Int = 0, expectedGeneration: Long? = null): Boolean {
+        if (isUserDisconnect || meshClient.isUserLogout || !meshClient.connectionState.value || !isConnected()) return false
+        if (expectedGeneration != null && expectedGeneration != epoch) return false
+        val previous = _displays.value
+        if (displayIndex !in previous.ids || previous.pendingId != null) return false
+        if (displayIndex == previous.selectedId && !previous.selectionUnconfirmed) return false
+        val packet = DesktopDisplayProtocol.select(displayIndex) ?: return false
+        val socket = webSocket ?: return false
+        val generation = epoch
+        if (!socket.send(ByteString.of(*packet))) {
+            _displays.value = previous.copy(selectionUnconfirmed = true)
+            return false
+        }
+        _displays.value = previous.copy(pendingId = displayIndex, selectionUnconfirmed = false)
+        canvasBitmap = null
+        desktopCanvas = null
+        _desktopBitmap.value = null
+        _frameVersion.value = 0L
+        displaySelectionTimeout?.cancel()
+        displaySelectionTimeout = scope.launch {
+            delay(5_000L)
+            synchronized(this@DesktopSession) {
+                if (current(socket, generation) && _displays.value.pendingId == displayIndex) {
+                    _displays.value = _displays.value.copy(pendingId = null, selectionUnconfirmed = true)
+                }
+            }
+        }
+        requestDisplays()
+        refreshDisplay()
+        return true
     }
 
     fun refreshDisplay() {

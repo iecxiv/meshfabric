@@ -22,12 +22,13 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import iecxiv.meshfabric.R
-import kotlin.math.roundToInt
 
 internal class DesktopRightClickAssistState(context: Context, orientation: Int) {
     private val prefs = context.applicationContext.getSharedPreferences("desktop_right_click_assist", Context.MODE_PRIVATE)
@@ -113,8 +114,8 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
 
 @Composable internal fun DesktopRightClickAssistHeader(state: DesktopRightClickAssistState) {
     val label = stringResource(if (state.latch.visible) R.string.desktop_right_assist_hide else R.string.desktop_right_assist_show)
-    IconButton(onClick = state::toggleVisible, modifier = Modifier.size(36.dp).semantics { selected = state.latch.visible }) {
-        DesktopRightClickHeaderGlyph(state.latch.visible, label)
+    IconButton(onClick = state::toggleVisible, modifier = Modifier.size(38.dp).semantics { selected = state.latch.visible }) {
+        DesktopRightClickHeaderGlyph(state.latch.visible, label, iconSize = 20.dp)
     }
 }
 
@@ -124,6 +125,7 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
 ) {
     val label = stringResource(R.string.desktop_right_assist_click)
     val status = stringResource(if (state.latch.armed) R.string.desktop_right_assist_armed else R.string.desktop_right_assist_idle)
+    val rightToLeft = LocalLayoutDirection.current == LayoutDirection.Rtl
     val interaction = remember(state) { MutableInteractionSource() }
     var dragX = 0f; var dragY = 0f; var previousX = 0f; var previousY = 0f
     Layout(modifier = Modifier.fillMaxSize(), content = {
@@ -149,8 +151,7 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
         val width = constraints.maxWidth; val height = constraints.maxHeight
         val margin = 12.dp.roundToPx(); val gap = 8.dp.roundToPx(); val size = 48.dp.roundToPx()
         val bar = measurables[0].measure(Constraints(0, (width - margin * 2).coerceAtLeast(0), 0, height))
-        val bx = if (collapsed) minOf(margin, (width - bar.width).coerceAtLeast(0)) else ((width - bar.width) / 2).coerceAtLeast(0)
-        val by = ((height - bar.height).coerceAtLeast(0) * (1f - relativeY.coerceIn(0f, 1f))).roundToInt()
+        val (bx, by) = desktopToolbarOrigin(width, height, bar.width, bar.height, relativeY, margin, collapsed, rightToLeft)
         val bounds = DesktopAssistBounds(bx, by, bx + bar.width, by + bar.height)
         val position = if (measurables.size > 1) desktopAssistPosition(width, height, size, bounds, state.x, state.y, margin, gap) else null
         val button = if (position != null) measurables[1].measure(Constraints.fixed(size, size)) else null

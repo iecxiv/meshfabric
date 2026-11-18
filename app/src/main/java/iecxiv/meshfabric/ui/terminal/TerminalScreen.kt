@@ -60,6 +60,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.res.stringResource
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.RemoteHeaderActions
+import iecxiv.meshfabric.ui.components.RemoteHeaderIcon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
@@ -252,85 +254,87 @@ fun TerminalScreen(
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) {
+                        RemoteHeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
-                    TextButton(
-                        onClick = { changeFontSize(-1) },
-                        modifier = Modifier.size(36.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text("A-", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    }
-                    TextButton(
-                        onClick = { changeFontSize(1) },
-                        modifier = Modifier.size(36.dp),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text("A+", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    }
-                    IconButton(
-                        onClick = { val next = terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(showHistoryPanel, showHistoryMenu)); showHistoryPanel = next.visible; showHistoryMenu = next.expanded },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.Default.History, contentDescription = stringResource(R.string.terminal_history_header),
-                            tint = if (showHistoryPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(
-                        onClick = { keyboardRequest++ },
-                        enabled = inputEnabled && !inputOverlay,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Keyboard,
-                            contentDescription = stringResource(R.string.terminal_keyboard_toggle),
-                            tint = when {
-                                terminalKeyboardVisible -> Color(0xFF2196F3)
-                                inputEnabled -> MaterialTheme.colorScheme.onSurfaceVariant
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    RemoteHeaderActions {
+                        TextButton(
+                            onClick = { changeFontSize(-1) },
+                            modifier = Modifier.size(38.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text("A-", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        TextButton(
+                            onClick = { changeFontSize(1) },
+                            modifier = Modifier.size(38.dp),
+                            contentPadding = PaddingValues(horizontal = 4.dp)
+                        ) {
+                            Text("A+", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        IconButton(
+                            onClick = { val next = terminalHistoryHeaderClick(TerminalHistoryPanelPresentation(showHistoryPanel, showHistoryMenu)); showHistoryPanel = next.visible; showHistoryMenu = next.expanded },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            RemoteHeaderIcon(Icons.Default.History, contentDescription = stringResource(R.string.terminal_history_header),
+                                tint = if (showHistoryPanel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(
+                            onClick = { keyboardRequest++ },
+                            enabled = inputEnabled && !inputOverlay,
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            RemoteHeaderIcon(
+                                Icons.Default.Keyboard,
+                                contentDescription = stringResource(R.string.terminal_keyboard_toggle),
+                                tint = when {
+                                    terminalKeyboardVisible -> Color(0xFF2196F3)
+                                    inputEnabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                }
+                            )
+                        }
+                        Box {
+                            IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null, modifier = Modifier.size(38.dp)) {
+                                RemoteHeaderIcon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.terminal_tools))
                             }
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { showTerminalMenu = true }, enabled = rendererError == null, modifier = Modifier.size(36.dp)) {
-                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.terminal_tools))
+                            DropdownMenu(expanded = showTerminalMenu, onDismissRequest = { showTerminalMenu = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.terminal_copy_title)) },
+                                    onClick = { showTerminalMenu = false; showCopyDialog = true }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.terminal_paste_title)) },
+                                    enabled = inputEnabled,
+                                    onClick = { openPaste(false) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.terminal_paste_edit_title)) },
+                                    enabled = inputEnabled,
+                                    onClick = { openPaste(true) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.send_command)) },
+                                    enabled = inputEnabled,
+                                    onClick = { showTerminalMenu = false; showCommandDialog = true }
+                                )
+                            }
                         }
-                        DropdownMenu(expanded = showTerminalMenu, onDismissRequest = { showTerminalMenu = false }) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.terminal_copy_title)) },
-                                onClick = { showTerminalMenu = false; showCopyDialog = true }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.terminal_paste_title)) },
-                                enabled = inputEnabled,
-                                onClick = { openPaste(false) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.terminal_paste_edit_title)) },
-                                enabled = inputEnabled,
-                                onClick = { openPaste(true) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.send_command)) },
-                                enabled = inputEnabled,
-                                onClick = { showTerminalMenu = false; showCommandDialog = true }
+                        IconButton(
+                            onClick = {
+                                viewModel.stopSession(nodeId)
+                                onBack()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            RemoteHeaderIcon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.terminal_close_action),
+                                tint = Color.Red
                             )
                         }
-                    }
-                    IconButton(
-                        onClick = {
-                            viewModel.stopSession(nodeId)
-                            onBack()
-                        },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.terminal_close_action),
-                            tint = Color.Red
-                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
