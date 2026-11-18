@@ -10,6 +10,8 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -21,6 +23,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import iecxiv.meshfabric.R
 import iecxiv.meshfabric.data.model.MeshNode
+
+internal val LocalDeviceGeneralClose=staticCompositionLocalOf<(() -> Unit)?> {null}
 
 @Composable internal fun DeviceGeneralFrame(
     node:MeshNode,
@@ -69,7 +73,9 @@ import iecxiv.meshfabric.data.model.MeshNode
                 val bodyModifier=if(scrollBody) {
                     Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)
                 } else Modifier.weight(1f).fillMaxWidth()
-                Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
+                CompositionLocalProvider(LocalDeviceGeneralClose provides if(tagPrefix=="device_general") onClose else LocalDeviceGeneralClose.current) {
+                    Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
+                }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,
                     verticalAlignment=Alignment.CenterVertically,content=footer)

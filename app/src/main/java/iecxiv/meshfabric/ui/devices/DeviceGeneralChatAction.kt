@@ -2,70 +2,56 @@ package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 
-private class HostedDeviceChat(val source:MeshCentralClient,val node:MeshNode) {
+private class HostedDeviceChat(val source:MeshCentralClient,val node:MeshNode,initialY:Float) {
     val session=DeviceGeneralChatSession(source,node.id)
+    val bubblePosition=DeviceChatBubblePosition(initialY)
     var draft by mutableStateOf("")
     var minimized by mutableStateOf(false)
+    var dismissGeneral:()->Unit={}
 }
-private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode)->Unit)?> {null}
+private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode,()->Unit)->Unit)?> {null}
 
 @Composable internal fun DeviceChatHost(source:MeshCentralClient,content:@Composable ()->Unit) {
     val user by source.userInfo.collectAsState()
     val connected by source.connectionState.collectAsState()
     val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
-    val es=LocalConfiguration.current.locales[0].language=="es"
     key(source,identity,user?.id,source.isUserLogout) {
         val chats=remember {mutableStateListOf<HostedDeviceChat>()}
-        val open:(MeshNode)->Unit={node->
+        val open:(MeshNode,()->Unit)->Unit={node,dismiss->
             if(connected && !source.isUserLogout && !user?.id.isNullOrBlank()) {
                 chats.forEach {it.minimized=true}
-                val existing=chats.firstOrNull {it.node.id==node.id}
-                if(existing!=null) existing.minimized=false else chats.add(HostedDeviceChat(source,node))
+                val chat=chats.firstOrNull {it.node.id==node.id} ?: HostedDeviceChat(source,node,(0.25f+chats.size*0.12f).coerceAtMost(0.85f)).also {chats.add(it)}
+                chat.dismissGeneral=dismiss
+                chat.minimized=false
             }
         }
-        CompositionLocalProvider(LocalDeviceChatOpen provides open) {content()}
-        val owner=LocalLifecycleOwner.current
-        chats.forEach {chat->key(chat.node.id) {
-            DisposableEffect(chat,owner) {
-                val observer=LifecycleEventObserver {_,event->if(event==Lifecycle.Event.ON_STOP) chat.session.close()}
-                owner.lifecycle.addObserver(observer)
-                if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) chat.session.start() else chat.session.close()
-                onDispose {owner.lifecycle.removeObserver(observer);chat.session.close()}
-            }
-            if(!chat.minimized) DeviceChatWindow(chat) {chats.remove(chat)}
-        }}
-        if(chats.any {it.minimized}) Popup(alignment=Alignment.CenterEnd,properties=PopupProperties(focusable=false)) {
-            Column(Modifier.safeDrawingPadding().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                chats.filter {it.minimized}.forEach {chat->key(chat.node.id) {
-                    val label=(if(es) "Restaurar chat con " else "Restore chat with ")+chat.node.name
-                    FloatingActionButton(onClick={chats.forEach {it.minimized=true};chat.minimized=false},
-                        modifier=Modifier.size(56.dp).testTag("device_chat_bubble_${chat.node.id}").semantics {contentDescription=label}) {
-                        Column(horizontalAlignment=Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.Chat,null,Modifier.size(20.dp))
-                            Text(chat.node.name.take(2).uppercase(),style=MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                }}
-            }
+        Box(Modifier.fillMaxSize()) {
+            CompositionLocalProvider(LocalDeviceChatOpen provides open) {content()}
+            val owner=LocalLifecycleOwner.current
+            chats.forEach {chat->key(chat.node.id) {
+                DisposableEffect(chat,owner) {
+                    val observer=LifecycleEventObserver {_,event->if(event==Lifecycle.Event.ON_STOP) chat.session.close()}
+                    owner.lifecycle.addObserver(observer)
+                    if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) chat.session.start() else chat.session.close()
+                    onDispose {owner.lifecycle.removeObserver(observer);chat.session.close()}
+                }
+                if(!chat.minimized) DeviceChatWindow(chat) {chats.remove(chat)}
+            }}
+            if(chats.any {it.minimized}) DeviceChatBubbles(
+                chats.filter {it.minimized}.map {DeviceChatBubble(it.node.id,it.node.name,it.bubblePosition)},
+                onRestore={id->chats.forEach {it.minimized=it.node.id!=id}},
+                onClose={id->chats.firstOrNull {it.node.id==id}?.let {it.session.close();chats.remove(it)}})
         }
     }
 }
@@ -75,7 +61,8 @@ private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode)->Unit)?> {n
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val connected=source?.connectionState?.collectAsState()?.value==true
     val open=LocalDeviceChatOpen.current
-    DeviceGeneralActionButton(label="Chat",enabled=open!=null && connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={open?.invoke(node)},modifier=Modifier.testTag("general_chat"))
+    val dismissGeneral=LocalDeviceGeneralClose.current
+    DeviceGeneralActionButton(label="Chat",enabled=open!=null && connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={open?.invoke(node,dismissGeneral ?: {})},modifier=Modifier.testTag("general_chat"))
 }
 
 @Composable private fun DeviceChatWindow(chat:HostedDeviceChat,onClosed:()->Unit) {
@@ -123,6 +110,11 @@ private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode)->Unit)?> {n
         if(state.phase=="ready") TextButton(onClick={session.connect(requireNotNull(state.meta).mesh)},modifier=Modifier.testTag("general_chat_start")) {Text(t("Iniciar chat","Start chat"))}
         if(state.phase in setOf("connected","checking_send")) TextButton(enabled=generalChatCanSend(state.phase,chat.draft),onClick={if(session.send(chat.draft)) chat.draft=""},modifier=Modifier.testTag("general_chat_send")) {Text(t("Enviar","Send"))}
         TextButton(onClick=close) {Text(t("Cerrar","Close"))}
-    },subtitle="Chat",tagPrefix="device_chat",onMinimize={chat.minimized=true})
+    },subtitle="Chat",tagPrefix="device_chat",onMinimize={
+        val dismiss=chat.dismissGeneral
+        chat.dismissGeneral={}
+        chat.minimized=true
+        dismiss()
+    })
     if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Chat","Close Chat"))},text={Text(t("Se desconectará el chat y se perderán el borrador y el historial locales. Los mensajes enviados no se retiran; el navegador remoto puede seguir abierto.","Chat will disconnect and the local draft and history will be lost. Sent messages are not retracted; the remote browser may remain open."))},confirmButton={TextButton(onClick={session.close();onClosed()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
 }
