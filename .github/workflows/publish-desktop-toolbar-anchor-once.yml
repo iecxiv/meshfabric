@@ -1,0 +1,111 @@
+name: Publish anchored desktop toolbar once on dev
+'on':
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/publish-desktop-toolbar-anchor-once.yml']
+permissions:
+  contents: write
+concurrency:
+  group: publish-desktop-toolbar-anchor-once-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Verify base and apply exact toolbar candidate
+        shell: python
+        run: |
+          import os,subprocess,base64,lzma,hashlib,json
+          from pathlib import Path
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          base='976b268ce597885186e7a21399dc64bd456c4fcf'
+          workflow='.github/workflows/publish-desktop-toolbar-anchor-once.yml'
+          assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
+          assert git('rev-parse','HEAD^')==base
+          assert git('diff','--name-only',base,'HEAD').splitlines()==[workflow]
+          assert not git('status','--porcelain')
+          assert git('hash-object','app/build.gradle.kts')=='71466c471ee7dc9cea48ad2ffbed23185aa4076d'
+          assert git('hash-object','app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt')=='cecd650e29adecc0a83f8b1b5b07058789616f62'
+          assert git('hash-object','app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopRightClickAssist.kt')=='a8b5568a86f9f8c979bf3d4ad18f7a536621a598'
+          patch=lzma.decompress(base64.b64decode('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'))
+          assert hashlib.sha256(patch).hexdigest()=='2c6cc7c6c6ca0b4b261141db12b6d6a6dec1d7344fefc424aa54a9e7b969d6ec'
+          paths=[line.split('\t',2)[2] for line in subprocess.check_output(['git','apply','--numstat','-'],input=patch).decode().splitlines()]
+          assert len(paths)==len(set(paths))==4
+          assert all(p.startswith(('app/src/main/java/iecxiv/meshfabric/ui/desktop/','app/src/test/java/iecxiv/meshfabric/ui/desktop/')) and '..' not in p.split('/') for p in paths)
+          subprocess.run(['git','apply','--check','--whitespace=error-all','-'],input=patch,check=True)
+          subprocess.run(['git','apply','--index','--whitespace=error-all','-'],input=patch,check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          tmp=Path(os.environ['RUNNER_TEMP'])
+          (tmp/'toolbar-candidate.json').write_text(json.dumps({'paths':paths,'tree':git('write-tree')}))
+          (tmp/'toolbar-candidate.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install project SDK using existing tools version
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          sdk=Path(os.environ['ANDROID_HOME']).resolve();tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              if props.get('Pkg.Revision')=='23.0' and os.access(p.parent/'bin/sdkmanager',os.X_OK): tools.append(p.parent)
+          assert tools,'Verified command-line tools 23.0 missing'
+          subprocess.run([str(sorted(tools)[0]/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+      - name: Build compile instrumentation run all JVM tests and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace 2>&1 | tee "$RUNNER_TEMP/desktop-toolbar-build.txt"
+      - name: Verify tested candidate then publish and remove this workflow
+        shell: python
+        run: |
+          import os,json,subprocess
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          tmp=Path(os.environ['RUNNER_TEMP']);state=json.loads((tmp/'toolbar-candidate.json').read_text())
+          cases=[c for p in Path('app/build/test-results').rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+          assert cases and not any(c.find(t) is not None for c in cases for t in ['failure','error'])
+          for name,count in [('iecxiv.meshfabric.ui.desktop.DesktopToolbarLayoutTest',14),('iecxiv.meshfabric.ui.desktop.DesktopMouseModePolicyTest',8),('iecxiv.meshfabric.data.remote.DesktopDisplayProtocolTest',15)]:
+              own=[c for c in cases if c.get('classname')==name]
+              assert len(own)==count and not any(c.find('skipped') is not None for c in own),name
+          assert git('write-tree')==state['tree']
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==(tmp/'toolbar-candidate.patch').read_bytes()
+          subprocess.run(['git','diff','--exit-code'],check=True)
+          assert git('hash-object','app/build.gradle.kts')=='71466c471ee7dc9cea48ad2ffbed23185aa4076d'
+          assert git('ls-remote','origin','refs/heads/dev').split()[0]==os.environ['GITHUB_SHA'],'dev advanced; no force push'
+          workflow='.github/workflows/publish-desktop-toolbar-anchor-once.yml'
+          subprocess.run(['git','rm','--',workflow],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(state['paths']+[workflow])
+          assert subprocess.check_output(['git','diff','--cached','--binary','--',*state['paths']])==(tmp/'toolbar-candidate.patch').read_bytes()
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(desktop): anchor floating toolbar controls and reset new-session mouse mode'],check=True)
+          subprocess.run(['git','push','origin','HEAD:refs/heads/dev'],check=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out: out.write('Published '+git('rev-parse','HEAD')+' to dev after build, JVM tests and lint. Temporary workflow removed. Physical-device and visual validation remain pending.\n')
+      - name: Upload validation reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-toolbar-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/desktop-toolbar-build.txt
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
