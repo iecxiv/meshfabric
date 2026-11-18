@@ -2,6 +2,7 @@ package iecxiv.meshfabric.ui.desktop
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -17,7 +18,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable internal fun DesktopRightClickHeaderGlyph(active: Boolean, label: String?, rightButtonBlue: Boolean = true) {
     val blue = Color(0xFF2196F3)
-    val body = if (active) blue else Color(0xFF9E9E9E)
+    val body = if (active) blue else LocalContentColor.current
     val accessibility = if (label != null) Modifier.semantics { contentDescription = label } else Modifier
     Canvas(Modifier.size(24.dp).then(accessibility)) {
         scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
