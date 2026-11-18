@@ -524,7 +524,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                         tonalElevation = controlsElevation
                     ) {
                         Row(modifier = Modifier.padding(controlsPadding).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Surface(modifier = Modifier.size(controlsSlot), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
+                            Surface(modifier = Modifier.size(controlsSlot), shape = RoundedCornerShape(10.dp), color = Color.Transparent) {
                                 IconButton(onClick = { isControlsBarCollapsed = true; viewModel.setDesktopBarCollapsed(true) }, modifier = Modifier.fillMaxSize()) {
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.collapse_controls), modifier = Modifier.size(20.dp))
                                 }
