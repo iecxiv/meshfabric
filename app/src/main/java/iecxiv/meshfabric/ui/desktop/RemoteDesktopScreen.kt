@@ -28,9 +28,9 @@ import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Keyboard
-import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -51,6 +51,8 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -100,7 +102,8 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
             previousDisplay.value = selected
         }
     }
-    var selectedMode by remember { mutableStateOf(MouseMode.LEFT_CLICK) }
+    var selectedMode by rememberSaveable(nodeId) { mutableStateOf(MouseMode.LEFT_CLICK) }
+    var lastClickMode by rememberSaveable(nodeId) { mutableStateOf(MouseMode.LEFT_CLICK) }
     var isControlsBarCollapsed by rememberSaveable { mutableStateOf(viewModel.isDesktopBarCollapsed()) }
     var isFullScreen by rememberSaveable { mutableStateOf(false) }
     var barRelativeY by viewport.barRelativeY
@@ -503,13 +506,37 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.collapse_controls), modifier = Modifier.size(20.dp))
                                 }
                             }
-                            FilterChip(selected = selectedMode == MouseMode.LEFT_CLICK, onClick = { selectedMode = MouseMode.LEFT_CLICK },
-                                label = { Text(stringResource(R.string.left_click), fontSize = 10.sp) },
-                                leadingIcon = { Icon(Icons.Default.Mouse, contentDescription = null, modifier = Modifier.size(13.dp)) }, modifier = Modifier.height(32.dp))
-                            FilterChip(selected = selectedMode == MouseMode.RIGHT_CLICK, onClick = { selectedMode = MouseMode.RIGHT_CLICK },
-                                label = { Text(stringResource(R.string.right_click), fontSize = 10.sp) }, modifier = Modifier.height(32.dp))
-                            FilterChip(selected = selectedMode == MouseMode.SCROLL, onClick = { selectedMode = MouseMode.SCROLL },
-                                label = { Text(stringResource(R.string.scroll), fontSize = 10.sp) }, modifier = Modifier.height(32.dp))
+                            val clickMode = desktopRememberedClickMode(selectedMode, lastClickMode)
+                            val mouseModeActive = selectedMode == MouseMode.LEFT_CLICK || selectedMode == MouseMode.RIGHT_CLICK
+                            val mouseModeDescription = stringResource(
+                                if (!mouseModeActive) R.string.scroll
+                                else if (clickMode == MouseMode.RIGHT_CLICK) R.string.right_click else R.string.left_click
+                            )
+                            FilterChip(selected = mouseModeActive, onClick = {
+                                viewModel.releaseDesktopKeys(nodeId)
+                                rightClickAssist.latch.cancel()
+                                val next = desktopToggleClickMode(selectedMode, lastClickMode)
+                                lastClickMode = next
+                                selectedMode = next
+                            }, label = {
+                                Text(stringResource(if (clickMode == MouseMode.RIGHT_CLICK) R.string.desktop_mouse_mode_right_short
+                                    else R.string.desktop_mouse_mode_left_short), fontSize = 10.sp)
+                            }, leadingIcon = {
+                                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
+                                    DesktopRightClickHeaderGlyph(active = false, label = null,
+                                        rightButtonBlue = mouseModeActive && clickMode == MouseMode.RIGHT_CLICK,
+                                        iconSize = 18.dp,
+                                        leftButtonBlue = mouseModeActive && clickMode == MouseMode.LEFT_CLICK)
+                                }
+                            }, modifier = Modifier.height(32.dp).semantics { stateDescription = mouseModeDescription })
+                            FilterChip(selected = selectedMode == MouseMode.SCROLL, onClick = {
+                                viewModel.releaseDesktopKeys(nodeId)
+                                rightClickAssist.latch.cancel()
+                                lastClickMode = desktopRememberedClickMode(selectedMode, lastClickMode)
+                                selectedMode = MouseMode.SCROLL
+                            }, label = { Text(stringResource(R.string.scroll), fontSize = 10.sp) },
+                                leadingIcon = { Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                modifier = Modifier.height(32.dp))
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                                 IconButton(onClick = { showGestureHelp = true }, modifier = Modifier.size(32.dp)) {
                                     Icon(Icons.Default.Info, contentDescription = stringResource(R.string.desktop_gestures_title), modifier = Modifier.size(18.dp), tint = Color(0xFF9E9E9E))
