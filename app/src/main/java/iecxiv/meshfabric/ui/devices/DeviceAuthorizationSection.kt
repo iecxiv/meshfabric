@@ -34,7 +34,8 @@ import kotlinx.coroutines.awaitCancellation
     Text(t("Autorizaciones de usuario","User authorizations"),style=MaterialTheme.typography.titleSmall,modifier=Modifier.testTag("general_authorizations_heading"))
     val source=LocalDeviceDetailsClient.current
     if(source==null || meshId.isBlank()) {Text(t("Pendiente de verificar el dispositivo y su grupo.","Device and group verification pending."));return}
-    val actor=source.userInfo.collectAsState().value?.id.orEmpty()
+    val userInfo by source.userInfo.collectAsState()
+    val actor=userInfo?.id.orEmpty()
     val connected by source.connectionState.collectAsState()
     val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
     val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -49,7 +50,7 @@ import kotlinx.coroutines.awaitCancellation
         LaunchedEffect(session,lifecycle,connected) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             if(connected && !source.isUserLogout) {session.start();try {awaitCancellation()} finally {session.stop()}} else session.stop()
         }}
-        val bound=connected && !source.isUserLogout && source.userInfo.value?.id==actor && actor.isNotBlank() && identity==Triple(source.serverUrl,source.authCookie,source.ignoreSsl) && state.id==actor && session.broadcastServerLabel().isNotBlank()
+        val bound=connected && !source.isUserLogout && userInfo?.id==actor && actor.isNotBlank() && identity==Triple(source.serverUrl,source.authCookie,source.ignoreSsl) && state.id==actor && session.broadcastServerLabel().isNotBlank()
         GroupDetailsAutoLoad(session,nodeId,session.connectionGeneration(),state.ready,state.loading,state.busy,state.readError,state.groups.any {it.optString("_id")==meshId}) {
             if(ProfilePermissions.manageUsers(state.site)) session.loadDetails() else session.loadGroupDetails()
         }
