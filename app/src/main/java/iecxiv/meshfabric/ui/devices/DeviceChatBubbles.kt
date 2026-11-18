@@ -1,5 +1,6 @@
 package iecxiv.meshfabric.ui.devices
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -15,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
@@ -27,6 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import iecxiv.meshfabric.data.model.DevicePlatform
+import iecxiv.meshfabric.ui.theme.LocalAppDarkTheme
 import iecxiv.meshfabric.ui.theme.OnlineGreen
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -40,6 +43,7 @@ internal data class DeviceChatBubble(val id:String,val name:String,val position:
 @Composable internal fun DeviceChatBubbles(chats:List<DeviceChatBubble>,onRestore:(String)->Unit,onClose:(String)->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     val density=LocalDensity.current
+    val bubbleBorder=BorderStroke(1.dp,if(LocalAppDarkTheme.current) Color.White else Color.Gray)
     val diameter=with(density) {56.dp.toPx()}
     val targetHalf=with(density) {32.dp.toPx()}
     val closeRadius=with(density) {48.dp.toPx()}
@@ -105,7 +109,7 @@ internal data class DeviceChatBubble(val id:String,val name:String,val position:
                             p.x=if(maxX>0f) ((p.x*maxX+amount.x)/maxX).coerceIn(0f,1f) else 0f
                             p.y=if(maxY>0f) ((p.y*maxY+amount.y)/maxY).coerceIn(0f,1f) else 0f
                         })
-                }.clickable(interactionSource=interaction,indication=null) {restore(chat.id)},shape=RoundedCornerShape(28.dp),
+                }.clickable(interactionSource=interaction,indication=null) {restore(chat.id)},shape=RoundedCornerShape(28.dp),border=bubbleBorder,
                 color=MaterialTheme.colorScheme.primaryContainer,contentColor=MaterialTheme.colorScheme.onPrimaryContainer,shadowElevation=if(dragging==chat.id) 0.dp else 6.dp) {
                 Row(Modifier.padding(horizontal=12.dp,vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
                     Icon(when(chat.platform) {
