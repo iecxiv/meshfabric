@@ -1,13 +1,16 @@
 package iecxiv.meshfabric.ui.devices
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -32,10 +35,12 @@ internal fun generalGroupTarget(actor:String,id:String,groups:List<Pair<MeshGrou
     return GeneralGroupTarget(received.first,nodes)
 }
 @Composable internal fun GeneralGroupLinkRow(target:GeneralGroupTarget?,es:Boolean,onOpen:()->Unit) {
-    Column {
-        Text(if(es) "Grupo" else "Group",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick=onOpen,enabled=target!=null,contentPadding=PaddingValues(0.dp),modifier=Modifier.testTag("general_group_link")) {
-            Text(target?.group?.name?.ifBlank {if(es) "Grupo sin nombre" else "Unnamed group"} ?: if(es) "Grupo no disponible" else "Group unavailable")
+    Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("general_group_link")
+        .clickable(enabled=target!=null,role=Role.Button,onClick=onOpen),verticalAlignment=Alignment.CenterVertically) {
+        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            Text(if(es) "Grupo" else "Group",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(target?.group?.name?.ifBlank {if(es) "Grupo sin nombre" else "Unnamed group"} ?: if(es) "Grupo no disponible" else "Group unavailable",
+                style=MaterialTheme.typography.bodyMedium,color=if(target!=null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
