@@ -484,7 +484,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                 label = { Text(stringResource(R.string.scroll), fontSize = 10.sp) }, modifier = Modifier.height(32.dp))
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                                 IconButton(onClick = { showGestureHelp = true }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Info, contentDescription = stringResource(R.string.desktop_gestures_title))
+                                    Icon(Icons.Default.Info, contentDescription = stringResource(R.string.desktop_gestures_title), modifier = Modifier.size(20.dp), tint = Color(0xFFB0B0B0))
                                 }
                                 IconButton(onClick = { isSoftKeyboardOpen = !isSoftKeyboardOpen }, modifier = Modifier.size(32.dp)) {
                                     Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.on_screen_keyboard), tint = if (isImeVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
