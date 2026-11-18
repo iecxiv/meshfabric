@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import iecxiv.meshfabric.R
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -47,7 +49,7 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
     }
 
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Text("Hold · teclas mantenidas", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.desktop_shortcuts_hold_title), style = MaterialTheme.typography.titleSmall)
     FlowRow(modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)) {
         desktopHoldKeys.forEach { key ->
@@ -58,14 +60,14 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
         OutlinedButton(onClick = { viewModel.releaseDesktopHolds(nodeId) }, enabled = held.isNotEmpty()) {
-            Text("Soltar todas")
+            Text(stringResource(R.string.desktop_shortcuts_release_all))
         }
     }
-    Text("Se mantienen al cerrar este diálogo. Al salir se intenta liberarlas; no se reactivan al reconectar.",
+    Text(stringResource(R.string.desktop_shortcuts_hold_hint),
         style = MaterialTheme.typography.bodySmall)
 
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
-    Text("Atajos personalizables", style = MaterialTheme.typography.titleSmall)
+    Text(stringResource(R.string.desktop_shortcuts_custom_title), style = MaterialTheme.typography.titleSmall)
     entries.forEachIndexed { index, shortcut ->
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             FilterChip(selected = true,
@@ -75,15 +77,15 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
                     fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) })
             IconButton(onClick = { move(index, -1) }, enabled = index > 0,
                 modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Subir ${shortcut.label}", modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = stringResource(R.string.desktop_shortcuts_move_up, shortcut.label), modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = { move(index, 1) }, enabled = index < entries.lastIndex,
                 modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Bajar ${shortcut.label}", modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = stringResource(R.string.desktop_shortcuts_move_down, shortcut.label), modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = { save(entries.filterIndexed { i, _ -> i != index }) },
                 modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.Delete, contentDescription = "Quitar ${shortcut.label}", modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.desktop_shortcuts_remove, shortcut.label), modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -96,9 +98,9 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
     val candidate = desktopHoldKeys.filter { it in modifiers } + listOfNotNull(selectedKey)
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
         Button(enabled = candidate.isNotEmpty() && entries.size < 64 && entries.none { it.keys == candidate },
-            onClick = { save(entries + DesktopShortcut(candidate)) }) { Text("Añadir") }
+            onClick = { save(entries + DesktopShortcut(candidate)) }) { Text(stringResource(R.string.desktop_shortcuts_add)) }
     }
-    TextButton(onClick = { save(DesktopShortcuts.defaults) }) { Text("Restaurar atajos predeterminados") }
+    TextButton(onClick = { save(DesktopShortcuts.defaults) }) { Text(stringResource(R.string.desktop_shortcuts_restore_defaults)) }
 }
 
 
@@ -136,12 +138,12 @@ private fun ShortcutKeyPicker(
     Box(modifier.wrapContentSize(Alignment.TopStart)) {
         OutlinedButton(onClick = { onExpandedChange(true) }, modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-            Text(selectedKey?.let(::desktopKeyLabel) ?: "Ninguna tecla", fontSize = 11.sp,
+            Text(selectedKey?.let(::desktopKeyLabel) ?: stringResource(R.string.desktop_shortcuts_no_key), fontSize = 11.sp,
                 textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) },
             offset = DpOffset.Zero, modifier = Modifier.heightIn(max = 260.dp)) {
-            DropdownMenuItem(text = { Text("Ninguna tecla") }, onClick = { onSelected(null) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.desktop_shortcuts_no_key)) }, onClick = { onSelected(null) })
             DesktopShortcuts.selectableKeys.forEach { key ->
                 DropdownMenuItem(text = { Text(desktopKeyLabel(key)) }, onClick = { onSelected(key) })
             }

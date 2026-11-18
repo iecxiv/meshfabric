@@ -1,0 +1,12 @@
+<resources>
+    <string name="desktop_shortcuts_hold_title">Held keys</string>
+    <string name="desktop_shortcuts_release_all">Release all</string>
+    <string name="desktop_shortcuts_hold_hint">They remain held after closing this dialog. On leaving, an attempt is made to release them; they are not reactivated on reconnect.</string>
+    <string name="desktop_shortcuts_custom_title">Custom shortcuts</string>
+    <string name="desktop_shortcuts_move_up">Move %1$s up</string>
+    <string name="desktop_shortcuts_move_down">Move %1$s down</string>
+    <string name="desktop_shortcuts_remove">Remove %1$s</string>
+    <string name="desktop_shortcuts_add">Add</string>
+    <string name="desktop_shortcuts_restore_defaults">Restore default shortcuts</string>
+    <string name="desktop_shortcuts_no_key">No key</string>
+</resources>
