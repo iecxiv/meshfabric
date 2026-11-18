@@ -2,7 +2,7 @@ package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import iecxiv.meshfabric.data.model.MeshGroup
 import org.junit.Assert.*
 import org.junit.Rule
