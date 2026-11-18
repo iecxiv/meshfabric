@@ -15,6 +15,8 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Search the device list by name or operating system.
 - Use the bottom navigation bar for Management, Server, Devices, Log and Notices.
 - Access desktop, terminal, file sessions, and device actions from each device card.
+- Expand the card options to open General, Events, Details and the agent Console. Details remains available there without a duplicate information icon beside ONLINE/OFFLINE.
+- Header filters control offline-device and network-address visibility.
 
 ### Native management and account security
 
@@ -69,6 +71,10 @@ Guide and acceptance checklist: [Notices and continuity](docs/notices.md). Real-
 Guide: [Agent installation and invitations](docs/agent-installation.md).
 
 ### Remote desktop
+
+- The connection label includes the server-reported viewer count when more than one viewer is present, for example Connected, 2 viewing. Multiple connections from the same account count separately; missing or invalid metadata does not invent a count.
+- The draggable control bar can reach both vertical edges and retains its relative position when expanded or collapsed. Viewport state is retained across automatic reconnects within the app session.
+- Resume and refresh use separate control packets; frame timing is sent with compression settings rather than through a periodic refresh loop. This does not guarantee compatibility with every server or agent.
 
 - Native remote desktop (KVM) with touchscreen mouse controls, left/right click, scrolling, zoom, and pan.
 - Virtual keyboard and shortcuts such as Ctrl+Alt+Del, Win+R, Alt+Tab, and function keys, subject to the remote environment and OS restrictions.
@@ -207,6 +213,16 @@ Remote command output is displayed separately from an interactive terminal. Clos
 
 A request being sent or accepted is not the same as an action being executed. MeshFabric reports unconfirmed results and connection interruptions rather than automatically repeating potentially disruptive actions. Remote notification display, URL opening, power actions, and WoL depend on the server and remote environment.
 
+### Device General and chat
+
+- General provides device metadata editing and reviewed actions according to verified permissions. Notes, command execution, notifications, chat and agent-console tools remain subject to server and agent capabilities.
+- Device sharing is hidden while its implementation is incomplete.
+- Chat supports text messages and can be minimized into movable in-app bubbles. Starting a chat explicitly asks the selected device to open its remote browser.
+- Open chats are included in background keep-alive session accounting. Backgrounding alone no longer deliberately disconnects them; the existing active-sessions notification is used. Closing a chat, ending its authenticated context or removing the task still closes it.
+- Drafts and chat history remain in memory, with no delivery/read receipts or automatic message replay. Process death and network/permission loss can end the chat.
+
+Guide and acceptance checklist: [Device sessions and chat](docs/device-sessions.md).
+
 ### Activity
 
 - View recent local action requests, server events, errors, and available command output.
@@ -230,6 +246,7 @@ Guide: [Log and Events](docs/log.md). Protocol reference: [Trace sources](docs/r
 
 ### Background sessions and notification
 
+- Open chats participate alongside desktop, terminal and file sessions, including when a chat is the only open session. Chat closures update the background service decision without dismissing other active sessions.
 - A keep-alive foreground-service notification is used while the app is in the background with sessions that need it.
 - Tapping the notification requests a return to MainActivity through an explicit immutable activity PendingIntent. It does not use task-clearing flags or explicitly request a terminal disconnect/restart.
 - Returning to the foreground follows the app's lifecycle behavior. A dead process still requires normal app startup; the notification does not guarantee recovery of an earlier live remote session.
@@ -239,7 +256,7 @@ Guide: [Log and Events](docs/log.md). Protocol reference: [Trace sources](docs/r
 - Material 3 interface with system, light, and dark theme modes.
 - Custom app display name and icon, plus a setting to hide the settings icon.
 - English and Spanish Android resource files are provided, including terminal reconnection, history-panel, deletion, close, and history-header controls.
-- Localization is not complete: some native management, activity, desktop, and feedback messages remain hard-coded in Spanish. Resource-key coverage is not proof that every visible phrase has been externalized or translated.
+- English and Spanish coverage includes desktop controls, shortcut labels, terminal navigation, file-transfer feedback and related management messages. Coverage is not a guarantee that every visible phrase is localized; remote output and server/agent messages can remain in their original language.
 
 The localization inventory and its limitations are documented in [docs/i18n](docs/i18n/README.md).
 
