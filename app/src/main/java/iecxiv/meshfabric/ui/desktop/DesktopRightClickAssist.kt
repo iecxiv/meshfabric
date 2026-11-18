@@ -5,6 +5,7 @@ import android.view.MotionEvent
 import android.view.ViewConfiguration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
@@ -114,7 +116,7 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
 @Composable internal fun DesktopRightClickAssistHeader(state: DesktopRightClickAssistState) {
     val label = stringResource(if (state.latch.visible) R.string.desktop_right_assist_hide else R.string.desktop_right_assist_show)
     IconButton(onClick = state::toggleVisible, modifier = Modifier.size(36.dp).semantics { selected = state.latch.visible }) {
-        Icon(Icons.Default.Mouse, label, tint = if (state.latch.visible) MaterialTheme.colorScheme.primary else LocalContentColor.current)
+        DesktopRightClickHeaderGlyph(state.latch.visible, label)
     }
 }
 
@@ -124,11 +126,12 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
 ) {
     val label = stringResource(R.string.desktop_right_assist_click)
     val status = stringResource(if (state.latch.armed) R.string.desktop_right_assist_armed else R.string.desktop_right_assist_idle)
+    val interaction = remember(state) { MutableInteractionSource() }
     var dragX = 0f; var dragY = 0f; var previousX = 0f; var previousY = 0f
     Layout(modifier = Modifier.fillMaxSize(), content = {
         Box { controls() }
         if (state.latch.visible) Surface(
-            modifier = Modifier.onGloballyPositioned { capture.assistControls = it.boundsInWindow() }
+            modifier = Modifier.clip(CircleShape).onGloballyPositioned { capture.assistControls = it.boundsInWindow() }
                 .semantics { contentDescription = label; stateDescription = status; selected = state.latch.armed }
                 .pointerInput(state, enabled) {
                     if (!enabled) return@pointerInput
@@ -137,8 +140,9 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
                         onDragCancel = { state.x = previousX; state.y = previousY },
                         onDragEnd = state::savePosition,
                         onDrag = { change, amount -> change.consume(); dragX += amount.x; dragY += amount.y; state.desired(dragX, dragY) })
-                }.clickable(enabled = enabled) { state.latch.toggle() },
+                }.clickable(interactionSource = interaction, indication = null, enabled = enabled) { state.latch.toggle() },
             shape = CircleShape,
+            shadowElevation = 0.dp,
             border = BorderStroke(if (state.latch.armed) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
             color = if (state.latch.armed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
             contentColor = if (state.latch.armed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
