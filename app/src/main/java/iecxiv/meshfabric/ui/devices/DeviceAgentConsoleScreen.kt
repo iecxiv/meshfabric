@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.gson.JsonParser
+import kotlinx.coroutines.flow.first
 import iecxiv.meshfabric.data.model.MeshNode
 import iecxiv.meshfabric.data.remote.MeshCentralClient
 
@@ -51,17 +51,18 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
         val session=remember {DeviceAgentConsoleSession(source,nodeId)}
         val state by session.state.collectAsState()
         val owner=LocalLifecycleOwner.current
-        var versionRequested by remember {mutableStateOf(false)}
         var reportedVersion by remember {mutableStateOf<String?>(null)}
-        LaunchedEffect(session,state.phase) {
-            if(state.phase=="closed") versionRequested=false
-            else if(state.phase=="ready" && !versionRequested) {
-                versionRequested=true
-                session.submit("versions")
+        var queryingVersion by remember {mutableStateOf(false)}
+        LaunchedEffect(session,state.phase!="closed") {
+            reportedVersion=null
+            queryingVersion=false
+            if(state.phase!="closed") {
+                queryingVersion=true
+                try {
+                    val ready=session.state.first {it.phase=="ready" || it.phase=="closed"}
+                    if(ready.phase=="ready") reportedVersion=readAgentConsoleVersion(source,nodeId,agentVersion)
+                } finally {queryingVersion=false}
             }
-        }
-        LaunchedEffect(state.lines) {
-            state.lines.asReversed().firstNotNullOfOrNull {line->if(line.kind=="output") agentConsoleBuildVersion(line.text) else null}?.let {reportedVersion=it}
         }
         var draft by remember {mutableStateOf("")}
         var query by remember {mutableStateOf("")}
@@ -115,7 +116,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                     DropdownMenuItem(text={Text(t("Desconectar consola local","Disconnect local console"))},enabled=state.phase!="closed",onClick={session.disconnect();menu=false})
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-            Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: agentVersion ?: if(state.phase in setOf("connecting","checking","checking_send")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
+            Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: agentVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
             Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(when(state.phase) {
                     "connecting","checking"->t("Verificando canal, agente y permiso de consola…","Verifying channel, agent and console permission…")
@@ -130,7 +131,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
             SelectionContainer(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)) {Text(visible.ifEmpty {t("Sin salida recibida.","No output received.")},fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.fillMaxWidth().testTag("agent_console_output"))}
             if(!follow) TextButton(onClick={query="";follow=true}) {Text(t("Ir al final y seguir salida","Go to end and follow output"))}
             if(copyStatus.isNotEmpty()) Text(copyStatus,style=MaterialTheme.typography.labelSmall)
-            Text(t("Salida sin prueba de finalización. Búfer: 1000 entradas / 256000 caracteres; historial: 50 comandos, solo en memoria. Al conectar se consulta «versions» una vez para mostrar la compilación del agente.","Output does not prove completion. Buffer: 1000 entries / 256000 characters; history: 50 commands, memory only. On connection, versions is queried once to display the agent build."),style=MaterialTheme.typography.labelSmall)
+            Text(t("Salida sin prueba de finalización. Búfer: 1000 entradas / 256000 caracteres; historial: 50 comandos, solo en memoria.","Output does not prove completion. Buffer: 1000 entries / 256000 characters; history: 50 commands, memory only."),style=MaterialTheme.typography.labelSmall)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 Box {TextButton(onClick={history=true},enabled=state.history.isNotEmpty()) {Text(t("Historial","History"))};DropdownMenu(history,{history=false},modifier=Modifier.heightIn(max=260.dp)) {state.history.asReversed().forEach {command->DropdownMenuItem(text={Text(command,maxLines=2,overflow=TextOverflow.Ellipsis)},onClick={draft=command;history=false})}}}
                 OutlinedTextField(draft,{draft=it},singleLine=true,label={Text(t("Comando del agente","Agent command"))},keyboardOptions=KeyboardOptions(imeAction=ImeAction.Send),keyboardActions=KeyboardActions(onSend={submit()}),modifier=Modifier.weight(1f).testTag("agent_console_input"))
@@ -153,11 +154,3 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
         if(leave) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={leave=false},title={Text(t("Cerrar consola","Close console"))},text={Text(t("Se perderán borrador, salida e historial locales. Un comando ya enviado no se cancela ni se revierte.","Local draft, output and history will be lost. An already sent command is not canceled or undone."))},confirmButton={TextButton(onClick={session.disconnect();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={leave=false}) {Text(t("Volver","Back"))}})
     }
 }
-
-internal fun agentConsoleBuildVersion(text:String):String?=runCatching {
-    val json=JsonParser.parseString(text.trim()).asJsonObject
-    fun field(key:String)=json.get(key)?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString?.takeIf {it.isNotBlank() && it.length<=128 && it.none {c->c.isISOControl()}}
-    val compiled=field("compileTime") ?: field("commitDate")
-    val hash=field("commitHash")?.take(12)
-    listOfNotNull(compiled,hash).joinToString(" · ").takeIf {it.isNotBlank()}
-}.getOrNull()

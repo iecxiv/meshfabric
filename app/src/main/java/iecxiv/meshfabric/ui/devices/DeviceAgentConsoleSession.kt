@@ -38,6 +38,7 @@ internal fun agentConsoleBounded(lines:List<AgentConsoleLine>):List<AgentConsole
 internal data class AgentConsoleState(val phase:String="closed",val code:String="",val lines:List<AgentConsoleLine> = emptyList(),val history:List<String> = emptyList(),val rights:Long?=null)
 internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,private val node:String) {
     val state=MutableStateFlow(AgentConsoleState())
+    val agentVersion=MutableStateFlow<String?>(null)
     private val jobs=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val url=source.serverUrl;private val cookie=source.authCookie;private val tls=source.ignoreSsl;private val actor=source.userInfo.value?.id.orEmpty()
     private var socket:WebSocket?=null;private var generation=0L;private var disposed=false;private var revoked=false
@@ -50,7 +51,7 @@ internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,pr
     @Synchronized private fun retire(code:String,clear:Boolean=false) {
         generation++;timer?.cancel();tag="";meta=null
         val old=socket;socket=null;old?.cancel()
-        if(clear) {revoked=true;pending=null;pendingAction=null;state.value=AgentConsoleState(code=code)} else {
+        if(clear) {agentVersion.value=null;revoked=true;pending=null;pendingAction=null;state.value=AgentConsoleState(code=code)} else {
             if(pending!=null) append("not_sent",requireNotNull(pending))
             pendingAction?.let {append("not_sent",it.wire)}
             pending=null;pendingAction=null;state.value=state.value.copy(phase="closed",code=code,rights=null)
@@ -66,6 +67,7 @@ internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,pr
         if(disposed || revoked || state.value.phase!="closed") return
         val a=actor.split('/');val n=node.split('/')
         if(!identity() || cookie.isBlank() || !source.connectionState.value || a.size!=3 || a[0]!="user" || a[2].isBlank() || n.size!=3 || n[0]!="node" || n[2].isBlank() || a[1]!=n[1]) {retire("unavailable");return}
+        agentVersion.value=null
         state.value=state.value.copy(phase="connecting",code="");deadline();val g=++generation
         try {socket=OkHttpHelper.createClient(tls).newBuilder().followRedirects(false).followSslRedirects(false).build().newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(url,"/control.ashx?moreargs=1")).header("Cookie",cookie).build(),object:WebSocketListener() {
             override fun onOpen(webSocket:WebSocket,response:Response) {synchronized(this@DeviceAgentConsoleSession) {
@@ -95,6 +97,7 @@ internal class DeviceAgentConsoleSession(private val source:MeshCentralClient,pr
             "getsysinfo"->if(tag.isNotBlank() && p.get("tag")?.asString==tag && p.get("nodeid")?.asString==node && state.value.phase in setOf("checking","checking_send")) {
                 val received=generalMeta(p,node,tag) ?: run {retire("unverified");return}
                 if(!agentConsoleAvailable(node,received,source.groupedDevices.value)) {retire("denied");return}
+                agentVersion.value=agentConsoleServerVersion(p)
                 meta=received;tag="";timer?.cancel()
                 val command=pending
                 val action=pendingAction
