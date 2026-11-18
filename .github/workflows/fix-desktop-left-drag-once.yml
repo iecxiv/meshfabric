@@ -1,0 +1,81 @@
+name: Fix desktop left drag once
+'on':
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-desktop-left-drag-once.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fix-desktop-left-drag-once
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+      - name: Apply verified gesture correction
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, os, subprocess
+          B='app/src/main/java/iecxiv/meshfabric/ui/desktop/'
+          W='.github/workflows/fix-desktop-left-drag-once.yml'
+          def require(ok,message):
+              if not ok: raise SystemExit(message)
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          def safe(name):
+              p=Path(name)
+              require(Path.cwd().resolve() in p.resolve().parents and not p.is_symlink(),'Unsafe path: '+name)
+              return p
+          def read(name,expected):
+              raw=safe(name).read_bytes()
+              require(hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()==expected,'Source changed: '+name)
+              return raw.decode('utf-8')
+          require(os.environ['GITHUB_REPOSITORY']=='iecxiv/meshfabric' and os.environ['GITHUB_REF']=='refs/heads/dev','Wrong target')
+          require(git('rev-parse','HEAD')==os.environ['GITHUB_SHA'] and not git('status','--porcelain'),'Wrong checkout')
+          screen=read(B+'RemoteDesktopScreen.kt','fcce32ef45731bdddae8e6ec79cdb4acf0984b99')
+          capture=read(B+'DesktopMouseCapture.kt','0d3e04b137f7c42e9df3eef3b671213c544aa131')
+          begin='                            .pointerInput(nodeId, selectedMode, containerWidth, containerHeight, drawWidth, drawHeight) {'
+          end='\n                        contentAlignment = Alignment.Center'
+          require(screen.count(begin)==1,'Ambiguous gesture start')
+          a=screen.index(begin);b=screen.index(end,a)
+          require(screen[a:b].count('var isLongPressed')==1 and screen[a:b].endswith('},'),'Unexpected gesture block')
+          handler='                            .pointerInput(nodeId, selectedMode, desktopKeyboardActive, containerWidth, containerHeight, drawWidth, drawHeight) {\n                                if (!desktopKeyboardActive) return@pointerInput\n                                val touchSlop = viewConfiguration.touchSlop\n                                fun point(position: androidx.compose.ui.geometry.Offset): DesktopWheelPoint? =\n                                    DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY)\n                                        .project(position.x, position.y)\n                                awaitEachGesture {\n                                    val down = awaitFirstDown(requireUnconsumed = true)\n                                    // Physical mouse buttons are owned by DesktopMouseCapture, never by a long-press timer.\n                                    if (down.type == androidx.compose.ui.input.pointer.PointerType.Mouse) return@awaitEachGesture\n                                    val initial = point(down.position) ?: return@awaitEachGesture\n                                    val drag = DesktopTouchDragGesture(initial, touchSlop,\n                                        press = { desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.DOWN) },\n                                        move = { desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.MOVE) },\n                                        release = { desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP); Unit })\n                                    var moved = false\n                                    var transformed = false\n                                    var cancelled = false\n                                    var dragAmountY = 0f\n                                    try {\n                                        do {\n                                            val event = awaitPointerEvent()\n                                            if (!desktopMouseCapture.ready() || event.changes.any { it.isConsumed }) {\n                                                cancelled = true\n                                                break\n                                            }\n                                            val pointerCount = event.changes.count { it.pressed }\n                                            if (pointerCount >= 2) {\n                                                drag.cancel()\n                                                transformed = true\n                                                moved = true\n                                                val zoom = event.calculateZoom()\n                                                val pan = event.calculatePan()\n                                                scale = (scale * zoom).coerceIn(1f, 6f)\n                                                val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)\n                                                val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)\n                                                offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)\n                                                offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)\n                                                event.changes.forEach { it.consume() }\n                                            } else if (!transformed) {\n                                                val change = event.changes.firstOrNull { it.id == down.id }\n                                                if (change == null) {\n                                                    cancelled = true\n                                                    break\n                                                }\n                                                val distance = (change.position - down.position).getDistance()\n                                                if (distance > touchSlop) moved = true\n                                                when (selectedMode) {\n                                                    MouseMode.LEFT_CLICK, MouseMode.DRAG_MOVE -> {\n                                                        drag.move(point(change.position), distance)\n                                                        if (drag.isCancelled) {\n                                                            cancelled = true\n                                                            break\n                                                        }\n                                                        if (moved) change.consume()\n                                                    }\n                                                    MouseMode.SCROLL -> if (moved) {\n                                                        dragAmountY += change.positionChange().y\n                                                        if (kotlin.math.abs(dragAmountY) >= touchSlop) {\n                                                            val projected = point(change.position)\n                                                            val (width, height) = viewModel.screenResolution(nodeId).value\n                                                            val remote = projected?.remote(width, height)\n                                                            if (remote != null) {\n                                                                val direction = if (dragAmountY < 0) -1 else 1\n                                                                val factor = if (settings.reverseMouseWheel) -1 else 1\n                                                                viewModel.sendMouseScroll(nodeId, remote.first, remote.second, 120 * direction * factor)\n                                                            }\n                                                            dragAmountY = 0f\n                                                        }\n                                                        change.consume()\n                                                    }\n                                                    else -> if (moved) change.consume()\n                                                }\n                                            } else {\n                                                event.changes.forEach { it.consume() }\n                                            }\n                                        } while (event.changes.any { it.pressed })\n                                        val tap = drag.finish() && !moved && !transformed && !cancelled\n                                        if (tap && desktopMouseCapture.ready()) {\n                                            when (selectedMode) {\n                                                MouseMode.RIGHT_CLICK -> viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)\n                                                MouseMode.MIDDLE_CLICK -> viewModel.performMiddleClick(nodeId, initial.xFraction, initial.yFraction)\n                                                else -> {\n                                                    if (desktopMouseCapture.primaryInput(initial, DesktopPrimaryPhase.DOWN))\n                                                        desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP)\n                                                }\n                                            }\n                                        }\n                                    } finally {\n                                        drag.cancel()\n                                    }\n                                }\n                            },'
+          screen=screen[:a]+handler+screen[b:]
+          old='        if (primaryDevice != null) primaryInput(null, DesktopPrimaryPhase.UP)\n'
+          require(capture.count(old)==1,'Ambiguous primary-release anchor')
+          capture=capture.replace(old,'        primaryInput(null, DesktopPrimaryPhase.UP)\n',1)
+          policy='package iecxiv.meshfabric.ui.desktop\n\ninternal class DesktopTouchDragGesture(\n    private val initial: DesktopWheelPoint,\n    private val touchSlop: Float,\n    private val press: (DesktopWheelPoint) -> Boolean,\n    private val move: (DesktopWheelPoint) -> Boolean,\n    private val release: () -> Unit\n) {\n    private var held = false\n    private var moved = false\n    private var ended = false\n    var isCancelled = false\n        private set\n\n    fun move(point: DesktopWheelPoint?, distance: Float) {\n        if (ended) return\n        if (point == null || !distance.isFinite() || distance < 0f) { cancel(); return }\n        if (distance > touchSlop) moved = true\n        if (!moved) return\n        if (!held) {\n            if (!press(initial)) { cancel(); return }\n            held = true\n        }\n        if (!move.invoke(point)) cancel()\n    }\n\n    fun finish(): Boolean {\n        if (ended) return false\n        ended = true\n        releaseIfHeld()\n        return !isCancelled && !moved\n    }\n\n    fun cancel() {\n        if (ended) return\n        isCancelled = true\n        ended = true\n        releaseIfHeld()\n    }\n\n    private fun releaseIfHeld() {\n        if (!held) return\n        held = false\n        release()\n    }\n}\n'
+          tests='package iecxiv.meshfabric.ui.desktop\n\nimport org.junit.Assert.*\nimport org.junit.Test\n\nclass DesktopTouchDragGestureTest {\n    private class Fixture {\n        val events = mutableListOf<String>()\n        val start = DesktopWheelPoint(0.1f, 0.2f)\n        val target = DesktopWheelPoint(0.4f, 0.5f)\n        var available = true\n        val drag = DesktopTouchDragGesture(start, 8f,\n            press = { events += "down:$it"; available },\n            move = { events += "move:$it"; available },\n            release = { events += "up" })\n    }\n    @Test fun stationaryHoldRemainsATapWithoutAnySyntheticRightClick() {\n        val f = Fixture()\n        repeat(100) { f.drag.move(f.start, 0f) }\n        assertTrue(f.events.isEmpty())\n        assertTrue(f.drag.finish())\n        assertFalse(f.drag.finish())\n    }\n    @Test fun thresholdStartsAtOriginalPositionAndHoldsUntilRelease() {\n        val f = Fixture()\n        f.drag.move(f.target, 9f)\n        f.drag.move(f.target, 12f)\n        assertEquals(listOf("down:${f.start}", "move:${f.target}", "move:${f.target}"), f.events)\n        assertFalse(f.drag.finish())\n        assertEquals("up", f.events.last())\n        f.drag.cancel()\n        assertEquals(1, f.events.count { it == "up" })\n    }\n    @Test fun multiTouchOrCancellationReleasesAndNeverResumesTheSameGesture() {\n        val f = Fixture()\n        f.drag.move(f.target, 10f)\n        f.drag.cancel()\n        val count = f.events.size\n        f.drag.move(f.target, 30f)\n        assertFalse(f.drag.finish())\n        assertTrue(f.drag.isCancelled)\n        assertEquals(count, f.events.size)\n        assertEquals(1, f.events.count { it == "up" })\n    }\n    @Test fun cancelBeforeMovementDoesNotClick() {\n        val f = Fixture(); f.drag.cancel()\n        assertFalse(f.drag.finish()); assertTrue(f.events.isEmpty())\n    }\n    @Test fun leavingTheImageReleasesTheButton() {\n        val f = Fixture(); f.drag.move(f.target, 10f); f.drag.move(null, 20f)\n        assertTrue(f.drag.isCancelled); assertEquals("up", f.events.last()); assertFalse(f.drag.finish())\n    }\n    @Test fun failedPressIsNotRetried() {\n        val f = Fixture(); f.available = false\n        f.drag.move(f.target, 10f); f.drag.move(f.target, 20f)\n        assertTrue(f.drag.isCancelled); assertEquals(1, f.events.size); assertFalse(f.drag.finish())\n    }\n    @Test fun failedMoveReleasesOnceAndSuppressesTap() {\n        val f = Fixture(); f.drag.move(f.target, 10f); f.available = false; f.drag.move(f.target, 20f)\n        assertTrue(f.drag.isCancelled); assertEquals(1, f.events.count { it == "up" }); assertFalse(f.drag.finish())\n    }\n}\n'
+          new={B+'DesktopTouchDragGesture.kt':policy,'app/src/test/java/iecxiv/meshfabric/ui/desktop/DesktopTouchDragGestureTest.kt':tests}
+          for name in new: require(not safe(name).exists(),'New file exists: '+name)
+          planned={B+'RemoteDesktopScreen.kt':screen,B+'DesktopMouseCapture.kt':capture,**new}
+          for name,content in planned.items():
+              p=safe(name);p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(content.encode('utf-8'))
+          safe(W).unlink()
+          subprocess.run(['git','add','--',*planned,W],check=True)
+          require(set(git('diff','--cached','--name-only').splitlines())==set(planned)|{W},'Unexpected staged files')
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          PY
+      - name: Publish only if dev has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin dev
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(desktop): separate primary drag from touch context clicks'
+          git push origin HEAD:refs/heads/dev
+          echo "Published $(git rev-parse HEAD); temporary workflow removed. Build and tests NOT run." >> "$GITHUB_STEP_SUMMARY"
