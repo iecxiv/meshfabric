@@ -244,7 +244,7 @@ fun RemoteDesktopScreen(
                         Column {
                             Text(text = stringResource(R.string.desktop_title, nodeName), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             Text(
-                                text = if (isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_connecting),
+                                text = desktopConnectionStatusText(viewModel, nodeId, isConnected),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (isConnected) Color.Green else Color.Yellow
                             )

@@ -71,6 +71,8 @@ class DesktopSession(
 
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
+    private val _viewerCount = MutableStateFlow<Int?>(null)
+    val viewerCount: StateFlow<Int?> = _viewerCount.asStateFlow()
 
     private val _screenResolution = MutableStateFlow(Pair(1024, 768))
     val screenResolution: StateFlow<Pair<Int, Int>> = _screenResolution.asStateFlow()
@@ -248,6 +250,7 @@ class DesktopSession(
     }
 
     private fun retireSocket() {
+        _viewerCount.value = null
         logFrameDiagnostics("retire", true)
         clipboardReadTimeout?.cancel()
         clipboardWriteTimeout?.cancel()
@@ -396,7 +399,9 @@ class DesktopSession(
                     }
                     webSocket?.send(pong.toString())
                 }
-                "metadata" -> Unit // Viewer metadata must not trigger a stream refresh.
+                "metadata" -> {
+                    _viewerCount.value = desktopViewerCount(json)
+                }
                 "displays", "desktop", "uiprompt" -> {
                     refreshDisplay()
                 }
