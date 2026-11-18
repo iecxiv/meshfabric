@@ -1,0 +1,21 @@
+<resources>
+    <string name="desktop_key_shift">Shift</string>
+    <string name="desktop_key_backspace">Backspace</string>
+    <string name="desktop_key_enter">Enter</string>
+    <string name="desktop_key_pause">Pause</string>
+    <string name="desktop_key_caps_lock">Caps Lock</string>
+    <string name="desktop_key_space">Space</string>
+    <string name="desktop_key_page_up">Page Up</string>
+    <string name="desktop_key_page_down">Page Down</string>
+    <string name="desktop_key_end">End</string>
+    <string name="desktop_key_home">Home</string>
+    <string name="desktop_key_left">Left</string>
+    <string name="desktop_key_up">Up</string>
+    <string name="desktop_key_right">Right</string>
+    <string name="desktop_key_down">Down</string>
+    <string name="desktop_key_print_screen">Print Screen</string>
+    <string name="desktop_key_insert">Insert</string>
+    <string name="desktop_key_delete">Delete</string>
+    <string name="desktop_key_num_lock">Num Lock</string>
+    <string name="desktop_key_scroll_lock">Scroll Lock</string>
+</resources>

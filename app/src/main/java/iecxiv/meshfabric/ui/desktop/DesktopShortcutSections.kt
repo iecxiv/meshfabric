@@ -55,7 +55,7 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
         desktopHoldKeys.forEach { key ->
             FilterChip(selected = key in held, enabled = connected,
                 onClick = { viewModel.toggleDesktopHold(nodeId, key) },
-                label = { Text(desktopKeyLabel(key)) })
+                label = { Text(desktopKeyDisplayLabel(key)) })
         }
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
@@ -69,23 +69,24 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Text(stringResource(R.string.desktop_shortcuts_custom_title), style = MaterialTheme.typography.titleSmall)
     entries.forEachIndexed { index, shortcut ->
+        val shortcutLabel = desktopShortcutDisplayLabel(shortcut)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             FilterChip(selected = true,
                 onClick = { viewModel.sendKeyCombo(nodeId, *shortcut.keys.toIntArray()) },
                 enabled = connected, modifier = Modifier.weight(1f).heightIn(min = 32.dp),
-                label = { Text(shortcut.label, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                label = { Text(shortcutLabel, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
                     fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) })
             IconButton(onClick = { move(index, -1) }, enabled = index > 0,
                 modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = stringResource(R.string.desktop_shortcuts_move_up, shortcut.label), modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = stringResource(R.string.desktop_shortcuts_move_up, shortcutLabel), modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = { move(index, 1) }, enabled = index < entries.lastIndex,
                 modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = stringResource(R.string.desktop_shortcuts_move_down, shortcut.label), modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = stringResource(R.string.desktop_shortcuts_move_down, shortcutLabel), modifier = Modifier.size(20.dp))
             }
             IconButton(onClick = { save(entries.filterIndexed { i, _ -> i != index }) },
                 modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.desktop_shortcuts_remove, shortcut.label), modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.desktop_shortcuts_remove, shortcutLabel), modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -121,7 +122,7 @@ private fun ShortcutModifierChecks(
                 .padding(horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(2.dp))
-                Text(desktopKeyLabel(key), fontSize = 11.sp, maxLines = 1)
+                Text(desktopKeyDisplayLabel(key), fontSize = 11.sp, maxLines = 1)
             }
         }
     }
@@ -138,14 +139,14 @@ private fun ShortcutKeyPicker(
     Box(modifier.wrapContentSize(Alignment.TopStart)) {
         OutlinedButton(onClick = { onExpandedChange(true) }, modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
-            Text(selectedKey?.let(::desktopKeyLabel) ?: stringResource(R.string.desktop_shortcuts_no_key), fontSize = 11.sp,
+            Text(if (selectedKey == null) stringResource(R.string.desktop_shortcuts_no_key) else desktopKeyDisplayLabel(selectedKey), fontSize = 11.sp,
                 textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) },
             offset = DpOffset.Zero, modifier = Modifier.heightIn(max = 260.dp)) {
             DropdownMenuItem(text = { Text(stringResource(R.string.desktop_shortcuts_no_key)) }, onClick = { onSelected(null) })
             DesktopShortcuts.selectableKeys.forEach { key ->
-                DropdownMenuItem(text = { Text(desktopKeyLabel(key)) }, onClick = { onSelected(key) })
+                DropdownMenuItem(text = { Text(desktopKeyDisplayLabel(key)) }, onClick = { onSelected(key) })
             }
         }
     }

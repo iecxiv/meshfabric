@@ -1,0 +1,21 @@
+<resources>
+    <string name="desktop_key_shift">Mayús</string>
+    <string name="desktop_key_backspace">Retroceso</string>
+    <string name="desktop_key_enter">Intro</string>
+    <string name="desktop_key_pause">Pausa</string>
+    <string name="desktop_key_caps_lock">Bloq Mayús</string>
+    <string name="desktop_key_space">Espacio</string>
+    <string name="desktop_key_page_up">Re Pág</string>
+    <string name="desktop_key_page_down">Av Pág</string>
+    <string name="desktop_key_end">Fin</string>
+    <string name="desktop_key_home">Inicio</string>
+    <string name="desktop_key_left">Izquierda</string>
+    <string name="desktop_key_up">Arriba</string>
+    <string name="desktop_key_right">Derecha</string>
+    <string name="desktop_key_down">Abajo</string>
+    <string name="desktop_key_print_screen">Impr Pant</string>
+    <string name="desktop_key_insert">Insertar</string>
+    <string name="desktop_key_delete">Supr</string>
+    <string name="desktop_key_num_lock">Bloq Num</string>
+    <string name="desktop_key_scroll_lock">Bloq Despl</string>
+</resources>
