@@ -113,8 +113,8 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
 
 @Composable internal fun DesktopRightClickAssistHeader(state: DesktopRightClickAssistState) {
     val label = stringResource(if (state.latch.visible) R.string.desktop_right_assist_hide else R.string.desktop_right_assist_show)
-    IconButton(onClick = state::toggleVisible, modifier = Modifier.size(36.dp).semantics { selected = state.latch.visible }) {
-        DesktopRightClickHeaderGlyph(state.latch.visible, label)
+    IconButton(onClick = state::toggleVisible, modifier = Modifier.size(38.dp).semantics { selected = state.latch.visible }) {
+        DesktopRightClickHeaderGlyph(state.latch.visible, label, iconSize = 20.dp)
     }
 }
 

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_display_selector_title">Pantallas</string>
+    <string name="desktop_display_selector_number">Pantalla %1$d</string>
+    <string name="desktop_display_selector_all">Todas</string>
+    <string name="desktop_display_selector_unavailable">La sesión remota no ha comunicado pantallas. Abre de nuevo para consultar.</string>
+    <string name="desktop_display_selector_applying">Aplicando selección de pantalla…</string>
+    <string name="desktop_display_selector_unconfirmed">Selección sin confirmar. Abre de nuevo este menú para consultar.</string>
+</resources>

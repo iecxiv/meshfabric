@@ -5,6 +5,8 @@ import iecxiv.meshfabric.data.model.platform
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.RemoteHeaderActions
+import iecxiv.meshfabric.ui.components.RemoteHeaderIcon
 import iecxiv.meshfabric.ui.components.NumberedTextEditor
 import iecxiv.meshfabric.data.model.TransferType
 import iecxiv.meshfabric.data.remote.checkDownloadFileExists
@@ -345,50 +347,52 @@ private fun FileManagerContent(
                         } else {
                             onBack()
                         }
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    }, modifier = Modifier.size(38.dp)) {
+                        RemoteHeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { isSearchActive = !isSearchActive },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            if (isSearchActive) Icons.Default.Clear else Icons.Default.Search,
-                            contentDescription = stringResource(R.string.search)
-                        )
-                    }
-                    IconButton(
-                        onClick = {
-                            goToPathInput = currentPath
-                            showGoToDialog = true
-                        },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.go_to_path_title))
-                    }
-                    IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Storage, contentDescription = stringResource(if (windowsFiles) R.string.files_drives else R.string.files_root_shortcut_label), tint = if (if (windowsFiles) driveSelector else currentPath == "/") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(
-                        onClick = { viewModel.refresh(nodeId) },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
-                    }
-                    IconButton(
-                        onClick = {
-                            viewModel.stopSession(nodeId)
-                            onBack()
-                        },
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = stringResource(R.string.files_disconnect_action),
-                            tint = Color.Red
-                        )
+                    RemoteHeaderActions {
+                        IconButton(
+                            onClick = { isSearchActive = !isSearchActive },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            RemoteHeaderIcon(
+                                if (isSearchActive) Icons.Default.Clear else Icons.Default.Search,
+                                contentDescription = stringResource(R.string.search)
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                goToPathInput = currentPath
+                                showGoToDialog = true
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            RemoteHeaderIcon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.go_to_path_title))
+                        }
+                        IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Storage, contentDescription = stringResource(if (windowsFiles) R.string.files_drives else R.string.files_root_shortcut_label), tint = if (if (windowsFiles) driveSelector else currentPath == "/") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(
+                            onClick = { viewModel.refresh(nodeId) },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            RemoteHeaderIcon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
+                        }
+                        IconButton(
+                            onClick = {
+                                viewModel.stopSession(nodeId)
+                                onBack()
+                            },
+                            modifier = Modifier.size(38.dp)
+                        ) {
+                            RemoteHeaderIcon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.files_disconnect_action),
+                                tint = Color.Red
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

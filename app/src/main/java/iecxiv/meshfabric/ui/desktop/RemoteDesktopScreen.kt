@@ -58,6 +58,8 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.RemoteHeaderActions
+import iecxiv.meshfabric.ui.components.RemoteHeaderIcon
 import iecxiv.meshfabric.data.remote.ClipboardTransferState
 import iecxiv.meshfabric.data.remote.DesktopEncoding
 import iecxiv.meshfabric.data.remote.FrameRateOption
@@ -67,6 +69,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDesktopViewModel, onBack: () -> Unit) {
     val isConnected by viewModel.isConnected(nodeId).collectAsState()
+    val displayState by viewModel.displays(nodeId).collectAsState()
     val desktopBitmap by viewModel.desktopBitmap(nodeId).collectAsState()
     val frameVersion by viewModel.frameVersion(nodeId).collectAsState()
     val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
@@ -83,6 +86,20 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
     var scale by viewport.scale
     var offsetX by viewport.offsetX
     var offsetY by viewport.offsetY
+    val previousDisplay = remember(nodeId) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(nodeId, displayState.selectedId) {
+        val selected = displayState.selectedId
+        if (selected != null) {
+            if (previousDisplay.value != null && previousDisplay.value != selected) {
+                scale = 1f
+                offsetX = 0f
+                offsetY = 0f
+                viewModel.releaseDesktopKeys(nodeId)
+                rightClickAssist.latch.cancel()
+            }
+            previousDisplay.value = selected
+        }
+    }
     var selectedMode by remember { mutableStateOf(MouseMode.LEFT_CLICK) }
     var isControlsBarCollapsed by rememberSaveable { mutableStateOf(viewModel.isDesktopBarCollapsed()) }
     var isFullScreen by rememberSaveable { mutableStateOf(false) }
@@ -113,7 +130,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
         DesktopKeyboardRouter { key, down -> viewModel.sendDesktopKeyEvent(nodeId, key, down) }
     }
     val desktopLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
-    val desktopKeyboardActive = isConnected && !showKeyboardDialog && !showClipboardDialog && !showSettingsDialog && !showGestureHelp &&
+    val desktopKeyboardActive = isConnected && displayState.pendingId == null && !displayState.selectionUnconfirmed && !showKeyboardDialog && !showClipboardDialog && !showSettingsDialog && !showGestureHelp &&
         desktopLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
     DesktopRightClickAssistBinding(rightClickAssist, desktopMouseCapture, desktopKeyboardActive)
     LaunchedEffect(desktopKeyboard, desktopKeyboardActive) {
@@ -161,24 +178,35 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
+                    IconButton(onClick = onBack, modifier = Modifier.size(38.dp)) { RemoteHeaderIcon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back)) }
                 },
                 actions = {
-                    DesktopRightClickAssistHeader(rightClickAssist)
-                    IconButton(onClick = { showKeyboardDialog = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.keyboard_and_shortcuts))
-                    }
-                    IconButton(onClick = { showClipboardDialog = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.clipboard))
-                    }
-                    IconButton(onClick = { showSettingsDialog = true }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.options))
-                    }
-                    IconButton(onClick = { viewModel.refreshDisplay(nodeId) }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
-                    }
-                    IconButton(onClick = { viewModel.stopSession(nodeId); onBack() }, modifier = Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = stringResource(R.string.disconnect_desktop), tint = Color.Red)
+                    RemoteHeaderActions {
+                        DesktopRightClickAssistHeader(rightClickAssist)
+                        IconButton(onClick = { showKeyboardDialog = true }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.keyboard_and_shortcuts))
+                        }
+                        IconButton(onClick = { showClipboardDialog = true }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.clipboard))
+                        }
+                        DesktopDisplaySelector(
+                            state = displayState,
+                            connected = isConnected,
+                            onOpen = { viewModel.requestDisplays(nodeId) },
+                            onSelect = { displayId, generation ->
+                                rightClickAssist.latch.cancel()
+                                viewModel.selectDisplay(nodeId, displayId, generation)
+                            }
+                        )
+                        IconButton(onClick = { showSettingsDialog = true }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Settings, contentDescription = stringResource(R.string.options))
+                        }
+                        IconButton(onClick = { viewModel.refreshDisplay(nodeId) }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
+                        }
+                        IconButton(onClick = { viewModel.stopSession(nodeId); onBack() }, modifier = Modifier.size(38.dp)) {
+                            RemoteHeaderIcon(Icons.Default.Close, contentDescription = stringResource(R.string.disconnect_desktop), tint = Color.Red)
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)

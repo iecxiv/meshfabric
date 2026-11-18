@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="desktop_display_selector_title">Displays</string>
+    <string name="desktop_display_selector_number">Display %1$d</string>
+    <string name="desktop_display_selector_all">All displays</string>
+    <string name="desktop_display_selector_unavailable">No displays reported by the remote session. Reopen to query again.</string>
+    <string name="desktop_display_selector_applying">Applying display selection…</string>
+    <string name="desktop_display_selector_unconfirmed">Selection not confirmed. Reopen this menu to query again.</string>
+</resources>
