@@ -160,6 +160,10 @@ fun RemoteDesktopScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val clipboard = LocalClipboard.current
     val clipboardScope = rememberCoroutineScope()
+    val pastedFromAndroidText = stringResource(R.string.pasted_from_android)
+    val androidClipboardEmptyText = stringResource(R.string.android_clipboard_empty)
+    val copiedToAndroidText = stringResource(R.string.copied_to_android)
+    val remoteClipboardEmptyText = stringResource(R.string.remote_clipboard_empty)
     val clipboardEpoch = remember(nodeId, showClipboardDialog) { Any() }
     val currentClipboardEpoch = rememberUpdatedState(clipboardEpoch)
 
@@ -248,7 +252,7 @@ fun RemoteDesktopScreen(
                     },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                         }
                     },
                     actions = {
@@ -256,25 +260,25 @@ fun RemoteDesktopScreen(
                             onClick = { showKeyboardDialog = true },
                             modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(Icons.Default.Keyboard, contentDescription = "Teclado y Atajos")
+                            Icon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.keyboard_and_shortcuts))
                         }
                         IconButton(
                             onClick = { showClipboardDialog = true },
                             modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(Icons.Default.ContentPaste, contentDescription = "Portapapeles")
+                            Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.clipboard))
                         }
                         IconButton(
                             onClick = { showSettingsDialog = true },
                             modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(Icons.Default.Settings, contentDescription = "Opciones")
+                            Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.options))
                         }
                         IconButton(
                             onClick = { viewModel.refreshDisplay(nodeId) },
                             modifier = Modifier.size(36.dp)
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refrescar")
+                            Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
                         }
                         IconButton(
                             onClick = {
@@ -285,7 +289,7 @@ fun RemoteDesktopScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "Desconectar Escritorio",
+                                contentDescription = stringResource(R.string.disconnect_desktop),
                                 tint = Color.Red
                             )
                         }
@@ -534,7 +538,7 @@ drawDiagnostics[0]++
                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "Cargando escritorio remoto...",
+                        text = stringResource(R.string.desktop_loading_remote),
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -587,7 +591,7 @@ drawDiagnostics[0]++
                         ) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = "Desplegar controles",
+                                contentDescription = stringResource(R.string.expand_controls),
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -599,7 +603,7 @@ drawDiagnostics[0]++
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.FullscreenExit,
-                                    contentDescription = "Salir de pantalla completa",
+                                    contentDescription = stringResource(R.string.exit_fullscreen),
                                     tint = MaterialTheme.colorScheme.onSurface
                                 )
                             }
@@ -669,7 +673,7 @@ androidx.compose.ui.unit.Dp(0f)
                             ) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                    contentDescription = "Plegar controles",
+                                    contentDescription = stringResource(R.string.collapse_controls),
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -701,7 +705,7 @@ androidx.compose.ui.unit.Dp(0f)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Keyboard,
-                                contentDescription = "Teclado en pantalla",
+                                contentDescription = stringResource(R.string.on_screen_keyboard),
                                 tint = if (isImeVisible) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -723,7 +727,7 @@ androidx.compose.ui.unit.Dp(0f)
                         ) {
                             Icon(
                                 imageVector = if (isFullScreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = if (isFullScreen) "Salir de pantalla completa" else "Pantalla completa"
+                                contentDescription = if (isFullScreen) stringResource(R.string.exit_fullscreen) else stringResource(R.string.fullscreen)
                             )
                         }
                     }
@@ -832,11 +836,11 @@ androidx.compose.ui.unit.Dp(0f)
                             ) {
                                 FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 27) }, label = { Text("Esc", fontSize = 11.sp) })
                                 FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 9) }, label = { Text("Tab ⇥", fontSize = 11.sp) })
-                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 13) }, label = { Text("Enter ↵", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 13) }, label = { Text(stringResource(R.string.desktop_key_enter) + " ↵", fontSize = 11.sp) })
                                 FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 32) }, label = { Text(stringResource(R.string.space_key), fontSize = 11.sp) })
                                 FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 8) }, label = { Text(stringResource(R.string.backspace_key), fontSize = 11.sp) })
                                 FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 46) }, label = { Text(stringResource(R.string.delete_key), fontSize = 11.sp) })
-                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 91) }, label = { Text("Win Key", fontSize = 11.sp) })
+                                FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 91) }, label = { Text(stringResource(R.string.desktop_win_key), fontSize = 11.sp) })
                                 FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 44) }, label = { Text(stringResource(R.string.print_screen), fontSize = 11.sp) })
                             }
 
@@ -928,9 +932,9 @@ androidx.compose.ui.unit.Dp(0f)
                                         if (currentClipboardEpoch.value !== clipboardEpoch || sendClipboardInput != draft) return@launch
                                         if (clip.isNotEmpty()) {
                                             sendClipboardInput = clip
-                                            Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, pastedFromAndroidText, Toast.LENGTH_SHORT).show()
                                         } else {
-                                            Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, androidClipboardEmptyText, Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
@@ -994,10 +998,10 @@ androidx.compose.ui.unit.Dp(0f)
                                         clipboardScope.launch {
                                             if (currentClipboardEpoch.value !== clipboardEpoch) return@launch
                                             clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("plain text", remoteClipboardText)))
-                                            if (currentClipboardEpoch.value === clipboardEpoch) Toast.makeText(context, "Copiado a Android", Toast.LENGTH_SHORT).show()
+                                            if (currentClipboardEpoch.value === clipboardEpoch) Toast.makeText(context, copiedToAndroidText, Toast.LENGTH_SHORT).show()
                                         }
                                     } else {
-                                        Toast.makeText(context, "El portapapeles remoto está vacío", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, remoteClipboardEmptyText, Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 modifier = Modifier

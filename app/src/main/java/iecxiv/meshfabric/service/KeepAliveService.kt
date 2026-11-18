@@ -60,12 +60,10 @@ class KeepAliveService : Service() {
                     (n.flags and Notification.FLAG_ONGOING_EVENT) != 0
             }
             val icons = active.map { smallIconResourceId(it) }.filter { it != 0 }
-            val allCompleted = transfers.isNotEmpty() && active.isEmpty() && transfers.all { n ->
-                when (n.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()) {
-                    "Descarga completada", "Subida completada" -> true
-                    else -> false
-                }
-            }
+            val allCompleted = transferNotificationsCompleted(
+                transfers.map { smallIconResourceId(it) == R.drawable.ic_stat_transfer_success },
+                active.isNotEmpty()
+            )
             when {
                 android.R.drawable.stat_sys_download in icons -> android.R.drawable.stat_sys_download
                 android.R.drawable.stat_sys_upload in icons -> android.R.drawable.stat_sys_upload

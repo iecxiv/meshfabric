@@ -1,0 +1,4 @@
+<resources>
+    <string name="desktop_loading_remote">Cargando escritorio remoto...</string>
+    <string name="desktop_win_key">Tecla Win</string>
+</resources>

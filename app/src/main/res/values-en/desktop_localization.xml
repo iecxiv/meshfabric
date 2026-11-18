@@ -1,0 +1,4 @@
+<resources>
+    <string name="desktop_loading_remote">Loading remote desktop...</string>
+    <string name="desktop_win_key">Win Key</string>
+</resources>
