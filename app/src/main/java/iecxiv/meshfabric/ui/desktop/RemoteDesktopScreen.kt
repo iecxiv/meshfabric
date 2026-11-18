@@ -253,110 +253,144 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY).project(position.x, position.y)
                                 var lastTapUp = -1L
                                 var lastTapPosition = androidx.compose.ui.geometry.Offset.Zero
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = true)
-                                    if (down.type == androidx.compose.ui.input.pointer.PointerType.Mouse) return@awaitEachGesture
-                                    val initial = point(down.position) ?: return@awaitEachGesture
-                                    val tapInterval = down.uptimeMillis - lastTapUp
-                                    val doubleTapDrag = lastTapUp >= 0L &&
-                                        tapInterval in viewConfiguration.doubleTapMinTimeMillis..viewConfiguration.doubleTapTimeoutMillis &&
-                                        (down.position - lastTapPosition).getDistance() <= touchSlop * 2f &&
-                                        selectedMode == MouseMode.LEFT_CLICK && !rightClickAssist.latch.armed
-                                    lastTapUp = -1L
-                                    var tapUpTime = down.uptimeMillis
-                                    val drag = DesktopTouchDragGesture(initial, touchSlop,
-                                        press = { desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.DOWN) },
-                                        move = { desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.MOVE) },
-                                        release = { desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP); Unit })
-                                    var moved = false
-                                    var transformed = false
-                                    var cancelled = false
-                                    var dragAmountY = 0f
-                                    try {
-                                        do {
-                                            val event = awaitPointerEvent()
-                                            if (!desktopMouseCapture.ready() || event.changes.any { it.isConsumed }) {
-                                                cancelled = true
-                                                break
-                                            }
-                                            val pointerCount = event.changes.count { it.pressed }
-                                            if (pointerCount >= 2) {
-                                                rightClickAssist.latch.cancel()
-                                                drag.cancel()
-                                                transformed = true
-                                                moved = true
-                                                val zoom = event.calculateZoom()
-                                                val pan = event.calculatePan()
-                                                scale = (scale * zoom).coerceIn(1f, 6f)
-                                                val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
-                                                offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
-                                                event.changes.forEach { it.consume() }
-                                            } else if (!transformed) {
-                                                val change = event.changes.firstOrNull { it.id == down.id }
-                                                if (change == null) {
+                                val clickScope = kotlinx.coroutines.CoroutineScope(kotlin.coroutines.coroutineContext)
+                                val tapSequence = createDesktopTapSequence(clickScope, viewModel, nodeId) { desktopMouseCapture.ready() }
+                                try {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = true)
+                                        if (down.type == androidx.compose.ui.input.pointer.PointerType.Mouse) {
+                                            tapSequence.cancel()
+                                            return@awaitEachGesture
+                                        }
+                                        val initial = point(down.position) ?: run {
+                                            tapSequence.flush()
+                                            return@awaitEachGesture
+                                        }
+                                        val gestureOrigin = tapSequence.currentBinding()
+                                        val tapInterval = down.uptimeMillis - lastTapUp
+                                        val doubleTapDrag = lastTapUp >= 0L &&
+                                            tapInterval in viewConfiguration.doubleTapMinTimeMillis..viewConfiguration.doubleTapTimeoutMillis &&
+                                            (down.position - lastTapPosition).getDistance() <= touchSlop * 2f &&
+                                            selectedMode == MouseMode.LEFT_CLICK && !rightClickAssist.latch.armed
+                                        if (doubleTapDrag) tapSequence.reserveSecond() else tapSequence.flush()
+                                        lastTapUp = -1L
+                                        var tapUpTime = down.uptimeMillis
+                                        val drag = DesktopTouchDragGesture(initial, touchSlop,
+                                            press = {
+                                                tapSequence.flush()
+                                                desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.DOWN)
+                                            },
+                                            move = { desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.MOVE) },
+                                            release = { desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP); Unit })
+                                        var moved = false
+                                        var transformed = false
+                                        var cancelled = false
+                                        var dragAmountY = 0f
+                                        try {
+                                            do {
+                                                val event = awaitPointerEvent()
+                                                if (!desktopMouseCapture.ready() || event.changes.any { it.isConsumed }) {
                                                     cancelled = true
                                                     break
                                                 }
-                                                if (!change.pressed) tapUpTime = change.uptimeMillis
-                                                val distance = (change.position - down.position).getDistance()
-                                                if (distance > touchSlop) { moved = true; rightClickAssist.latch.cancel() }
-                                                when (selectedMode) {
-                                                    MouseMode.LEFT_CLICK, MouseMode.DRAG_MOVE -> {
-                                                        if (doubleTapDrag || selectedMode == MouseMode.DRAG_MOVE) {
-                                                            drag.move(point(change.position), distance)
-                                                            if (drag.isCancelled) {
-                                                                cancelled = true
-                                                                break
-                                                            }
-                                                        } else if (moved) {
-                                                            val pan = change.positionChange()
-                                                            val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                            val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                            offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
-                                                            offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
-                                                        }
-                                                        if (moved) change.consume()
+                                                val pointerCount = event.changes.count { it.pressed }
+                                                if (pointerCount >= 2) {
+                                                    tapSequence.flush()
+                                                    rightClickAssist.latch.cancel()
+                                                    drag.cancel()
+                                                    transformed = true
+                                                    moved = true
+                                                    val zoom = event.calculateZoom()
+                                                    val pan = event.calculatePan()
+                                                    scale = (scale * zoom).coerceIn(1f, 6f)
+                                                    val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                    val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                    offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                                    offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                                    event.changes.forEach { it.consume() }
+                                                } else if (!transformed) {
+                                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                                    if (change == null) {
+                                                        cancelled = true
+                                                        break
                                                     }
-                                                    MouseMode.SCROLL -> if (moved) {
-                                                        dragAmountY += change.positionChange().y
-                                                        if (kotlin.math.abs(dragAmountY) >= touchSlop) {
-                                                            val projected = point(change.position)
-                                                            val (width, height) = viewModel.screenResolution(nodeId).value
-                                                            val remote = projected?.remote(width, height)
-                                                            if (remote != null) {
-                                                                val direction = if (dragAmountY < 0) -1 else 1
-                                                                val factor = if (settings.reverseMouseWheel) -1 else 1
-                                                                viewModel.sendMouseScroll(nodeId, remote.first, remote.second, 120 * direction * factor)
+                                                    if (!change.pressed) tapUpTime = change.uptimeMillis
+                                                    val distance = (change.position - down.position).getDistance()
+                                                    if (distance > touchSlop) { moved = true; rightClickAssist.latch.cancel() }
+                                                    when (selectedMode) {
+                                                        MouseMode.LEFT_CLICK, MouseMode.DRAG_MOVE -> {
+                                                            if (doubleTapDrag || selectedMode == MouseMode.DRAG_MOVE) {
+                                                                drag.move(point(change.position), distance)
+                                                                if (drag.isCancelled) {
+                                                                    cancelled = true
+                                                                    break
+                                                                }
+                                                            } else if (moved) {
+                                                                val pan = change.positionChange()
+                                                                val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                                val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                                offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                                                offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
                                                             }
-                                                            dragAmountY = 0f
+                                                            if (moved) change.consume()
                                                         }
-                                                        change.consume()
+                                                        MouseMode.SCROLL -> if (moved) {
+                                                            dragAmountY += change.positionChange().y
+                                                            if (kotlin.math.abs(dragAmountY) >= touchSlop) {
+                                                                val projected = point(change.position)
+                                                                val (width, height) = viewModel.screenResolution(nodeId).value
+                                                                val remote = projected?.remote(width, height)
+                                                                if (remote != null) {
+                                                                    val direction = if (dragAmountY < 0) -1 else 1
+                                                                    val factor = if (settings.reverseMouseWheel) -1 else 1
+                                                                    viewModel.sendMouseScroll(nodeId, remote.first, remote.second, 120 * direction * factor)
+                                                                }
+                                                                dragAmountY = 0f
+                                                            }
+                                                            change.consume()
+                                                        }
+                                                        else -> if (moved) change.consume()
                                                     }
-                                                    else -> if (moved) change.consume()
-                                                }
-                                            } else event.changes.forEach { it.consume() }
-                                        } while (event.changes.any { it.pressed })
-                                        val tap = drag.finish() && !moved && !transformed && !cancelled
-                                        if (tap && desktopMouseCapture.ready()) {
-                                            if (rightClickAssist.latch.consume()) {
-                                                viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
-                                            } else when (selectedMode) {
-                                                MouseMode.RIGHT_CLICK -> viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
-                                                MouseMode.MIDDLE_CLICK -> viewModel.performMiddleClick(nodeId, initial.xFraction, initial.yFraction)
-                                                else -> {
-                                                    if (desktopMouseCapture.primaryInput(initial, DesktopPrimaryPhase.DOWN)) {
-                                                        desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP)
-                                                        if (selectedMode == MouseMode.LEFT_CLICK && !doubleTapDrag) {
+                                                } else event.changes.forEach { it.consume() }
+                                            } while (event.changes.any { it.pressed })
+                                            val tap = drag.finish() && !moved && !transformed && !cancelled
+                                            if (tap && desktopMouseCapture.ready()) {
+                                                if (rightClickAssist.latch.consume()) {
+                                                    viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
+                                                } else when (selectedMode) {
+                                                    MouseMode.RIGHT_CLICK -> viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
+                                                    MouseMode.MIDDLE_CLICK -> viewModel.performMiddleClick(nodeId, initial.xFraction, initial.yFraction)
+                                                    MouseMode.LEFT_CLICK -> {
+                                                        val (width, height) = viewModel.screenResolution(nodeId).value
+                                                        val remote = initial.remote(width, height)
+                                                        if (remote != null && tapSequence.tap(
+                                                            DesktopTapTarget(remote.first, remote.second, viewModel.settings(nodeId).value.swapMouseButtons),
+                                                            viewConfiguration.doubleTapTimeoutMillis,
+                                                            gestureOrigin
+                                                        ) && !doubleTapDrag) {
                                                             lastTapUp = tapUpTime
                                                             lastTapPosition = down.position
                                                         }
                                                     }
+                                                    else -> {
+                                                        if (desktopMouseCapture.primaryInput(initial, DesktopPrimaryPhase.DOWN)) {
+                                                            desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP)
+                                                        }
+                                                    }
                                                 }
                                             }
+                                        } finally {
+                                            drag.cancel()
+                                            if (doubleTapDrag && clickScope.coroutineContext[kotlinx.coroutines.Job]?.isActive == true) {
+                                                tapSequence.flush()
+                                            }
                                         }
-                                    } finally { drag.cancel() }
+                                    }
+                                } finally {
+                                    tapSequence.cancel()
+                                    if (viewModel.desktopTapSequences[nodeId] === tapSequence) {
+                                        viewModel.desktopTapSequences.remove(nodeId)
+                                    }
                                 }
                             },
                         contentAlignment = Alignment.Center
