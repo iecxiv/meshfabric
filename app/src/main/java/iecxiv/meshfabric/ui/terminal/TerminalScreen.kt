@@ -170,6 +170,9 @@ fun TerminalScreen(
     var selectedCtrlChar by remember(renderer) { mutableStateOf('C') }
     var showCtrlDropdown by remember(renderer) { mutableStateOf(false) }
     val ctrlLetters = remember { ('A'..'Z').toList() }
+    val pastedFromAndroidText = stringResource(R.string.pasted_from_android)
+    val androidClipboardEmptyText = stringResource(R.string.android_clipboard_empty)
+    val sentCtrlCharText = stringResource(R.string.sent_ctrl_char, selectedCtrlChar.toString())
     val clipboardEpoch = remember(renderer, showCommandDialog) { Any() }
     val currentClipboardEpoch = rememberUpdatedState(clipboardEpoch)
     val clipboardInputAllowed = rememberUpdatedState(inputEnabled && showCommandDialog)
@@ -250,7 +253,7 @@ fun TerminalScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
@@ -499,9 +502,9 @@ fun TerminalScreen(
                                         if (currentClipboardEpoch.value !== clipboardEpoch || !clipboardInputAllowed.value || commandInput != draft) return@launch
                                         if (clip.isNotEmpty()) {
                                             commandInput = clip
-                                            Toast.makeText(context, "Pegado de Android", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, pastedFromAndroidText, Toast.LENGTH_SHORT).show()
                                         } else {
-                                            Toast.makeText(context, "El portapapeles de Android está vacío", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, androidClipboardEmptyText, Toast.LENGTH_SHORT).show()
                                         }
                                     }
                                 },
@@ -562,7 +565,7 @@ fun TerminalScreen(
                             Button(
                                 onClick = {
                                     renderer.session.sendControlKey(selectedCtrlChar)
-                                    Toast.makeText(context, "Enviado Ctrl + $selectedCtrlChar", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, sentCtrlCharText, Toast.LENGTH_SHORT).show()
                                 },
                                 modifier = Modifier
                                     .weight(1f)
