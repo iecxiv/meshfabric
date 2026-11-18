@@ -41,7 +41,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     val dirty=initialized && meta!=null && runCatching {!generalMatches(meta,generalDraft(name,tags,description,consent))}.getOrDefault(true)
     LaunchedEffect(meta,state.phase) {
         if(meta!=null && (!initialized || state.phase=="confirmed")) {
-            name=meta.name;tags=meta.tags.joinToString(", ");description=meta.description;consent=meta.consent;initialized=true
+            name=meta.name;tags=meta.tags.joinToString(", " );description=meta.description;consent=meta.consent;initialized=true
         }
     }
     DisposableEffect(editor,owner) {
@@ -81,7 +81,8 @@ import iecxiv.meshfabric.data.model.MeshNode
                 DeviceGeneralRunAction(node)
                 DeviceGeneralMessageAction(node)
                 DeviceGeneralChatAction(node)
-                DeviceGeneralSharesAction(node)
+                // Temporarily hidden for 1.3.9; restore when sharing implementation is complete.
+                // DeviceGeneralSharesAction(node)
             }
             DevicePowerSection(node.id)
             DeviceAuthorizationSection(node.id,meta?.mesh.orEmpty())
