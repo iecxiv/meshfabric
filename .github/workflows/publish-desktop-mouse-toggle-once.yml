@@ -1,0 +1,111 @@
+name: Publish desktop mouse toggle once on dev
+'on':
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/publish-desktop-mouse-toggle-once.yml']
+permissions:
+  contents: write
+concurrency:
+  group: publish-desktop-mouse-toggle-once-dev
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Verify base and apply exact mouse candidate
+        shell: python
+        run: |
+          import os,subprocess,base64,lzma,hashlib,json
+          from pathlib import Path
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          base='72bb209705ab786db63abf1e5cbbbe2fbbb2f0cd'
+          workflow='.github/workflows/publish-desktop-mouse-toggle-once.yml'
+          assert git('rev-parse','HEAD')==os.environ['GITHUB_SHA']
+          assert git('rev-parse','HEAD^')==base
+          assert git('diff','--name-only',base,'HEAD').splitlines()==[workflow]
+          assert not git('status','--porcelain')
+          assert git('hash-object','app/build.gradle.kts')=='71466c471ee7dc9cea48ad2ffbed23185aa4076d'
+          assert git('hash-object','app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt')=='77c86c1c201a91945124faf2de0d38c8608a604f'
+          assert git('hash-object','app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopRightClickHeaderGlyph.kt')=='3523e01020177ed980d30e439476c3c6744b0317'
+          patch=lzma.decompress(base64.b64decode('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'))
+          assert hashlib.sha256(patch).hexdigest()=='16f212e7718d56a9f8f011b1a260fe1ccd817470bbc8a1ae381e7b74dc746ce9'
+          paths=[line.split('\t',2)[2] for line in subprocess.check_output(['git','apply','--numstat','-'],input=patch).decode().splitlines()]
+          assert len(paths)==len(set(paths))==7
+          assert all(p.startswith(('app/src/main/java/iecxiv/meshfabric/ui/desktop/','app/src/main/res/','app/src/test/java/iecxiv/meshfabric/ui/desktop/')) and '..' not in p.split('/') for p in paths)
+          subprocess.run(['git','apply','--check','--whitespace=error-all','-'],input=patch,check=True)
+          subprocess.run(['git','apply','--index','--whitespace=error-all','-'],input=patch,check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          tmp=Path(os.environ['RUNNER_TEMP'])
+          (tmp/'mouse-candidate.json').write_text(json.dumps({'paths':paths,'tree':git('write-tree')}))
+          (tmp/'mouse-candidate.patch').write_bytes(subprocess.check_output(['git','diff','--cached','--binary']))
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install project SDK using existing tools version
+        shell: python
+        run: |
+          import os,subprocess
+          from pathlib import Path
+          sdk=Path(os.environ['ANDROID_HOME']).resolve();tools=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              if props.get('Pkg.Revision')=='23.0' and os.access(p.parent/'bin/sdkmanager',os.X_OK): tools.append(p.parent)
+          assert tools,'Verified command-line tools 23.0 missing'
+          subprocess.run([str(sorted(tools)[0]/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+      - name: Build compile instrumentation run all JVM tests and lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace 2>&1 | tee "$RUNNER_TEMP/desktop-mouse-build.txt"
+      - name: Verify tested candidate then publish and remove this workflow
+        shell: python
+        run: |
+          import os,json,subprocess
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          tmp=Path(os.environ['RUNNER_TEMP']);state=json.loads((tmp/'mouse-candidate.json').read_text())
+          cases=[c for p in Path('app/build/test-results').rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+          assert cases and not any(c.find(t) is not None for c in cases for t in ['failure','error'])
+          for name,count in [('iecxiv.meshfabric.ui.desktop.DesktopMouseModePolicyTest',8),('iecxiv.meshfabric.data.remote.DesktopDisplayProtocolTest',15)]:
+              own=[c for c in cases if c.get('classname')==name]
+              assert len(own)==count and not any(c.find('skipped') is not None for c in own),name
+          assert git('write-tree')==state['tree']
+          assert subprocess.check_output(['git','diff','--cached','--binary'])==(tmp/'mouse-candidate.patch').read_bytes()
+          subprocess.run(['git','diff','--exit-code'],check=True)
+          assert git('hash-object','app/build.gradle.kts')=='71466c471ee7dc9cea48ad2ffbed23185aa4076d'
+          assert git('ls-remote','origin','refs/heads/dev').split()[0]==os.environ['GITHUB_SHA'],'dev advanced; no force push'
+          workflow='.github/workflows/publish-desktop-mouse-toggle-once.yml'
+          subprocess.run(['git','rm','--',workflow],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(state['paths']+[workflow])
+          assert subprocess.check_output(['git','diff','--cached','--binary','--',*state['paths']])==(tmp/'mouse-candidate.patch').read_bytes()
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','feat(desktop): combine persistent mouse modes and add scroll icon'],check=True)
+          subprocess.run(['git','push','origin','HEAD:refs/heads/dev'],check=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out: out.write('Published '+git('rev-parse','HEAD')+' to dev after build, JVM tests and lint. Temporary workflow removed. Physical-device and visual validation remain pending.\n')
+      - name: Upload validation reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-mouse-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/desktop-mouse-build.txt
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
