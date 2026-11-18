@@ -62,8 +62,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val hasConnectedSessions = desktop.values.any { it == SessionStatus.CONNECTED } ||
         terminal.values.any { it == SessionStatus.CONNECTED } ||
         files.values.any { it == SessionStatus.CONNECTED }
-    val appName by (viewModel.sessionManager?.appNameFlow ?: remember { MutableStateFlow("MeshFabric") }).collectAsState()
-    val hideSettings by (viewModel.sessionManager?.hideSettingsIconFlow ?: remember { MutableStateFlow(false) }).collectAsState()
     val searchFocus=remember { FocusRequester() }
     val keyboard=LocalSoftwareKeyboardController.current
     val focusManager=LocalFocusManager.current
@@ -85,27 +83,24 @@ import kotlinx.coroutines.flow.MutableStateFlow
         dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })
     Scaffold(topBar={ Column {
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
-            if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
-            ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
-            ToolIcon(if(hideDeviceNetworkInfo) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                if(hideDeviceNetworkInfo) "Mostrar IP e interfaces" else "Ocultar IP e interfaces") {
-                val hidden = !hideDeviceNetworkInfo
-                val manager = viewModel.sessionManager
-                if (manager != null) manager.saveHideDeviceNetworkInfo(hidden)
-                else fallbackNetworkVisibility.value = hidden
-            }
-            IconToggleButton(checked=onlyOnline,onCheckedChange={ enabled ->
-                val manager = viewModel.sessionManager
-                if (manager != null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value = enabled
-            },modifier=Modifier.size(38.dp)) {
-                Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
-                    Icon(Icons.Default.FilterAlt,
-                        stringResource(if(onlyOnline) R.string.device_filter_show_all else R.string.device_filter_show_online),
-                        Modifier.size(20.dp),tint=if(onlyOnline) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                }
-            }
             ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                 stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
+            IconButton(onClick={ closeSessions=true },modifier=Modifier.size(38.dp)) {
+                Icon(Icons.Default.Link,stringResource(R.string.close_active_connections),Modifier.size(20.dp),
+                    tint=if(hasConnectedSessions) Color(0xFF2196F3) else Color(0xFF9E9E9E))
+            }
+            DeviceHeaderFilter(showIps=!hideDeviceNetworkInfo,showDisconnected=!onlyOnline,
+                onShowIps={show->
+                    val hidden=!show
+                    val manager=viewModel.sessionManager
+                    if(manager!=null) manager.saveHideDeviceNetworkInfo(hidden) else fallbackNetworkVisibility.value=hidden
+                },
+                onShowDisconnected={show->
+                    val enabled=!show
+                    val manager=viewModel.sessionManager
+                    if(manager!=null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value=enabled
+                })
+            DeviceHeaderRefresh { viewModel.refresh() }
             ToolIcon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search)) {
                 if(showSearch) {
                     viewModel.searchQuery.value=""
@@ -113,10 +108,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
                     keyboard?.hide()
                 }
                 showSearch=!showSearch
-            }
-            IconButton(onClick={ closeSessions=true },modifier=Modifier.size(38.dp)) {
-                Icon(Icons.Default.Link,stringResource(R.string.close_active_connections),Modifier.size(20.dp),
-                    tint=if(hasConnectedSessions) Color(0xFF2196F3) else LocalContentColor.current)
             }
         } })
         AnimatedVisibility(showSearch) {
