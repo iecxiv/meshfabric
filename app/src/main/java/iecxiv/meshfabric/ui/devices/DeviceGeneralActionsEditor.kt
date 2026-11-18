@@ -12,22 +12,31 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.*
 import java.util.UUID
 
-internal enum class GeneralDeviceAction(val type:Int?) {WAKE(null),RESTART(3),SHUTDOWN(2),SLEEP(4)}
+internal enum class GeneralDeviceAction(val type:Int?) {WAKE(null),RESTART(3),SHUTDOWN(2),SLEEP(4),UNINSTALL_AGENT(null)}
+internal fun generalDeviceActionWire(action:GeneralDeviceAction):String=when(action) {
+    GeneralDeviceAction.WAKE->"wakedevices"
+    GeneralDeviceAction.UNINSTALL_AGENT->"uninstallagent"
+    else->"poweraction"
+}
 internal data class GeneralDeviceActionDraft(val action:GeneralDeviceAction,val mesh:String,val os:String)
 internal fun generalDeviceActionAvailable(node:String,meta:GeneralMeta,inventory:List<Pair<MeshGroup,List<MeshNode>>>,action:GeneralDeviceAction):Boolean {
     val group=inventory.singleOrNull {it.first.id==meta.mesh} ?: return false
     if(group.first.mtype!=2) return false
     val current=inventory.flatMap {it.second}.singleOrNull {it.id==node} ?: return false
     if(current.meshid!=meta.mesh || group.second.count {it.id==node}!=1) return false
-    return if(action==GeneralDeviceAction.WAKE) meta.rights and 64L!=0L else meta.rights and 262152L==262152L && current.conn and 1!=0
+    return when(action) {
+        GeneralDeviceAction.WAKE->meta.rights and 64L!=0L
+        GeneralDeviceAction.UNINSTALL_AGENT->meta.rights and 32768L!=0L && current.conn and 1!=0
+        else->meta.rights and 262152L==262152L && current.conn and 1!=0
+    }
 }
 internal fun generalDeviceActionPacket(node:String,id:String,draft:GeneralDeviceActionDraft,meta:GeneralMeta,inventory:List<Pair<MeshGroup,List<MeshNode>>>):JsonObject {
     require(node.startsWith("node/") && node.split('/').size==3 && node.substringAfterLast('/').isNotBlank() && node.length<=4096 && node.none {it.isISOControl()})
     require(id.isNotBlank() && id.length<=128 && id.none {it.isISOControl()} && draft.mesh==meta.mesh && draft.os==meta.os && generalDeviceActionAvailable(node,meta,inventory,draft.action))
-    return JsonObject().apply {addProperty("action",if(draft.action==GeneralDeviceAction.WAKE) "wakedevices" else "poweraction");add("nodeids",JsonArray().apply {add(node)});addProperty("responseid",id);draft.action.type?.let {addProperty("actiontype",it)}}
+    return JsonObject().apply {addProperty("action",generalDeviceActionWire(draft.action));add("nodeids",JsonArray().apply {add(node)});addProperty("responseid",id);draft.action.type?.let {addProperty("actiontype",it)}}
 }
 internal fun generalDeviceActionAck(p:JsonObject,node:String,id:String,action:GeneralDeviceAction):String? {
-    if(id.isBlank() || p.get("responseid")?.asString!=id || p.get("action")?.asString!=(if(action==GeneralDeviceAction.WAKE) "wakedevices" else "poweraction")) return null
+    if(id.isBlank() || p.get("responseid")?.asString!=id || p.get("action")?.asString!=generalDeviceActionWire(action)) return null
     val target=p.get("nodeid")?.asString.orEmpty();if(target.isNotBlank() && target!=node) return null
     p.get("nodeids")?.let {if(!it.isJsonArray || it.asJsonArray.size()!=1 || it.asJsonArray[0].asString!=node) return null}
     if(p.has("error") || p.has("err")) return "rejected"
@@ -91,7 +100,7 @@ internal class DeviceGeneralActionsEditor(private val source:MeshCentralClient?,
                 if(!send(change)) {fail("unconfirmed");return}
                 state.value=GeneralDeviceActionsState(meta,"sent");deadline()
             }
-            "wakedevices","poweraction"->if(attempted && state.value.phase=="sent") sentAction?.let {action->generalDeviceActionAck(p,node,requestId,action)?.let {phase->timer?.cancel();state.value=state.value.copy(phase=phase)}}
+            "wakedevices","poweraction","uninstallagent"->if(attempted && state.value.phase=="sent") sentAction?.let {action->generalDeviceActionAck(p,node,requestId,action)?.let {phase->timer?.cancel();state.value=state.value.copy(phase=phase)}}
         }
     }
     @Synchronized fun submit(draft:GeneralDeviceActionDraft):Boolean {

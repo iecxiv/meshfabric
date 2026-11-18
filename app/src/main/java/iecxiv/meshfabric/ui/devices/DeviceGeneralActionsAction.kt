@@ -22,7 +22,7 @@ import iecxiv.meshfabric.data.model.MeshNode
     val identity=Triple(source?.serverUrl,source?.authCookie,source?.ignoreSsl)
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
-    fun label(action:GeneralDeviceAction)=when(action) {GeneralDeviceAction.WAKE->t("Despertar (WoL)","Wake up (WoL)");GeneralDeviceAction.RESTART->t("Reiniciar","Restart");GeneralDeviceAction.SHUTDOWN->t("Apagar","Shut down");GeneralDeviceAction.SLEEP->t("Suspender","Sleep")}
+    fun label(action:GeneralDeviceAction)=when(action) {GeneralDeviceAction.WAKE->t("Despertar (WoL)","Wake up (WoL)");GeneralDeviceAction.RESTART->t("Reiniciar","Restart");GeneralDeviceAction.SHUTDOWN->t("Apagar","Shut down");GeneralDeviceAction.SLEEP->t("Suspender","Sleep");GeneralDeviceAction.UNINSTALL_AGENT->t("Desinstalar agente","Uninstall agent")}
     key(source,identity,actor,node.id) {
         var opened by remember {mutableStateOf(false)}
         DeviceGeneralActionButton(t("Acciones","Actions"),connected && actor.isNotBlank() && source?.isUserLogout==false,{opened=true},Modifier.testTag("general_actions"))
@@ -42,8 +42,8 @@ import iecxiv.meshfabric.data.model.MeshNode
             val close:()->Unit={if(state.phase in setOf("checking","sent")) discard=true else opened=false}
             val meta=state.meta
             DeviceGeneralFrame(node,close,body={
-                Text(t("Acciones sobre este único dispositivo. Reiniciar, apagar o suspender pueden interrumpir sesiones y provocar pérdida de trabajo no guardado. No modifican el borrador de General.","Actions for this device only. Restarting, shutting down or sleeping may interrupt sessions and lose unsaved work. The General draft is not modified."),style=MaterialTheme.typography.bodySmall)
-                Text(t("Despertar requiere permiso WoL. Las otras acciones requieren control remoto, permiso de reinicio/apagado y agente conectado. La disponibilidad efectiva depende del equipo.","Wake requires WoL permission. Other actions require remote-control and reset/power-off permissions and an online agent. Actual availability depends on the device."),style=MaterialTheme.typography.bodySmall)
+                Text(t("Acciones sobre este único dispositivo. Reiniciar, apagar o suspender pueden interrumpir sesiones y provocar pérdida de trabajo no guardado. Desinstalar el agente puede dejar el equipo sin acceso remoto. No modifican el borrador de General.","Actions for this device only. Restarting, shutting down or sleeping may interrupt sessions and lose unsaved work. Uninstalling the agent may leave the device without remote access. The General draft is not modified."),style=MaterialTheme.typography.bodySmall)
+                Text(t("Despertar requiere permiso WoL. Reiniciar, apagar y suspender requieren control remoto, permiso de reinicio/apagado y agente conectado. Desinstalar requiere el permiso específico de desinstalación y agente conectado. La disponibilidad efectiva depende del equipo.","Wake requires WoL permission. Restart, shut down and sleep require remote-control and reset/power-off permissions and an online agent. Uninstall requires the specific uninstall permission and an online agent. Actual availability depends on the device."),style=MaterialTheme.typography.bodySmall)
                 if(review==null && !submitted && meta!=null && state.phase=="ready") {
                     FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp,Alignment.CenterHorizontally)) {
                         GeneralDeviceAction.values().forEach {action->DeviceGeneralActionButton(label(action),generalDeviceActionAvailable(node.id,meta,inventory,action),{review=GeneralDeviceActionDraft(action,meta.mesh,meta.os)},Modifier.testTag("general_action_${action.name.lowercase()}"))}
@@ -55,6 +55,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                     Text(t("Dispositivo: ","Device: ")+node.name);Text(node.id)
                     Text(t("Grupo: ","Group: ")+draft.mesh)
                     Text(t("Sistema revisado: ","Reviewed OS: ")+draft.os.ifBlank {t("No identificado","Unidentified")})
+                    if(draft.action==GeneralDeviceAction.UNINSTALL_AGENT) Text(t("Se solicitará desinstalar el agente de este equipo. Puede cerrar las sesiones y dejarlo sin acceso remoto hasta reinstalarlo. No elimina el dispositivo del inventario. La desconexión no confirma que la desinstalación haya finalizado.","Agent uninstall will be requested for this device. It may close sessions and remove remote access until reinstalled. It does not delete the device from inventory. Disconnection does not confirm uninstall completion."),color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("general_action_uninstall_warning"))
                     Text(t("Antes de enviar se comprobarán de nuevo identidad, dispositivo, grupo, sistema y permisos. Si han cambiado, no se enviará.","Identity, device, group, OS and permissions will be checked again before sending. If they changed, nothing will be sent."),style=MaterialTheme.typography.bodySmall)
                 }
                 if(state.phase in setOf("loading","checking")) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -70,7 +71,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(status.isNotEmpty()) Text(status,modifier=Modifier.testTag("general_actions_status"))
                 Text(t("Un intento por apertura, sin reenvíos automáticos. Cerrar no revierte una solicitud enviada. Un cambio de conexión no demuestra éxito.","One attempt per opening, no automatic resend. Closing does not undo a sent request. A connection change does not establish success."),style=MaterialTheme.typography.bodySmall)
             },footer={
-                if(review!=null && !submitted) TextButton(enabled=state.phase=="ready",onClick={submitted=editor.submit(requireNotNull(review))},modifier=Modifier.testTag("general_actions_confirm")) {Text(t("Confirmar y enviar una vez","Confirm and send once"))}
+                if(review!=null && !submitted) TextButton(enabled=state.phase=="ready",onClick={submitted=editor.submit(requireNotNull(review))},modifier=Modifier.testTag("general_actions_confirm")) {Text(if(review?.action==GeneralDeviceAction.UNINSTALL_AGENT) t("Confirmar desinstalación y enviar una vez","Confirm uninstall and send once") else t("Confirmar y enviar una vez","Confirm and send once"))}
                 if(review!=null && !submitted && state.phase=="ready") TextButton(onClick={review=null}) {Text(t("Volver","Back"))}
                 TextButton(onClick=close) {Text(t("Cerrar","Close"))}
             },subtitle=t("Acciones","Actions"),tagPrefix="device_actions")
