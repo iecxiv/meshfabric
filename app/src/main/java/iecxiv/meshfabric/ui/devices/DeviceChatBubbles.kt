@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -57,6 +58,7 @@ internal data class DeviceChatBubble(val id:String,val name:String,val position:
         }
         chats.forEach {chat->key(chat.id) {
             val p=chat.position
+            val interaction=remember(chat.id) {MutableInteractionSource()}
             val description=(if(es) "Restaurar chat con " else "Restore chat with ")+chat.name
             Surface(modifier=Modifier.offset {IntOffset((p.x*maxX).roundToInt(),(p.y*maxY).roundToInt())}
                 .size(56.dp).testTag("device_chat_bubble_${chat.id}")
@@ -79,8 +81,8 @@ internal data class DeviceChatBubble(val id:String,val name:String,val position:
                             p.x=if(maxX>0f) ((p.x*maxX+amount.x)/maxX).coerceIn(0f,1f) else 0f
                             p.y=if(maxY>0f) ((p.y*maxY+amount.y)/maxY).coerceIn(0f,1f) else 0f
                         })
-                }.clickable {restore(chat.id)},shape=CircleShape,
-                color=MaterialTheme.colorScheme.primaryContainer,contentColor=MaterialTheme.colorScheme.onPrimaryContainer,shadowElevation=6.dp) {
+                }.clickable(interactionSource=interaction,indication=null) {restore(chat.id)},shape=CircleShape,
+                color=MaterialTheme.colorScheme.primaryContainer,contentColor=MaterialTheme.colorScheme.onPrimaryContainer,shadowElevation=if(dragging==chat.id) 0.dp else 6.dp) {
                 Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
                     Icon(Icons.Default.Chat,null,Modifier.size(20.dp))
                     Text(chat.name.take(2).uppercase(),style=MaterialTheme.typography.labelSmall)

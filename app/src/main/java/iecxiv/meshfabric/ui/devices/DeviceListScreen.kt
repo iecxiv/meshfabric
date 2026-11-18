@@ -62,6 +62,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val hasConnectedSessions = desktop.values.any { it == SessionStatus.CONNECTED } ||
         terminal.values.any { it == SessionStatus.CONNECTED } ||
         files.values.any { it == SessionStatus.CONNECTED }
+    val hideSettings by (viewModel.sessionManager?.hideSettingsIconFlow ?: remember { MutableStateFlow(false) }).collectAsState()
     val searchFocus=remember { FocusRequester() }
     val keyboard=LocalSoftwareKeyboardController.current
     val focusManager=LocalFocusManager.current
@@ -109,6 +110,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 }
                 showSearch=!showSearch
             }
+            if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
         } })
         AnimatedVisibility(showSearch) {
             LaunchedEffect(showSearch) {
