@@ -27,6 +27,35 @@ class RemoteDesktopViewModel(
 ) : ViewModel() {
 
     private val desktopInputs = mutableMapOf<String, DesktopKeyActions>()
+    private val primaryDrags = mutableMapOf<String, DesktopPrimaryDrag>()
+    internal val desktopTapSequences = mutableMapOf<String, DesktopTapSequence>()
+    private var foregroundNode: String? = null
+
+    private fun primaryDrag(nodeId: String): DesktopPrimaryDrag = primaryDrags.getOrPut(nodeId) {
+        DesktopPrimaryDrag(binding = {
+            val session = desktopClient.getSession(meshClient, nodeId)
+            synchronized(session) {
+                if (!meshClient.isUserLogout && meshClient.connectionState.value && session.isConnected() && !session.isUserDisconnect) session.webSocket else null
+            }
+        }, emit = { origin, action, x, y ->
+            val session = desktopClient.getSession(meshClient, nodeId)
+            synchronized(session) {
+                if (session.webSocket === origin && !meshClient.isUserLogout && meshClient.connectionState.value && session.isConnected() && !session.isUserDisconnect)
+                    session.sendMouseEvent(action, x, y)
+            }
+        })
+    }
+
+    internal fun desktopPrimaryMouse(point: DesktopWheelPoint?, phase: DesktopPrimaryPhase): Boolean {
+        val nodeId = foregroundNode ?: return false
+        desktopTapSequences[nodeId]?.cancel()
+        val drag = primaryDrag(nodeId)
+        if (phase == DesktopPrimaryPhase.UP) {drag.release(); return true}
+        val (width, height) = screenResolution(nodeId).value
+        val position = point?.remote(width, height) ?: return false
+        return if (phase == DesktopPrimaryPhase.DOWN) drag.down(position.first, position.second, settings(nodeId).value.swapMouseButtons)
+        else drag.move(position.first, position.second)
+    }
 
     private fun desktopInput(nodeId: String): DesktopKeyActions = desktopInputs.getOrPut(nodeId) {
         DesktopKeyActions(viewModelScope, binding = {
@@ -46,7 +75,11 @@ class RemoteDesktopViewModel(
     fun heldDesktopModifiers(nodeId: String): StateFlow<Set<Int>> = desktopInput(nodeId).held
     fun toggleDesktopHold(nodeId: String, key: Int) = desktopInput(nodeId).toggle(key)
     fun releaseDesktopHolds(nodeId: String) = desktopInput(nodeId).releaseHolds()
-    fun releaseDesktopKeys(nodeId: String) { desktopInputs[nodeId]?.clear() }
+    fun releaseDesktopKeys(nodeId: String) {
+        desktopTapSequences[nodeId]?.cancel()
+        desktopInputs[nodeId]?.clear()
+        primaryDrags[nodeId]?.release()
+    }
 
     var selectedMouseMode = MouseMode.LEFT_CLICK
 
@@ -60,6 +93,13 @@ class RemoteDesktopViewModel(
     fun clipboardWriteState(nodeId: String) = desktopClient.getSession(meshClient, nodeId).clipboardWriteState
 
     fun startSession(nodeId: String) {
+        val session = desktopClient.getSession(meshClient, nodeId)
+        if (session.isUserDisconnect) resetDesktopViewportForNewSession(this, nodeId)
+        foregroundNode?.takeIf { it != nodeId }?.let {
+            desktopTapSequences[it]?.cancel()
+            primaryDrags[it]?.release()
+        }
+        foregroundNode = nodeId
         sessionManager?.getDesktopSettings()?.let { savedSettings ->
             desktopClient.updateSettings(nodeId, savedSettings)
         }
@@ -68,6 +108,7 @@ class RemoteDesktopViewModel(
 
     fun pauseSession(nodeId: String) {
         releaseDesktopKeys(nodeId)
+        if (foregroundNode == nodeId) foregroundNode = null
         desktopClient.pauseSession(nodeId)
     }
 
@@ -129,6 +170,7 @@ class RemoteDesktopViewModel(
     }
 
     fun performMouseClick(nodeId: String, xPct: Float, yPct: Float, isRightClick: Boolean) {
+        desktopTapSequences[nodeId]?.cancel()
         val (resWidth, resHeight) = screenResolution(nodeId).value
         val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
         val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
@@ -157,6 +199,7 @@ class RemoteDesktopViewModel(
     }
 
     fun performMiddleClick(nodeId: String, xPct: Float, yPct: Float) {
+        desktopTapSequences[nodeId]?.cancel()
         val (resWidth, resHeight) = screenResolution(nodeId).value
         val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
         val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
@@ -171,6 +214,7 @@ class RemoteDesktopViewModel(
     }
 
     fun sendMouseScroll(nodeId: String, remoteX: Int, remoteY: Int, delta: Int) {
+        desktopTapSequences[nodeId]?.cancel()
         desktopClient.sendMouseScroll(nodeId, remoteX, remoteY, delta)
     }
 
@@ -189,6 +233,7 @@ class RemoteDesktopViewModel(
 
     fun sendUnicodeText(nodeId: String, text: String) {
         if (text.isEmpty()) return
+        desktopTapSequences[nodeId]?.flush()
         val session = desktopClient.getSession(meshClient, nodeId)
         synchronized(session) {
             if (!session.isConnected() || session.isUserDisconnect) return
@@ -201,14 +246,17 @@ class RemoteDesktopViewModel(
 
     fun sendDesktopKeyEvent(nodeId: String, keyCode: Int, isDown: Boolean) {
         if (keyCode !in 1..255) return
+        desktopTapSequences[nodeId]?.flush()
         desktopInput(nodeId).physical(keyCode, isDown)
     }
 
     fun sendSingleKey(nodeId: String, keyCode: Int) {
+        desktopTapSequences[nodeId]?.flush()
         desktopInput(nodeId).combo(keyCode)
     }
 
     fun sendKeyCombo(nodeId: String, vararg keyCodes: Int) {
+        desktopTapSequences[nodeId]?.flush()
         desktopInput(nodeId).combo(*keyCodes)
     }
 
@@ -234,10 +282,16 @@ class RemoteDesktopViewModel(
 
     fun stopSession(nodeId: String) {
         releaseDesktopKeys(nodeId)
+        if (foregroundNode == nodeId) foregroundNode = null
         desktopClient.disconnectSession(nodeId)
     }
 
     override fun onCleared() {
+        desktopTapSequences.values.forEach { it.cancel() }
+        desktopTapSequences.clear()
+        primaryDrags.values.forEach { it.release() }
+        primaryDrags.clear()
+        foregroundNode = null
         desktopInputs.values.forEach { it.clear() }
         desktopInputs.clear()
         super.onCleared()

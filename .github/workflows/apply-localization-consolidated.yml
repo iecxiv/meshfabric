@@ -1,0 +1,278 @@
+name: Apply consolidated localization (no Android build)
+'on':
+  push:
+    branches: [device-other-options]
+    paths: [.github/workflows/apply-localization-consolidated.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: apply-localization-device-other-options
+  cancel-in-progress: false
+jobs:
+  apply-and-publish:
+    if: github.repository == 'iecxiv/meshfabric' && github.ref == 'refs/heads/device-other-options'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Check sources and stage all 15 localization files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.sax.saxutils import escape
+          import hashlib, json, os, re, subprocess, xml.etree.ElementTree as ET
+
+          B = 'app/src/main/java/iecxiv/meshfabric/'
+          RES = 'app/src/main/res/'
+          BRANCH = 'device-other-options'
+          ROWS = [
+              ('listing_retry', 'No se ha recibido el listado; recuperando la conexión', 'The directory listing was not received; recovering the connection', [], 1),
+              ('configuration_blocked', 'La configuración impide recuperar Archivos; corrígela y vuelve a intentar', 'The configuration prevents Files from recovering; correct it and try again', [], 1),
+              ('folder_items_copied', 'Copiados elementos de carpeta', 'Folder items copied', [], 1),
+              ('listing_failed', 'No se pudo listar la ruta solicitada; se conserva la ubicación anterior', 'Could not list the requested path; the previous location is preserved', [], 1),
+              ('move_cancelled', 'Movimiento cancelado', 'Move cancelled', [], 1),
+              ('copy_cancelled', 'Copia cancelada', 'Copy cancelled', [], 1),
+              ('download_completed_title', 'Descarga completada', 'Download completed', [], 1),
+              ('download_saved', '$fileName (${formatSize(total)}) guardado en Descargas', '%1$s (%2$s) saved in Downloads', ['fileName', 'formatSize(total)'], 1),
+              ('upload_completed_title', 'Subida completada', 'Upload completed', [], 1),
+              ('upload_succeeded', '$fileName (${formatSize(total)}) subido con éxito', '%1$s (%2$s) uploaded successfully', ['fileName', 'formatSize(total)'], 1),
+              ('copy_succeeded', 'Copiado exitosamente: $targetName', 'Copied successfully: %1$s', ['targetName'], 4),
+              ('open_before_upload', 'Abre la sesión de Archivos antes de subir', 'Open the Files session before uploading', [], 1),
+              ('upload_pending', 'Ya hay una subida pendiente para ese destino', 'An upload is already pending for that destination', [], 1),
+              ('upload_completed', 'Subida completada: $name', 'Upload completed: %1$s', ['name'], 1),
+              ('upload_rejected', 'El agente ha rechazado la subida', 'The agent rejected the upload', [], 1),
+              ('upload_failed', 'No se pudo completar la subida: ${e.javaClass.simpleName}', 'Could not complete the upload: %1$s', ['e.javaClass.simpleName'], 1),
+              ('saving', 'Guardando archivo...', 'Saving file...', [], 1),
+              ('read_failed', 'Error al leer archivo (${item.name})', 'Error reading file (%1$s)', ['item.name'], 1),
+              ('root_protected', 'No se permite operar sobre la raíz', 'Operations on the root are not allowed', [], 1),
+              ('drive_root_protected', 'No se permite operar sobre la raíz de una unidad', 'Operations on a drive root are not allowed', [], 1),
+              ('absolute_path_expected', 'Se esperaba una ruta remota absoluta: $path', 'An absolute remote path was expected: %1$s', ['path'], 1),
+              ('empty_name', 'El nombre está vacío', 'The name is empty', [], 1),
+              ('invalid_name', 'Nombre no permitido', 'Name not allowed', [], 1),
+              ('name_not_path', 'Se esperaba un nombre, no una ruta', 'A name was expected, not a path', [], 1),
+              ('copy_files_only', 'La función de copiar solo está disponible para archivos', 'Copying is only available for files', [], 1),
+              ('no_session', 'No hay una sesión de archivos activa', 'There is no active files session', [], 2),
+              ('selected_copy', 'Seleccionado para copiar: ${item.name}', 'Selected for copying: %1$s', ['item.name'], 1),
+              ('cut_files_only', 'La función de cortar solo está disponible para archivos', 'Cutting is only available for files', [], 1),
+              ('selected_move', 'Seleccionado para mover: ${item.name}', 'Selected for moving: %1$s', ['item.name'], 1),
+              ('clipboard_empty', 'El portapapeles está vacío', 'The clipboard is empty', [], 1),
+              ('reselect', 'Vuelve a seleccionar el elemento', 'Select the item again', [], 1),
+              ('copy_cut_files_only', 'Las operaciones de copiar y cortar solo están permitidas para archivos', 'Copy and cut operations are only allowed for files', [], 1),
+              ('same_device_only', 'Este portapapeles solo permite operaciones dentro del mismo equipo remoto', 'This clipboard only allows operations within the same remote device', [], 1),
+              ('tunnel_disconnected', 'El túnel de archivos no está conectado', 'The files tunnel is not connected', [], 3),
+              ('moved', 'Movido: $targetName', 'Moved: %1$s', ['targetName'], 1),
+              ('copied', 'Copiado: $targetName', 'Copied: %1$s', ['targetName'], 1),
+              ('paste_failed', 'No se pudo pegar: ${e.localizedMessage}', 'Could not paste: %1$s', ['e.localizedMessage.toString()'], 1),
+              ('copy_failed', 'Error al copiar: ${e.localizedMessage}', 'Error copying: %1$s', ['e.localizedMessage.toString()'], 1),
+              ('compressing', 'Comprimiendo ${item.name} a $cleanZipName...', 'Compressing %1$s to %2$s...', ['item.name', 'cleanZipName'], 1),
+              ('compression_failed', 'Error en compresión ZIP', 'ZIP compression error', [], 1),
+              ('compression_completed', 'Compresión finalizada: ${session.fileName}', 'Compression completed: %1$s', ['session.fileName'], 1),
+              ('compression_cancelled', 'Compresión cancelada: $name', 'Compression cancelled: %1$s', ['name'], 1),
+              ('extracting', 'Descomprimiendo ${item.name}...', 'Extracting %1$s...', ['item.name'], 1),
+              ('opening_remote', 'Abriendo ${item.name} en el equipo remoto...', 'Opening %1$s on the remote device...', ['item.name'], 1),
+              ('delete_requested', 'Eliminación solicitada: ${item.name}', 'Deletion requested: %1$s', ['item.name'], 1),
+              ('delete_failed', 'Error al eliminar: ${e.localizedMessage}', 'Error deleting: %1$s', ['e.localizedMessage.toString()'], 1),
+              ('renamed', 'Renombrado a: $newName', 'Renamed to: %1$s', ['newName'], 1),
+              ('rename_failed', 'Error al renombrar: ${e.localizedMessage}', 'Error renaming: %1$s', ['e.localizedMessage.toString()'], 1),
+          ]
+          UI_DESCRIPTIONS = {'Atrás': 'back', 'Buscar': 'search', 'Ir a Ruta': 'go_to_path_title', 'Refrescar': 'refresh', 'Desconectar Archivos': 'files_disconnect_action', 'Opciones de creación': 'creation_options', 'Subir carpeta': 'navigate_up', 'Cancelar portapapeles': 'cancel_clipboard', 'Cancelar lectura de archivo': 'cancel_file_read', 'Opciones': 'options'}
+          UI_EXTRA = [('    val uploadStartingText = stringResource(R.string.starting_upload)\n', '    val uploadStartingText = stringResource(R.string.starting_upload)\n    val downloadNotificationsEnabledText = stringResource(R.string.download_notifications_enabled)\n', 1), ('Toast.makeText(context, "Notificaciones de descarga activadas", Toast.LENGTH_SHORT)', 'Toast.makeText(context, downloadNotificationsEnabledText, Toast.LENGTH_SHORT)', 1), ('"$activeCount transferencias activas ($overallPercentage%)"', 'stringResource(R.string.active_transfers_count, activeCount, overallPercentage)', 1), ('"... (+${activeTransfers.size - 3} más, desliza para ver)"', 'androidx.compose.ui.res.pluralStringResource(R.plurals.files_more_transfers_hint, activeTransfers.size - 3, activeTransfers.size - 3)', 1), ('Text("Nueva Carpeta")', 'Text(stringResource(R.string.new_folder))', 1), ('Text("Nuevo Archivo de Texto")', 'Text(stringResource(R.string.new_text_file))', 1), ('"Editando: ${editingFilePath?.substringAfterLast(\'/\')}"', "stringResource(R.string.files_editing_title, editingFilePath?.substringAfterLast('/').toString())", 1)]
+          RELAY_EXTRA = [('"Subida cancelada: ${session.fileName}"', 'fileText(R.string.upload_canceled, session.fileName)', 1), ('"Descargando $fileName"', 'context.getString(R.string.downloading, fileName)', 1), ('"Subiendo $fileName"', 'context.getString(R.string.uploading, fileName)', 1), ('                    "Cancelar",\n', '                    context.getString(R.string.cancel),\n', 2), ('"Descarga completada: $fileName (${formatSize(totalSize)}) en carpeta Downloads"', 'ctx.getString(R.string.download_complete, fileName, formatSize(totalSize))', 1), ('catch (e: UploadConflict) { _statusMessage.value = e.message; break }', 'catch (e: UploadConflict) { _statusMessage.value = fileText(R.string.files_transport_upload_conflict, e.message.orEmpty()); break }', 1), ('val name = session?.fileName ?: "archivo"', 'val name = session?.fileName ?: fileText(R.string.files_transport_unknown_file)', 3)]
+          DESKTOP_LABELS = [('Atrás', 'back', 1), ('Teclado y Atajos', 'keyboard_and_shortcuts', 1), ('Portapapeles', 'clipboard', 1), ('Opciones', 'options', 1), ('Refrescar', 'refresh', 1), ('Desconectar Escritorio', 'disconnect_desktop', 1), ('Desplegar controles', 'expand_controls', 1), ('Salir de pantalla completa', 'exit_fullscreen', 2), ('Plegar controles', 'collapse_controls', 1), ('Teclado en pantalla', 'on_screen_keyboard', 1), ('Pantalla completa', 'fullscreen', 1), ('Cargando escritorio remoto...', 'desktop_loading_remote', 1), ('Win Key', 'desktop_win_key', 1)]
+          DESKTOP_TOASTS = [('Pegado de Android', 'pastedFromAndroidText', 'pasted_from_android'), ('El portapapeles de Android está vacío', 'androidClipboardEmptyText', 'android_clipboard_empty'), ('Copiado a Android', 'copiedToAndroidText', 'copied_to_android'), ('El portapapeles remoto está vacío', 'remoteClipboardEmptyText', 'remote_clipboard_empty')]
+          SERVICE_OLD = '            val allCompleted = transfers.isNotEmpty() && active.isEmpty() && transfers.all { n ->\n                when (n.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()) {\n                    "Descarga completada", "Subida completada" -> true\n                    else -> false\n                }\n            }'
+          SERVICE_NEW = '            val allCompleted = transferNotificationsCompleted(\n                transfers.map { smallIconResourceId(it) == R.drawable.ic_stat_transfer_success },\n                active.isNotEmpty()\n            )'
+          PREREQUISITES = {'ui/desktop/DesktopViewportState.kt': '6b44384250d1fc7094912d5a5d142edb2c0671c2', 'ui/desktop/RemoteDesktopViewModel.kt': '5914f56c91daefe7b3338be0b4a4820ea9327791', 'ui/terminal/TerminalScreen.kt': '1f07148e65d76d711008f8be489948d15b820c3c', 'ui/desktop/DesktopKeyDisplayLabels.kt': 'bc0229bc9382ba7016de2141cfd5e8789ff32562', 'ui/devices/DeviceAgentVersion.kt': '325f80e063f77f889dbd9e8d3b98e403e9000431'}
+          POLICY = 'package iecxiv.meshfabric.service\n\ninternal fun transferNotificationsCompleted(successIcons: List<Boolean>, hasActiveTransfers: Boolean): Boolean =\n    successIcons.isNotEmpty() && !hasActiveTransfers && successIcons.all { it }\n'
+          TESTS = 'package iecxiv.meshfabric.service\n\nimport org.junit.Assert.*\nimport org.junit.Test\n\nclass TransferNotificationCompletionTest {\n    @Test fun noNotificationsDoNotMeanCompletion() {\n        assertFalse(transferNotificationsCompleted(emptyList(), false))\n        assertFalse(transferNotificationsCompleted(emptyList(), true))\n    }\n    @Test fun activeTransfersPreventCompletion() {\n        assertFalse(transferNotificationsCompleted(listOf(true), true))\n        assertFalse(transferNotificationsCompleted(listOf(true, true), true))\n    }\n    @Test fun allRemainingNotificationsMustHaveSuccessIcons() {\n        assertTrue(transferNotificationsCompleted(listOf(true), false))\n        assertTrue(transferNotificationsCompleted(listOf(true, true), false))\n        assertFalse(transferNotificationsCompleted(listOf(false), false))\n        assertFalse(transferNotificationsCompleted(listOf(true, false), false))\n    }\n}\n'
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+
+          def sha(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(message)
+
+          def target(name):
+              path = Path(name)
+              root = Path.cwd().resolve()
+              require(not path.is_symlink() and root in path.resolve().parents, 'Unsafe path: ' + name)
+              return path
+
+          def source(name, expected):
+              path = target(name)
+              require(path.is_file() and sha(path.read_bytes()) == expected, 'Source changed; review required: ' + name)
+              return path.read_text(encoding='utf-8')
+
+          def edit(text, rules):
+              result, undo = text, []
+              for before, after, count in rules:
+                  require(result.count(before) == count, 'Non-unique or missing anchor: ' + repr(before))
+                  for match in reversed(list(re.finditer(re.escape(before), result))):
+                      pos = match.start()
+                      undo.append((pos, before, after))
+                      result = result[:pos] + after + result[pos + len(before):]
+              check = result
+              for pos, before, after in reversed(undo):
+                  require(check[pos:pos+len(after)] == after, 'Invalid reverse substitution')
+                  check = check[:pos] + before + check[pos+len(after):]
+              require(check == text, 'Unexpected changes outside substitutions')
+              return result
+
+          def quoted(text):
+              return json.dumps(text, ensure_ascii=False)
+
+          def formats(text):
+              return sorted(re.findall(r'%(?:\d+\$)?[A-Za-z%]', text or ''))
+
+          def xml(rows, language, more=False):
+              body = ''.join('    <string name="'+key+'">'+escape((es if language=='es' else en).replace("'", "\\'"))+'</string>\n' for key,es,en in rows)
+              if more:
+                  label = '… (+%1$d más, desliza para ver)' if language=='es' else '… (+%1$d more, swipe to view)'
+                  body += '    <plurals name="files_more_transfers_hint">\n'+''.join('        <item quantity="'+q+'">'+label+'</item>\n' for q in ['one','other'])+'    </plurals>\n'
+              return '<resources>\n'+body+'</resources>\n'
+
+          require(os.environ.get('GITHUB_REPOSITORY') == 'iecxiv/meshfabric', 'Wrong repository')
+          require(os.environ.get('GITHUB_REF') == 'refs/heads/'+BRANCH, 'Wrong branch')
+          require(git('rev-parse','HEAD') == os.environ['GITHUB_SHA'], 'Wrong checkout')
+          require(not git('status','--porcelain'), 'Checkout is not clean')
+          for name, expected in PREREQUISITES.items():
+              source(B+name, expected)
+
+          originals = {
+              B+'ui/files/FileManagerScreen.kt': source(B+'ui/files/FileManagerScreen.kt', '8fdd6e667cf2afe637cdb1f29cd175d78b8feff6'),
+              B+'data/remote/FileRelayClient.kt': source(B+'data/remote/FileRelayClient.kt', '381a95cdd0ab0e8ad825bdb9821266fc46b21f3e'),
+              B+'ui/desktop/RemoteDesktopScreen.kt': source(B+'ui/desktop/RemoteDesktopScreen.kt', 'dc43bd9599ff74fe28b1e1e2c87b6f8493491da5'),
+              B+'service/KeepAliveService.kt': source(B+'service/KeepAliveService.kt', '0188c5165fcbd15a366aa06975b88715c8a124d1')
+          }
+          planned = {}
+          ui_rules = [('contentDescription = '+quoted(old), 'contentDescription = stringResource(R.string.'+key+')',1) for old,key in UI_DESCRIPTIONS.items()] + UI_EXTRA
+          planned[B+'ui/files/FileManagerScreen.kt'] = edit(originals[B+'ui/files/FileManagerScreen.kt'], ui_rules)
+
+          relay_rules, relay_strings = [], []
+          for short, old, english, arguments, count in ROWS:
+              key = 'files_transport_'+short
+              spanish = old
+              for index, argument in enumerate(arguments,1):
+                  token = argument.removesuffix('.toString()')
+                  spanish = spanish.replace('${'+token+'}', '%'+str(index)+'$s').replace('$'+token, '%'+str(index)+'$s')
+              require(formats(spanish) == formats(english), 'Format mismatch: '+key)
+              relay_strings.append((key,spanish,english))
+              relay_rules.append((quoted(old), 'fileText(R.string.'+key+('' if not arguments else ', '+', '.join(arguments))+')',count))
+          relay_strings += [('files_transport_upload_conflict','Conflicto al subir. Detalle técnico: %1$s','Upload conflict. Technical detail: %1$s'),('files_transport_unknown_file','archivo','file')]
+          marker = 'class FileSession(\n    val nodeId: String,\n    val meshClient: MeshCentralClient,\n    private val scope: CoroutineScope\n) {\n'
+          helper = '    private fun fileText(resourceId: Int, vararg arguments: Any): String =\n        iecxiv.meshfabric.MeshFabricApp.instance.getString(resourceId, *arguments)\n\n'
+          relay_rules += RELAY_EXTRA + [(marker,marker+helper,1)]
+          relay_path = B+'data/remote/FileRelayClient.kt'
+          planned[relay_path] = edit(originals[relay_path],relay_rules)
+          require([x for x in originals[relay_path].splitlines() if 'AppDiagnostics.' in x] == [x for x in planned[relay_path].splitlines() if 'AppDiagnostics.' in x], 'Diagnostic calls changed')
+          require('_statusMessage.value = msg' in planned[relay_path], 'Agent status handling changed')
+          require(planned[relay_path].count('.setSmallIcon(R.drawable.ic_stat_transfer_success)') == 2, 'Completion producers changed')
+
+          rules = [(quoted(old),'stringResource(R.string.'+key+')',count) for old,key,count in DESKTOP_LABELS]
+          rules += [('Text("Enter ↵",','Text(stringResource(R.string.desktop_key_enter) + " ↵",',1)]
+          marker = '    val clipboardScope = rememberCoroutineScope()\n'
+          rules += [(marker,marker+''.join('    val '+variable+' = stringResource(R.string.'+key+')\n' for old,variable,key in DESKTOP_TOASTS),1)]
+          rules += [('Toast.makeText(context, '+quoted(old)+', Toast.LENGTH_SHORT)','Toast.makeText(context, '+variable+', Toast.LENGTH_SHORT)',1) for old,variable,key in DESKTOP_TOASTS]
+          planned[B+'ui/desktop/RemoteDesktopScreen.kt'] = edit(originals[B+'ui/desktop/RemoteDesktopScreen.kt'],rules)
+          planned[B+'service/KeepAliveService.kt'] = edit(originals[B+'service/KeepAliveService.kt'],[(SERVICE_OLD,SERVICE_NEW,1)])
+          planned[B+'service/TransferNotificationCompletion.kt'] = POLICY
+          planned['app/src/test/java/iecxiv/meshfabric/service/TransferNotificationCompletionTest.kt'] = TESTS
+
+          families = {
+              'files_ui_localization.xml': [('files_disconnect_action','Desconectar Archivos','Disconnect Files'),('files_editing_title','Editando: %1$s','Editing: %1$s')],
+              'files_transport_localization.xml': relay_strings,
+              'desktop_localization.xml': [('desktop_loading_remote','Cargando escritorio remoto...','Loading remote desktop...'),('desktop_win_key','Tecla Win','Win Key')]
+          }
+          for filename, entries in families.items():
+              for key,es,en in entries:
+                  require(formats(es)==formats(en), 'Format mismatch: '+key)
+              for folder,lang in [('values','en'),('values-en','en'),('values-es','es')]:
+                  planned[RES+folder+'/'+filename] = xml(entries,lang,filename=='files_ui_localization.xml')
+
+          def signature(text):
+              return [(n.tag,n.attrib,formats(n.text),[(c.attrib,formats(c.text)) for c in n]) for n in ET.fromstring(text)]
+
+          for filename in families:
+              english = planned[RES+'values/'+filename]
+              require(english == planned[RES+'values-en/'+filename], 'Default/English resources differ')
+              require(signature(english) == signature(planned[RES+'values-es/'+filename]), 'Resource signatures differ: '+filename)
+          for name in planned:
+              if name not in originals:
+                  require(not target(name).exists(), 'New file already exists: '+name)
+          for folder in ['values','values-en','values-es']:
+              existing = set()
+              for path in Path(RES+folder).glob('*.xml'):
+                  for node in ET.parse(path).getroot():
+                      if 'name' in node.attrib:
+                          existing.add((node.tag,node.attrib['name']))
+              for filename in families:
+                  for node in ET.fromstring(planned[RES+folder+'/'+filename]):
+                      key = (node.tag,node.attrib['name'])
+                      require(key not in existing, 'Resource collision: '+repr(key))
+                      existing.add(key)
+          strings = set()
+          for path in Path(RES+'values').glob('*.xml'):
+              strings.update(n.attrib['name'] for n in ET.parse(path).getroot() if n.tag=='string' and 'name' in n.attrib)
+          for filename in families:
+              strings.update(n.attrib['name'] for n in ET.fromstring(planned[RES+'values/'+filename]) if n.tag=='string')
+          for name,text in planned.items():
+              if name.endswith('.kt'):
+                  require(set(re.findall(r'R\.string\.([A-Za-z0-9_]+)',text)) <= strings, 'Missing default resources: '+name)
+          require(len(planned)==15, 'Unexpected file count')
+          require(all(name.startswith(('app/src/main/','app/src/test/')) and name.endswith(('.kt','.xml')) for name in planned), 'Unexpected output scope')
+          for name,text in planned.items():
+              path = target(name)
+              path.parent.mkdir(parents=True,exist_ok=True)
+              path.write_text(text,encoding='utf-8')
+          for name, expected in PREREQUISITES.items():
+              source(B+name,expected)
+          subprocess.run(['git','add','--',*planned],check=True)
+          require(set(git('diff','--cached','--name-only').splitlines()) == set(planned), 'Unexpected staged files')
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          review = Path(os.environ['RUNNER_TEMP'])/'localization-review'
+          review.mkdir(exist_ok=True)
+          (review/'localization.diff').write_text(subprocess.check_output(['git','diff','--cached','--binary'],text=True),encoding='utf-8')
+          manifest = {'branch':BRANCH,'files':{name:sha(text.encode()) for name,text in planned.items()},'static_checks_passed':True,'build_run':False,'lint_run':False,'junit_run':False,'device_tests_run':False,'report_stage':'staged_before_commit'}
+          (review/'manifest.json').write_text(json.dumps(manifest,indent=2),encoding='utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as summary:
+              summary.write('## Consolidated localization prepared\n\n15 application/test files staged. SHA, scope and resource checks passed.\n\n**Android build, lint, JUnit and device tests were NOT run.** No SDK or dependency setup was performed.\n')
+          print(json.dumps(manifest,indent=2))
+          PY
+      - name: Save proposed diff and static manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: localization-review-${{ github.run_id }}
+          path: ${{ runner.temp }}/localization-review/
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Publish one commit only if the branch has not moved
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = 'iecxiv/meshfabric'
+          test "$GITHUB_REF" = 'refs/heads/device-other-options'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags origin device-other-options
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" || { echo 'Branch moved; refusing to commit or push'; exit 1; }
+          test "$(git diff --cached --name-only | wc -l)" -eq 15
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(i18n): complete pending desktop and files localization'
+          git push origin HEAD:refs/heads/device-other-options
+          echo "Published localization commit: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo 'Android build, lint, JUnit and device tests were NOT run.' >> "$GITHUB_STEP_SUMMARY"

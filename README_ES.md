@@ -15,6 +15,8 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Búsqueda por nombre o sistema operativo.
 - Navegación inferior entre Gestión, Servidor, Dispositivos, Registro y Avisos.
 - Acceso al escritorio, terminal, archivos y acciones desde cada tarjeta de dispositivo.
+- Despliega las opciones de la tarjeta para abrir General, Eventos, Detalles y la Consola del agente. Detalles sigue disponible sin duplicar el icono de información junto a ONLINE/OFFLINE.
+- Los filtros de cabecera controlan la visibilidad de dispositivos desconectados y direcciones de red.
 
 ### Gestión nativa y seguridad de cuenta
 
@@ -69,6 +71,10 @@ Guía y lista de aceptación: [Avisos y continuidad](docs/es/notices.md). Siguen
 Guía: [Instalación de agentes e invitaciones](docs/es/agent-installation.md).
 
 ### Escritorio remoto
+
+- El estado incluye el número de visores comunicado por el servidor cuando hay más de uno, por ejemplo Conectado, 2 viendo. Varias conexiones de la misma cuenta se cuentan por separado; no se inventa un contador si faltan metadatos válidos.
+- La barra arrastrable llega a ambos bordes verticales y conserva su posición relativa al expandirse o plegarse. El estado de la vista se conserva entre reconexiones automáticas dentro de la sesión de la app.
+- Reanudar y refrescar utilizan paquetes distintos; el intervalo de imágenes se envía con la compresión, sin un bucle de refrescos periódicos. No garantiza compatibilidad con todos los servidores o agentes.
 
 - Escritorio remoto nativo (KVM) con control táctil del ratón, clic izquierdo/derecho, desplazamiento, zoom y movimiento de la imagen.
 - Teclado virtual y atajos como Ctrl+Alt+Supr, Win+R, Alt+Tab y teclas de función, sujetos al entorno y a las restricciones del sistema remoto.
@@ -199,6 +205,16 @@ La salida de comandos se muestra separada del terminal interactivo. Cerrar su ve
 
 Enviar o aceptar una solicitud no equivale a ejecutarla. MeshFabric informa de resultados no confirmados e interrupciones en lugar de repetir automáticamente acciones potencialmente disruptivas. Notificaciones, apertura de URL, acciones de energía y WoL dependen del servidor y del entorno remoto.
 
+### General del dispositivo y chat
+
+- General permite editar metadatos y revisar acciones según permisos verificados. Notas, ejecución de comandos, notificaciones, chat y herramientas de consola dependen del servidor y del agente.
+- Compartir permanece oculto mientras su implementación está incompleta.
+- El chat admite texto y puede minimizarse en burbujas móviles dentro de la app. Iniciarlo solicita explícitamente al equipo seleccionado abrir su navegador remoto.
+- Los chats abiertos se incluyen en el cómputo de sesiones del servicio keep-alive. Pasar a segundo plano ya no los desconecta deliberadamente y utiliza la notificación existente de sesiones activas. Cerrar el chat, terminar su contexto autenticado o retirar la tarea sigue cerrándolo.
+- El borrador y el historial permanecen en memoria, sin confirmaciones de entrega/lectura ni reenvío automático. La muerte del proceso y la pérdida de red o permisos pueden terminar el chat.
+
+Guía y lista de aceptación: [Sesiones y chat de dispositivos](docs/es/device-sessions.md).
+
 ### Actividad
 
 - Solicitudes locales recientes, eventos del servidor, errores y salida de comandos disponible.
@@ -222,6 +238,7 @@ Guía técnica: [Registro y Eventos](docs/log.md) (en inglés). Referencia de pr
 
 ### Sesiones en segundo plano y notificación
 
+- Los chats abiertos se cuentan junto al escritorio, terminal y archivos, incluso si solo queda un chat. Al cerrarlos se actualiza la decisión del servicio sin retirar otras sesiones activas.
 - Se utiliza una notificación de servicio en primer plano cuando hay sesiones que la necesitan mientras la app está en segundo plano.
 - Al pulsarla se solicita volver a MainActivity mediante un PendingIntent de actividad explícito e inmutable. No usa flags de limpieza de tareas ni solicita explícitamente desconectar o reiniciar el terminal.
 - El regreso sigue el ciclo de vida de la app. Si el proceso murió, hace falta el inicio normal; la notificación no garantiza recuperar una sesión remota viva anterior.
@@ -231,7 +248,7 @@ Guía técnica: [Registro y Eventos](docs/log.md) (en inglés). Referencia de pr
 - Interfaz Material 3 con tema del sistema, claro y oscuro.
 - Nombre e icono de aplicación personalizados y opción para ocultar el icono de ajustes.
 - Recursos Android en inglés y español, incluidos controles de reconexión, historial, eliminación y cierre del terminal.
-- La localización no está completa: algunos mensajes de gestión, actividad, escritorio y resultados siguen escritos directamente en español. La cobertura de claves no demuestra que todas las frases estén externalizadas o traducidas.
+- La cobertura en inglés y español incluye controles y atajos del escritorio, navegación del terminal, mensajes de transferencias y acciones relacionadas de gestión. No garantiza que todas las frases estén localizadas; la salida remota y los mensajes del servidor o agente pueden conservar su idioma original.
 
 El inventario y sus limitaciones se documentan en [docs/i18n](docs/es/i18n/README.md). La documentación técnica dispone de versiones en inglés y español.
 

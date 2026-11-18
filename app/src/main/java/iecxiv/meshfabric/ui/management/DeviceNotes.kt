@@ -11,7 +11,7 @@ data class DeviceNotes(val nodeId:String,val name:String,val editable:Boolean=fa
         if(id!=nodeId) return this
         return when {
             phase==NotesPhase.LOADING -> copy(phase=NotesPhase.READY,original=value,draft=value,loaded=true,error="")
-            phase==NotesPhase.SAVING && value==draft -> copy(phase=NotesPhase.READY,original=value,loaded=true,error="",message="Guardado confirmado por relectura")
+            phase==NotesPhase.SAVING && value==draft -> copy(phase=NotesPhase.READY,original=value,loaded=true,error="",message=managementText("Guardado confirmado por relectura","Save confirmed by rereading"))
             else -> this
         }
     }

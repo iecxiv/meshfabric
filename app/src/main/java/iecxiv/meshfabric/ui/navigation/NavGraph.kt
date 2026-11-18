@@ -29,6 +29,9 @@ import iecxiv.meshfabric.ui.desktop.RemoteDesktopScreen
 import iecxiv.meshfabric.ui.desktop.RemoteDesktopViewModel
 import iecxiv.meshfabric.ui.devices.DeviceListViewModel
 import iecxiv.meshfabric.ui.devices.LocalDeviceDetailsClient
+import iecxiv.meshfabric.ui.devices.LocalDeviceAgentConsoleOpen
+import iecxiv.meshfabric.ui.devices.DeviceAgentConsoleScreen
+import iecxiv.meshfabric.ui.devices.DeviceChatHost
 import iecxiv.meshfabric.ui.management.MeshFabricHome
 import iecxiv.meshfabric.ui.files.FileManagerScreen
 import iecxiv.meshfabric.ui.files.FileManagerViewModel
@@ -64,7 +67,7 @@ internal fun NavHostController.backOnceFrom(source:NavBackStackEntry,fallback:St
 }
 
 internal fun remoteRoute(screen:String,id:String,name:String):String? {
-    if(screen !in setOf("desktop","terminal","files") || id.isBlank()) return null
+    if(screen !in setOf("desktop","terminal","files","agentconsole") || id.isBlank()) return null
     return "$screen/${Uri.encode(id)}/${Uri.encode(name.ifBlank { id })}"
 }
 
@@ -89,6 +92,7 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
     fun openRemote(source:NavBackStackEntry,screen:String,id:String,name:String) {
         remoteRoute(screen,id,name)?.let { navController.navigateOnceFrom(source,it) }
     }
+    DeviceChatHost(deviceListViewModel.meshClient) {
     NavHost(navController=navController,startDestination=initialDestination) {
         composable("login") { entry->
             LaunchedEffect(entry,loginViewModel) {
@@ -104,7 +108,8 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
                 onOpenSettings={ navController.navigateOnceFrom(entry,"settings") })
         }
         composable("devices") { entry->
-            CompositionLocalProvider(LocalDeviceDetailsClient provides deviceListViewModel.meshClient) {
+            CompositionLocalProvider(LocalDeviceDetailsClient provides deviceListViewModel.meshClient,
+                LocalDeviceAgentConsoleOpen provides {node->openRemote(entry,"agentconsole",node.id,node.name)}) {
                 MeshFabricHome(viewModel=deviceListViewModel,
                     onLogout={
                         if(navController.acceptsNavigationFrom(entry)) {
@@ -118,6 +123,15 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
                     onOpenTerminal={ id,name->openRemote(entry,"terminal",id,name) },
                     onOpenFiles={ id,name->openRemote(entry,"files",id,name) })
             }
+        }
+        composable("agentconsole/{nodeId}/{nodeName}",arguments=listOf(
+            navArgument("nodeId") {type=NavType.StringType},navArgument("nodeName") {type=NavType.StringType}
+        )) {entry->
+            val id=entry.arguments?.getString("nodeId").orEmpty()
+            val name=entry.arguments?.getString("nodeName").orEmpty().ifBlank {id}
+            val back:()->Unit={navController.backOnceFrom(entry,recoveryRoute())}
+            BackHandler(onBack=back)
+            if(id.isBlank()) UnavailableDestination(back) else DeviceAgentConsoleScreen(deviceListViewModel.meshClient,id,name,back)
         }
         composable("settings") { entry->
             val back:()->Unit={ navController.backOnceFrom(entry,recoveryRoute()) }
@@ -151,5 +165,6 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
                 }
             }
         }
+    }
     }
 }

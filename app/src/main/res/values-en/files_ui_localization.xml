@@ -1,0 +1,8 @@
+<resources>
+    <string name="files_disconnect_action">Disconnect Files</string>
+    <string name="files_editing_title">Editing: %1$s</string>
+    <plurals name="files_more_transfers_hint">
+        <item quantity="one">… (+%1$d more, swipe to view)</item>
+        <item quantity="other">… (+%1$d more, swipe to view)</item>
+    </plurals>
+</resources>

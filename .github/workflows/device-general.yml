@@ -1,0 +1,87 @@
+name: Validate and publish device General editor
+on:
+  push:
+    branches: [device-other-options]
+    paths: ['tools/ui/device-general/**', '.github/workflows/device-general.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: device-general-editor
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/device-other-options'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply General implementation
+        run: |
+          set -euo pipefail
+          python3 tools/ui/device-general/apply.py
+          git diff --cached --check
+          mkdir -p validation
+          git diff --cached > validation/device-general.diff
+      - name: Build all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify test evidence
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for root,classname,count in [('app/build/test-results','DeviceGeneralPolicyTest',9),('app/build/outputs/androidTest-results','DeviceGeneralDialogUiTest',1)]:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find('failure') is not None or c.find('error') is not None for c in cases),root
+              new=[c for c in cases if c.get('classname','').endswith('.'+classname)]
+              assert len(new)==count and all(c.find('skipped') is None for c in new),classname
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-general-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+      - name: Publish only validated changes to unchanged feature branch
+        run: |
+          set -euo pipefail
+          git fetch origin device-other-options
+          test "$(git rev-parse origin/device-other-options)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceOtherOptions.kt','app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralEditor.kt','app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt','app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceGeneralPolicyTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialogUiTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(devices): add permission-checked General name and tag editor'
+          git push origin HEAD:device-other-options
+      - uses: actions/upload-artifact@v4
+        with:
+          name: device-general-validated-apk-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7

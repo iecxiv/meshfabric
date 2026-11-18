@@ -1,0 +1,7 @@
+<resources>
+    <string name="desktop_right_assist_show">Show right-click button</string>
+    <string name="desktop_right_assist_hide">Hide right-click button</string>
+    <string name="desktop_right_assist_click">Prepare the next right-click</string>
+    <string name="desktop_right_assist_armed">Next click: right. Tap again to cancel.</string>
+    <string name="desktop_right_assist_idle">Right-click button not armed</string>
+</resources>

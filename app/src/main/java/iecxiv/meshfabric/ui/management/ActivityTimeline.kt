@@ -141,11 +141,7 @@ private fun ActivityStatus.label():String=when(this) { ActivityStatus.SENT->mana
     Column(modifier.fillMaxWidth()) {
         FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp,Alignment.CenterHorizontally),verticalArrangement=Arrangement.spacedBy(0.dp)) {
             listOf(managementText("Todos","All"),managementText("Mis acciones","My actions"),managementText("Servidor","Server"),managementText("Errores","Errors")).forEachIndexed { i,label->
-                FilterChip(selected=filter==i,onClick={ filter=i },shape=MaterialTheme.shapes.medium,
-                    border=BorderStroke(1.dp,if(filter==i) scheme.primary else scheme.outlineVariant),
-                    colors=FilterChipDefaults.filterChipColors(containerColor=scheme.surfaceVariant,labelColor=scheme.onSurface,
-                        selectedContainerColor=scheme.primaryContainer,selectedLabelColor=scheme.onPrimaryContainer),
-                    label={ Text(label,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium) })
+                FilterChip(selected=filter==i,onClick={ filter=i },label={ Text(label) })
             }
         }
         BoxWithConstraints(Modifier.fillMaxWidth(),contentAlignment=Alignment.Center) {

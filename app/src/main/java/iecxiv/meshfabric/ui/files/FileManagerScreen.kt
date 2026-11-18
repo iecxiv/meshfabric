@@ -152,6 +152,7 @@ private fun FileManagerContent(
 ) {
     val context = LocalContext.current
     val uploadStartingText = stringResource(R.string.starting_upload)
+    val downloadNotificationsEnabledText = stringResource(R.string.download_notifications_enabled)
     val uploadErrorTemplate = stringResource(R.string.upload_error)
     val uploadMessageLocale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     val canCreateFiles = LocalFileCreationAllowed.current
@@ -239,7 +240,7 @@ private fun FileManagerContent(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            Toast.makeText(context, "Notificaciones de descarga activadas", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, downloadNotificationsEnabledText, Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -345,7 +346,7 @@ private fun FileManagerContent(
                             onBack()
                         }
                     }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Atrás")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
                     }
                 },
                 actions = {
@@ -355,7 +356,7 @@ private fun FileManagerContent(
                     ) {
                         Icon(
                             if (isSearchActive) Icons.Default.Clear else Icons.Default.Search,
-                            contentDescription = "Buscar"
+                            contentDescription = stringResource(R.string.search)
                         )
                     }
                     IconButton(
@@ -365,7 +366,7 @@ private fun FileManagerContent(
                         },
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Ir a Ruta")
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = stringResource(R.string.go_to_path_title))
                     }
                     IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Default.Storage, contentDescription = stringResource(if (windowsFiles) R.string.files_drives else R.string.files_root_shortcut_label), tint = if (if (windowsFiles) driveSelector else currentPath == "/") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -374,7 +375,7 @@ private fun FileManagerContent(
                         onClick = { viewModel.refresh(nodeId) },
                         modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refrescar")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
                     }
                     IconButton(
                         onClick = {
@@ -385,7 +386,7 @@ private fun FileManagerContent(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "Desconectar Archivos",
+                            contentDescription = stringResource(R.string.files_disconnect_action),
                             tint = Color.Red
                         )
                     }
@@ -442,7 +443,7 @@ private fun FileManagerContent(
                                     text = if (activeCount == 1) {
                                         if (activeTransfers[0].type == TransferType.COMPRESS && activeTransfers[0].totalBytes <= 0L && !activeTransfers[0].isCompleted) "$summaryLabel: ${activeTransfers[0].fileName}..." else "$summaryLabel: ${activeTransfers[0].fileName} ($overallPercentage%)"
                                     } else {
-                                        "$activeCount transferencias activas ($overallPercentage%)"
+                                        stringResource(R.string.active_transfers_count, activeCount, overallPercentage)
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Bold,
@@ -622,7 +623,7 @@ LinearProgressIndicator(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Text(
-                                                text = "... (+${activeTransfers.size - 3} más, desliza para ver)",
+                                                text = androidx.compose.ui.res.pluralStringResource(R.plurals.files_more_transfers_hint, activeTransfers.size - 3, activeTransfers.size - 3),
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -676,7 +677,7 @@ LinearProgressIndicator(
                                 contentColor = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.size(42.dp)
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = "Opciones de creación", modifier = Modifier.size(22.dp))
+                                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.creation_options), modifier = Modifier.size(22.dp))
                             }
 
                             DropdownMenu(
@@ -685,7 +686,7 @@ LinearProgressIndicator(
                             ) {
                                 DropdownMenuItem(
  enabled = LocalFileCreationAllowed.current,
-                                    text = { Text("Nueva Carpeta") },
+                                    text = { Text(stringResource(R.string.new_folder)) },
                                     leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                                     onClick = {
                                         fabMenuExpanded = false
@@ -694,7 +695,7 @@ LinearProgressIndicator(
                                 )
                                 DropdownMenuItem(
  enabled = LocalFileCreationAllowed.current,
-                                    text = { Text("Nuevo Archivo de Texto") },
+                                    text = { Text(stringResource(R.string.new_text_file)) },
                                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = null) },
                                     onClick = {
                                         fabMenuExpanded = false
@@ -735,7 +736,7 @@ LinearProgressIndicator(
                         onClick = { viewModel.navigateUp(nodeId) },
                         enabled = !isCompressing && currentPath.isNotEmpty() && currentPath != "/"
                     ) {
-                        Icon(Icons.Default.ArrowUpward, contentDescription = "Subir carpeta")
+                        Icon(Icons.Default.ArrowUpward, contentDescription = stringResource(R.string.navigate_up))
                     }
 
                     Spacer(modifier = Modifier.width(4.dp))
@@ -775,7 +776,7 @@ LinearProgressIndicator(
                             Text(if (isCutMode) stringResource(R.string.move) else stringResource(R.string.paste))
                         }
                         IconButton(onClick = { viewModel.clearClipboard(nodeId) }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Cancelar portapapeles")
+                            Icon(Icons.Default.Clear, contentDescription = stringResource(R.string.cancel_clipboard))
                         }
                     }
                 }
@@ -818,7 +819,7 @@ LinearProgressIndicator(
                         ) {
                             Icon(
                                 Icons.Default.Close,
-                                contentDescription = "Cancelar lectura de archivo",
+                                contentDescription = stringResource(R.string.cancel_file_read),
                                 tint = MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -914,7 +915,7 @@ CardDefaults.cardColors(
 
                                     Box {
                                         IconButton(onClick = { menuExpanded = true }) {
-                                            Icon(Icons.Default.MoreVert, contentDescription = "Opciones")
+                                            Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.options))
                                         }
 
                                         DropdownMenu(
@@ -1265,7 +1266,7 @@ CardDefaults.cardColors(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Editando: ${editingFilePath?.substringAfterLast('/')}",
+                                text = stringResource(R.string.files_editing_title, editingFilePath?.substringAfterLast('/').toString()),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 17.sp,
                                 modifier = Modifier.weight(1f)

@@ -25,7 +25,7 @@ import androidx.compose.ui.window.SecureFlagPolicy
     val scopeAllowed=scope!=null && profileBroadcastScopeAllowed(s,scope,server)
     val packet=scope?.let {profileBroadcastPacket(it,message,approved)}
     val canSend=packet!=null && profileBroadcastAllowed(s,packet,server)
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(if(review) t("Revisar Broadcast","Review Broadcast") else "Broadcast")},text={
+    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(if(review) t("Revisar difusión","Review Broadcast") else t("Difusión","Broadcast"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Sesiones conectadas del dominio actual","Connected sessions in the current domain"),style=MaterialTheme.typography.titleSmall)
             Text(scope?.optString("server").orEmpty(),style=MaterialTheme.typography.bodySmall)
@@ -42,5 +42,5 @@ import androidx.compose.ui.window.SecureFlagPolicy
             Text(t("La aceptación del servidor no acredita recepción ni lectura. Ante un resultado sin confirmar, no se reenvía automáticamente.","Server acceptance does not prove receipt or reading. Unconfirmed requests are not automatically retried."),style=MaterialTheme.typography.bodySmall)
             if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.error)
         }
-    },confirmButton={Button(enabled=if(review) canSend else scopeAllowed && profileBroadcastMessageValid(message),onClick={if(!review) {review=true;approved=false} else if(packet!=null && session.submit(packet)) onDismiss() else feedback=t("No se ha enviado. Comprueba la conexión, el alcance y los permisos.","Not sent. Check the connection, scope and rights.")}) {Text(if(review) t("Enviar Broadcast","Send Broadcast") else t("Revisar","Review"))}},dismissButton={Row {if(review) TextButton(onClick={review=false;approved=false}) {Text(t("Volver","Back"))};TextButton(onClick=onDismiss){Text(t("Cancelar","Cancel"))}}})
+    },confirmButton={Button(enabled=if(review) canSend else scopeAllowed && profileBroadcastMessageValid(message),onClick={if(!review) {review=true;approved=false} else if(packet!=null && session.submit(packet)) onDismiss() else feedback=t("No se ha enviado. Comprueba la conexión, el alcance y los permisos.","Not sent. Check the connection, scope and rights.")}) {Text(if(review) t("Enviar difusión","Send Broadcast") else t("Revisar","Review"))}},dismissButton={Row {if(review) TextButton(onClick={review=false;approved=false}) {Text(t("Volver","Back"))};TextButton(onClick=onDismiss){Text(t("Cancelar","Cancel"))}}})
 }

@@ -198,6 +198,9 @@ class FileSession(
     val meshClient: MeshCentralClient,
     private val scope: CoroutineScope
 ) {
+    private fun fileText(resourceId: Int, vararg arguments: Any): String =
+        iecxiv.meshfabric.MeshFabricApp.instance.getString(resourceId, *arguments)
+
     val cleanNodeId = if (nodeId.startsWith("node//")) {
         nodeId.substring(6)
     } else if (nodeId.startsWith("node/")) {
@@ -367,7 +370,7 @@ class FileSession(
                         if (webSocket != null && !isConnected() && nowMs() - attemptStarted >= 20_000L) retireSocket()
                         if (isConnected() && navigation.pending != null && nowMs() - listingStarted >= 15_000L) {
                             iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDiag", "FileRelayClient.kt:369 listing-timeout epoch=")
-                            _statusMessage.value = "No se ha recibido el listado; recuperando la conexión"
+                            _statusMessage.value = fileText(R.string.files_transport_listing_retry)
                             retireSocket()
                         }
                         if (meshClient.connectionState.value && webSocket == null && nowMs() >= retryAt) {
@@ -377,7 +380,7 @@ class FileSession(
                                     irrecoverable = true
                                     recoveryJob?.cancel()
                                     recoveryJob = null
-                                    _statusMessage.value = "La configuración impide recuperar Archivos; corrígela y vuelve a intentar"
+                                    _statusMessage.value = fileText(R.string.files_transport_configuration_blocked)
                                 }
                                 retireSocket()
                             }
@@ -760,7 +763,7 @@ class FileSession(
                             }
                         }
                     }
-                    _statusMessage.value = "Copiados elementos de carpeta"
+                    _statusMessage.value = fileText(R.string.files_transport_folder_items_copied)
                     scope.launch {
                         delay(600)
                         listDirectory(_currentPath.value)
@@ -773,7 +776,7 @@ class FileSession(
                 val acceptedPath = navigation.accept(json.get("reqid")?.asString, responsePath, hasListing)
                 pumpListing()
                 if (acceptedPath == null) {
-                    if (!hasListing) _statusMessage.value = "No se pudo listar la ruta solicitada; se conserva la ubicación anterior"
+                    if (!hasListing) _statusMessage.value = fileText(R.string.files_transport_listing_failed)
                     return
                 }
                 path = if (windowsFileSystem()) WindowsDriveSupport.directory(acceptedPath) else acceptedPath
@@ -1270,7 +1273,7 @@ class FileSession(
             val key = targetFilePath ?: activeCopyMoveSessions.keys.firstOrNull()
             val session = if (key != null) activeCopyMoveSessions.remove(key) else null
 
-            val name = session?.fileName ?: "archivo"
+            val name = session?.fileName ?: fileText(R.string.files_transport_unknown_file)
             session?.job?.cancel()
 
             if (copyingDestPath == key) {
@@ -1287,7 +1290,7 @@ class FileSession(
 
             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
 
-            val label = if (session?.isMove == true) "Movimiento cancelado" else "Copia cancelada"
+            val label = if (session?.isMove == true) fileText(R.string.files_transport_move_cancelled) else fileText(R.string.files_transport_copy_cancelled)
             _statusMessage.value = "$label: $name"
         } catch (e: Exception) {
             iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:1293 Error canceling copy/move:", e)
@@ -1316,7 +1319,7 @@ class FileSession(
             val key = targetFilePath ?: activeDownloads.keys.firstOrNull()
             val session = if (key != null) activeDownloads.remove(key) else null
 
-            val name = session?.fileName ?: "archivo"
+            val name = session?.fileName ?: fileText(R.string.files_transport_unknown_file)
             val ctx = session?.context
 
             session?.downloadJob?.cancel()
@@ -1363,7 +1366,7 @@ class FileSession(
         _activeTransfers.update { entries -> entries.filterNot { it.isUpload && it.filePath == key } }
         val ctx = session.context
         (ctx?.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(key.hashCode())
-        _statusMessage.value = "Subida cancelada: ${session.fileName}"
+        _statusMessage.value = fileText(R.string.upload_canceled, session.fileName)
     }
 
     private fun ensureNotificationChannel(context: Context) {
@@ -1413,7 +1416,7 @@ class FileSession(
             val builder = NotificationCompat.Builder(context, "file_downloads")
                 .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(android.R.drawable.stat_sys_download)
-                .setContentTitle("Descargando $fileName")
+                .setContentTitle(context.getString(R.string.downloading, fileName))
                 .setContentText("${formatSize(received)} / ${formatSize(total)} ($progressPercent%)")
                 .setProgress(100, progressPercent, total <= 0)
                 .setOngoing(true)
@@ -1421,7 +1424,7 @@ class FileSession(
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
-                    "Cancelar",
+                    context.getString(R.string.cancel),
                     pendingIntent
                 )
 
@@ -1463,7 +1466,7 @@ class FileSession(
             val builder = NotificationCompat.Builder(context, "file_downloads")
                 .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(android.R.drawable.stat_sys_upload)
-                .setContentTitle("Subiendo $fileName")
+                .setContentTitle(context.getString(R.string.uploading, fileName))
                 .setContentText("${formatSize(sent)} / ${formatSize(total)} ($progressPercent%)")
                 .setProgress(100, progressPercent, total <= 0)
                 .setOngoing(true)
@@ -1471,7 +1474,7 @@ class FileSession(
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .addAction(
                     android.R.drawable.ic_menu_close_clear_cancel,
-                    "Cancelar",
+                    context.getString(R.string.cancel),
                     pendingIntent
                 )
 
@@ -1491,8 +1494,8 @@ class FileSession(
             val builder = NotificationCompat.Builder(context, "file_downloads")
                 .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(R.drawable.ic_stat_transfer_success)
-                .setContentTitle("Descarga completada")
-                .setContentText("$fileName (${formatSize(total)}) guardado en Descargas")
+                .setContentTitle(fileText(R.string.files_transport_download_completed_title))
+                .setContentText(fileText(R.string.files_transport_download_saved, fileName, formatSize(total)))
                 .setProgress(0, 0, false)
                 .setOngoing(false)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -1526,8 +1529,8 @@ class FileSession(
             val builder = NotificationCompat.Builder(context, "file_downloads")
                 .setGroup("meshfabric_sessions_and_transfers")
                 .setSmallIcon(R.drawable.ic_stat_transfer_success)
-                .setContentTitle("Subida completada")
-                .setContentText("$fileName (${formatSize(total)}) subido con éxito")
+                .setContentTitle(fileText(R.string.files_transport_upload_completed_title))
+                .setContentText(fileText(R.string.files_transport_upload_succeeded, fileName, formatSize(total)))
                 .setProgress(0, 0, false)
                 .setOngoing(false)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -1568,7 +1571,7 @@ class FileSession(
             scope.launch(Dispatchers.Main) {
                 Toast.makeText(
                     ctx,
-                    "Descarga completada: $fileName (${formatSize(totalSize)}) en carpeta Downloads",
+                    ctx.getString(R.string.download_complete, fileName, formatSize(totalSize)),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -1581,7 +1584,7 @@ class FileSession(
         val targetName = destPath.substringAfterLast('/')
         if (size == 0L) {
             uploadRawFileToPath(destPath, ByteArray(0), context)
-            _statusMessage.value = "Copiado exitosamente: $targetName"
+            _statusMessage.value = fileText(R.string.files_transport_copy_succeeded, targetName)
             _clipboardItem.value = null
             return
         }
@@ -1705,7 +1708,7 @@ class FileSession(
                             }
                             _clipboardItem.value = null
                             clipboardNodeId = null
-                            _statusMessage.value = "Copiado exitosamente: $targetName"
+                            _statusMessage.value = fileText(R.string.files_transport_copy_succeeded, targetName)
                             activeCopyMoveSessions.remove(destPath)
                             delay(1200)
                             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
@@ -1830,7 +1833,7 @@ class FileSession(
     }
 
     private fun runRecoverableUpload(fullPath: String, context: Context?, prepare: suspend (File) -> Unit) {
-        if (isUserDisconnect) { _statusMessage.value = "Abre la sesión de Archivos antes de subir"; return }
+        if (isUserDisconnect) { _statusMessage.value = fileText(R.string.files_transport_open_before_upload); return }
         val target = UploadWire.key(fullPath)
         val name = UploadWire.name(target)
         val parent = try {
@@ -1840,7 +1843,7 @@ class FileSession(
         val ctx = (context ?: iecxiv.meshfabric.MeshFabricApp.instance).applicationContext
         val session = ActiveUploadSession(target, name, 0L, 0L, null, ctx)
         if (activeUploads.putIfAbsent(target, session) != null) {
-            _statusMessage.value = "Ya hay una subida pendiente para ese destino"
+            _statusMessage.value = fileText(R.string.files_transport_upload_pending)
             return
         }
         _activeTransfers.update { entries ->
@@ -1921,13 +1924,13 @@ class FileSession(
                                 totalBytes = verified.size, isCompleted = true) else it
                         } }
                         showUploadCompleteNotification(ctx, name, target, verified.size)
-                        _statusMessage.value = "Subida completada: $name"
+                        _statusMessage.value = fileText(R.string.files_transport_upload_completed, name)
                         iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "MeshFilesUpload", "FileRelayClient.kt:1927 stage=VERIFIED_COMPLETE bytes=") { "stage=VERIFIED_COMPLETE bytes=${verified.size}" }
                         delay(1200L)
                         break
                     } catch (e: CancellationException) { throw e }
-                    catch (e: UploadRejected) { _statusMessage.value = "El agente ha rechazado la subida"; break }
-                    catch (e: UploadConflict) { _statusMessage.value = e.message; break }
+                    catch (e: UploadRejected) { _statusMessage.value = fileText(R.string.files_transport_upload_rejected); break }
+                    catch (e: UploadConflict) { _statusMessage.value = fileText(R.string.files_transport_upload_conflict, e.message.orEmpty()); break }
                     catch (e: java.io.IOException) {
                         if (activeUploads[target] !== session || isUserDisconnect) break
                         iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1935 stage=RESTART_FROM_ZERO type=")
@@ -1938,7 +1941,7 @@ class FileSession(
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesUpload", "FileRelayClient.kt:1942 stage=SOURCE_OR_WORKER_FAILED type=")
-                _statusMessage.value = "No se pudo completar la subida: ${e.javaClass.simpleName}"
+                _statusMessage.value = fileText(R.string.files_transport_upload_failed, e.javaClass.simpleName)
             } finally {
                 session.networkAttempt.invalidate()
                 try {
@@ -2053,7 +2056,7 @@ class FileSession(
 
     fun saveFileContent(filePath: String, newContent: String) {
         uploadRawFileToPath(filePath, newContent.toByteArray(Charsets.UTF_8))
-        _statusMessage.value = "Guardando archivo..."
+        _statusMessage.value = fileText(R.string.files_transport_saving)
     }
 
     fun cancelFileReading() {
@@ -2176,7 +2179,7 @@ class FileSession(
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRead", "FileRelayClient.kt:2179 Error in WS readfile fallback:", e)
                 _fileReadingProgress.value = null
-                _statusMessage.value = "Error al leer archivo (${item.name})"
+                _statusMessage.value = fileText(R.string.files_transport_read_failed, item.name)
             }
         }
     }
@@ -2188,11 +2191,11 @@ class FileSession(
 
     private fun remoteParent(path: String): String {
         val clean = path.trimEnd('/', '\\')
-        require(clean.isNotEmpty()) { "No se permite operar sobre la raíz" }
-        require(!Regex("^[A-Za-z]:$").matches(clean)) { "No se permite operar sobre la raíz de una unidad" }
+        require(clean.isNotEmpty()) { fileText(R.string.files_transport_root_protected) }
+        require(!Regex("^[A-Za-z]:$").matches(clean)) { fileText(R.string.files_transport_drive_root_protected) }
 
         val separatorIndex = maxOf(clean.lastIndexOf('/'), clean.lastIndexOf('\\'))
-        require(separatorIndex >= 0) { "Se esperaba una ruta remota absoluta: $path" }
+        require(separatorIndex >= 0) { fileText(R.string.files_transport_absolute_path_expected, path) }
 
         if (separatorIndex == 0) return "/"
         val parent = clean.substring(0, separatorIndex)
@@ -2200,18 +2203,18 @@ class FileSession(
     }
 
     private fun validateRemoteEntryName(name: String) {
-        require(name.isNotBlank()) { "El nombre está vacío" }
-        require(name != "." && name != "..") { "Nombre no permitido" }
-        require('/' !in name && '\\' !in name && '\u0000' !in name) { "Se esperaba un nombre, no una ruta" }
+        require(name.isNotBlank()) { fileText(R.string.files_transport_empty_name) }
+        require(name != "." && name != "..") { fileText(R.string.files_transport_invalid_name) }
+        require('/' !in name && '\\' !in name && '\u0000' !in name) { fileText(R.string.files_transport_name_not_path) }
     }
 
     fun copyItem(item: FileItem) {
         if (item.isDir) {
-            _statusMessage.value = "La función de copiar solo está disponible para archivos"
+            _statusMessage.value = fileText(R.string.files_transport_copy_files_only)
             return
         }
         if (!_connectionState.value) {
-            _statusMessage.value = "No hay una sesión de archivos activa"
+            _statusMessage.value = fileText(R.string.files_transport_no_session)
             return
         }
 
@@ -2219,16 +2222,16 @@ class FileSession(
         _clipboardItem.value = item
         _isCutMode.value = false
 
-        _statusMessage.value = "Seleccionado para copiar: ${item.name}"
+        _statusMessage.value = fileText(R.string.files_transport_selected_copy, item.name)
     }
 
     fun cutItem(item: FileItem) {
         if (item.isDir) {
-            _statusMessage.value = "La función de cortar solo está disponible para archivos"
+            _statusMessage.value = fileText(R.string.files_transport_cut_files_only)
             return
         }
         if (!_connectionState.value) {
-            _statusMessage.value = "No hay una sesión de archivos activa"
+            _statusMessage.value = fileText(R.string.files_transport_no_session)
             return
         }
 
@@ -2236,7 +2239,7 @@ class FileSession(
         _clipboardItem.value = item
         _isCutMode.value = true
 
-        _statusMessage.value = "Seleccionado para mover: ${item.name}"
+        _statusMessage.value = fileText(R.string.files_transport_selected_move, item.name)
     }
 
     fun clearClipboard() {
@@ -2247,12 +2250,12 @@ class FileSession(
 
     fun pasteItem(customTargetName: String? = null, context: Context? = null) {
         val source = _clipboardItem.value ?: run {
-            _statusMessage.value = "El portapapeles está vacío"
+            _statusMessage.value = fileText(R.string.files_transport_clipboard_empty)
             return
         }
         val cut = _isCutMode.value
         val sourceNode = clipboardNodeId ?: run {
-            _statusMessage.value = "Vuelve a seleccionar el elemento"
+            _statusMessage.value = fileText(R.string.files_transport_reselect)
             return
         }
 
@@ -2261,8 +2264,8 @@ class FileSession(
 
         scope.launch(Dispatchers.IO) {
             try {
-                require(!source.isDir) { "Las operaciones de copiar y cortar solo están permitidas para archivos" }
-                check(sourceNode == targetNode) { "Este portapapeles solo permite operaciones dentro del mismo equipo remoto" }
+                require(!source.isDir) { fileText(R.string.files_transport_copy_cut_files_only) }
+                check(sourceNode == targetNode) { fileText(R.string.files_transport_same_device_only) }
 
                 if (!isConnected()) {
                     connect()
@@ -2273,7 +2276,7 @@ class FileSession(
                     }
                 }
 
-                check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
+                check(_connectionState.value && webSocket != null) { fileText(R.string.files_transport_tunnel_disconnected) }
 
                 validateRemoteEntryName(source.name)
                 val targetName = customTargetName?.takeIf { it.isNotBlank() } ?: source.name
@@ -2339,7 +2342,7 @@ class FileSession(
 
                     _clipboardItem.value = null
                     clipboardNodeId = null
-                    _statusMessage.value = "Movido: $targetName"
+                    _statusMessage.value = fileText(R.string.files_transport_moved, targetName)
 
                     _activeTransfers.value = _activeTransfers.value.map {
                         if (it.filePath == destPath) it.copy(bytesTransferred = source.size, isCompleted = true) else it
@@ -2391,7 +2394,7 @@ class FileSession(
 
                         _clipboardItem.value = null
                         clipboardNodeId = null
-                        _statusMessage.value = "Copiado: $targetName"
+                        _statusMessage.value = fileText(R.string.files_transport_copied, targetName)
 
                         _activeTransfers.value = _activeTransfers.value.map {
                             if (it.filePath == destPath) it.copy(bytesTransferred = source.size, isCompleted = true) else it
@@ -2406,7 +2409,7 @@ class FileSession(
                 }
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesPaste", "FileRelayClient.kt:2410 Error al solicitar copiar/mover", e)
-                _statusMessage.value = "No se pudo pegar: ${e.localizedMessage}"
+                _statusMessage.value = fileText(R.string.files_transport_paste_failed, (e.localizedMessage ?: e.javaClass.simpleName))
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != source.path }
             }
         }
@@ -2422,7 +2425,7 @@ class FileSession(
             uploadRawFileToPath(destPath, ByteArray(0), context)
             _clipboardItem.value = null
             clipboardNodeId = null
-            _statusMessage.value = "Copiado exitosamente: $targetName"
+            _statusMessage.value = fileText(R.string.files_transport_copy_succeeded, targetName)
             return
         }
 
@@ -2540,7 +2543,7 @@ class FileSession(
                         }
                         _clipboardItem.value = null
                         clipboardNodeId = null
-                        _statusMessage.value = "Copiado exitosamente: $targetName"
+                        _statusMessage.value = fileText(R.string.files_transport_copy_succeeded, targetName)
                         activeCopyMoveSessions.remove(destPath)
                         delay(1200)
                         _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
@@ -2590,7 +2593,7 @@ class FileSession(
                 webSocket?.send(readReq.toString())
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesCopy", "FileRelayClient.kt:2594 WS copy fetch error:", e)
-                _statusMessage.value = "Error al copiar: ${e.localizedMessage}"
+                _statusMessage.value = fileText(R.string.files_transport_copy_failed, (e.localizedMessage ?: e.javaClass.simpleName))
                 activeCopyMoveSessions.remove(destPath)
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != destPath }
                 tempFile?.delete()
@@ -2673,7 +2676,7 @@ class FileSession(
         )
         activeZipSessions[targetZipPath] = zipSession
 
-        _statusMessage.value = "Comprimiendo ${item.name} a $cleanZipName..."
+        _statusMessage.value = fileText(R.string.files_transport_compressing, item.name, cleanZipName)
 
         val job = scope.launch(Dispatchers.IO) {
             try {
@@ -2713,7 +2716,7 @@ class FileSession(
         val errorMsg = json.get("error")?.asString ?: json.get("err")?.asString
 
         if (errorMsg != null || status.equals("error", ignoreCase = true)) {
-            val err = errorMsg ?: "Error en compresión ZIP"
+            val err = errorMsg ?: fileText(R.string.files_transport_compression_failed)
             session.job?.cancel()
             _statusMessage.value = err
             _activeTransfers.value = _activeTransfers.value.filter { it.filePath != session.zipPath }
@@ -2757,7 +2760,7 @@ class FileSession(
             } else it
         }
 
-        _statusMessage.value = "Compresión finalizada: ${session.fileName}"
+        _statusMessage.value = fileText(R.string.files_transport_compression_completed, session.fileName)
 
         val parentFolder = if (zipPath.contains('/')) {
             zipPath.substringBeforeLast('/').ifEmpty { "/" }
@@ -2780,13 +2783,13 @@ class FileSession(
         try {
             val key = targetFilePath ?: activeZipSessions.keys.firstOrNull()
             val session = if (key != null) activeZipSessions.remove(key) else null
-            val name = session?.fileName ?: "archivo"
+            val name = session?.fileName ?: fileText(R.string.files_transport_unknown_file)
 
             session?.job?.cancel()
             if (key != null) {
                 _activeTransfers.value = _activeTransfers.value.filter { it.filePath != key }
             }
-            _statusMessage.value = "Compresión cancelada: $name"
+            _statusMessage.value = fileText(R.string.files_transport_compression_cancelled, name)
         } catch (e: Exception) {
             iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesZip", "FileRelayClient.kt:2803 Error canceling zip compression:", e)
         }
@@ -2810,7 +2813,7 @@ class FileSession(
             addProperty("target", parentDir)
         }
         webSocket?.send(req.toString())
-        _statusMessage.value = "Descomprimiendo ${item.name}..."
+        _statusMessage.value = fileText(R.string.files_transport_extracting, item.name)
         scope.launch {
             delay(1200)
             listDirectory(_currentPath.value)
@@ -2848,7 +2851,7 @@ class FileSession(
         }
         webSocket?.send(req3.toString())
 
-        _statusMessage.value = "Abriendo ${item.name} en el equipo remoto..."
+        _statusMessage.value = fileText(R.string.files_transport_opening_remote, item.name)
     }
 
     fun deleteItem(item: FileItem) {
@@ -2866,7 +2869,7 @@ class FileSession(
                     }
                 }
 
-                check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
+                check(_connectionState.value && webSocket != null) { fileText(R.string.files_transport_tunnel_disconnected) }
 
                 val reqIdStr = Random.nextInt(100000, 999999).toString()
 
@@ -2898,7 +2901,7 @@ class FileSession(
                 webSocket?.send(dfReq.toString())
 
                 savedFileContents.remove(item.path)
-                _statusMessage.value = "Eliminación solicitada: ${item.name}"
+                _statusMessage.value = fileText(R.string.files_transport_delete_requested, item.name)
 
                 delay(600)
                 if (isConnected()) {
@@ -2906,7 +2909,7 @@ class FileSession(
                 }
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesDelete", "FileRelayClient.kt:2920 No se pudo solicitar el borrado de", e)
-                _statusMessage.value = "Error al eliminar: ${e.localizedMessage}"
+                _statusMessage.value = fileText(R.string.files_transport_delete_failed, (e.localizedMessage ?: e.javaClass.simpleName))
             }
         }
     }
@@ -2976,7 +2979,7 @@ class FileSession(
                     }
                 }
 
-                check(_connectionState.value && webSocket != null) { "El túnel de archivos no está conectado" }
+                check(_connectionState.value && webSocket != null) { fileText(R.string.files_transport_tunnel_disconnected) }
 
                 val reqIdStr = Random.nextInt(100000, 999999).toString()
 
@@ -2999,14 +3002,14 @@ class FileSession(
                     savedFileContents[newPath] = savedContent
                 }
 
-                _statusMessage.value = "Renombrado a: $newName"
+                _statusMessage.value = fileText(R.string.files_transport_renamed, newName)
                 delay(600)
                 if (isConnected()) {
                     listDirectory(_currentPath.value)
                 }
             } catch (e: Exception) {
                 iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshFilesRename", "FileRelayClient.kt:3020 Error al renombrar", e)
-                _statusMessage.value = "Error al renombrar: ${e.localizedMessage}"
+                _statusMessage.value = fileText(R.string.files_transport_rename_failed, (e.localizedMessage ?: e.javaClass.simpleName))
             }
         }
     }

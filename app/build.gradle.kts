@@ -17,7 +17,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 1
-        versionName = "1.3.8"
+        versionName = "1.3.9"
         //20261023
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -72,6 +72,7 @@ dependencies {
 
     debugImplementation(libs.compose.ui.tooling)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20260814")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     androidTestImplementation(libs.androidx.junit)

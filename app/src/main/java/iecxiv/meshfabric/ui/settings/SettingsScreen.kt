@@ -518,6 +518,8 @@ CardDefaults.cardColors(
                 }
             }
 
+            DisconnectAllConfirmationSetting()
+
             iecxiv.meshfabric.diagnostics.DiagnosticSettings()
 
             if (onLogout != null) {
@@ -603,7 +605,7 @@ private fun CompactThemeOption(
             Text(
                 text = title,
                 fontSize = 13.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1
             )
         }

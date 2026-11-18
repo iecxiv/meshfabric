@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="disconnect_all_do_not_ask_again">No volver a preguntar</string>
+    <string name="settings_confirm_disconnect_all_title">Confirmar «Desconectar todo»</string>
+    <string name="settings_confirm_disconnect_all_desc">Preguntar antes de cerrar todas las sesiones remotas. Activa esta opción para recuperar la confirmación.</string>
+</resources>
