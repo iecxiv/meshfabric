@@ -24,6 +24,9 @@ internal class DesktopMouseCapture {
     var ready: () -> Boolean = { false }
     var geometry: () -> DesktopWheelGeometry? = { null }
     var rightClick: (DesktopWheelPoint) -> Boolean = { false }
+    var primaryInput: (DesktopWheelPoint?, DesktopPrimaryPhase) -> Boolean = { _, _ -> false }
+    private var primaryDevice: Int? = null
+    private var primaryTail: Int? = null
     private val policy = DesktopRightClickPolicy()
     private var lastPosition: Offset? = null
     private var lastDevice = -1
@@ -37,6 +40,12 @@ internal class DesktopMouseCapture {
         return geometry()?.project(local.x, local.y)
     }
 
+    fun cancelPrimary() {
+        if (primaryDevice != null) primaryInput(null, DesktopPrimaryPhase.UP)
+        primaryTail = primaryDevice ?: primaryTail
+        primaryDevice = null
+    }
+
     fun motion(event: MotionEvent): Boolean {
         if (event.pointerCount != 1 || (!event.isFromSource(InputDevice.SOURCE_MOUSE) &&
                 event.getToolType(0) != MotionEvent.TOOL_TYPE_MOUSE)) return false
@@ -46,12 +55,32 @@ internal class DesktopMouseCapture {
         navigationButton = event.buttonState and (MotionEvent.BUTTON_BACK or MotionEvent.BUTTON_FORWARD) != 0 ||
             ((event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS || event.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE) &&
                 (event.actionButton == MotionEvent.BUTTON_BACK || event.actionButton == MotionEvent.BUTTON_FORWARD))
-        if (!ready()) { policy.reset(); return false }
+        if (!ready()) { cancelPrimary(); policy.reset(); return false }
         val action = event.actionMasked
         if (action == MotionEvent.ACTION_SCROLL) return false
+        val primary = event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
+        val primaryAction = (action == MotionEvent.ACTION_BUTTON_PRESS || action == MotionEvent.ACTION_BUTTON_RELEASE) &&
+            event.actionButton == MotionEvent.BUTTON_PRIMARY
+        if (primaryDevice != null) {
+            if (primaryDevice != device) { cancelPrimary(); return false }
+            if (action == MotionEvent.ACTION_MOVE || action == MotionEvent.ACTION_UP) {
+                val point = target(lastPosition!!)
+                if (point == null || !primaryInput(point, DesktopPrimaryPhase.MOVE)) { cancelPrimary(); return true }
+            }
+            if (action == MotionEvent.ACTION_CANCEL || action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_HOVER_EXIT ||
+                (action == MotionEvent.ACTION_BUTTON_RELEASE && primaryAction) || !primary) cancelPrimary()
+            return true
+        }
+        if (action == MotionEvent.ACTION_UP && primaryTail == device) { primaryTail = null; return true }
+        if (action == MotionEvent.ACTION_DOWN) primaryTail = null
         val secondary = event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
         val secondaryAction = (action == MotionEvent.ACTION_BUTTON_PRESS || action == MotionEvent.ACTION_BUTTON_RELEASE) &&
             event.actionButton == MotionEvent.BUTTON_SECONDARY
+        if (!secondary && !navigationButton && !policy.nativeActive(device) &&
+            ((action == MotionEvent.ACTION_DOWN && primary) || (action == MotionEvent.ACTION_BUTTON_PRESS && primaryAction))) {
+            val point = target(lastPosition!!) ?: return false
+            if (primaryInput(point, DesktopPrimaryPhase.DOWN)) {primaryDevice = device; primaryTail = null; return true}
+        }
         if (action == MotionEvent.ACTION_HOVER_EXIT) {
             lastPosition = null
             if (policy.nativeActive(device)) policy.nativeUp(device, event.eventTime)
@@ -89,6 +118,8 @@ internal class DesktopMouseCapture {
     }
 
     fun reset() {
+        cancelPrimary()
+        primaryTail = null
         policy.reset()
         lastPosition = null
         lastDevice = -1
@@ -123,14 +154,20 @@ internal fun Modifier.desktopRightClickCanvas(
         capture.ready = { latestEnabled.value && view.hasWindowFocus() }
         capture.geometry = { latestGeometry.value }
         capture.rightClick = { latestClick.value(it) }
+        capture.primaryInput = { point, phase -> activity?.desktopPrimaryMouse(point, phase) ?: false }
         activity?.desktopMouseCapture?.reset()
         if (activity != null) activity.desktopMouseCapture = capture
         onDispose {
             if (activity != null && activity.desktopMouseCapture === capture) activity.desktopMouseCapture = null
             capture.reset()
+            capture.primaryInput = { _, _ -> false }
             capture.ready = { false }
             capture.viewport = null
         }
+    }
+    DisposableEffect(capture, enabled) {
+        if (!enabled) capture.cancelPrimary()
+        onDispose { capture.cancelPrimary() }
     }
     return onGloballyPositioned { capture.viewport = it }
 }

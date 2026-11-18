@@ -3,6 +3,7 @@ package iecxiv.meshfabric.ui.login
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import iecxiv.meshfabric.R
 import iecxiv.meshfabric.data.local.SessionManager
 import iecxiv.meshfabric.data.remote.AuthResult
 import iecxiv.meshfabric.data.remote.MeshCentralClient
@@ -102,11 +103,11 @@ class LoginViewModel(
         val ssl = ignoreSsl.value
 
         if (url.isEmpty()) {
-            _errorMessage.value = "Por favor ingrese la URL del servidor MeshCentral."
+            _errorMessage.value = getApplication<Application>().getString(R.string.app_l10n_login_missing_url)
             return
         }
         if (user.isEmpty() || pass.isEmpty()) {
-            _errorMessage.value = "Por favor ingrese usuario y contraseña."
+            _errorMessage.value = getApplication<Application>().getString(R.string.app_l10n_login_missing_credentials)
             return
         }
 

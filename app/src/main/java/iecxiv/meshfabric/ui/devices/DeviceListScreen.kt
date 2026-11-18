@@ -20,6 +20,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,7 +59,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val desktop by viewModel.desktopSessionsStatus.collectAsState()
     val terminal by viewModel.terminalSessionsStatus.collectAsState()
     val files by viewModel.fileSessionsStatus.collectAsState()
-    val appName by (viewModel.sessionManager?.appNameFlow ?: remember { MutableStateFlow("MeshFabric") }).collectAsState()
+    val hasConnectedSessions = desktop.values.any { it == SessionStatus.CONNECTED } ||
+        terminal.values.any { it == SessionStatus.CONNECTED } ||
+        files.values.any { it == SessionStatus.CONNECTED }
     val hideSettings by (viewModel.sessionManager?.hideSettingsIconFlow ?: remember { MutableStateFlow(false) }).collectAsState()
     val searchFocus=remember { FocusRequester() }
     val keyboard=LocalSoftwareKeyboardController.current
@@ -79,36 +84,36 @@ import kotlinx.coroutines.flow.MutableStateFlow
         dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })
     Scaffold(topBar={ Column {
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
-            if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
-            ToolIcon(Icons.Default.Refresh,stringResource(R.string.refresh)) { viewModel.refresh() }
-            ToolIcon(if(hideDeviceNetworkInfo) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                if(hideDeviceNetworkInfo) "Mostrar IP e interfaces" else "Ocultar IP e interfaces") {
-                val hidden = !hideDeviceNetworkInfo
-                val manager = viewModel.sessionManager
-                if (manager != null) manager.saveHideDeviceNetworkInfo(hidden)
-                else fallbackNetworkVisibility.value = hidden
-            }
-            IconToggleButton(checked=onlyOnline,onCheckedChange={ enabled ->
-                val manager = viewModel.sessionManager
-                if (manager != null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value = enabled
-            },modifier=Modifier.size(38.dp)) {
-                Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
-                    Icon(Icons.Default.FilterAlt,
-                        stringResource(if(onlyOnline) R.string.device_filter_show_all else R.string.device_filter_show_online),
-                        Modifier.size(20.dp),tint=if(onlyOnline) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                }
+            IconButton(onClick={ closeSessions=true },modifier=Modifier.size(38.dp)) {
+                Icon(Icons.Default.Link,stringResource(R.string.close_active_connections),Modifier.size(20.dp),
+                    tint=if(hasConnectedSessions) Color(0xFF2196F3) else LocalContentColor.current)
             }
             ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                 stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
-            ToolIcon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search)) {
+            DeviceHeaderFilter(showIps=!hideDeviceNetworkInfo,showDisconnected=!onlyOnline,
+                onShowIps={show->
+                    val hidden=!show
+                    val manager=viewModel.sessionManager
+                    if(manager!=null) manager.saveHideDeviceNetworkInfo(hidden) else fallbackNetworkVisibility.value=hidden
+                },
+                onShowDisconnected={show->
+                    val enabled=!show
+                    val manager=viewModel.sessionManager
+                    if(manager!=null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value=enabled
+                })
+            DeviceHeaderRefresh { viewModel.refresh() }
+            IconButton(onClick={
                 if(showSearch) {
                     viewModel.searchQuery.value=""
                     focusManager.clearFocus(force=true)
                     keyboard?.hide()
                 }
                 showSearch=!showSearch
+            },modifier=Modifier.size(38.dp)) {
+                Icon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search),Modifier.size(20.dp),
+                    tint=if(showSearch) Color(0xFF2196F3) else LocalContentColor.current)
             }
-            ToolIcon(Icons.Default.PowerSettingsNew,stringResource(R.string.close_active_connections)) { closeSessions=true }
+            if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
         } })
         AnimatedVisibility(showSearch) {
             LaunchedEffect(showSearch) {
@@ -179,6 +184,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 @Composable fun DeviceCard(node:MeshNode,desktopStatus:SessionStatus=SessionStatus.NONE,terminalStatus:SessionStatus=SessionStatus.NONE,
     fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit,showNetworkInfo:Boolean=true) {
     val os=node.osDisplayName.ifEmpty { stringResource(R.string.device_os_unknown) }
+    var otherExpanded by androidx.compose.runtime.saveable.rememberSaveable(node.id) { mutableStateOf(false) }
+    var statusBadgeHeight by remember(node.id) { mutableStateOf(0.dp) }
+    val statusBadgeDensity=LocalDensity.current
     Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
         border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
         colors= iecxiv.meshfabric.ui.theme.appCardColors(
@@ -202,10 +210,9 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                         Text(node.name.ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f,fill=false),
                             style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else LocalContentColor.current)
                         Spacer(Modifier.width(8.dp))
-                        Surface(shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
+                        Surface(modifier=Modifier.onSizeChanged { statusBadgeHeight=with(statusBadgeDensity) { it.height.toDp() } }.testTag("device_connection_badge_${node.id}"),shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
                             Text(if(node.isOnline) "ONLINE" else "OFFLINE",Modifier.padding(horizontal=6.dp,vertical=2.dp),color=Color.White,fontSize=9.sp,fontWeight=FontWeight.Bold)
                         }
-                        DeviceDetailsButton(node)
                     }
                     if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
                     val networkText = DeviceNetworkDisplay.text(node.networkIpv4.orEmpty(), hidden = !showNetworkInfo)
@@ -215,10 +222,16 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                         color = if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                LocalDeviceActionMenu.current(node)
+                Row(horizontalArrangement=Arrangement.spacedBy((-6).dp),verticalAlignment=Alignment.CenterVertically) {
+                    DeviceOptionsToggle(otherExpanded) { otherExpanded = !otherExpanded }
+                    Box(Modifier.size(38.dp),contentAlignment=Alignment.Center) {
+                        LocalDeviceActionMenu.current(node)
+                    }
+                }
             }
+            AnimatedVisibility(otherExpanded) { DeviceOptionsRow(node,if(statusBadgeHeight>0.dp) statusBadgeHeight else 28.dp) }
             if(node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE }) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(if(otherExpanded) 4.dp else 8.dp))
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                     if(node.supportsDesktop || desktopStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.desktop),Icons.Default.DesktopWindows,desktopStatus,onOpenDesktop,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
                     if(node.supportsTerminal || terminalStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.terminal),Icons.Default.Terminal,terminalStatus,onOpenTerminal,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))

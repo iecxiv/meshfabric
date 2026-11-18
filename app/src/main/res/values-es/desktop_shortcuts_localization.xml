@@ -1,0 +1,12 @@
+<resources>
+    <string name="desktop_shortcuts_hold_title">Teclas mantenidas</string>
+    <string name="desktop_shortcuts_release_all">Soltar todas</string>
+    <string name="desktop_shortcuts_hold_hint">Se mantienen al cerrar este diálogo. Al salir se intenta liberarlas; no se reactivan al reconectar.</string>
+    <string name="desktop_shortcuts_custom_title">Atajos personalizables</string>
+    <string name="desktop_shortcuts_move_up">Subir %1$s</string>
+    <string name="desktop_shortcuts_move_down">Bajar %1$s</string>
+    <string name="desktop_shortcuts_remove">Quitar %1$s</string>
+    <string name="desktop_shortcuts_add">Añadir</string>
+    <string name="desktop_shortcuts_restore_defaults">Restaurar atajos predeterminados</string>
+    <string name="desktop_shortcuts_no_key">Ninguna tecla</string>
+</resources>

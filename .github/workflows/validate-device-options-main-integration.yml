@@ -1,0 +1,137 @@
+name: Validate main integration into device options
+on:
+  push:
+    branches: [device-other-options]
+    paths: ['.github/workflows/validate-device-options-main-integration.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: device-options-main-integration
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/device-other-options'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify pinned inputs and merge only inside runner
+        run: |
+          set -euo pipefail
+          mkdir -p validation
+          BASE=d1c6fd9e72ed3d3a2bdc441432941080a01bf377
+          MAIN=ceab88194422550f897cd9dcb0c0098059f694c6
+          git merge-base --is-ancestor "$BASE" HEAD
+          test "$(git diff --name-only "$BASE" HEAD)" = '.github/workflows/validate-device-options-main-integration.yml'
+          test "$(git rev-parse origin/main)" = "$MAIN"
+          test "$(git rev-parse origin/device-other-options)" = "$GITHUB_SHA"
+          printf 'workflow=%s\nbase=%s\nmain=%s\n' "$GITHUB_SHA" "$BASE" "$MAIN" > validation/inputs.txt
+          git checkout --detach "$BASE"
+          git -c user.name=integration-validator -c user.email=validator@example.invalid merge --no-commit --no-ff "$MAIN"
+          git write-tree > validation/original-integration-tree.txt
+      - name: Preserve exact translation literal without trailing source whitespace
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast,subprocess
+          name='.github/workflows/publish-activity-translations.yml'
+          p=Path(name)
+          assert subprocess.check_output(['git','hash-object',name],text=True).strip()=='041819b33d22f6f97fc1ce20699d5030c3a4afc2'
+          raw=p.read_bytes()
+          before=b'          Recibido |Received \n'
+          after=b'          Recibido |Received'+bytes([92])+b'x20\n'
+          assert raw.count(before)==1 and after not in raw
+          assert ast.literal_eval('"""'+before.decode()+'"""')==ast.literal_eval('"""'+after.decode()+'"""')
+          p.write_bytes(raw.replace(before,after,1))
+          patch=subprocess.check_output(['git','diff','--',name])
+          Path('validation/translation-whitespace-fix.patch').write_bytes(patch)
+          assert subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()==[name]
+          subprocess.run(['git','add','--',name],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          Path('validation/tested-integration-tree.txt').write_bytes(subprocess.check_output(['git','write-tree']))
+          Path('validation/integration-stat.txt').write_bytes(subprocess.check_output(['git','diff','--cached','--stat']))
+          Path('validation/SCOPE.txt').write_text('Tests cover the corrected integration tree, not the original merge tree. The exact historical-workflow correction must be included in the final integration. No application source or General layout candidate was modified.\n')
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install SDK using verified tools
+        shell: python
+        run: |
+          from pathlib import Path
+          import os,subprocess
+          sdk=Path(os.environ['ANDROID_HOME']).resolve()
+          candidates=[]
+          for p in (sdk/'cmdline-tools').glob('*/source.properties'):
+              props=dict((k.strip(),v.strip()) for line in p.read_text().splitlines() if '=' in line for k,v in [line.split('=',1)])
+              tool=p.parent.resolve()
+              tool.relative_to(sdk/'cmdline-tools')
+              if props.get('Pkg.Revision')=='23.0' and os.access(tool/'bin/sdkmanager',os.X_OK): candidates.append(tool)
+          assert candidates,'Verified Command-line Tools 23.0 missing'
+          subprocess.run([str(sorted(candidates)[0]/'bin/sdkmanager'),'--sdk_root='+str(sdk),'--channel=0','platforms;android-37.2','platforms;android-35','build-tools;37.0.0','platform-tools'],check=True)
+      - name: Clean build all unit tests instrumentation compilation and lint
+        run: |
+          set -euo pipefail
+          bash ./gradlew :app:clean :app:checkDebugAarMetadata :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace 2>&1 | tee validation/build-and-tests.txt
+      - name: All standalone JavaScript tests
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          scripts=sorted(Path('app/src/test/js').glob('*.test.js'))
+          assert len(scripts)>=3,'Expected standalone JavaScript suites'
+          with Path('validation/javascript-tests.txt').open('w') as out:
+              for script in scripts:
+                  out.write(str(script)+'\n'); out.flush()
+                  subprocess.run(['node',str(script)],stdout=out,stderr=subprocess.STDOUT,check=True)
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite without filters
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify test evidence and unchanged corrected tree
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          import xml.etree.ElementTree as ET
+          totals={}
+          for root in ['app/build/test-results','app/build/outputs/androidTest-results']:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find(t) is not None for c in cases for t in ['failure','error','skipped']),root
+              totals[root]=len(cases)
+          assert subprocess.check_output(['git','write-tree'],text=True).strip()==Path('validation/tested-integration-tree.txt').read_text().strip()
+          subprocess.run(['git','diff','--exit-code'],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          Path('validation/test-counts.json').write_text(json.dumps(totals,indent=2)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('Corrected integration passed build, JVM, JavaScript, lint and complete instrumentation. The recorded translation-whitespace patch must accompany the final integration. No merge or code publication performed; General layout candidate not applied. Physical checks remain separate.\n')
+      - name: Upload reports only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-options-main-integration-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: error
+          retention-days: 14

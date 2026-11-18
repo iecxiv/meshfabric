@@ -497,12 +497,11 @@ if(legacyKeys) option(t("Entiendo que registrar una llave WebAuthn eliminará la
 action("Registrar llave","Register key",!state.fidoActive && fidoKeys!=null && fidoName.trim().isNotEmpty() && fidoName.length<=128 && (!legacyKeys || fidoLegacyOk)) { if(wire.beginFido(fidoName)) { fidoName=""; fidoLegacyOk=false; feedback="" } else feedback=t("No se ha iniciado el registro. Carga la lista, comprueba permisos y conexión.","Registration was not started. Load the list and check permissions and connection.") }
 if(state.fidoActive) TextButton(onClick={ wire.cancelFido() }) { Text(t("Cancelar registro","Cancel registration")) }
 state.fidoOptions?.let { fidoOptions-> key(fidoOptions.toString()) { FidoRegistrationHost(source.serverUrl,fidoOptions,onCredential={ wire.submitFido(it) },onFailure={ wire.cancelFido() }) } }
-val list=reply?.optJSONArray("keys")
-if(list!=null && list.length()==0) Text(t("No hay claves registradas.","No registered keys."))
-if(list!=null) for(i in 0 until list.length()) list.optJSONObject(i)?.let { item-> Text("${item.optString("name")} · ID ${item.optLong("i")}") }
-field(first,{ first=it },t("ID de la clave que quieres eliminar","ID of key to remove"))
-Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) { Checkbox(confirmation,{ confirmation=it }); Text(t("Confirmo eliminar esa clave de seguridad.","I confirm removing that security key.")) }
-action("Eliminar clave","Remove key",confirmation && first.toLongOrNull()!=null) { run("otp-hkey-remove",JSONObject().put("index",first.toLong())) }
+AccountSecurityKeyRemoval(reply?.optJSONArray("keys"),state.ready && !state.busy && !state.fidoActive,source.serverUrl,actor,es,onRemove={id->
+val sent=wire.request("otp-hkey-remove",JSONObject().put("index",id))
+feedback=if(sent) "" else t("No se ha enviado. Comprueba permisos, conexión y la lista de llaves.","Not sent. Check permissions, connection and the key list.")
+sent
+})
 }
 2->{
 Text(t("Cada código es de un solo uso. Generar otros invalida los anteriores.","Each code is single-use. Generating new codes invalidates the previous ones."))

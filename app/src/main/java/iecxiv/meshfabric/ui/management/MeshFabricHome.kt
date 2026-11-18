@@ -105,7 +105,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
                         "setNotes"->{
                             if(notesWriteId.isNotBlank() && (j.value("responseid")==notesWriteId || j.value("id")==state.value.notes?.nodeId)) {
                                 val error=j.value("error").ifBlank { j.value("result").takeUnless { it.equals("ok",true) }.orEmpty() }
-                                if(error.isNotBlank()) failNotes("El servidor ha rechazado el guardado: $error")
+                                if(error.isNotBlank()) failNotes(managementText("El servidor ha rechazado el guardado: $error","The server rejected the save: $error"))
                             }
                         }
                         else->activity.unmatched(j)
@@ -125,7 +125,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
         generation++; connecting=false; socket?.cancel(); socket=null
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
         state.update { it.copy(ready=false,status=managementText("Acciones desconectadas; las sesiones remotas no se han cerrado","Action channel disconnected; remote sessions have not been closed"),
-            notes=it.notes?.failed("Sin conexión. El borrador local se conserva; el guardado no está confirmado.")) }
+            notes=it.notes?.failed(managementText("Sin conexión. El borrador local se conserva; el guardado no está confirmado.","Offline. The local draft is preserved; the save is unconfirmed."))) }
     }
     @Synchronized fun send(title:String,payload:JSONObject,write:Boolean):Boolean {
         if(!state.value.ready || !same()) return false
@@ -142,12 +142,12 @@ private class Management(private val source:MeshCentralClient,private val deskto
         notesEpoch++; notesJob?.cancel(); notesReads.clear(); notesWriteId=""
         val epoch=notesEpoch
         state.update { it.copy(notes=DeviceNotes(node.id,node.name,editable)) }
-        if(!requestNotes(node.id)) { failNotes("No se pudo solicitar las notas. Comprueba la conexión."); return }
+        if(!requestNotes(node.id)) { failNotes(managementText("No se pudo solicitar las notas. Comprueba la conexión.","Could not request the notes. Check the connection.")); return }
         notesJob=scope.launch {
             delay(10000)
             synchronized(this@Management) {
                 if(epoch==notesEpoch && state.value.notes?.phase==NotesPhase.LOADING)
-                    failNotes("El servidor no ha devuelto las notas. Comprueba conexión y permisos.")
+                    failNotes(managementText("El servidor no ha devuelto las notas. Comprueba conexión y permisos.","The server did not return the notes. Check the connection and permissions."))
             }
         }
     }
@@ -166,28 +166,28 @@ private class Management(private val source:MeshCentralClient,private val deskto
         if(id!=n.nodeId && rid !in notesReads) return
         if(rid.isNotBlank()) notesReads.remove(rid)
         if(!j.has("notes")) {
-            failNotes(j.value("error").ifBlank { j.value("result") }.ifBlank { "Respuesta de notas sin contenido. No se reemplazará el borrador." }); return
+            failNotes(j.value("error").ifBlank { j.value("result") }.ifBlank { managementText("Respuesta de notas sin contenido. No se reemplazará el borrador.","The notes response has no content. The draft will not be replaced.") }); return
         }
         val text=j.value("notes")
-        if(text.length>64000) { failNotes("Las notas superan el límite del editor (64000 caracteres). No se han truncado ni sobrescrito."); return }
+        if(text.length>64000) { failNotes(managementText("Las notas superan el límite del editor (64000 caracteres). No se han truncado ni sobrescrito.","The notes exceed the editor limit (64000 characters). They have not been truncated or overwritten.")); return }
         state.update { s->s.copy(notes=s.notes?.received(n.nodeId,text)) }
         if(state.value.notes?.phase==NotesPhase.READY) { notesJob?.cancel(); notesWriteId=""; notesReads.clear() }
     }
     @Synchronized fun editNotes() { state.update { it.copy(notes=it.notes?.copy(editable=true)) } }
     @Synchronized fun changeNotes(text:String) {
-        if(text.length>64000) { failNotes("Máximo 64000 caracteres. No se ha enviado ningún guardado."); return }
+        if(text.length>64000) { failNotes(managementText("Máximo 64000 caracteres. No se ha enviado ningún guardado.","Up to 64000 characters. No save request has been sent.")); return }
         state.update { it.copy(notes=it.notes?.edit(text)) }
     }
     @Synchronized fun saveNotes() {
         val n=state.value.notes ?: return
         if(!n.canSave) return
-        if(!state.value.ready) { failNotes("Sin conexión. No se ha enviado el guardado."); return }
+        if(!state.value.ready) { failNotes(managementText("Sin conexión. No se ha enviado el guardado.","Offline. The save request has not been sent.")); return }
         notesEpoch++; notesJob?.cancel(); notesReads.clear()
         val epoch=notesEpoch
         notesWriteId=UUID.randomUUID().toString()
         state.update { it.copy(notes=it.notes?.saving()) }
         val sent=socket?.send(json("action" to "setNotes","id" to n.nodeId,"notes" to n.draft,"responseid" to notesWriteId).toString())==true
-        if(!sent) { failNotes("No se pudo enviar el guardado. El borrador se conserva."); return }
+        if(!sent) { failNotes(managementText("No se pudo enviar el guardado. El borrador se conserva.","Could not send the save request. The draft is preserved.")); return }
         notesJob=scope.launch {
             repeat(6) { attempt->
                 delay(500L+250L*attempt)
@@ -199,7 +199,7 @@ private class Management(private val source:MeshCentralClient,private val deskto
             delay(1000)
             synchronized(this@Management) {
                 if(epoch==notesEpoch && state.value.notes?.phase==NotesPhase.SAVING)
-                    failNotes("No se ha confirmado el guardado por relectura. Comprueba permisos y contenido antes de reintentar. El borrador local se conserva.")
+                    failNotes(managementText("No se ha confirmado el guardado por relectura. Comprueba permisos y contenido antes de reintentar. El borrador local se conserva.","The save has not been confirmed by rereading. Check permissions and content before retrying. The local draft is preserved."))
             }
         }
     }
@@ -275,8 +275,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                     operation=Operation(managementText("Notificación remota · ${node.name}","Remote notification · ${node.name}"),listOf("title" to managementText("Título","Title"),"msg" to managementText("Mensaje","Message")),true,Icons.Default.Notifications) {values->
                         val title=values.getValue("title")
                         val message=values.getValue("msg")
-                        require(title.isNotBlank() && title.length<=160 && !title.contains('\u0000')) { "Escribe un título válido (máximo 160 caracteres)" }
-                        require(userMessageValid(message)) { "Escribe un mensaje válido (máximo 512 caracteres)" }
+                        require(title.isNotBlank() && title.length<=160 && !title.contains('\u0000')) { managementText("Escribe un título válido (máximo 160 caracteres)","Enter a valid title (up to 160 characters)") }
+                        require(userMessageValid(message)) { managementText("Escribe un mensaje válido (máximo 512 caracteres)","Enter a valid message (up to 512 characters)") }
                         json("action" to "toast","nodeids" to JSONArray(listOf(node.id)),"title" to title,"msg" to message)
                     }
                 })
@@ -298,7 +298,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         val confirmLabel=if(op.directSend) managementText("Enviar","Send") else if(singleConfirmation) op.title.substringBefore(" · ") else if(review) managementText("Confirmar envío","Confirm send") else managementText("Revisar","Review")
         OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
             runCatching {
-                if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { "Elige un intérprete válido para este equipo" }
+                if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { managementText("Elige un intérprete válido para este equipo","Choose a valid interpreter for this device") }
                 op.build(values)
             }.onSuccess { payload->
                 error=""
@@ -307,26 +307,26 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                         operation=null
                         if(!management.feedback.handles(payload)) uiScope.launch {
                             snackbar.currentSnackbarData?.dismiss()
-                            val result=snackbar.showSnackbar(message="${op.title}: solicitud enviada; ejecución sin confirmar.",
+                            val result=snackbar.showSnackbar(message=managementText("${op.title}: solicitud enviada; ejecución sin confirmar.","${op.title}: request sent; execution unconfirmed."),
                                 actionLabel=managementText("Ver actividad","View activity"),withDismissAction=true,duration=SnackbarDuration.Long)
                             if(result==SnackbarResult.ActionPerformed) page=1
                         }
-                    } else error="No se ha podido enviar la solicitud. Revisa la conexión; no se reintentará automáticamente."
+                    } else error=managementText("No se ha podido enviar la solicitud. Revisa la conexión; no se reintentará automáticamente.","Could not send the request. Check the connection; it will not be retried automatically.")
                 }
-            }.onFailure { error=it.message ?: "Revisa los valores" }
+            }.onFailure { error=it.message ?: managementText("Revisa los valores","Check the values") }
         }) {
-            if(!state.ready || !available) Text("La conexión o el equipo no están disponibles para esta operación.")
+            if(!state.ready || !available) Text(managementText("La conexión o el equipo no están disponibles para esta operación.","The connection or device is unavailable for this operation."))
             if(review) {
-                Text(if(singleConfirmation) "¿Confirmas esta acción sobre el equipo indicado? Puede interrumpir sus sesiones remotas." else "Confirma la operación sobre el equipo indicado. El servidor validará tus permisos.")
+                Text(if(singleConfirmation) managementText("¿Confirmas esta acción sobre el equipo indicado? Puede interrumpir sus sesiones remotas.","Do you confirm this action on the indicated device? It may interrupt its remote sessions.") else managementText("Confirma la operación sobre el equipo indicado. El servidor validará tus permisos.","Confirm the operation on the indicated device. The server will validate your permissions."))
                 op.fields.forEach { (key,label)->
                     val display=if(key=="shell") interpreters.find { it.key==values[key] }?.label.orEmpty() else values[key].orEmpty()
                     Text("$label\n$display")
                 }
             } else op.fields.forEach { (key,label)->
                 if(key=="shell") {
-                    if(interpreters.size==1) Text("Intérprete: ${interpreters.single().label}",style=MaterialTheme.typography.bodyMedium)
+                    if(interpreters.size==1) Text(managementText("Intérprete: ${interpreters.single().label}","Interpreter: ${interpreters.single().label}"),style=MaterialTheme.typography.bodyMedium)
                     else {
-                        if(devicePlatform(targetOs)==DevicePlatform.UNKNOWN) Text("Sistema no identificado: elige el intérprete del equipo remoto.",style=MaterialTheme.typography.bodySmall)
+                        if(devicePlatform(targetOs)==DevicePlatform.UNKNOWN) Text(managementText("Sistema no identificado: elige el intérprete del equipo remoto.","Unknown operating system: choose the remote device's interpreter."),style=MaterialTheme.typography.bodySmall)
                         Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
                             interpreters.forEach { choice->FilterChip(selected=values[key]==choice.key,onClick={ values=values+(key to choice.key); error="" },label={ Text(choice.label) }) }
                         }
@@ -355,14 +355,14 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val interpreters=commandInterpreters(node.osdesc)
     val actions=listOf(
         Operation(managementText("Ejecutar comando","Run command"),listOf("cmds" to managementText("Comando / script","Command / script"),"shell" to managementText("Intérprete","Interpreter")),true,Icons.Default.Terminal) { v->
-            val interpreter=interpreters.find { it.key==v["shell"] } ?: error("Intérprete no válido para este equipo")
-            require(v.getValue("cmds").isNotBlank()) { "Escribe un comando" }
-            require(v.getValue("cmds").length<=64000) { "Máximo 64000 caracteres" }
+            val interpreter=interpreters.find { it.key==v["shell"] } ?: error(managementText("Intérprete no válido para este equipo","Invalid interpreter for this device"))
+            require(v.getValue("cmds").isNotBlank()) { managementText("Escribe un comando","Enter a command") }
+            require(v.getValue("cmds").length<=64000) { managementText("Máximo 64000 caracteres","Up to 64000 characters") }
             json("action" to "runcommands","nodeids" to targets,"type" to interpreter.type,"cmds" to v.getValue("cmds"),"runAsUser" to 0,"reply" to true)
         },
         Operation(managementText("Notificación remota","Remote notification"),listOf("title" to managementText("Título","Title"),"msg" to managementText("Mensaje","Message")),true,Icons.Default.Notifications,directSend=true) { json("action" to "toast","nodeids" to targets,"title" to it.getValue("title"),"msg" to it.getValue("msg")) },
         Operation(managementText("Abrir URL remota","Open remote URL"),listOf("url" to "URL HTTP/HTTPS"),true,Icons.AutoMirrored.Filled.OpenInNew) {
-            val url=it.getValue("url").trim(); require(url.startsWith("https://") || url.startsWith("http://")) { "URL no válida" }
+            val url=it.getValue("url").trim(); require(url.startsWith("https://") || url.startsWith("http://")) { managementText("URL no válida","Invalid URL") }
             json("action" to "msg","type" to "openUrl","nodeid" to node.id,"url" to url)
         },
         Operation(managementText("Despertar (WoL)","Wake up (WoL)"),emptyList(),icon=Icons.Default.PowerSettingsNew) { json("action" to "wakedevices","nodeids" to targets) },

@@ -1,0 +1,78 @@
+package iecxiv.meshfabric.ui.devices
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import iecxiv.meshfabric.data.model.MeshNode
+
+internal data class DeviceOptionActions(
+    val events: ((MeshNode)->Unit)?=null,
+    val console: ((MeshNode)->Unit)?=null,
+    val software: ((MeshNode)->Unit)?=null,
+    val softwareAllowed: (MeshNode)->Boolean={ false }
+)
+internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionActions() }
+
+@Composable private fun spanish()=LocalConfiguration.current.locales[0].language=="es"
+
+@Composable internal fun DeviceOptionsToggle(expanded:Boolean,onToggle:()->Unit) {
+    val es=spanish()
+    IconButton(onClick=onToggle,modifier=Modifier.size(38.dp).testTag("device_options_toggle")) {
+        Icon(if(expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+            if(es) { if(expanded) "Ocultar otras opciones" else "Mostrar otras opciones" }
+            else { if(expanded) "Hide other options" else "Show other options" },
+            tint=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable internal fun DeviceOptionsRow(node:MeshNode,buttonHeight:androidx.compose.ui.unit.Dp=28.dp) {
+    val es=spanish()
+    val actions=LocalDeviceOptionActions.current
+    val openConsole=LocalDeviceAgentConsoleOpen.current
+    var details by rememberSaveable(node.id) { mutableStateOf(false) }
+    var general by rememberSaveable(node.id) { mutableStateOf(false) }
+    var events by rememberSaveable(node.id) { mutableStateOf(false) }
+    val software=actions.software!=null && actions.softwareAllowed(node)
+    BoxWithConstraints(Modifier.fillMaxWidth().padding(top=8.dp)) {
+        val count=if(software) 5 else 4
+        val width=((maxWidth-((count-1)*4).dp)/count).coerceAtLeast(76.dp)
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("device_options_row"),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+            DeviceOptionButton(if(es) "General" else "General",Icons.Default.Dashboard,"general",width,true,buttonHeight) { general=true }
+            DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,true,buttonHeight) { events=true }
+            DeviceOptionButton(if(es) "Detalles" else "Details",Icons.Default.Info,"details",width,true,buttonHeight) { details=true }
+            DeviceOptionButton(if(es) "Consola" else "Console",Icons.Default.Code,"console",width,openConsole!=null,buttonHeight) { openConsole?.invoke(node) }
+            if(software) DeviceOptionButton("Software",Icons.Default.Apps,"software",width,true) { actions.software?.invoke(node) }
+        }
+    }
+    if(details) DeviceDetailsDialog(node) { details=false }
+    if(general) DeviceGeneralDialog(node) { general=false }
+    if(events) DeviceEventsDialog(node) { events=false }
+}
+
+@Composable private fun DeviceOptionButton(label:String,icon:ImageVector,key:String,width:androidx.compose.ui.unit.Dp,enabled:Boolean,height:androidx.compose.ui.unit.Dp=28.dp,onClick:()->Unit) {
+    val contentColor=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) androidx.compose.ui.graphics.Color.White else MaterialTheme.colorScheme.onSurface
+    val compact=key in setOf("general","events","details","console")
+    val buttonModifier=Modifier.width(width).then(if(compact) Modifier.height(height) else Modifier).testTag("device_option_$key")
+    OutlinedButton(onClick=onClick,enabled=enabled,modifier=buttonModifier,
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outline),
+        colors=ButtonDefaults.outlinedButtonColors(contentColor=contentColor,disabledContentColor=contentColor.copy(alpha=0.38f)),
+        contentPadding=PaddingValues(horizontal=2.dp,vertical=if(compact) 0.dp else 4.dp)) {
+        Icon(icon,null,Modifier.size(14.dp))
+        Spacer(Modifier.width(2.dp))
+        if(compact) Text(label,fontSize=10.sp,lineHeight=12.sp,maxLines=1,softWrap=false)
+        else Text(label,fontSize=10.sp,maxLines=1,softWrap=false)
+    }
+}

@@ -27,6 +27,33 @@ class RemoteDesktopViewModel(
 ) : ViewModel() {
 
     private val desktopInputs = mutableMapOf<String, DesktopKeyActions>()
+    private val primaryDrags = mutableMapOf<String, DesktopPrimaryDrag>()
+    private var foregroundNode: String? = null
+
+    private fun primaryDrag(nodeId: String): DesktopPrimaryDrag = primaryDrags.getOrPut(nodeId) {
+        DesktopPrimaryDrag(binding = {
+            val session = desktopClient.getSession(meshClient, nodeId)
+            synchronized(session) {
+                if (!meshClient.isUserLogout && meshClient.connectionState.value && session.isConnected() && !session.isUserDisconnect) session.webSocket else null
+            }
+        }, emit = { origin, action, x, y ->
+            val session = desktopClient.getSession(meshClient, nodeId)
+            synchronized(session) {
+                if (session.webSocket === origin && !meshClient.isUserLogout && meshClient.connectionState.value && session.isConnected() && !session.isUserDisconnect)
+                    session.sendMouseEvent(action, x, y)
+            }
+        })
+    }
+
+    internal fun desktopPrimaryMouse(point: DesktopWheelPoint?, phase: DesktopPrimaryPhase): Boolean {
+        val nodeId = foregroundNode ?: return false
+        val drag = primaryDrag(nodeId)
+        if (phase == DesktopPrimaryPhase.UP) {drag.release(); return true}
+        val (width, height) = screenResolution(nodeId).value
+        val position = point?.remote(width, height) ?: return false
+        return if (phase == DesktopPrimaryPhase.DOWN) drag.down(position.first, position.second, settings(nodeId).value.swapMouseButtons)
+        else drag.move(position.first, position.second)
+    }
 
     private fun desktopInput(nodeId: String): DesktopKeyActions = desktopInputs.getOrPut(nodeId) {
         DesktopKeyActions(viewModelScope, binding = {
@@ -46,7 +73,7 @@ class RemoteDesktopViewModel(
     fun heldDesktopModifiers(nodeId: String): StateFlow<Set<Int>> = desktopInput(nodeId).held
     fun toggleDesktopHold(nodeId: String, key: Int) = desktopInput(nodeId).toggle(key)
     fun releaseDesktopHolds(nodeId: String) = desktopInput(nodeId).releaseHolds()
-    fun releaseDesktopKeys(nodeId: String) { desktopInputs[nodeId]?.clear() }
+    fun releaseDesktopKeys(nodeId: String) { desktopInputs[nodeId]?.clear(); primaryDrags[nodeId]?.release() }
 
     var selectedMouseMode = MouseMode.LEFT_CLICK
 
@@ -60,6 +87,10 @@ class RemoteDesktopViewModel(
     fun clipboardWriteState(nodeId: String) = desktopClient.getSession(meshClient, nodeId).clipboardWriteState
 
     fun startSession(nodeId: String) {
+        val session = desktopClient.getSession(meshClient, nodeId)
+        if (session.isUserDisconnect) resetDesktopViewportForNewSession(this, nodeId)
+        foregroundNode?.takeIf { it != nodeId }?.let { primaryDrags[it]?.release() }
+        foregroundNode = nodeId
         sessionManager?.getDesktopSettings()?.let { savedSettings ->
             desktopClient.updateSettings(nodeId, savedSettings)
         }
@@ -68,6 +99,7 @@ class RemoteDesktopViewModel(
 
     fun pauseSession(nodeId: String) {
         releaseDesktopKeys(nodeId)
+        if (foregroundNode == nodeId) foregroundNode = null
         desktopClient.pauseSession(nodeId)
     }
 
@@ -234,10 +266,14 @@ class RemoteDesktopViewModel(
 
     fun stopSession(nodeId: String) {
         releaseDesktopKeys(nodeId)
+        if (foregroundNode == nodeId) foregroundNode = null
         desktopClient.disconnectSession(nodeId)
     }
 
     override fun onCleared() {
+        primaryDrags.values.forEach { it.release() }
+        primaryDrags.clear()
+        foregroundNode = null
         desktopInputs.values.forEach { it.clear() }
         desktopInputs.clear()
         super.onCleared()

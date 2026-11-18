@@ -1,0 +1,87 @@
+name: Validate and publish device power history and CSV
+on:
+  push:
+    branches: [device-other-options]
+    paths: ['tools/ui/device-power/**', '.github/workflows/device-power.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: device-power-history
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/device-other-options'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply power history and CSV
+        run: |
+          set -euo pipefail
+          python3 tools/ui/device-power/apply.py
+          git diff --cached --check
+          mkdir -p validation
+          git diff --cached > validation/device-power.diff
+      - name: Build all unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintDebug --no-daemon --stacktrace
+      - name: Enable KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Entire instrumented suite
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: bash ./gradlew :app:connectedDebugAndroidTest --no-daemon --stacktrace
+      - name: Verify evidence
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for root,name,count in [('app/build/test-results','DevicePowerPolicyTest',12),('app/build/outputs/androidTest-results','DevicePowerSectionUiTest',1)]:
+              cases=[c for p in Path(root).rglob('*.xml') for c in ET.parse(p).getroot().iter('testcase')]
+              assert cases,root
+              assert not any(c.find('failure') is not None or c.find('error') is not None for c in cases),root
+              new=[c for c in cases if c.get('classname','').endswith('.'+name)]
+              assert len(new)==count and all(c.find('skipped') is None for c in new),name
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-power-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            validation/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          retention-days: 7
+      - name: Publish only validated changes to unchanged feature branch
+        run: |
+          set -euo pipefail
+          git fetch origin device-other-options
+          test "$(git rev-parse origin/device-other-options)" = "${{ github.sha }}"
+          python3 - <<'PY'
+          import subprocess
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralDialog.kt','app/src/main/java/iecxiv/meshfabric/ui/devices/DevicePowerHistory.kt','app/src/main/java/iecxiv/meshfabric/ui/devices/DevicePowerCsv.kt','app/src/main/java/iecxiv/meshfabric/ui/devices/DevicePowerSection.kt','app/src/test/java/iecxiv/meshfabric/ui/devices/DevicePowerPolicyTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DevicePowerSectionUiTest.kt'}
+          assert set(subprocess.check_output(['git','diff','--cached','--name-only'],text=True).splitlines())==expected
+          assert not subprocess.check_output(['git','diff','--name-only'],text=True).strip()
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat(devices): add seven-day power history and authenticated CSV export'
+          git push origin HEAD:device-other-options
+      - uses: actions/upload-artifact@v4
+        with:
+          name: device-power-validated-apk-${{ github.run_id }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7

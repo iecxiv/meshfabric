@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_l10n_login_missing_url">Please enter the MeshCentral server URL.</string>
+    <string name="app_l10n_login_missing_credentials">Please enter your username and password.</string>
+    <string name="app_l10n_show_password">Show password</string>
+    <string name="app_l10n_hide_password">Hide password</string>
+    <string name="app_l10n_sessions_channel_name">MeshFabric active sessions</string>
+    <string name="app_l10n_sessions_channel_description">Keeps MeshFabric sessions active in the background</string>
+</resources>

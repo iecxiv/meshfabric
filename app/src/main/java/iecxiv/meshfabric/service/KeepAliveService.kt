@@ -60,12 +60,10 @@ class KeepAliveService : Service() {
                     (n.flags and Notification.FLAG_ONGOING_EVENT) != 0
             }
             val icons = active.map { smallIconResourceId(it) }.filter { it != 0 }
-            val allCompleted = transfers.isNotEmpty() && active.isEmpty() && transfers.all { n ->
-                when (n.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()) {
-                    "Descarga completada", "Subida completada" -> true
-                    else -> false
-                }
-            }
+            val allCompleted = transferNotificationsCompleted(
+                transfers.map { smallIconResourceId(it) == R.drawable.ic_stat_transfer_success },
+                active.isNotEmpty()
+            )
             when {
                 android.R.drawable.stat_sys_download in icons -> android.R.drawable.stat_sys_download
                 android.R.drawable.stat_sys_upload in icons -> android.R.drawable.stat_sys_upload
@@ -213,10 +211,10 @@ class KeepAliveService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Sesiones Activas MeshFabric",
+                getString(R.string.app_l10n_sessions_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Mantiene las sesiones de MeshFabric activas en segundo plano"
+                description = getString(R.string.app_l10n_sessions_channel_description)
                 setShowBadge(false)
             }
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -230,19 +228,11 @@ class KeepAliveService : Service() {
         hasRecoverableDesktop: Boolean
     ): Notification {
         val titleText = "MeshFabric"
-        val contentText = if (hasRecoverableDesktop && !hasDisconnectedBuffer) getString(R.string.notification_desktop_sessions_connected) else try {
-            val app = iecxiv.meshfabric.MeshFabricApp.instance
-            when {
-                hasActiveConnected && hasDisconnectedBuffer -> app.getString(R.string.notification_sessions_mixed)
-                hasDisconnectedBuffer -> app.getString(R.string.notification_sessions_disconnected)
-                else -> app.getString(R.string.notification_sessions_active)
-            }
-        } catch (_: Exception) {
-            when {
-                hasActiveConnected && hasDisconnectedBuffer -> "sesiones activas en segundo plano + sesiones desconectadas guardadas"
-                hasDisconnectedBuffer -> "sesiones desconectadas, cambio de red / tunel cerrado"
-                else -> "sesiones activas en segundo plano"
-            }
+        val contentText = when {
+            hasRecoverableDesktop && !hasDisconnectedBuffer -> getString(R.string.notification_desktop_sessions_connected)
+            hasActiveConnected && hasDisconnectedBuffer -> getString(R.string.notification_sessions_mixed)
+            hasDisconnectedBuffer -> getString(R.string.notification_sessions_disconnected)
+            else -> getString(R.string.notification_sessions_active)
         }
 
         val returnIntent = Intent(this, MainActivity::class.java).apply {
