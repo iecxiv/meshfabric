@@ -41,7 +41,7 @@ internal class DesktopMouseCapture {
     }
 
     fun cancelPrimary() {
-        if (primaryDevice != null) primaryInput(null, DesktopPrimaryPhase.UP)
+        primaryInput(null, DesktopPrimaryPhase.UP)
         primaryTail = primaryDevice ?: primaryTail
         primaryDevice = null
     }

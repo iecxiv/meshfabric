@@ -399,98 +399,96 @@ fun RemoteDesktopScreen(
                                     }
                                 }
                             )
-                            .pointerInput(nodeId, selectedMode, containerWidth, containerHeight, drawWidth, drawHeight) {
-                                if (showClipboardDialog || showKeyboardDialog || showSettingsDialog) return@pointerInput
+                            .pointerInput(nodeId, selectedMode, desktopKeyboardActive, containerWidth, containerHeight, drawWidth, drawHeight) {
+                                if (!desktopKeyboardActive) return@pointerInput
                                 val touchSlop = viewConfiguration.touchSlop
+                                fun point(position: androidx.compose.ui.geometry.Offset): DesktopWheelPoint? =
+                                    DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY)
+                                        .project(position.x, position.y)
                                 awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    val startPos = down.position
-                                    val startTime = System.currentTimeMillis()
-                                    var isMoved = false
-                                    var isLongPressed = false
+                                    val down = awaitFirstDown(requireUnconsumed = true)
+                                    // Physical mouse buttons are owned by DesktopMouseCapture, never by a long-press timer.
+                                    if (down.type == androidx.compose.ui.input.pointer.PointerType.Mouse) return@awaitEachGesture
+                                    val initial = point(down.position) ?: return@awaitEachGesture
+                                    val drag = DesktopTouchDragGesture(initial, touchSlop,
+                                        press = { desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.DOWN) },
+                                        move = { desktopMouseCapture.ready() && desktopMouseCapture.primaryInput(it, DesktopPrimaryPhase.MOVE) },
+                                        release = { desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP); Unit })
+                                    var moved = false
+                                    var transformed = false
+                                    var cancelled = false
                                     var dragAmountY = 0f
-
-                                    do {
-                                        val event = awaitPointerEvent()
-                                        val pointerCount = event.changes.count { it.pressed }
-
-                                        if (pointerCount == 1) {
-                                            val change = event.changes.firstOrNull { it.pressed } ?: event.changes[0]
-                                            val diff = change.position - startPos
-                                            if (diff.getDistance() > touchSlop) {
-                                                isMoved = true
+                                    try {
+                                        do {
+                                            val event = awaitPointerEvent()
+                                            if (!desktopMouseCapture.ready() || event.changes.any { it.isConsumed }) {
+                                                cancelled = true
+                                                break
                                             }
-
-                                            if (!isMoved && !isLongPressed && (System.currentTimeMillis() - startTime) > 400) {
-                                                isLongPressed = true
-                                                change.consume()
-                                                val localX = (change.position.x - containerWidth / 2f - offsetX) / scale + drawWidth / 2f
-                                                val localY = (change.position.y - containerHeight / 2f - offsetY) / scale + drawHeight / 2f
-                                                val xPct = (localX / drawWidth).coerceIn(0f, 1f)
-                                                val yPct = (localY / drawHeight).coerceIn(0f, 1f)
-                                                viewModel.performMouseClick(nodeId, xPct, yPct, isRightClick = true)
-                                            }
-
-                                            if (isMoved) {
-                                                val panChange = change.positionChange()
-                                                if (selectedMode == MouseMode.SCROLL) {
-                                                    dragAmountY += panChange.y
-                                                    if (kotlin.math.abs(dragAmountY) >= touchSlop) {
-                                                        val localX = (change.position.x - containerWidth / 2f - offsetX) / scale + drawWidth / 2f
-                                                        val localY = (change.position.y - containerHeight / 2f - offsetY) / scale + drawHeight / 2f
-                                                        val xPct = (localX / drawWidth).coerceIn(0f, 1f)
-                                                        val yPct = (localY / drawHeight).coerceIn(0f, 1f)
-                                                        val (resWidth, resHeight) = viewModel.screenResolution(nodeId).value
-                                                        val remoteX = (xPct * resWidth).toInt().coerceIn(0, resWidth)
-                                                        val remoteY = (yPct * resHeight).toInt().coerceIn(0, resHeight)
-                                                        val s = settings
-
-                                                        val direction = if (dragAmountY < 0) -1 else 1
-                                                        val factor = if (s.reverseMouseWheel) -1 else 1
-                                                        val delta = 120 * direction * factor
-
-                                                        viewModel.sendMouseScroll(nodeId, remoteX, remoteY, delta)
-                                                        dragAmountY = 0f
+                                            val pointerCount = event.changes.count { it.pressed }
+                                            if (pointerCount >= 2) {
+                                                drag.cancel()
+                                                transformed = true
+                                                moved = true
+                                                val zoom = event.calculateZoom()
+                                                val pan = event.calculatePan()
+                                                scale = (scale * zoom).coerceIn(1f, 6f)
+                                                val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
+                                                offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
+                                                event.changes.forEach { it.consume() }
+                                            } else if (!transformed) {
+                                                val change = event.changes.firstOrNull { it.id == down.id }
+                                                if (change == null) {
+                                                    cancelled = true
+                                                    break
+                                                }
+                                                val distance = (change.position - down.position).getDistance()
+                                                if (distance > touchSlop) moved = true
+                                                when (selectedMode) {
+                                                    MouseMode.LEFT_CLICK, MouseMode.DRAG_MOVE -> {
+                                                        drag.move(point(change.position), distance)
+                                                        if (drag.isCancelled) {
+                                                            cancelled = true
+                                                            break
+                                                        }
+                                                        if (moved) change.consume()
                                                     }
-                                                    change.consume()
-                                                } else if (scale > 1f) {
-                                                    val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                    val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                    offsetX = (offsetX + panChange.x).coerceIn(-maxOffsetX, maxOffsetX)
-                                                    offsetY = (offsetY + panChange.y).coerceIn(-maxOffsetY, maxOffsetY)
-                                                    change.consume()
+                                                    MouseMode.SCROLL -> if (moved) {
+                                                        dragAmountY += change.positionChange().y
+                                                        if (kotlin.math.abs(dragAmountY) >= touchSlop) {
+                                                            val projected = point(change.position)
+                                                            val (width, height) = viewModel.screenResolution(nodeId).value
+                                                            val remote = projected?.remote(width, height)
+                                                            if (remote != null) {
+                                                                val direction = if (dragAmountY < 0) -1 else 1
+                                                                val factor = if (settings.reverseMouseWheel) -1 else 1
+                                                                viewModel.sendMouseScroll(nodeId, remote.first, remote.second, 120 * direction * factor)
+                                                            }
+                                                            dragAmountY = 0f
+                                                        }
+                                                        change.consume()
+                                                    }
+                                                    else -> if (moved) change.consume()
+                                                }
+                                            } else {
+                                                event.changes.forEach { it.consume() }
+                                            }
+                                        } while (event.changes.any { it.pressed })
+                                        val tap = drag.finish() && !moved && !transformed && !cancelled
+                                        if (tap && desktopMouseCapture.ready()) {
+                                            when (selectedMode) {
+                                                MouseMode.RIGHT_CLICK -> viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
+                                                MouseMode.MIDDLE_CLICK -> viewModel.performMiddleClick(nodeId, initial.xFraction, initial.yFraction)
+                                                else -> {
+                                                    if (desktopMouseCapture.primaryInput(initial, DesktopPrimaryPhase.DOWN))
+                                                        desktopMouseCapture.primaryInput(null, DesktopPrimaryPhase.UP)
                                                 }
                                             }
-                                        } else if (pointerCount >= 2) {
-                                            isMoved = true
-                                            val zoom = event.calculateZoom()
-                                            val pan = event.calculatePan()
-                                            scale = (scale * zoom).coerceIn(1f, 6f)
-                                            val maxOffsetX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                            val maxOffsetY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                            offsetX = (offsetX + pan.x).coerceIn(-maxOffsetX, maxOffsetX)
-                                            offsetY = (offsetY + pan.y).coerceIn(-maxOffsetY, maxOffsetY)
-                                            event.changes.forEach { if (it.pressed) it.consume() }
                                         }
-                                    } while (event.changes.any { it.pressed })
-
-                                    if (!isMoved && !isLongPressed) {
-                                        val localX = (startPos.x - containerWidth / 2f - offsetX) / scale + drawWidth / 2f
-                                        val localY = (startPos.y - containerHeight / 2f - offsetY) / scale + drawHeight / 2f
-                                        val xPct = (localX / drawWidth).coerceIn(0f, 1f)
-                                        val yPct = (localY / drawHeight).coerceIn(0f, 1f)
-
-                                        when (selectedMode) {
-                                            MouseMode.RIGHT_CLICK -> {
-                                                viewModel.performMouseClick(nodeId, xPct, yPct, isRightClick = true)
-                                            }
-                                            MouseMode.MIDDLE_CLICK -> {
-                                                viewModel.performMiddleClick(nodeId, xPct, yPct)
-                                            }
-                                            else -> {
-                                                viewModel.performMouseClick(nodeId, xPct, yPct, isRightClick = false)
-                                            }
-                                        }
+                                    } finally {
+                                        drag.cancel()
                                     }
                                 }
                             },
