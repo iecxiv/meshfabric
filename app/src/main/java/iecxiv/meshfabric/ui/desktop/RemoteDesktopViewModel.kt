@@ -87,6 +87,8 @@ class RemoteDesktopViewModel(
     fun clipboardWriteState(nodeId: String) = desktopClient.getSession(meshClient, nodeId).clipboardWriteState
 
     fun startSession(nodeId: String) {
+        val session = desktopClient.getSession(meshClient, nodeId)
+        if (session.isUserDisconnect) resetDesktopViewportForNewSession(this, nodeId)
         foregroundNode?.takeIf { it != nodeId }?.let { primaryDrags[it]?.release() }
         foregroundNode = nodeId
         sessionManager?.getDesktopSettings()?.let { savedSettings ->
