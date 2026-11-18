@@ -38,6 +38,9 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
     val actor=user?.id.orEmpty()
     val siteadmin=user?.siteadmin ?: 0
     val connected by source.connectionState.collectAsState()
+    val groups by source.groupedDevices.collectAsState()
+    val agentVersion=groups.asSequence().flatMap {it.second.asSequence()}.singleOrNull {it.id==nodeId}
+        ?.agent?.ver?.takeIf {it>0}?.toString()
     val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
@@ -63,7 +66,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
         DisposableEffect(session,owner) {
             var initialStarted=false
             fun initial() {if(!initialStarted) {initialStarted=true;session.connect()}}
-            val observer=LifecycleEventObserver {_,event->when(event) {Lifecycle.Event.ON_RESUME->initial();Lifecycle.Event.ON_STOP->session.disconnect();else->Unit}}
+            val observer=LifecycleEventObserver {_,event->if(event==Lifecycle.Event.ON_RESUME) initial()}
             owner.lifecycle.addObserver(observer)
             if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) initial()
             onDispose {owner.lifecycle.removeObserver(observer);session.close()}
@@ -98,19 +101,22 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                     DropdownMenuItem(text={Text(t("Desconectar consola local","Disconnect local console"))},enabled=state.phase!="closed",onClick={session.disconnect();menu=false})
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-            Text(nodeId,style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis)
-            Text(when(state.phase) {
-                "connecting","checking"->t("Verificando canal, agente y permiso de consola…","Verifying channel, agent and console permission…")
-                "checking_send"->t("Reverificando antes de enviar…","Rechecking before sending…")
-                "ready"->t("Canal verificado. No es CMD, PowerShell ni Shell.","Channel verified. Not CMD, PowerShell or Shell.")
-                else->t("Consola desconectada; sin reenvíos ni reconexión automática.","Console disconnected; no automatic replay or reconnection.")
-            },style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("agent_console_status"))
+            Text(t("Versión del agente: ","Agent version: ")+(agentVersion ?: t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
+            Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text(when(state.phase) {
+                    "connecting","checking"->t("Verificando canal, agente y permiso de consola…","Verifying channel, agent and console permission…")
+                    "checking_send"->t("Reverificando antes de enviar…","Rechecking before sending…")
+                    "ready"->t("Canal verificado","Channel verified")
+                    else->t("Consola desconectada","Console disconnected")
+                },style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f).testTag("agent_console_status"))
+                if(state.phase=="closed") TextButton(enabled=connected,onClick={session.connect()},modifier=Modifier.testTag("agent_console_reconnect")) {Text(t("Reconectar","Reconnect"))}
+            }
             if(state.phase=="closed" && state.code.isNotBlank()) Text(t("Motivo: ","Reason: ")+state.code,style=MaterialTheme.typography.labelSmall)
             if(searching) OutlinedTextField(query,{query=it.take(128)},singleLine=true,label={Text(t("Filtrar líneas de salida","Filter output lines"))},modifier=Modifier.fillMaxWidth())
             SelectionContainer(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)) {Text(visible.ifEmpty {t("Sin salida recibida. No se ejecutan comandos al abrir.","No output received. Opening runs no commands.")},fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.fillMaxWidth().testTag("agent_console_output"))}
             if(!follow) TextButton(onClick={query="";follow=true}) {Text(t("Ir al final y seguir salida","Go to end and follow output"))}
             if(copyStatus.isNotEmpty()) Text(copyStatus,style=MaterialTheme.typography.labelSmall)
-            Text(t("Salida sin prueba de finalización. Búfer: 1000 entradas / 256000 caracteres; historial: 50 comandos, solo en memoria. Segundo plano desconecta el canal, no el agente.","Output does not prove completion. Buffer: 1000 entries / 256000 characters; history: 50 commands, memory only. Backgrounding disconnects the channel, not the agent."),style=MaterialTheme.typography.labelSmall)
+            Text(t("Salida sin prueba de finalización. Búfer: 1000 entradas / 256000 caracteres; historial: 50 comandos, solo en memoria.","Output does not prove completion. Buffer: 1000 entries / 256000 characters; history: 50 commands, memory only."),style=MaterialTheme.typography.labelSmall)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 Box {TextButton(onClick={history=true},enabled=state.history.isNotEmpty()) {Text(t("Historial","History"))};DropdownMenu(history,{history=false},modifier=Modifier.heightIn(max=260.dp)) {state.history.asReversed().forEach {command->DropdownMenuItem(text={Text(command,maxLines=2,overflow=TextOverflow.Ellipsis)},onClick={draft=command;history=false})}}}
                 OutlinedTextField(draft,{draft=it},singleLine=true,label={Text(t("Comando del agente","Agent command"))},keyboardOptions=KeyboardOptions(imeAction=ImeAction.Send),keyboardActions=KeyboardActions(onSend={submit()}),modifier=Modifier.weight(1f).testTag("agent_console_input"))
