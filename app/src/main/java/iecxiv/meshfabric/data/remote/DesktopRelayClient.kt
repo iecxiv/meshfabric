@@ -27,8 +27,8 @@ import iecxiv.meshfabric.R
 enum class DesktopEncoding(val code: Int, val label: String) {
     JPEG(1, "JPEG"),
     PNG(2, "PNG"),
-    TIFF(4, "TIFF"),
-    WEBP(3, "WebP")
+    TIFF(3, "TIFF"),
+    WEBP(4, "WebP")
 }
 
 enum class FrameRateOption(val delayMs: Long, val labelRes: Int) {
@@ -156,7 +156,8 @@ class DesktopSession(
         _settings.value = newSettings
         if (oldSettings.quality != newSettings.quality ||
             oldSettings.scale != newSettings.scale ||
-            oldSettings.encoding != newSettings.encoding) {
+            oldSettings.encoding != newSettings.encoding ||
+            oldSettings.frameRate != newSettings.frameRate) {
             sendCompressionSettings(
                 imageType = newSettings.encoding.code,
                 compressionLevel = newSettings.quality,
@@ -173,20 +174,8 @@ class DesktopSession(
 
     private fun startUnpauseLoop() {
         stopUnpauseLoop()
-        val socket = webSocket ?: return
-        val generation = epoch
-        if (!visible) return
-        unpauseJob = scope.launch {
-            while (true) {
-                delay(_settings.value.frameRate.delayMs.coerceAtLeast(100L))
-                synchronized(this@DesktopSession) {
-                    if (current(socket, generation) && visible && isConnected()) {
-                            sendUnPause()
-                            logFrameDiagnostics("heartbeat")
-                        }
-                }
-            }
-        }
+        // Resume once; the server controls frame pacing through compression settings.
+        if (visible && isConnected()) sendUnPause()
     }
 
     @Synchronized
@@ -321,13 +310,13 @@ class DesktopSession(
                             updateState(true)
                             webSocket.send("2")
                             initializationJob = scope.launch {
-                                for (wait in listOf(100L, 200L, 400L, 800L)) {
-                                    delay(wait)
-                                    synchronized(this@DesktopSession) {
-                                        if (!current(webSocket, generation)) return@launch
-                                        refreshDisplay()
-                                        if (wait == 400L) requestRemoteClipboard()
-                                    }
+                                delay(100L)
+                                synchronized(this@DesktopSession) {
+                                    if (!current(webSocket, generation)) return@launch
+                                    val settings = _settings.value
+                                    sendCompressionSettings(settings.encoding.code, settings.quality, settings.scale)
+                                    sendUnPause()
+                                    requestRemoteClipboard()
                                 }
                             }
                             startUnpauseLoop()
@@ -407,7 +396,8 @@ class DesktopSession(
                     }
                     webSocket?.send(pong.toString())
                 }
-                "metadata", "displays", "desktop", "uiprompt" -> {
+                "metadata" -> Unit // Viewer metadata must not trigger a stream refresh.
+                "displays", "desktop", "uiprompt" -> {
                     refreshDisplay()
                 }
                 "clipboard", "getclip", "setclip" -> {
@@ -544,7 +534,7 @@ class DesktopSession(
 
     fun sendUnPause() {
         if (!_connectionState.value || webSocket == null) return
-        val pkt = byteArrayOf(0x00, 0x06, 0x00, 0x04)
+        val pkt = byteArrayOf(0x00, 0x08, 0x00, 0x05, 0x00)
         webSocket?.send(ByteString.of(*pkt))
     }
 
@@ -559,10 +549,11 @@ class DesktopSession(
         pkt[5] = (compressionLevel and 0xFF).toByte()
         pkt[6] = ((scalingLevel shr 8) and 0xFF).toByte()
         pkt[7] = (scalingLevel and 0xFF).toByte()
-        pkt[8] = 0x00
-        pkt[9] = 0x07 // KVM Flags: Bit 1 (0x01) = Clipboard, Bit 2 (0x02) = Audio, Bit 3 (0x04) = Touch
+        val frameTimer = _settings.value.frameRate.delayMs.coerceIn(1L, 65535L).toInt()
+        pkt[8] = ((frameTimer shr 8) and 0xFF).toByte()
+        pkt[9] = (frameTimer and 0xFF).toByte()
         webSocket?.send(ByteString.of(*pkt))
-        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:539 Sent compression settings with KVM flags 0x07 (Clipboard enabled) for") { "Sent compression settings with KVM flags 0x07 (Clipboard enabled) for $cleanNodeId" }
+        iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3, "DesktopSession", "DesktopRelayClient.kt:539 Sent compression settings") { "Sent compression settings imageType=$imageType frameTimer=$frameTimer for $cleanNodeId" }
     }
 
     fun sendMouseEvent(actionButton: Int, x: Int, y: Int) {
