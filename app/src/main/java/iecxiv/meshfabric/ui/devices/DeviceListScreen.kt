@@ -213,7 +213,6 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                         Surface(modifier=Modifier.onSizeChanged { statusBadgeHeight=with(statusBadgeDensity) { it.height.toDp() } }.testTag("device_connection_badge_${node.id}"),shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
                             Text(if(node.isOnline) "ONLINE" else "OFFLINE",Modifier.padding(horizontal=6.dp,vertical=2.dp),color=Color.White,fontSize=9.sp,fontWeight=FontWeight.Bold)
                         }
-                        DeviceDetailsButton(node)
                     }
                     if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
                     val networkText = DeviceNetworkDisplay.text(node.networkIpv4.orEmpty(), hidden = !showNetworkInfo)
