@@ -1,28 +1,22 @@
 package iecxiv.meshfabric.ui.devices
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.LinkOff
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.AppRefreshIconButton
 
 private val HeaderActiveBlue=Color(0xFF2196F3)
 private val HeaderInactiveGray=Color(0xFF9E9E9E)
@@ -56,22 +50,5 @@ private val HeaderInactiveGray=Color(0xFF9E9E9E)
 }
 
 @Composable internal fun DeviceHeaderRefresh(onRefresh:()->Unit) {
-    val rotation=remember {Animatable(0f)}
-    var refreshing by remember {mutableStateOf(false)}
-    val currentRefresh by rememberUpdatedState(onRefresh)
-    LaunchedEffect(refreshing) {
-        if(refreshing) {
-            try {
-                currentRefresh()
-                rotation.animateTo(360f,animationSpec=tween(durationMillis=650,easing=LinearEasing))
-            } finally {
-                rotation.snapTo(0f)
-                refreshing=false
-            }
-        }
-    }
-    IconButton(onClick={refreshing=true},enabled=!refreshing,modifier=Modifier.size(38.dp).testTag("devices_header_refresh")) {
-        Icon(Icons.Default.Refresh,stringResource(R.string.refresh),Modifier.size(20.dp).rotate(rotation.value),
-            tint=if(refreshing) HeaderActiveBlue else HeaderInactiveGray)
-    }
+    AppRefreshIconButton(onRefresh=onRefresh,modifier=Modifier.testTag("devices_header_refresh"))
 }

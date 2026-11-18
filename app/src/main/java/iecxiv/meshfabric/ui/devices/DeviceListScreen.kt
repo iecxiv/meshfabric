@@ -84,12 +84,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
         dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })
     Scaffold(topBar={ Column {
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
-            ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
-                stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
             IconButton(onClick={ closeSessions=true },modifier=Modifier.size(38.dp)) {
                 Icon(Icons.Default.Link,stringResource(R.string.close_active_connections),Modifier.size(20.dp),
-                    tint=if(hasConnectedSessions) Color(0xFF2196F3) else Color(0xFF9E9E9E))
+                    tint=if(hasConnectedSessions) Color(0xFF2196F3) else LocalContentColor.current)
             }
+            ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
             DeviceHeaderFilter(showIps=!hideDeviceNetworkInfo,showDisconnected=!onlyOnline,
                 onShowIps={show->
                     val hidden=!show
@@ -102,13 +102,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
                     if(manager!=null) manager.saveOnlyOnlineDevices(enabled) else fallbackOnlineFilter.value=enabled
                 })
             DeviceHeaderRefresh { viewModel.refresh() }
-            ToolIcon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search)) {
+            IconButton(onClick={
                 if(showSearch) {
                     viewModel.searchQuery.value=""
                     focusManager.clearFocus(force=true)
                     keyboard?.hide()
                 }
                 showSearch=!showSearch
+            },modifier=Modifier.size(38.dp)) {
+                Icon(if(showSearch) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search),Modifier.size(20.dp),
+                    tint=if(showSearch) Color(0xFF2196F3) else LocalContentColor.current)
             }
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
         } })
