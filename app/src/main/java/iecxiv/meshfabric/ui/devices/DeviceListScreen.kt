@@ -67,7 +67,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val keyboard=LocalSoftwareKeyboardController.current
     val focusManager=LocalFocusManager.current
     var showSearch by remember { mutableStateOf(false) }
-    var closeSessions by remember { mutableStateOf(false) }
+    val disconnectAll = iecxiv.meshfabric.ui.settings.rememberDisconnectAllAction {
+        viewModel.closeAllActiveSessions()
+    }
     val expanded=groups.isEmpty() || groups.any { it.first.id !in collapsed }
     val owner=androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(owner,viewModel) {
@@ -78,13 +80,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    if(closeSessions) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ closeSessions=false },title={ Text(stringResource(R.string.confirm_disconnect_all_title),fontWeight=FontWeight.Bold,fontSize=18.sp) },
-        text={ Text(stringResource(R.string.confirm_disconnect_all_msg)) },
-        confirmButton={ TextButton(onClick={ closeSessions=false; viewModel.closeAllActiveSessions() }) { Text(stringResource(R.string.disconnect_all),fontWeight=FontWeight.Bold) } },
-        dismissButton={ TextButton(onClick={ closeSessions=false }) { Text(stringResource(R.string.cancel)) } })
     Scaffold(topBar={ Column {
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
-            IconButton(onClick={ closeSessions=true },modifier=Modifier.size(38.dp)) {
+            IconButton(onClick=disconnectAll,modifier=Modifier.size(38.dp)) {
                 Icon(Icons.Default.Link,stringResource(R.string.close_active_connections),Modifier.size(20.dp),
                     tint=if(hasConnectedSessions) Color(0xFF2196F3) else LocalContentColor.current)
             }
