@@ -2,6 +2,8 @@ package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -105,10 +107,11 @@ private val LocalDeviceChatOpen=staticCompositionLocalOf<((MeshNode,()->Unit)->U
                 else->t("Resultado de envío desconocido; comprueba antes de repetir.","Send outcome unknown; check before repeating.")
             },style=MaterialTheme.typography.bodySmall)
         }
-        if(state.phase in setOf("connected","checking_send")) OutlinedTextField(chat.draft,{chat.draft=it},enabled=state.phase=="connected",label={Text(t("Mensaje, máximo 4096 caracteres","Message, up to 4096 characters"))},minLines=2,maxLines=5,modifier=Modifier.fillMaxWidth().testTag("general_chat_text"))
+        if(state.phase in setOf("connected","checking_send")) OutlinedTextField(chat.draft,{chat.draft=it},enabled=state.phase=="connected",label={Text(t("Mensaje, máximo 4096 caracteres","Message, up to 4096 characters"))},minLines=2,maxLines=5,
+            trailingIcon={IconButton(enabled=generalChatCanSend(state.phase,chat.draft),onClick={if(session.send(chat.draft)) chat.draft=""},modifier=Modifier.testTag("general_chat_send")) {Icon(Icons.AutoMirrored.Filled.Send,contentDescription=t("Enviar","Send"))}},
+            modifier=Modifier.fillMaxWidth().testTag("general_chat_text"))
     },footer={
         if(state.phase=="ready") TextButton(onClick={session.connect(requireNotNull(state.meta).mesh)},modifier=Modifier.testTag("general_chat_start")) {Text(t("Iniciar chat","Start chat"))}
-        if(state.phase in setOf("connected","checking_send")) TextButton(enabled=generalChatCanSend(state.phase,chat.draft),onClick={if(session.send(chat.draft)) chat.draft=""},modifier=Modifier.testTag("general_chat_send")) {Text(t("Enviar","Send"))}
         TextButton(onClick=close) {Text(t("Cerrar","Close"))}
     },subtitle="Chat",tagPrefix="device_chat",onMinimize={
         val dismiss=chat.dismissGeneral
