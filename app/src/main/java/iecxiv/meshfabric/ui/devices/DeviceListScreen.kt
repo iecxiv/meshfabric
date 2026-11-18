@@ -59,6 +59,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val desktop by viewModel.desktopSessionsStatus.collectAsState()
     val terminal by viewModel.terminalSessionsStatus.collectAsState()
     val files by viewModel.fileSessionsStatus.collectAsState()
+    val hasConnectedSessions = desktop.values.any { it == SessionStatus.CONNECTED } ||
+        terminal.values.any { it == SessionStatus.CONNECTED } ||
+        files.values.any { it == SessionStatus.CONNECTED }
     val appName by (viewModel.sessionManager?.appNameFlow ?: remember { MutableStateFlow("MeshFabric") }).collectAsState()
     val hideSettings by (viewModel.sessionManager?.hideSettingsIconFlow ?: remember { MutableStateFlow(false) }).collectAsState()
     val searchFocus=remember { FocusRequester() }
@@ -111,7 +114,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 }
                 showSearch=!showSearch
             }
-            ToolIcon(Icons.Default.PowerSettingsNew,stringResource(R.string.close_active_connections)) { closeSessions=true }
+            IconButton(onClick={ closeSessions=true },modifier=Modifier.size(38.dp)) {
+                Icon(Icons.Default.Link,stringResource(R.string.close_active_connections),Modifier.size(20.dp),
+                    tint=if(hasConnectedSessions) Color(0xFF2196F3) else LocalContentColor.current)
+            }
         } })
         AnimatedVisibility(showSearch) {
             LaunchedEffect(showSearch) {
