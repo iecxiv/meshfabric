@@ -130,16 +130,17 @@ fun RemoteDesktopScreen(
     val clipboardReadState by viewModel.clipboardReadState(nodeId).collectAsState()
     val clipboardWriteState by viewModel.clipboardWriteState(nodeId).collectAsState()
 
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
+    val viewport = rememberDesktopViewport(viewModel, nodeId, isConnected)
+    var scale by viewport.scale
+    var offsetX by viewport.offsetX
+    var offsetY by viewport.offsetY
 
     var selectedMode by remember { mutableStateOf(MouseMode.LEFT_CLICK) }
     var isControlsBarCollapsed by rememberSaveable {
         mutableStateOf(viewModel.isDesktopBarCollapsed())
     }
     var isFullScreen by rememberSaveable { mutableStateOf(false) }
-    var barRelativeY by rememberSaveable { mutableFloatStateOf(0f) }
+    var barRelativeY by viewport.barRelativeY
     var controlsBarHeightPx by remember { mutableIntStateOf(0) }
 
     var isSoftKeyboardOpen by remember { mutableStateOf(false) }
