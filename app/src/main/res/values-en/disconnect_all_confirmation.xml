@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="disconnect_all_do_not_ask_again">Do not ask again</string>
+    <string name="settings_confirm_disconnect_all_title">Confirm disconnect all</string>
+    <string name="settings_confirm_disconnect_all_desc">Ask before closing all remote sessions. Turn this on to restore the confirmation.</string>
+</resources>

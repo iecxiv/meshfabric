@@ -6,11 +6,21 @@
 
 El chevrón de la tarjeta muestra General, Eventos, Detalles y la Consola del agente. La disponibilidad depende de la cuenta autenticada, permisos actuales, inventario y capacidades remotas. Se elimina el icono de información duplicado junto al indicador de conexión; Detalles permanece entre las opciones desplegadas. Compartir está oculto hasta completar su implementación.
 
+## Confirmación de Desconectar todo
+
+La acción de la cabecera de Dispositivos pide confirmación antes de cerrar las sesiones activas de forma predeterminada. Marca No volver a preguntar y confirma para omitir el diálogo en los usos siguientes. Cancelar o descartar el diálogo no cambia la preferencia guardada ni solicita la desconexión. Con la confirmación desactivada, pulsar la acción de cabecera cierra directamente las sesiones activas.
+
+Ajustes ofrece Confirmar «Desconectar todo». Actívalo para recuperar la confirmación. La preferencia se guarda localmente en SharedPreferences privados de la app y no se sincroniza con el servidor MeshCentral. Se conserva entre reinicios normales de la app; borrar sus datos la restablece.
+
+Esto cambia la confirmación de la acción closeAllActiveSessions existente, no los tipos de sesión que cierra. No es un cierre de sesión de la cuenta ni incorpora reconexión automática.
+
 ## Escritorio remoto
 
 El subtítulo muestra Conectado con un visor o un contador desconocido, y Conectado, 2 viendo o Conectado, 3 viendo cuando hay varios. Suma las conexiones comunicadas en los metadatos del servidor, no solo las cuentas distintas. Desconectar limpia el contador anterior. Recibir metadatos no solicita un refresco de pantalla.
 
 Reanudar y refrescar son operaciones distintas del protocolo. La compresión incluye el intervalo de fotogramas y cambiar la velocidad actualiza ese ajuste. No hay un bucle de refrescos usado como heartbeat. El arrastre y plegado de la barra, el ratón físico y la conservación de la vista requieren validación en los dispositivos Android y remotos previstos.
+
+El botón de información de la barra flotante abre la ayuda de gestos en español o inglés. El icono visible mide 18 dp y usa el gris #9E9E9E; no cambia el diseño existente de 32 dp del IconButton. Consulta [Gestos táctiles del escritorio](desktop-touch-gestures.md) para desplazamiento con un dedo, doble toque y arrastre con el segundo toque. Estos cambios no implementan el rediseño propuesto de los controles izquierdo/derecho ni el selector de pantallas.
 
 ## Chat y segundo plano
 
@@ -26,6 +36,11 @@ El contraste de los iconos de la barra de estado se elige según el fondo y se r
 
 ## Lista de aceptación
 
+- Comprobar confirmación activada inicialmente, cancelación, descarte y confirmación con y sin No volver a preguntar.
+- Reiniciar la app, verificar la persistencia y reactivar la confirmación desde Ajustes.
+- Comprobar desconexión directa con la confirmación desactivada y el comportamiento existente del historial al cerrar terminales.
+- Revisar los textos nuevos del diálogo y de Ajustes en español e inglés.
+- Ejecutar lintDebug después de añadir los recursos explícitos de values-en; un cambio de código no demuestra que lint haya pasado.
 - Abrir el escritorio en la app, añadir un visor web y repetir en orden inverso; comprobar imagen y contador al salir cualquiera.
 - Repetir con varias conexiones de la misma cuenta y con tres visores.
 - Girar, arrastrar y plegar/desplegar la barra; comprobar posición de vista y puntero.
