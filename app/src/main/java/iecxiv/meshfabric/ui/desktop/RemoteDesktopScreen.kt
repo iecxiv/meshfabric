@@ -122,6 +122,7 @@ fun RemoteDesktopScreen(
     val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
     val settings by viewModel.settings(nodeId).collectAsState()
     val desktopMouseCapture = remember(nodeId) { DesktopMouseCapture() }
+    val rightClickAssist = rememberDesktopRightClickAssist(nodeId)
     val desktopDialogConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
     val desktopDialogsLandscape = desktopDialogConfiguration.orientation ==
         android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -175,6 +176,7 @@ fun RemoteDesktopScreen(
     val desktopLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val desktopKeyboardActive = isConnected && !showKeyboardDialog && !showClipboardDialog && !showSettingsDialog &&
         desktopLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+    DesktopRightClickAssistBinding(rightClickAssist, desktopMouseCapture, desktopKeyboardActive)
     LaunchedEffect(desktopKeyboard, desktopKeyboardActive) {
         desktopKeyboard.setActive(desktopKeyboardActive)
         if (desktopKeyboardActive) focusRequester.requestFocus()
@@ -256,6 +258,7 @@ fun RemoteDesktopScreen(
                         }
                     },
                     actions = {
+                        DesktopRightClickAssistHeader(rightClickAssist)
                         IconButton(
                             onClick = { showKeyboardDialog = true },
                             modifier = Modifier.size(36.dp)
@@ -379,6 +382,7 @@ fun RemoteDesktopScreen(
                                 enabled = desktopKeyboardActive,
                                 geometry = DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY),
                                 onRightClick = { point ->
+                                    rightClickAssist.latch.cancel()
                                     val (remoteWidth, remoteHeight) = viewModel.screenResolution(nodeId).value
                                     if (remoteWidth <= 0 || remoteHeight <= 0) false else {
                                         viewModel.performMouseClick(nodeId, point.xFraction, point.yFraction, isRightClick = true)
@@ -427,6 +431,7 @@ fun RemoteDesktopScreen(
                                             }
                                             val pointerCount = event.changes.count { it.pressed }
                                             if (pointerCount >= 2) {
+                                                rightClickAssist.latch.cancel()
                                                 drag.cancel()
                                                 transformed = true
                                                 moved = true
@@ -445,7 +450,7 @@ fun RemoteDesktopScreen(
                                                     break
                                                 }
                                                 val distance = (change.position - down.position).getDistance()
-                                                if (distance > touchSlop) moved = true
+                                                if (distance > touchSlop) { moved = true; rightClickAssist.latch.cancel() }
                                                 when (selectedMode) {
                                                     MouseMode.LEFT_CLICK, MouseMode.DRAG_MOVE -> {
                                                         drag.move(point(change.position), distance)
@@ -478,7 +483,9 @@ fun RemoteDesktopScreen(
                                         } while (event.changes.any { it.pressed })
                                         val tap = drag.finish() && !moved && !transformed && !cancelled
                                         if (tap && desktopMouseCapture.ready()) {
-                                            when (selectedMode) {
+                                            if (rightClickAssist.latch.consume()) {
+                                                viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
+                                            } else when (selectedMode) {
                                                 MouseMode.RIGHT_CLICK -> viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
                                                 MouseMode.MIDDLE_CLICK -> viewModel.performMiddleClick(nodeId, initial.xFraction, initial.yFraction)
                                                 else -> {
@@ -544,22 +551,10 @@ drawDiagnostics[0]++
             }
 
             // Floating Controls Bar Overlay (Collapsible & Vertically Draggable)
+            DesktopRightAssistLayout(rightClickAssist, desktopMouseCapture, barRelativeY, isControlsBarCollapsed, desktopKeyboardActive) {
             if (isControlsBarCollapsed) {
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(horizontal = 12.dp)
-                        .layout { measurable, barConstraints ->
-                            val placeable = measurable.measure(barConstraints)
-                            val limit = desktopControlsBarLimit(
-                                maxContainerHeightPx, placeable.height, 0f
-                            )
-                            layout(placeable.width, placeable.height) {
-                                placeable.placeRelative(
-                                    0, (barRelativeY.coerceIn(0f, 1f) * limit).roundToInt()
-                                )
-                            }
-                        }
                         .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
@@ -611,21 +606,8 @@ drawDiagnostics[0]++
             } else {
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .layout { measurable, barConstraints ->
-                            val placeable = measurable.measure(barConstraints)
-                            val limit = desktopControlsBarLimit(
-                                maxContainerHeightPx, placeable.height, 0f
-                            )
-                            layout(placeable.width, placeable.height) {
-                                placeable.placeRelative(
-                                    0, (barRelativeY.coerceIn(0f, 1f) * limit).roundToInt()
-                                )
-                            }
-                        }
-                        .onSizeChanged { controlsBarHeightPx = it.height }
+                                .onSizeChanged { controlsBarHeightPx = it.height }
                         .desktopMouseLocalControls(desktopMouseCapture)
                         .pointerInput(maxUpwardOffsetPx) {
                             detectVerticalDragGestures { change, dragAmount ->
@@ -730,6 +712,7 @@ androidx.compose.ui.unit.Dp(0f)
                         }
                     }
                 }
+            }
             }
         }
 

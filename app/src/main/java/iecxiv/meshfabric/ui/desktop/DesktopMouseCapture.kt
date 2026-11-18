@@ -21,6 +21,8 @@ import iecxiv.meshfabric.MainActivity
 internal class DesktopMouseCapture {
     var viewport: LayoutCoordinates? = null
     var localControls: Rect? = null
+    var assistControls: Rect? = null
+    var assist: DesktopRightClickAssistState? = null
     var ready: () -> Boolean = { false }
     var geometry: () -> DesktopWheelGeometry? = { null }
     var rightClick: (DesktopWheelPoint) -> Boolean = { false }
@@ -32,8 +34,8 @@ internal class DesktopMouseCapture {
     private var lastDevice = -1
     private var navigationButton = false
 
-    private fun target(position: Offset): DesktopWheelPoint? {
-        if (!ready() || localControls?.contains(position) == true) return null
+    internal fun target(position: Offset): DesktopWheelPoint? {
+        if (!ready() || localControls?.contains(position) == true || assistControls?.contains(position) == true) return null
         val coordinates = viewport ?: return null
         if (!coordinates.isAttached) return null
         val local = coordinates.windowToLocal(position)
@@ -55,6 +57,7 @@ internal class DesktopMouseCapture {
         navigationButton = event.buttonState and (MotionEvent.BUTTON_BACK or MotionEvent.BUTTON_FORWARD) != 0 ||
             ((event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS || event.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE) &&
                 (event.actionButton == MotionEvent.BUTTON_BACK || event.actionButton == MotionEvent.BUTTON_FORWARD))
+        if (assist?.mouse(event, this) == true) return true
         if (!ready()) { cancelPrimary(); policy.reset(); return false }
         val action = event.actionMasked
         if (action == MotionEvent.ACTION_SCROLL) return false
@@ -118,6 +121,7 @@ internal class DesktopMouseCapture {
     }
 
     fun reset() {
+        assist?.reset()
         cancelPrimary()
         primaryTail = null
         policy.reset()
