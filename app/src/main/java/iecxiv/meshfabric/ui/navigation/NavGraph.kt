@@ -31,6 +31,7 @@ import iecxiv.meshfabric.ui.devices.DeviceListViewModel
 import iecxiv.meshfabric.ui.devices.LocalDeviceDetailsClient
 import iecxiv.meshfabric.ui.devices.LocalDeviceAgentConsoleOpen
 import iecxiv.meshfabric.ui.devices.DeviceAgentConsoleScreen
+import iecxiv.meshfabric.ui.devices.DeviceChatHost
 import iecxiv.meshfabric.ui.management.MeshFabricHome
 import iecxiv.meshfabric.ui.files.FileManagerScreen
 import iecxiv.meshfabric.ui.files.FileManagerViewModel
@@ -91,6 +92,7 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
     fun openRemote(source:NavBackStackEntry,screen:String,id:String,name:String) {
         remoteRoute(screen,id,name)?.let { navController.navigateOnceFrom(source,it) }
     }
+    DeviceChatHost(deviceListViewModel.meshClient) {
     NavHost(navController=navController,startDestination=initialDestination) {
         composable("login") { entry->
             LaunchedEffect(entry,loginViewModel) {
@@ -163,5 +165,6 @@ internal fun remoteRoute(screen:String,id:String,name:String):String? {
                 }
             }
         }
+    }
     }
 }

@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,7 +29,8 @@ import iecxiv.meshfabric.data.model.MeshNode
     footer:@Composable RowScope.()->Unit,
     subtitle:String="General",
     tagPrefix:String="device_general",
-    scrollBody:Boolean=true
+    scrollBody:Boolean=true,
+    onMinimize:(()->Unit)?=null
 ) {
     val configuration=LocalConfiguration.current
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false)) {
@@ -48,7 +50,9 @@ import iecxiv.meshfabric.data.model.MeshNode
                             Text(node.name.ifBlank { stringResource(R.string.unknown_device) },style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
                             Text(subtitle,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.testTag("${tagPrefix}_subtitle"))
                         }
-                        Spacer(Modifier.size(48.dp))
+                        if(onMinimize==null) Spacer(Modifier.size(48.dp)) else IconButton(onClick=onMinimize,modifier=Modifier.testTag("${tagPrefix}_minimize")) {
+                            Icon(Icons.Default.Minimize,if(configuration.locales[0].language=="es") "Minimizar chat" else "Minimize chat")
+                        }
                         IconButton(onClick=onClose,modifier=Modifier.testTag("${tagPrefix}_close")) {
                             Icon(Icons.Default.Close,stringResource(R.string.device_details_close))
                         }
