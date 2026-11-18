@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -146,7 +144,7 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
             border = BorderStroke(if (state.latch.armed) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
             color = if (state.latch.armed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
             contentColor = if (state.latch.armed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-        ) { Box(contentAlignment = androidx.compose.ui.Alignment.Center) { Icon(Icons.Default.Mouse, null, Modifier.size(24.dp)) } }
+        ) { Box(contentAlignment = androidx.compose.ui.Alignment.Center) { DesktopRightClickHeaderGlyph(active = false, label = null, rightButtonBlue = state.latch.armed) } }
     }) { measurables, constraints ->
         val width = constraints.maxWidth; val height = constraints.maxHeight
         val margin = 12.dp.roundToPx(); val gap = 8.dp.roundToPx(); val size = 48.dp.roundToPx()
