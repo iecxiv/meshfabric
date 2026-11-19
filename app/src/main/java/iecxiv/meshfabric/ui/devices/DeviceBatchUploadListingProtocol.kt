@@ -16,7 +16,8 @@ internal fun deviceBatchUploadListPacket(directory: String, platform: DevicePlat
 internal fun deviceBatchUploadDecodeListing(packet: JsonObject, node: String, directory: String,
     platform: DevicePlatform, requestId: String): DeviceBatchUploadListing? = runCatching {
     require(requestId.isNotBlank() && uploadListingText(packet, "reqid") == requestId)
-    require(uploadListingText(packet, "action") in setOf("ls", "dir"))
+    // Some agents omit action on listings, but must still echo request and path.
+    require(!packet.has("action") || uploadListingText(packet, "action") in setOf("ls", "dir"))
     require(!packet.has("error") && !packet.has("err"))
     require(!packet.has("result") || uploadListingText(packet, "result").equals("ok", true))
     require(!packet.has("nodeid") || uploadListingText(packet, "nodeid") == node)
