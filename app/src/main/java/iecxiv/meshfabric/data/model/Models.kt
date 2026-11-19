@@ -44,7 +44,10 @@ data class MeshNode(
     @SerializedName("lastbootuptime") val lastBootTime: Long? = null,
     @field:JsonAdapter(DevicePowerStateAdapter::class) val pwr: Int? = null,
     @Transient val lastSeenAt: Long? = null,
-    @Transient val lastSeenConnected: Boolean = false
+    @Transient val lastSeenConnected: Boolean = false,
+    val rname: String? = null,
+    val intelamt: com.google.gson.JsonElement? = null,
+    val sessions: com.google.gson.JsonElement? = null
 ) {
     val isOnline: Boolean
         get() = (conn and 1) != 0 || (conn and 2) != 0 || conn > 0

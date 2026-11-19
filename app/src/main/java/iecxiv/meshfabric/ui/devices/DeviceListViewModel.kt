@@ -66,8 +66,8 @@ class DeviceListViewModel(
         sessionManager?.saveCollapsedGroups(current)
     }
 
-    fun toggleAllGroups() {
-        val allGroupIds = groupedDevices.value.map { it.first.id }.toSet()
+    fun toggleAllGroups(groupIds: Set<String>? = null) {
+        val allGroupIds = groupIds ?: groupedDevices.value.map { it.first.id }.toSet()
         val currentCollapsed = _collapsedGroups.value
         val isAnyExpanded = allGroupIds.any { it !in currentCollapsed }
 
@@ -89,7 +89,7 @@ class DeviceListViewModel(
         searchQuery,
         meshClient.networkAddresses,
         lastSeenSnapshots
-    ) { rawGroups, query, addresses, lastSeen ->
+    ) { rawGroups, _, addresses, lastSeen ->
         val lastSeenMatches = lastSeen.binding?.matches() == true
         val groups = rawGroups.map { (group, nodes) ->
             group to nodes.map { node -> node.copy(networkIpv4 = addresses[
@@ -97,22 +97,7 @@ class DeviceListViewModel(
                 lastSeenAt = if (lastSeenMatches) lastSeen.values[node.id] else null,
                 lastSeenConnected = lastSeenMatches && node.isOnline) }
         }
-        if (query.isBlank()) {
-            groups
-        } else {
-            val q = query.trim().lowercase()
-            groups.mapNotNull { (group, nodes) ->
-                val filteredNodes = nodes.filter { node ->
-                    node.name.lowercase().contains(q) ||
-                            (node.osdesc?.lowercase()?.contains(q) == true)
-                }
-                if (filteredNodes.isNotEmpty() || group.name.lowercase().contains(q)) {
-                    Pair(group, filteredNodes)
-                } else {
-                    null
-                }
-            }
-        }
+        groups
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
