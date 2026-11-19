@@ -58,6 +58,6 @@ class DeviceListInventoryTagsTest {
         assertEquals(node.tags, gson.fromJson(gson.toJson(node), MeshNode::class.java).tags)
     }
     @Test fun unsupportedCriteriaRemainDisabled() {
-        assertEquals(setOf(DeviceListSort.GROUP, DeviceListSort.DEVICE, DeviceListSort.TAGS), deviceListAvailableSorts)
+        assertEquals(setOf(DeviceListSort.GROUP, DeviceListSort.DEVICE, DeviceListSort.TAGS, DeviceListSort.LAST_BOOT), deviceListAvailableSorts)
     }
 }
