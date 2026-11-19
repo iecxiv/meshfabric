@@ -381,38 +381,13 @@ CardDefaults.cardColors(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = stringResource(R.string.settings_app_theme_title),
+                            text = stringResource(R.string.appearance_mode),
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        CompactThemeOption(
-                            title = stringResource(R.string.theme_system),
-                            icon = Icons.Default.SettingsSuggest,
-                            selected = themeMode == AppThemeMode.SYSTEM,
-                            onClick = { viewModel.setThemeMode(AppThemeMode.SYSTEM) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactThemeOption(
-                            title = stringResource(R.string.theme_light),
-                            icon = Icons.Default.LightMode,
-                            selected = themeMode == AppThemeMode.LIGHT,
-                            onClick = { viewModel.setThemeMode(AppThemeMode.LIGHT) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        CompactThemeOption(
-                            title = stringResource(R.string.theme_dark),
-                            icon = Icons.Default.DarkMode,
-                            selected = themeMode == AppThemeMode.DARK,
-                            onClick = { viewModel.setThemeMode(AppThemeMode.DARK) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
+                    iecxiv.meshfabric.ui.theme.AppearanceModeSettings(themeMode, viewModel::setThemeMode)
                 }
             }
 

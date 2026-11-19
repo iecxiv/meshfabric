@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_mode">Modo de apariencia</string>
+    <string name="appearance_scheduled">Programado</string>
+    <string name="appearance_solar">Automático solar</string>
+    <string name="appearance_light_at">Activar modo claro a las</string>
+    <string name="appearance_dark_at">Activar modo oscuro a las</string>
+    <string name="appearance_schedule_note">Usa la hora local del dispositivo. Las horas deben ser distintas; una hora idéntica no se guarda.</string>
+    <string name="appearance_choose_city">Elegir ciudad de referencia</string>
+    <string name="appearance_city_search">Buscar ciudades disponibles</string>
+    <string name="appearance_no_cities">Ninguna ciudad coincide en el catálogo local.</string>
+    <string name="appearance_solar_note">Claro al amanecer y oscuro al anochecer. Ciudad manual, sin GPS ni permisos de ubicación. Cambia la ciudad si viajas. Horarios aproximados.</string>
+    <string name="appearance_missing_city">Elige una ciudad. Mientras tanto se usa el modo del sistema.</string>
+    <string name="appearance_no_sun">Hoy no hay amanecer o anochecer para esta ciudad. Por ahora se usa el modo del sistema.</string>
+    <string name="appearance_solar_times">Hoy: amanecer %1$s · anochecer %2$s (%3$s).</string>
+</resources>

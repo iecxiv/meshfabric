@@ -48,7 +48,8 @@ fun MeshCentralTheme(
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val darkTheme = resolveAppDarkTheme(themeMode, isSystemInDarkTheme())
+    val systemDark = isSystemInDarkTheme()
+    val darkTheme = automaticAppearanceDark(resolveAppDarkTheme(themeMode, systemDark), systemDark)
 
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {

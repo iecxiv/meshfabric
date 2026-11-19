@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_mode">Appearance mode</string>
+    <string name="appearance_scheduled">Scheduled</string>
+    <string name="appearance_solar">Automatic solar</string>
+    <string name="appearance_light_at">Activate light mode at</string>
+    <string name="appearance_dark_at">Activate dark mode at</string>
+    <string name="appearance_schedule_note">Uses device local time. Times must differ; an identical time is not saved.</string>
+    <string name="appearance_choose_city">Choose reference city</string>
+    <string name="appearance_city_search">Search available cities</string>
+    <string name="appearance_no_cities">No matching city in the local catalogue.</string>
+    <string name="appearance_solar_note">Light at sunrise, dark at sunset. Manual city, no GPS or location permissions. Change city when travelling. Approximate times.</string>
+    <string name="appearance_missing_city">Choose a city. Until then, system mode is used.</string>
+    <string name="appearance_no_sun">No sunrise or sunset today for this city. Using system mode for now.</string>
+    <string name="appearance_solar_times">Today: sunrise %1$s · sunset %2$s (%3$s).</string>
+</resources>

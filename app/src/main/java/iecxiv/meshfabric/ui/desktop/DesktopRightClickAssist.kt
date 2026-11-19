@@ -114,12 +114,7 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
 
 @Composable internal fun DesktopRightClickAssistToolbar(state: DesktopRightClickAssistState) {
     val label = stringResource(if (state.latch.visible) R.string.desktop_right_assist_hide else R.string.desktop_right_assist_show)
-    OutlinedButton(onClick = state::toggleVisible,
-        modifier = Modifier.size(32.dp).semantics { selected = state.latch.visible },
-        shape = MaterialTheme.shapes.small,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = LocalContentColor.current)) {
+    IconButton(onClick = state::toggleVisible, modifier = Modifier.size(32.dp).semantics { selected = state.latch.visible }) {
         DesktopRightClickHeaderGlyph(state.latch.visible, label, iconSize = 20.dp)
     }
 }
