@@ -3,6 +3,8 @@ package iecxiv.meshfabric.ui.devices
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,7 +54,7 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     Box {
         IconButton(onClick={expanded=true},modifier=Modifier.size(38.dp).testTag("devices_header_sort")) {
-            Icon(Icons.Default.Sort,if(es) "Ordenar" else "Sort",Modifier.size(20.dp),tint=if(menu.sort!=DeviceListSort.GROUP || menu.reverse) BrowseBlue else LocalContentColor.current)
+            Icon(Icons.AutoMirrored.Filled.Sort,if(es) "Ordenar" else "Sort",Modifier.size(20.dp),tint=if(menu.sort!=DeviceListSort.GROUP || menu.reverse) BrowseBlue else LocalContentColor.current)
         }
         DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},modifier=Modifier.heightIn(max=(LocalConfiguration.current.screenHeightDp.dp-96.dp).coerceAtLeast(96.dp)),
             shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,tonalElevation=2.dp,
@@ -73,7 +75,7 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
         DropdownMenu(expanded=expanded,onDismissRequest={close()},modifier=Modifier.heightIn(max=(LocalConfiguration.current.screenHeightDp.dp-96.dp).coerceAtLeast(96.dp)).testTag("devices_header_filter_menu"),
             shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,tonalElevation=2.dp,
             border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
-            if(page!=0) DropdownMenuItem(text={Text(if(es) "Volver" else "Back")},leadingIcon={Icon(Icons.Default.ArrowBack,null)},onClick={page=0})
+            if(page!=0) DropdownMenuItem(text={Text(if(es) "Volver" else "Back")},leadingIcon={Icon(Icons.AutoMirrored.Filled.ArrowBack,null)},onClick={page=0})
             when(page) {
                 1->BrowseSortItems(menu,es) {close()}
                 2->DeviceListFilter.entries.forEach { option -> DropdownMenuItem(text={Text(filterLabel(option,es))},
@@ -86,7 +88,7 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
                         modifier=Modifier.testTag("devices_header_show_disconnected").semantics {selected=showDisconnected},onClick={onShowDisconnected(!showDisconnected);close()})
                     DropdownMenuItem(text={Text(if(menu.selecting) {if(es) "Cancelar selección" else "Cancel selection"} else {if(es) "Seleccionar" else "Select"})},
                         leadingIcon={Icon(Icons.Default.CheckBox,null)},onClick={menu.onSelection();close()})
-                    DropdownMenuItem(text={Text(if(es) "Ordenar por" else "Sort by")},leadingIcon={Icon(Icons.Default.Sort,null)},trailingIcon={Icon(Icons.Default.ChevronRight,null)},onClick={page=1})
+                    DropdownMenuItem(text={Text(if(es) "Ordenar por" else "Sort by")},leadingIcon={Icon(Icons.AutoMirrored.Filled.Sort,null)},trailingIcon={Icon(Icons.Default.ChevronRight,null)},onClick={page=1})
                     DropdownMenuItem(text={Text(if(es) "Filtrar" else "Filter")},leadingIcon={Icon(Icons.Default.FilterAlt,null)},trailingIcon={Icon(Icons.Default.ChevronRight,null)},onClick={page=2})
                     HorizontalDivider()
                     DropdownMenuItem(text={Text(if(es) "Nombre de sistema operativo" else "Show OS name")},trailingIcon={Checkbox(checked=menu.osName,onCheckedChange=null)},onClick={menu.onOsName();close()})
