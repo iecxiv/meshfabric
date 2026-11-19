@@ -291,7 +291,7 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                             style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else LocalContentColor.current)
                         Spacer(Modifier.width(8.dp))
                         Surface(modifier=Modifier.onSizeChanged { statusBadgeHeight=with(statusBadgeDensity) { it.height.toDp() } }.testTag("device_connection_badge_${node.id}"),shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
-                            Text(if(node.isOnline) "ONLINE" else "OFFLINE",Modifier.padding(horizontal=6.dp,vertical=2.dp),color=Color.White,fontSize=9.sp,fontWeight=FontWeight.Bold)
+                            Text(stringResource(if(node.isOnline) R.string.device_card_connection_online else R.string.device_card_connection_offline),Modifier.padding(horizontal=6.dp,vertical=2.dp),color=Color.White,fontSize=9.sp,fontWeight=FontWeight.Bold)
                         }
                     }
                     if(os.isNotEmpty()) Text(os,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)

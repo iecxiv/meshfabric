@@ -1,131 +1,210 @@
 {
-  "base": "93603680e99ba83f1c9ab6ae9ee91efbab4600b6",
-  "versionName": "1.1.1",
-  "versionCode": 1,
-  "default_translatable_resources": 284,
-  "explicit_english_resources_before": 255,
-  "explicit_english_resources_after": 284,
-  "english_keys_added": [
+  "audited_base_commit": "6187717505b70ffcc9e52e2d966bea50e12dba10",
+  "working_tree_candidate": true,
+  "default_translatable_resources": 769,
+  "resource_issues": 0,
+  "source_files_scanned": 366,
+  "literal_candidates": 13399,
+  "aliases_requiring_review": 0,
+  "identical_en_es_resources": [
     [
       "string",
-      "terminal_copy_all"
+      "app_name"
     ],
     [
       "string",
-      "terminal_copy_done"
+      "app_subtitle"
     ],
     [
       "string",
-      "terminal_copy_empty"
+      "device_card_connection_offline"
     ],
     [
       "string",
-      "terminal_copy_failed"
+      "device_card_connection_online"
     ],
     [
       "string",
-      "terminal_copy_help"
+      "device_details_gateway_ip"
     ],
     [
       "string",
-      "terminal_copy_limited"
+      "device_details_interface"
     ],
     [
       "string",
-      "terminal_copy_title"
+      "device_details_ip"
     ],
     [
       "string",
-      "terminal_output_continuity_lost"
+      "device_list_header_title"
     ],
     [
       "string",
-      "terminal_paste_clipboard"
+      "log_detail_mesh"
     ],
     [
       "string",
-      "terminal_paste_confirm"
+      "my_server_general"
     ],
     [
       "string",
-      "terminal_paste_controls"
+      "scale_auto"
     ],
     [
       "string",
-      "terminal_paste_count"
+      "scroll"
     ],
     [
       "string",
-      "terminal_paste_edit_label"
+      "terminal"
     ],
     [
       "string",
-      "terminal_paste_edit_send"
+      "terminal_ctrl_more_label"
     ],
     [
       "string",
-      "terminal_paste_edit_title"
+      "terminal_ctrl_shortcut"
     ],
     [
       "string",
-      "terminal_paste_empty"
+      "terminal_key_backspace_glyph"
     ],
     [
       "string",
-      "terminal_paste_large"
+      "terminal_key_ctrl_c"
     ],
     [
       "string",
-      "terminal_paste_multiline"
+      "terminal_key_down_glyph"
     ],
     [
       "string",
-      "terminal_paste_rejected"
+      "terminal_key_enter_glyph"
     ],
     [
       "string",
-      "terminal_paste_title"
+      "terminal_key_esc"
     ],
     [
       "string",
-      "terminal_paste_unknown"
+      "terminal_key_insert"
     ],
     [
       "string",
-      "terminal_paste_warning"
+      "terminal_key_left_glyph"
     ],
     [
       "string",
-      "terminal_recovery_cancel"
+      "terminal_key_right_glyph"
     ],
     [
       "string",
-      "terminal_recreate_title"
+      "terminal_key_tab"
     ],
     [
       "string",
-      "terminal_recreate_view"
+      "terminal_key_up_glyph"
     ],
     [
       "string",
-      "terminal_recreate_warning"
+      "terminal_keys_less_glyph"
     ],
     [
       "string",
-      "terminal_renderer_stopped"
+      "terminal_keys_more_glyph"
     ],
     [
       "string",
-      "terminal_tools"
+      "terminal_latest_glyph"
     ],
     [
       "string",
-      "terminal_view_unresponsive"
+      "terminal_title"
+    ],
+    [
+      "string",
+      "yk_fido_error"
+    ],
+    [
+      "string",
+      "yk_fido_icon_content_description_pin"
+    ],
+    [
+      "string",
+      "yk_fido_provide_pin"
     ]
   ],
-  "missing_english_resource_keys_after": [],
-  "source_files_scanned": 66,
-  "literal_candidates": 1830,
+  "excluded_sources": [
+    "app/src/main/assets/terminal/xterm-fit.js",
+    "app/src/main/assets/terminal/xterm.js"
+  ],
+  "app_documentation_reference_candidates": [
+    {
+      "path": "docs/my-server-version-update.md",
+      "line": 13,
+      "text": "No credentials or response bodies are added to diagnostic logs. Five unit tests are added but not executed in the editing environment. No live update, restart, build or visual/device validation was performed. Header/tab integration and xter"
+    },
+    {
+      "path": "docs/terminal-focus-ime.md",
+      "line": 9,
+      "text": "The native WebView InputConnection is preserved; only EditorInfo flags request no fullscreen/extract UI and no personalized learning. Providers may ignore flags. No text/key remapping, input echo, clipboard reads or input forwarding changes"
+    },
+    {
+      "path": "docs/es/fido.md",
+      "line": 5,
+      "text": "Describe fido-support con versionName 1.3.8. No es un anuncio de etiqueta ni de release."
+    },
+    {
+      "path": "docs/es/fido.md",
+      "line": 35,
+      "text": "| versionName | 1.3.8 |"
+    },
+    {
+      "path": "docs/es/fido.md",
+      "line": 45,
+      "text": "compileSdk selecciona las API de compilación, no el mínimo ni el objetivo de la app. Esta actualización documental y de versionName no cambia los SDK ni YubiKit."
+    },
+    {
+      "path": "docs/es/terminal-focus-ime.md",
+      "line": 9,
+      "text": "Se conserva la InputConnection nativa del WebView; solo se añaden flags EditorInfo para solicitar que no haya interfaz de extracción/pantalla completa ni aprendizaje personalizado. Los proveedores pueden ignorarlos. No se cambia el mapeo de"
+    },
+    {
+      "path": "docs/fido/README.md",
+      "line": 5,
+      "text": "This describes fido-support with app versionName 1.3.8. It is not a tag or release announcement."
+    },
+    {
+      "path": "docs/fido/README.md",
+      "line": 35,
+      "text": "| versionName | 1.3.8 |"
+    },
+    {
+      "path": "docs/fido/README.md",
+      "line": 45,
+      "text": "compileSdk is the build API selection, not the app minimum or target. SDK values and YubiKit are not changed by this documentation/versionName update."
+    }
+  ],
+  "all_ui_localized": null,
   "all_ui_externalized": false,
-  "manual_review_required": true
+  "manual_review_required": true,
+  "limitations": [
+    "Heuristic literals include technical and already bilingual text.",
+    "HTML body text, composed strings, translation meaning and runtime UI require manual review.",
+    "Remote output and user data are not automatically translated."
+  ],
+  "intentional_shared_labels": [
+    "ONLINE",
+    "OFFLINE"
+  ],
+  "candidate_control_characters": "Embedded CR/LF are displayed as escape sequences; record terminators are LF.",
+  "validation": {
+    "build": "passed",
+    "jvm_tests": "passed",
+    "lint": "passed",
+    "android_tests": "compiled_not_executed",
+    "manual_language_review": "pending"
+  }
 }
