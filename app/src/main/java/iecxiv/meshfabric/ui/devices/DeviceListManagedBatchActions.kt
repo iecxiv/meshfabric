@@ -81,7 +81,7 @@ private suspend fun managedSend(source:MeshCentralClient,request:ManagedRequest,
     LaunchedEffect(request) {while(isActive) {if(!deviceBatchPowerSame(source,request.identity)) {job?.cancel();onClose();break};delay(100L)}}
     val eligible=rows.count {it.phase=="ready"}
     val token=managedToken(request.action,es)
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={if(!running) onClose()},title={DeviceBatchDialogTitle(managedLabel(request.action,es)+" (${rows.size})")},text={
+    DeviceBatchAlertDialog(onDismissRequest={if(!running) onClose()},title={DeviceBatchDialogTitle(managedLabel(request.action,es)+" (${rows.size})")},text={
         Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             val detail=when(request.action) {
                 ManagedBatchAction.CLEAR_CORE->agentActionDetail(AgentConsoleAction.CLEAR_CORE,es)
@@ -89,11 +89,11 @@ private suspend fun managedSend(source:MeshCentralClient,request:ManagedRequest,
                 ManagedBatchAction.UNINSTALL->t("Solicita desinstalar el agente. Puede perderse el acceso y requerir reinstalación. Una desconexión no confirma desinstalación.","Requests agent uninstallation. Access may be lost and reinstallation may be required. Disconnection does not confirm uninstallation.")
                 ManagedBatchAction.REMOVE->t("Elimina dispositivos mediante MeshCentral. Puede perderse el acceso y aplicarse el comportamiento asociado del servidor/agente. No equivale a verificar la desinstalación del software.","Removes devices through MeshCentral. Access may be lost and associated server/agent behavior may apply. This does not verify software uninstallation.")
             }
-            Text(detail)
+            DeviceBatchNotice(detail)
             Text(t("Esta integración exige derechos completos. Núcleos y desinstalación requieren un agente conectado. Un intento por equipo, sin reenvío automático. Detener no deshace lo enviado.","This integration requires full rights. Core operations and uninstallation require a connected agent. One attempt per device, no automatic resend. Stopping does not undo requests already sent."))
             if(checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
             rows.forEach {row->
-                HorizontalDivider();Text(row.node.name.ifBlank {row.node.id},style=MaterialTheme.typography.titleSmall);Text(row.group.name)
+                HorizontalDivider();Text(row.node.name.ifBlank {row.node.id},style=MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold);DeviceBatchSecondary(row.group.name)
                 val label=when(row.phase) {
                     "loading"->t("Comprobando","Checking")
                     "ready"->t("Elegible","Eligible")
@@ -106,13 +106,13 @@ private suspend fun managedSend(source:MeshCentralClient,request:ManagedRequest,
                     "not_sent"->t("No enviada","Not sent")
                     "error"->if(row.code=="unconfirmed") t("Sin confirmar; puede haberse ejecutado","Unconfirmed; may have executed") else t("No enviada","Not sent")
                     else->t("Sin confirmar; puede haberse ejecutado","Unconfirmed; may have executed")
-                };Text(label,style=MaterialTheme.typography.bodySmall)
+                };DeviceBatchStatus(label,deviceBatchVisualKind("managed",row.phase,row.code))
             }
             if(!finished && !running) {
                 Row {Checkbox(checked=acknowledged,enabled=!checking,onCheckedChange={acknowledged=it});Text(t("He revisado los equipos y entiendo el riesgo de perder acceso.","I reviewed the devices and understand the risk of losing access."),Modifier.weight(1f))}
                 OutlinedTextField(value=typed,onValueChange={typed=it},enabled=!checking,singleLine=true,label={Text(t("Escribe ","Type ")+token)},modifier=Modifier.fillMaxWidth())
             }
-            if(finished) Text(t("Registros con eliminación observada: ","Records with observed removal: ")+rows.count {it.phase=="removed"}+t(" · Aceptadas (efecto no verificado): "," · Accepted (effect not verified): ")+rows.count {it.phase=="accepted"}+t(" · Encoladas localmente: "," · Locally queued: ")+rows.count {it.phase=="queued"})
+            if(finished) DeviceBatchSummary(t("Registros con eliminación observada: ","Records with observed removal: ")+rows.count {it.phase=="removed"}+t(" · Aceptadas (efecto no verificado): "," · Accepted (effect not verified): ")+rows.count {it.phase=="accepted"}+t(" · Encoladas localmente: "," · Locally queued: ")+rows.count {it.phase=="queued"})
         }
     },confirmButton={
         if(!finished) TextButton(enabled=!checking && !running && eligible>0 && acknowledged && typed.trim().equals(token,true),onClick={

@@ -113,24 +113,24 @@ private fun AgentUpdateDialog(source: MeshCentralClient, request: AgentUpdateReq
         }
     }
     val eligible = rows.count { it.phase == DeviceBatchAgentUpdatePhase.READY }
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
+    DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(deviceBatchAgentUpdateTitle() + " (${rows.size})") },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(agentActionDetail(AgentConsoleAction.FORCE_UPDATE, es))
+                DeviceBatchNotice(agentActionDetail(AgentConsoleAction.FORCE_UPDATE, es))
                 Text(t("Puede interrumpir sesiones remotas. No comprueba la instalación ni la versión final. Un intento por dispositivo, sin reenvío automático. Detener pendientes no revierte solicitudes ya encoladas.",
                     "May interrupt remote sessions. Installation and final version are not checked. One attempt per device, no automatic resend. Stopping pending requests does not undo requests already queued."))
                 if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
                 rows.forEach { row ->
                     HorizontalDivider()
-                    Text(row.node.name.ifBlank { row.node.id }, style = MaterialTheme.typography.titleSmall)
-                    Text(row.node.id, style = MaterialTheme.typography.bodySmall)
-                    Text(row.group.name + "\n" + row.group.id, style = MaterialTheme.typography.bodySmall)
+                    Text(row.node.name.ifBlank { row.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    DeviceBatchSecondary(row.node.id)
+                    DeviceBatchSecondary(row.group.name + "\n" + row.group.id)
                     row.draft?.let { draft ->
                         Text(draft.os)
                         Text(t("Versión observada: ", "Observed version: ") + (draft.version ?: t("desconocida", "unknown")))
                     }
-                    Text(agentUpdatePhaseText(row.phase, es), style = MaterialTheme.typography.bodySmall)
+                    DeviceBatchStatus(agentUpdatePhaseText(row.phase, es), deviceBatchVisualKind("agent", row.phase.name))
                 }
                 if (!finished && !running) Row {
                     Checkbox(checked = acknowledged, enabled = !checking, onCheckedChange = { acknowledged = it })
@@ -138,9 +138,9 @@ private fun AgentUpdateDialog(source: MeshCentralClient, request: AgentUpdateReq
                         "I understand that requesting an update may interrupt access and does not guarantee installation."), Modifier.weight(1f))
                 }
                 if (finished) {
-                    Text(t("Encoladas localmente (no instaladas/verificadas): ", "Locally queued (not installed/verified): ") + rows.count { it.phase == DeviceBatchAgentUpdatePhase.LOCAL_QUEUED })
-                    Text(t("Omitidas/no enviadas: ", "Skipped/not sent: ") + rows.count { it.phase in setOf(DeviceBatchAgentUpdatePhase.SKIPPED, DeviceBatchAgentUpdatePhase.NOT_SENT, DeviceBatchAgentUpdatePhase.CONFLICT) })
-                    Text(t("Sin confirmar: ", "Unconfirmed: ") + rows.count { it.phase == DeviceBatchAgentUpdatePhase.UNCONFIRMED })
+                    DeviceBatchSummary(t("Encoladas localmente (no instaladas/verificadas): ", "Locally queued (not installed/verified): ") + rows.count { it.phase == DeviceBatchAgentUpdatePhase.LOCAL_QUEUED })
+                    DeviceBatchSummary(t("Omitidas/no enviadas: ", "Skipped/not sent: ") + rows.count { it.phase in setOf(DeviceBatchAgentUpdatePhase.SKIPPED, DeviceBatchAgentUpdatePhase.NOT_SENT, DeviceBatchAgentUpdatePhase.CONFLICT) })
+                    DeviceBatchSummary(t("Sin confirmar: ", "Unconfirmed: ") + rows.count { it.phase == DeviceBatchAgentUpdatePhase.UNCONFIRMED })
                 }
             }
         },

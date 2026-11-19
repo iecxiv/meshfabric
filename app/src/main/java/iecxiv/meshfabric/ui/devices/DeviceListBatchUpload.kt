@@ -87,9 +87,9 @@ private data class UploadRequest(val targets: List<DeviceBatchPowerTarget>, val 
     val routesValid = (options.windowsDirectory.isBlank() || deviceBatchUploadRoute(options, DevicePlatform.WINDOWS) != null) &&
         (options.linuxDirectory.isBlank() || deviceBatchUploadRoute(options, DevicePlatform.LINUX) != null) &&
         (deviceBatchUploadRoute(options, DevicePlatform.WINDOWS) != null || deviceBatchUploadRoute(options, DevicePlatform.LINUX) != null)
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!sending) onClose() }, title = { DeviceBatchDialogTitle(deviceBatchUploadTitle()) }, text = {
+    DeviceBatchAlertDialog(onDismissRequest = { if (!sending) onClose() }, title = { DeviceBatchDialogTitle(deviceBatchUploadTitle()) }, text = {
         Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(t("Un archivo para los dispositivos revisados. Sin reintentos automáticos. Se omiten las colisiones detectadas si no autorizas sobrescribir, sin garantía atómica frente a otros procesos. Algunos agentes no distinguen errores de listado de listas vacías. La sobrescritura conserva una copia .meshfabric-backup-. Una interrupción puede dejar temporales o copias.",
+            DeviceBatchNotice(t("Un archivo para los dispositivos revisados. Sin reintentos automáticos. Se omiten las colisiones detectadas si no autorizas sobrescribir, sin garantía atómica frente a otros procesos. Algunos agentes no distinguen errores de listado de listas vacías. La sobrescritura conserva una copia .meshfabric-backup-. Una interrupción puede dejar temporales o copias.",
                 "One file for the reviewed devices. No automatic retries. Detected collisions are skipped unless overwriting is authorized; there is no atomic guarantee against other processes. Some agents do not distinguish listing errors from empty lists. Overwriting retains a .meshfabric-backup- copy. Interrupted operations may leave temporary files or backups."))
             if (!reviewed) {
                 OutlinedButton(enabled = !busy, onClick = { picker.launch(arrayOf("*/*")) }) { Text(t("Elegir archivo", "Choose file")) }
@@ -104,9 +104,9 @@ private data class UploadRequest(val targets: List<DeviceBatchPowerTarget>, val 
             if (message.isNotBlank()) Text(message)
             if (reviewed) rows.forEach { row ->
                 HorizontalDivider()
-                Text(row.node.name.ifBlank { row.node.id }, style = MaterialTheme.typography.titleSmall)
-                Text(row.node.id, style = MaterialTheme.typography.bodySmall)
-                Text(row.group.name)
+                Text(row.node.name.ifBlank { row.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                DeviceBatchSecondary(row.node.id)
+                DeviceBatchSecondary(row.group.name)
                 row.draft?.let { Text(it.destination) }
                 val status = when (row.phase) {
                     BatchUploadPhase.CHECKING -> t("Comprobando", "Checking")
@@ -117,14 +117,14 @@ private data class UploadRequest(val targets: List<DeviceBatchPowerTarget>, val 
                     BatchUploadPhase.NOT_SENT -> t("No enviado", "Not sent")
                     BatchUploadPhase.UNKNOWN -> t("Sin confirmar; puede haber cambios remotos", "Unconfirmed; remote changes may exist")
                 }
-                Text(status)
+                DeviceBatchStatus(status, deviceBatchVisualKind("upload", row.phase.name))
                 if (row.detail.isNotBlank()) Text(row.detail, style = MaterialTheme.typography.bodySmall)
             }
             if (reviewed && !busy && !finished) Row {
                 Checkbox(checked = consent, onCheckedChange = { consent = it })
                 Text(t("He revisado destinos, opciones y limitaciones y autorizo los cambios indicados.", "I reviewed the destinations, options and limitations and authorize the indicated changes."), Modifier.weight(1f))
             }
-            if (finished) Text(t("Observados por tamaño: ", "Size observed: ") + rows.count { it.phase == BatchUploadPhase.OBSERVED } +
+            if (finished) DeviceBatchSummary(t("Observados por tamaño: ", "Size observed: ") + rows.count { it.phase == BatchUploadPhase.OBSERVED } +
                 t(" · Sin confirmar: ", " · Unconfirmed: ") + rows.count { it.phase == BatchUploadPhase.UNKNOWN })
             Text(t("Detener no deshace lo ya enviado. No se ejecutan los archivos subidos.", "Stopping does not undo data already sent. Uploaded files are not executed."))
         }

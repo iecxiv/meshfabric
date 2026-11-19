@@ -89,11 +89,11 @@ private fun BatchNotificationDialog(source: MeshCentralClient, request: BatchNot
     val readyCount = items.count { it.phase == DeviceBatchPowerPhase.ELIGIBLE }
     fun update(target: BatchNotificationTarget) { items = items.map { if (it.node.id == target.node.id) target else it } }
     LaunchedEffect(userInfo?.id) { if (userInfo?.id != request.identity.actor) onClose() }
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
+    DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(stringResource(R.string.device_batch_review, stringResource(R.string.device_batch_notify_action), items.size)) },
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(stringResource(R.string.device_batch_notify_notice))
+                DeviceBatchNotice(stringResource(R.string.device_batch_notify_notice))
                 val text = reviewed
                 if (text == null) {
                     OutlinedTextField(value = title, onValueChange = { title = it }, singleLine = true,
@@ -103,17 +103,17 @@ private fun BatchNotificationDialog(source: MeshCentralClient, request: BatchNot
                         label = { Text(stringResource(R.string.device_batch_notify_body)) }, supportingText = { Text("${message.length}/512") },
                         isError = message.length > 512, modifier = Modifier.fillMaxWidth())
                 } else {
-                    Text(text.title, style = MaterialTheme.typography.titleSmall)
+                    Text(text.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Text(text.message)
                 }
                 if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (text != null) items.forEach { target ->
-                    Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall)
-                    Text(target.group.name, style = MaterialTheme.typography.bodySmall)
-                    Text(stringResource(notificationPhaseLabel(target.phase)), style = MaterialTheme.typography.bodySmall)
+                    Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    DeviceBatchSecondary(target.group.name)
+                    DeviceBatchStatus(stringResource(notificationPhaseLabel(target.phase)), deviceBatchVisualKind("notifications", target.phase.name))
                     HorizontalDivider()
                 }
-                if (finished) Text(stringResource(R.string.device_batch_summary,
+                if (finished) DeviceBatchSummary(stringResource(R.string.device_batch_summary,
                     items.count { it.phase == DeviceBatchPowerPhase.ACCEPTED },
                     items.count { it.phase in setOf(DeviceBatchPowerPhase.SKIPPED, DeviceBatchPowerPhase.NOT_SENT) },
                     items.count { it.phase == DeviceBatchPowerPhase.REJECTED }, items.count { it.phase == DeviceBatchPowerPhase.UNCONFIRMED }))

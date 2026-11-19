@@ -149,21 +149,21 @@ private fun DeviceBatchPowerDialog(source: MeshCentralClient, request: DeviceBat
         checking = false
     }
     val eligibleCount = items.count { it.phase == DeviceBatchPowerPhase.ELIGIBLE }
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
+    DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(stringResource(R.string.device_batch_review, stringResource(batchPowerActionLabel(request.action)), items.size)) },
         text = {
             Column(Modifier.heightIn(max = 320.dp)) {
-                Text(stringResource(R.string.device_batch_notice))
+                DeviceBatchNotice(stringResource(R.string.device_batch_notice))
                 if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                     items.forEach { target ->
-                        Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall)
-                        Text(target.group.name, style = MaterialTheme.typography.bodySmall)
-                        Text(stringResource(batchPowerPhaseLabel(target.phase)), style = MaterialTheme.typography.bodySmall)
+                        Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                        DeviceBatchSecondary(target.group.name)
+                        DeviceBatchStatus(stringResource(batchPowerPhaseLabel(target.phase)), deviceBatchVisualKind("power", target.phase.name))
                         HorizontalDivider(Modifier.padding(vertical = 6.dp))
                     }
                 }
-                if (finished) Text(stringResource(R.string.device_batch_summary,
+                if (finished) DeviceBatchSummary(stringResource(R.string.device_batch_summary,
                     items.count { it.phase == DeviceBatchPowerPhase.ACCEPTED },
                     items.count { it.phase in setOf(DeviceBatchPowerPhase.SKIPPED, DeviceBatchPowerPhase.NOT_SENT) },
                     items.count { it.phase == DeviceBatchPowerPhase.REJECTED },

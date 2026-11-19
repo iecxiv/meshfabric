@@ -116,12 +116,12 @@ private fun BatchMoveDialog(source: MeshCentralClient, request: BatchMoveRequest
     val choice = choices.singleOrNull { it.group.id == selected }
     val eligible = rows.count { it.phase == DeviceBatchMovePhase.READY }
     fun update(row: BatchMoveRow) { rows = rows.map { if (it.node.id == row.node.id) row else it } }
-    iecxiv.meshfabric.ui.components.AppAlertDialog(
+    DeviceBatchAlertDialog(
         onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(deviceBatchMoveTitle() + " (${rows.size})") },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(t(
+                DeviceBatchNotice(t(
                     "Mover cambia el grupo y puede cambiar permisos y políticas. Solo grupos de agentes del mismo dominio. Los permisos heredados no verificables se omiten. Se relee antes de enviar; no es una transacción atómica frente a cambios simultáneos. Un intento por dispositivo, sin reenvío automático.",
                     "Moving changes the group and may change permissions and policies. Agent groups in the same domain only. Unverifiable inherited rights are skipped. Data is reread before sending; this is not an atomic transaction against concurrent changes. One attempt per device, no automatic resend."
                 ))
@@ -144,16 +144,16 @@ private fun BatchMoveDialog(source: MeshCentralClient, request: BatchMoveRequest
                     destination?.let { Text(t("Destino: ", "Destination: ") + it.name) }
                     rows.forEach { row ->
                         HorizontalDivider()
-                        Text(row.node.name.ifBlank { t("Dispositivo sin nombre", "Unnamed device") }, style = MaterialTheme.typography.titleSmall)
+                        Text(row.node.name.ifBlank { t("Dispositivo sin nombre", "Unnamed device") }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                         Text(t("Origen: ", "Source: ") + row.group.name)
-                        Text(movePhaseText(row.phase, es), style = MaterialTheme.typography.bodySmall)
+                        DeviceBatchStatus(movePhaseText(row.phase, es), deviceBatchVisualKind("move", row.phase.name))
                     }
                 }
                 if (finished) {
-                    Text(t("Verificados: ", "Verified: ") + rows.count { it.phase == DeviceBatchMovePhase.VERIFIED })
-                    Text(t("Omitidos/no enviados: ", "Skipped/not sent: ") + rows.count { it.phase in setOf(DeviceBatchMovePhase.SKIPPED, DeviceBatchMovePhase.NOT_SENT, DeviceBatchMovePhase.CONFLICT) })
-                    Text(t("Rechazados: ", "Rejected: ") + rows.count { it.phase == DeviceBatchMovePhase.REJECTED })
-                    Text(t("Sin confirmar: ", "Unconfirmed: ") + rows.count { it.phase == DeviceBatchMovePhase.UNCONFIRMED })
+                    DeviceBatchSummary(t("Verificados: ", "Verified: ") + rows.count { it.phase == DeviceBatchMovePhase.VERIFIED })
+                    DeviceBatchSummary(t("Omitidos/no enviados: ", "Skipped/not sent: ") + rows.count { it.phase in setOf(DeviceBatchMovePhase.SKIPPED, DeviceBatchMovePhase.NOT_SENT, DeviceBatchMovePhase.CONFLICT) })
+                    DeviceBatchSummary(t("Rechazados: ", "Rejected: ") + rows.count { it.phase == DeviceBatchMovePhase.REJECTED })
+                    DeviceBatchSummary(t("Sin confirmar: ", "Unconfirmed: ") + rows.count { it.phase == DeviceBatchMovePhase.UNCONFIRMED })
                 }
                 Text(t("Detener pendientes o cerrar el diálogo no revierte solicitudes ya enviadas.", "Stopping pending requests or closing the dialog does not undo requests already sent."))
             }

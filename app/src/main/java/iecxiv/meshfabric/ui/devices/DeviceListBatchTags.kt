@@ -144,11 +144,11 @@ private fun DeviceBatchTagsDialog(source: MeshCentralClient, request: DeviceBatc
     val readyCount = items.count { it.phase == DeviceBatchTagPhase.READY }
     fun update(target: DeviceBatchTagTarget) { items = items.map { if (it.node.id == target.node.id) target else it } }
     LaunchedEffect(userInfo?.id) { if (userInfo?.id != request.identity.actor) onClose() }
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
+    DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(stringResource(R.string.device_batch_review, stringResource(R.string.device_batch_tags_action), items.size)) },
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(stringResource(R.string.device_batch_tags_notice))
+                DeviceBatchNotice(stringResource(R.string.device_batch_tags_notice))
                 if (!reviewed) {
                     Box {
                         OutlinedButton(onClick = { modeMenu = true }) { Text(stringResource(batchTagModeLabel(mode))) }
@@ -165,17 +165,17 @@ private fun DeviceBatchTagsDialog(source: MeshCentralClient, request: DeviceBatc
                         Checkbox(checked = clearConfirmed, onCheckedChange = { clearConfirmed = it })
                         Text(stringResource(R.string.device_batch_tags_clear), modifier = Modifier.weight(1f))
                     }
-                } else Text(stringResource(batchTagModeLabel(mode)), style = MaterialTheme.typography.titleSmall)
+                } else Text(stringResource(batchTagModeLabel(mode)), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (reviewed) items.forEach { target ->
-                    Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall)
-                    Text(target.group.name, style = MaterialTheme.typography.bodySmall)
+                    Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    DeviceBatchSecondary(target.group.name)
                     target.before?.let { Text(stringResource(R.string.device_batch_tags_before, it.tags.joinToString(", ").ifEmpty { "—" })) }
                     target.after?.let { Text(stringResource(R.string.device_batch_tags_after, it.tags.joinToString(", ").ifEmpty { "—" })) }
-                    Text(stringResource(batchTagPhaseLabel(target.phase)), style = MaterialTheme.typography.bodySmall)
+                    DeviceBatchStatus(stringResource(batchTagPhaseLabel(target.phase)), deviceBatchVisualKind("tags", target.phase.name))
                     HorizontalDivider()
                 }
-                if (finished) Text(stringResource(R.string.device_batch_tags_summary,
+                if (finished) DeviceBatchSummary(stringResource(R.string.device_batch_tags_summary,
                     items.count { it.phase == DeviceBatchTagPhase.VERIFIED }, items.count { it.phase == DeviceBatchTagPhase.UNCHANGED },
                     items.count { it.phase in setOf(DeviceBatchTagPhase.SKIPPED, DeviceBatchTagPhase.NOT_SENT) },
                     items.count { it.phase == DeviceBatchTagPhase.CONFLICT }, items.count { it.phase == DeviceBatchTagPhase.REJECTED },

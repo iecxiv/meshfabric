@@ -116,11 +116,11 @@ private fun BatchRunDialog(source: MeshCentralClient, request: BatchRunRequest, 
         items = items.map { if (it.node.id == value.node.id) value else it }
     }
     LaunchedEffect(userInfo?.id) { if (userInfo?.id != request.identity.actor) onClose() }
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
+    DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(stringResource(R.string.device_batch_review, stringResource(R.string.device_batch_run_action), items.size)) },
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(stringResource(R.string.device_batch_run_notice))
+                DeviceBatchNotice(stringResource(R.string.device_batch_run_notice))
                 val text = reviewed
                 if (text == null) {
                     Box {
@@ -133,15 +133,15 @@ private fun BatchRunDialog(source: MeshCentralClient, request: BatchRunRequest, 
                         label = { Text(stringResource(R.string.device_batch_run_command)) }, supportingText = { Text("${command.length}/64000") },
                         isError = command.isNotEmpty() && !generalRunTextValid(command), modifier = Modifier.fillMaxWidth())
                 } else {
-                    Text(choices.firstOrNull { it.key == text.interpreter }?.label.orEmpty(), style = MaterialTheme.typography.titleSmall)
+                    Text(choices.firstOrNull { it.key == text.interpreter }?.label.orEmpty(), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     SelectionContainer { Text(text.command, fontFamily = FontFamily.Monospace) }
                 }
                 if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (text != null) items.forEach { target ->
-                    Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall)
-                    Text(target.group.name, style = MaterialTheme.typography.bodySmall)
+                    Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    DeviceBatchSecondary(target.group.name)
                     target.draft?.let { Text(it.os, style = MaterialTheme.typography.bodySmall) }
-                    Text(stringResource(batchRunPhaseLabel(target.phase)), style = MaterialTheme.typography.bodySmall)
+                    DeviceBatchStatus(stringResource(batchRunPhaseLabel(target.phase)), deviceBatchVisualKind("run", target.phase.name))
                     if (target.detail.isNotEmpty()) Text(target.detail, style = MaterialTheme.typography.bodySmall)
                     if (target.truncated) Text(stringResource(R.string.device_batch_run_truncated), style = MaterialTheme.typography.bodySmall)
                     if (target.output.isNotEmpty()) {
@@ -152,7 +152,7 @@ private fun BatchRunDialog(source: MeshCentralClient, request: BatchRunRequest, 
                     }
                     HorizontalDivider()
                 }
-                if (finished) Text(stringResource(R.string.device_batch_run_summary,
+                if (finished) DeviceBatchSummary(stringResource(R.string.device_batch_run_summary,
                     items.count { it.phase == DeviceBatchRunPhase.OUTPUT },
                     items.count { it.phase in setOf(DeviceBatchRunPhase.SKIPPED, DeviceBatchRunPhase.NOT_SENT) },
                     items.count { it.phase == DeviceBatchRunPhase.REJECTED }, items.count { it.phase == DeviceBatchRunPhase.UNCONFIRMED }))
