@@ -145,7 +145,7 @@ private fun DeviceBatchTagsDialog(source: MeshCentralClient, request: DeviceBatc
     fun update(target: DeviceBatchTagTarget) { items = items.map { if (it.node.id == target.node.id) target else it } }
     LaunchedEffect(userInfo?.id) { if (userInfo?.id != request.identity.actor) onClose() }
     iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
-        title = { Text(stringResource(R.string.device_batch_review, stringResource(R.string.device_batch_tags_action), items.size)) },
+        title = { DeviceBatchDialogTitle(stringResource(R.string.device_batch_review, stringResource(R.string.device_batch_tags_action), items.size)) },
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(stringResource(R.string.device_batch_tags_notice))

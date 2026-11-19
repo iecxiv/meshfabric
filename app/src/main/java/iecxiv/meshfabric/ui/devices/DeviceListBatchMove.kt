@@ -118,7 +118,7 @@ private fun BatchMoveDialog(source: MeshCentralClient, request: BatchMoveRequest
     fun update(row: BatchMoveRow) { rows = rows.map { if (it.node.id == row.node.id) row else it } }
     iecxiv.meshfabric.ui.components.AppAlertDialog(
         onDismissRequest = { if (!running) onClose() },
-        title = { Text(deviceBatchMoveTitle() + " (${rows.size})") },
+        title = { DeviceBatchDialogTitle(deviceBatchMoveTitle() + " (${rows.size})") },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(t(

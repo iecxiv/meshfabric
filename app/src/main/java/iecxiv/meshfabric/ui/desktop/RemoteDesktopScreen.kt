@@ -189,7 +189,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                 },
                 actions = {
                     RemoteHeaderActions {
-                        DesktopRightClickAssistHeader(rightClickAssist)
                         IconButton(onClick = { showKeyboardDialog = true }, modifier = Modifier.size(38.dp)) {
                             RemoteHeaderIcon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.keyboard_and_shortcuts))
                         }
@@ -552,6 +551,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                         leftButtonBlue = mouseModeActive && clickMode == MouseMode.LEFT_CLICK)
                                 }
                             }, modifier = Modifier.height(32.dp).semantics { stateDescription = mouseModeDescription })
+                            DesktopRightClickAssistToolbar(rightClickAssist)
                             FilterChip(selected = selectedMode == MouseMode.SCROLL, onClick = {
                                 viewModel.releaseDesktopKeys(nodeId)
                                 rightClickAssist.latch.cancel()
