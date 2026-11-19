@@ -77,19 +77,17 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
             border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             if(page!=0) DropdownMenuItem(text={Text(if(es) "Volver" else "Back")},leadingIcon={Icon(Icons.AutoMirrored.Filled.ArrowBack,null)},onClick={page=0})
             when(page) {
-                1->BrowseSortItems(menu,es) {close()}
                 2->DeviceListFilter.entries.forEach { option -> DropdownMenuItem(text={Text(filterLabel(option,es))},
                     trailingIcon={RadioButton(selected=menu.filter==option,onClick=null)},onClick={menu.onFilter(option);close()}) }
                 else->{
+                    DropdownMenuItem(text={Text(if(menu.selecting) {if(es) "Cancelar selección" else "Cancel selection"} else {if(es) "Seleccionar" else "Select"})},
+                        leadingIcon={Icon(Icons.Default.CheckBox,null)},onClick={menu.onSelection();close()})
+                    DropdownMenuItem(text={Text(if(es) "Filtrar" else "Filter")},leadingIcon={Icon(Icons.Default.FilterAlt,null)},trailingIcon={Icon(Icons.Default.ChevronRight,null)},onClick={page=2})
                     DropdownMenuItem(text={Text(if(es) "Mostrar IPs" else "Show IPs")},leadingIcon={Icon(Icons.Default.Visibility,null)},
                         trailingIcon={Checkbox(checked=showIps,onCheckedChange=null)},modifier=Modifier.testTag("devices_header_show_ips").semantics {selected=showIps},onClick={onShowIps(!showIps);close()})
                     DropdownMenuItem(enabled=menu.filter!=DeviceListFilter.OFFLINE,text={Text(if(es) "Mostrar desconectados" else "Show disconnected devices")},
                         leadingIcon={Icon(Icons.Default.LinkOff,null)},trailingIcon={Checkbox(checked=showDisconnected,onCheckedChange=null)},
                         modifier=Modifier.testTag("devices_header_show_disconnected").semantics {selected=showDisconnected},onClick={onShowDisconnected(!showDisconnected);close()})
-                    DropdownMenuItem(text={Text(if(menu.selecting) {if(es) "Cancelar selección" else "Cancel selection"} else {if(es) "Seleccionar" else "Select"})},
-                        leadingIcon={Icon(Icons.Default.CheckBox,null)},onClick={menu.onSelection();close()})
-                    DropdownMenuItem(text={Text(if(es) "Ordenar por" else "Sort by")},leadingIcon={Icon(Icons.AutoMirrored.Filled.Sort,null)},trailingIcon={Icon(Icons.Default.ChevronRight,null)},onClick={page=1})
-                    DropdownMenuItem(text={Text(if(es) "Filtrar" else "Filter")},leadingIcon={Icon(Icons.Default.FilterAlt,null)},trailingIcon={Icon(Icons.Default.ChevronRight,null)},onClick={page=2})
                     HorizontalDivider()
                     DropdownMenuItem(text={Text(if(es) "Nombre de sistema operativo" else "Show OS name")},trailingIcon={Checkbox(checked=menu.osName,onCheckedChange=null)},onClick={menu.onOsName();close()})
                 }
