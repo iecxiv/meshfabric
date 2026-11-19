@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_menu">Acción de grupo (%1$d)</string>
+    <string name="device_batch_wake">Despertar dispositivos</string>
+    <string name="device_batch_restart">Reiniciar dispositivos</string>
+    <string name="device_batch_shutdown">Apagar dispositivos</string>
+    <string name="device_batch_sleep">Suspender dispositivos</string>
+    <string name="device_batch_review">%1$s · %2$d dispositivos</string>
+    <string name="device_batch_notice">Revisa la lista fija de destinos antes de enviar. Solo recibirán la solicitud los dispositivos aptos. La aceptación del servidor no confirma la ejecución. Las solicitudes sin confirmar no se reintentan automáticamente. Detener no deshace los envíos ya realizados.</string>
+    <string name="device_batch_checking">Comprobando permisos y disponibilidad…</string>
+    <string name="device_batch_eligible">Apto para confirmar</string>
+    <string name="device_batch_skipped">Omitido: permisos, conexión o datos del dispositivo no disponibles</string>
+    <string name="device_batch_sending">Comprobando de nuevo y enviando…</string>
+    <string name="device_batch_accepted">Aceptado por el servidor; ejecución no verificada</string>
+    <string name="device_batch_rejected">Rechazado por el servidor</string>
+    <string name="device_batch_not_sent">No enviado</string>
+    <string name="device_batch_unconfirmed">Sin confirmar; comprueba el dispositivo antes de reintentar</string>
+    <string name="device_batch_send">Enviar a %1$d</string>
+    <string name="device_batch_stop">Detener solicitudes pendientes</string>
+    <string name="device_batch_summary">Aceptados: %1$d · Omitidos/no enviados: %2$d · Rechazados: %3$d · Sin confirmar: %4$d</string>
+</resources>

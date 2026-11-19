@@ -71,12 +71,13 @@ internal fun DeviceListExportButton(source: MeshCentralClient, entries: List<Pai
             }
         }
     }
-    OutlinedButton(enabled = entries.isNotEmpty() && pending == null && !writing && !source.isUserLogout && userInfo?.id?.isNotBlank() == true,
-        onClick = {
+    DeviceListBatchActionsButton(source = source, entries = entries,
+        enabled = entries.isNotEmpty() && pending == null && !writing && !source.isUserLogout && userInfo?.id?.isNotBlank() == true,
+        onExport = {
             pending = DeviceListExportSnapshot(identity(), deviceListInventoryJson(entries))
             try { launcher.launch("devices.json") } catch (_: ActivityNotFoundException) {
                 pending = null
                 Toast.makeText(context, failureText, Toast.LENGTH_LONG).show()
             }
-        }) { Text(stringResource(R.string.device_list_export_json)) }
+        })
 }
