@@ -57,7 +57,7 @@ internal fun generalChange(nodeId:String,responseId:String,before:GeneralMeta,af
     }
 }
 internal fun generalMatches(meta:GeneralMeta,draft:GeneralDraft)=meta.name==draft.name && meta.tags.toSet()==draft.tags.toSet() && (draft.description==null || meta.description==draft.description) && (draft.consent==null || meta.consent==draft.consent)
-internal fun generalBaselineMatches(meta:GeneralMeta,before:GeneralMeta,draft:GeneralDraft)=meta.name==before.name && meta.tags.toSet()==before.tags.toSet() && (draft.description==null || meta.description==before.description) && (draft.consent==null || meta.consent==before.consent)
+internal fun generalBaselineMatches(meta:GeneralMeta,before:GeneralMeta,draft:GeneralDraft)=meta.mesh==before.mesh && meta.name==before.name && meta.tags.toSet()==before.tags.toSet() && (draft.description==null || meta.description==before.description) && (draft.consent==null || meta.consent==before.consent)
 
 internal class DeviceGeneralEditor(private val source:MeshCentralClient?,private val node:MeshNode,private val scope:CoroutineScope) {
     val state=MutableStateFlow(GeneralEditorState())
