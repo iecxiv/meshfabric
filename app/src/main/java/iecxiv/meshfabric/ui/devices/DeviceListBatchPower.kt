@@ -99,6 +99,7 @@ internal fun DeviceListBatchActionsButton(source: MeshCentralClient, entries: Li
     val notifyDevices = rememberDeviceBatchNotificationAction(source, entries)
     val runCommands = rememberDeviceBatchRunAction(source, entries)
     val moveDevices = rememberDeviceBatchMoveAction(source, entries)
+    val updateAgents = rememberDeviceBatchAgentUpdateAction(source, entries)
     var expanded by remember { mutableStateOf(false) }
     var request by remember(source) { mutableStateOf<DeviceBatchPowerRequest?>(null) }
     Box {
@@ -109,6 +110,7 @@ internal fun DeviceListBatchActionsButton(source: MeshCentralClient, entries: Li
             DropdownMenuItem(enabled = connected, text = { Text(stringResource(R.string.device_batch_notify_action)) }, onClick = { expanded = false; notifyDevices() })
             DropdownMenuItem(enabled = connected, text = { Text(stringResource(R.string.device_batch_run_action)) }, onClick = { expanded = false; runCommands() })
             DropdownMenuItem(enabled = connected, text = { Text(deviceBatchMoveTitle()) }, onClick = { expanded = false; moveDevices() })
+            DropdownMenuItem(enabled = connected, text = { Text(deviceBatchAgentUpdateTitle()) }, onClick = { expanded = false; updateAgents() })
             HorizontalDivider()
             batchPowerActions.forEach { action ->
                 DropdownMenuItem(enabled = connected, text = { Text(stringResource(batchPowerActionLabel(action))) }, onClick = {
