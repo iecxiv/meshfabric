@@ -42,6 +42,7 @@ private data class DeviceListExportSnapshot(val identity: Triple<String, String,
 @Composable
 internal fun DeviceListExportButton(source: MeshCentralClient, entries: List<Pair<MeshGroup, MeshNode>>) {
     val context = LocalContext.current
+    val userInfo by source.userInfo.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     var pending by remember(source) { mutableStateOf<DeviceListExportSnapshot?>(null) }
     var writing by remember(source) { mutableStateOf(false) }
@@ -70,7 +71,7 @@ internal fun DeviceListExportButton(source: MeshCentralClient, entries: List<Pai
             }
         }
     }
-    OutlinedButton(enabled = entries.isNotEmpty() && pending == null && !writing && !source.isUserLogout && source.userInfo.value?.id?.isNotBlank() == true,
+    OutlinedButton(enabled = entries.isNotEmpty() && pending == null && !writing && !source.isUserLogout && userInfo?.id?.isNotBlank() == true,
         onClick = {
             pending = DeviceListExportSnapshot(identity(), deviceListInventoryJson(entries))
             try { launcher.launch("devices.json") } catch (_: ActivityNotFoundException) {
