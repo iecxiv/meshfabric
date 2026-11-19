@@ -87,7 +87,7 @@ private data class UploadRequest(val targets: List<DeviceBatchPowerTarget>, val 
     val routesValid = (options.windowsDirectory.isBlank() || deviceBatchUploadRoute(options, DevicePlatform.WINDOWS) != null) &&
         (options.linuxDirectory.isBlank() || deviceBatchUploadRoute(options, DevicePlatform.LINUX) != null) &&
         (deviceBatchUploadRoute(options, DevicePlatform.WINDOWS) != null || deviceBatchUploadRoute(options, DevicePlatform.LINUX) != null)
-    AlertDialog(onDismissRequest = { if (!sending) onClose() }, title = { Text(deviceBatchUploadTitle()) }, text = {
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!sending) onClose() }, title = { Text(deviceBatchUploadTitle()) }, text = {
         Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(t("Un archivo para los dispositivos revisados. Sin reintentos automáticos. Se omiten las colisiones detectadas si no autorizas sobrescribir, sin garantía atómica frente a otros procesos. Algunos agentes no distinguen errores de listado de listas vacías. La sobrescritura conserva una copia .meshfabric-backup-. Una interrupción puede dejar temporales o copias.",
                 "One file for the reviewed devices. No automatic retries. Detected collisions are skipped unless overwriting is authorized; there is no atomic guarantee against other processes. Some agents do not distinguish listing errors from empty lists. Overwriting retains a .meshfabric-backup- copy. Interrupted operations may leave temporary files or backups."))

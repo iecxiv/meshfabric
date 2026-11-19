@@ -116,7 +116,7 @@ private fun BatchMoveDialog(source: MeshCentralClient, request: BatchMoveRequest
     val choice = choices.singleOrNull { it.group.id == selected }
     val eligible = rows.count { it.phase == DeviceBatchMovePhase.READY }
     fun update(row: BatchMoveRow) { rows = rows.map { if (it.node.id == row.node.id) row else it } }
-    AlertDialog(
+    iecxiv.meshfabric.ui.components.AppAlertDialog(
         onDismissRequest = { if (!running) onClose() },
         title = { Text(deviceBatchMoveTitle() + " (${rows.size})") },
         text = {
@@ -134,21 +134,18 @@ private fun BatchMoveDialog(source: MeshCentralClient, request: BatchMoveRequest
                         }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             choices.forEach { item ->
-                                DropdownMenuItem(text = { Column { Text(item.name); Text(item.group.id, style = MaterialTheme.typography.bodySmall) } },
+                                DropdownMenuItem(text = { Text(item.name) },
                                     onClick = { selected = item.group.id; menu = false })
                             }
                         }
                     }
                     if (read.phase == "ready" && choices.isEmpty()) Text(t("No hay destinos con permisos verificables.", "No destinations with verifiable permissions."))
-                    choice?.let { Text(it.group.id, style = MaterialTheme.typography.bodySmall) }
                 } else {
-                    destination?.let { Text(t("Destino: ", "Destination: ") + it.name); Text(it.group.id, style = MaterialTheme.typography.bodySmall) }
+                    destination?.let { Text(t("Destino: ", "Destination: ") + it.name) }
                     rows.forEach { row ->
                         HorizontalDivider()
-                        Text(row.node.name.ifBlank { row.node.id }, style = MaterialTheme.typography.titleSmall)
-                        Text(row.node.id, style = MaterialTheme.typography.bodySmall)
+                        Text(row.node.name.ifBlank { t("Dispositivo sin nombre", "Unnamed device") }, style = MaterialTheme.typography.titleSmall)
                         Text(t("Origen: ", "Source: ") + row.group.name)
-                        Text(row.group.id, style = MaterialTheme.typography.bodySmall)
                         Text(movePhaseText(row.phase, es), style = MaterialTheme.typography.bodySmall)
                     }
                 }

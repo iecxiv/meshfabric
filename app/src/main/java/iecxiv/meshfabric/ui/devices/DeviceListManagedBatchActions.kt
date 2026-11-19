@@ -81,7 +81,7 @@ private suspend fun managedSend(source:MeshCentralClient,request:ManagedRequest,
     LaunchedEffect(request) {while(isActive) {if(!deviceBatchPowerSame(source,request.identity)) {job?.cancel();onClose();break};delay(100L)}}
     val eligible=rows.count {it.phase=="ready"}
     val token=managedToken(request.action,es)
-    AlertDialog(onDismissRequest={if(!running) onClose()},title={Text(managedLabel(request.action,es)+" (${rows.size})")},text={
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={if(!running) onClose()},title={Text(managedLabel(request.action,es)+" (${rows.size})")},text={
         Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             val detail=when(request.action) {
                 ManagedBatchAction.CLEAR_CORE->agentActionDetail(AgentConsoleAction.CLEAR_CORE,es)

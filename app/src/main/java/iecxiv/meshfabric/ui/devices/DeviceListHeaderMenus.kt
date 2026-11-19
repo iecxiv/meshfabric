@@ -70,7 +70,7 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
     Box {
         IconButton(onClick={page=0;expanded=true},modifier=Modifier.size(38.dp).testTag("devices_header_filter")) {
             Icon(Icons.Default.FilterAlt,if(es) "Filtros de equipos" else "Device filters",Modifier.size(20.dp),
-                tint=if(showIps || showDisconnected || menu.filter!=DeviceListFilter.ALL || menu.osName || menu.selecting) BrowseBlue else LocalContentColor.current)
+                tint=if(showIps || showDisconnected || menu.filter!=DeviceListFilter.ALL || menu.selecting) BrowseBlue else LocalContentColor.current)
         }
         DropdownMenu(expanded=expanded,onDismissRequest={close()},modifier=Modifier.heightIn(max=(LocalConfiguration.current.screenHeightDp.dp-96.dp).coerceAtLeast(96.dp)).testTag("devices_header_filter_menu"),
             shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,tonalElevation=2.dp,

@@ -149,7 +149,7 @@ private fun DeviceBatchPowerDialog(source: MeshCentralClient, request: DeviceBat
         checking = false
     }
     val eligibleCount = items.count { it.phase == DeviceBatchPowerPhase.ELIGIBLE }
-    AlertDialog(onDismissRequest = { if (!running) onClose() },
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { Text(stringResource(R.string.device_batch_review, stringResource(batchPowerActionLabel(request.action)), items.size)) },
         text = {
             Column(Modifier.heightIn(max = 320.dp)) {

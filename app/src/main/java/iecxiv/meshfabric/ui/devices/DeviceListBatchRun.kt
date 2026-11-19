@@ -116,7 +116,7 @@ private fun BatchRunDialog(source: MeshCentralClient, request: BatchRunRequest, 
         items = items.map { if (it.node.id == value.node.id) value else it }
     }
     LaunchedEffect(userInfo?.id) { if (userInfo?.id != request.identity.actor) onClose() }
-    AlertDialog(onDismissRequest = { if (!running) onClose() },
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { Text(stringResource(R.string.device_batch_review, stringResource(R.string.device_batch_run_action), items.size)) },
         text = {
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {

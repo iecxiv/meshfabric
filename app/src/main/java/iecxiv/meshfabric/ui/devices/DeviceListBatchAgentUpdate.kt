@@ -113,7 +113,7 @@ private fun AgentUpdateDialog(source: MeshCentralClient, request: AgentUpdateReq
         }
     }
     val eligible = rows.count { it.phase == DeviceBatchAgentUpdatePhase.READY }
-    AlertDialog(onDismissRequest = { if (!running) onClose() },
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { Text(deviceBatchAgentUpdateTitle() + " (${rows.size})") },
         text = {
             Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {

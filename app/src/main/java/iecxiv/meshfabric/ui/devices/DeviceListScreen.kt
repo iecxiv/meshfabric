@@ -71,7 +71,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val es=androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es"
     var filterName by rememberSaveable(scope) { mutableStateOf(preferences.getString("$preferenceKey.filter", "ALL") ?: "ALL") }
     val filter=DeviceListFilter.entries.firstOrNull {it.name==filterName} ?: DeviceListFilter.ALL
-    var showOsName by rememberSaveable(scope) {mutableStateOf(preferences.getBoolean("$preferenceKey.osName",false))}
+    var showOsName by rememberSaveable(scope) {mutableStateOf(preferences.getBoolean("$preferenceKey.osName",true))}
     var starredIds by rememberSaveable(scope) {mutableStateOf(preferences.getStringSet("$preferenceKey.stars",emptySet()).orEmpty().toList())}
     LaunchedEffect(scope,sort,reverse,filter,showOsName,starredIds) {
         if(server.isNotBlank() && account.isNotBlank()) preferences.edit().putString("$preferenceKey.sort",sort.name)
