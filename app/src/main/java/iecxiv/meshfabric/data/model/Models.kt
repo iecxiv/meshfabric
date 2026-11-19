@@ -41,7 +41,8 @@ data class MeshNode(
     @Transient val networkIpv4: List<DeviceIpv4> = emptyList(),
     @field:JsonAdapter(DeviceTagsAdapter::class) val tags: List<String>? = null,
     @field:JsonAdapter(DeviceTimestampAdapter::class)
-    @SerializedName("lastbootuptime") val lastBootTime: Long? = null
+    @SerializedName("lastbootuptime") val lastBootTime: Long? = null,
+    @field:JsonAdapter(DevicePowerStateAdapter::class) val pwr: Int? = null
 ) {
     val isOnline: Boolean
         get() = (conn and 1) != 0 || (conn and 2) != 0 || conn > 0
