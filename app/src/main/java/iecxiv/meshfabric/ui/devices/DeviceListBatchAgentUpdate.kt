@@ -1,8 +1,6 @@
 package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -116,7 +114,7 @@ private fun AgentUpdateDialog(source: MeshCentralClient, request: AgentUpdateReq
     DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(deviceBatchAgentUpdateTitle() + " (${rows.size})") },
         text = {
-            Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DeviceBatchNotice(agentActionDetail(AgentConsoleAction.FORCE_UPDATE, es))
                 Text(t("Puede interrumpir sesiones remotas. No comprueba la instalación ni la versión final. Un intento por dispositivo, sin reenvío automático. Detener pendientes no revierte solicitudes ya encoladas.",
                     "May interrupt remote sessions. Installation and final version are not checked. One attempt per device, no automatic resend. Stopping pending requests does not undo requests already queued."))

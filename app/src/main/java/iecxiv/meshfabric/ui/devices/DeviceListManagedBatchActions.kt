@@ -1,8 +1,6 @@
 package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -82,7 +80,7 @@ private suspend fun managedSend(source:MeshCentralClient,request:ManagedRequest,
     val eligible=rows.count {it.phase=="ready"}
     val token=managedToken(request.action,es)
     DeviceBatchAlertDialog(onDismissRequest={if(!running) onClose()},title={DeviceBatchDialogTitle(managedLabel(request.action,es)+" (${rows.size})")},text={
-        Column(Modifier.heightIn(max=420.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        Column(Modifier,verticalArrangement=Arrangement.spacedBy(8.dp)) {
             val detail=when(request.action) {
                 ManagedBatchAction.CLEAR_CORE->agentActionDetail(AgentConsoleAction.CLEAR_CORE,es)
                 ManagedBatchAction.DEFAULT_CORE->agentActionDetail(AgentConsoleAction.DEFAULT_CORE,es)

@@ -1,8 +1,6 @@
 package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -92,7 +90,7 @@ private fun BatchNotificationDialog(source: MeshCentralClient, request: BatchNot
     DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(stringResource(R.string.device_batch_review, stringResource(R.string.device_batch_notify_action), items.size)) },
         text = {
-            Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 DeviceBatchNotice(stringResource(R.string.device_batch_notify_notice))
                 val text = reviewed
                 if (text == null) {

@@ -1,8 +1,6 @@
 package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -120,7 +118,7 @@ private fun BatchMoveDialog(source: MeshCentralClient, request: BatchMoveRequest
         onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(deviceBatchMoveTitle() + " (${rows.size})") },
         text = {
-            Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 DeviceBatchNotice(t(
                     "Mover cambia el grupo y puede cambiar permisos y políticas. Solo grupos de agentes del mismo dominio. Los permisos heredados no verificables se omiten. Se relee antes de enviar; no es una transacción atómica frente a cambios simultáneos. Un intento por dispositivo, sin reenvío automático.",
                     "Moving changes the group and may change permissions and policies. Agent groups in the same domain only. Unverifiable inherited rights are skipped. Data is reread before sending; this is not an atomic transaction against concurrent changes. One attempt per device, no automatic resend."

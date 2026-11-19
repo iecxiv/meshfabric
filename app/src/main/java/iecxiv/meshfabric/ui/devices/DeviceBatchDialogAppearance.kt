@@ -1,25 +1,46 @@
 package iecxiv.meshfabric.ui.devices
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import iecxiv.meshfabric.ui.components.AppAlertDialog
+import iecxiv.meshfabric.ui.components.AppDialogSurface
 import iecxiv.meshfabric.ui.theme.LocalAppDarkTheme
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun DeviceBatchAlertDialog(onDismissRequest:()->Unit,title:@Composable ()->Unit,
     text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {
-    AppAlertDialog(onDismissRequest=onDismissRequest,
-        title={Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Default.Devices,contentDescription=null,tint=MaterialTheme.colorScheme.primary,modifier=Modifier.size(22.dp))
-            Box(Modifier.weight(1f)) { title() }
-        }},text=text,textContentColor=MaterialTheme.colorScheme.onSurface,
-        confirmButton=confirmButton,dismissButton=dismissButton)
+    Dialog(onDismissRequest=onDismissRequest,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().safeDrawingPadding().imePadding().padding(horizontal=12.dp,vertical=12.dp),contentAlignment=Alignment.Center) {
+            AppDialogSurface(modifier=Modifier.width(deviceBatchDialogWidth(maxWidth.value).dp).heightIn(max=maxHeight).testTag("device_batch_dialog")) {
+                Column(Modifier.padding(20.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Devices,contentDescription=null,tint=MaterialTheme.colorScheme.primary,modifier=Modifier.size(22.dp))
+                        Box(Modifier.weight(1f)) { title() }
+                    }
+                    Box(Modifier.weight(1f,fill=false).fillMaxWidth().testTag("device_batch_dialog_body").verticalScroll(rememberScrollState())) {
+                        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                            ProvideTextStyle(MaterialTheme.typography.bodyMedium) { text() }
+                        }
+                    }
+                    FlowRow(Modifier.fillMaxWidth().testTag("device_batch_dialog_actions"),horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.End),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                        dismissButton()
+                        confirmButton()
+                    }
+                }
+            }
+        }
+    }
 }
 @Composable internal fun DeviceBatchNotice(text:String) {
     Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,

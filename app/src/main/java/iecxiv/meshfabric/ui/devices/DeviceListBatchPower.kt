@@ -1,8 +1,6 @@
 package iecxiv.meshfabric.ui.devices
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -152,10 +150,10 @@ private fun DeviceBatchPowerDialog(source: MeshCentralClient, request: DeviceBat
     DeviceBatchAlertDialog(onDismissRequest = { if (!running) onClose() },
         title = { DeviceBatchDialogTitle(stringResource(R.string.device_batch_review, stringResource(batchPowerActionLabel(request.action)), items.size)) },
         text = {
-            Column(Modifier.heightIn(max = 320.dp)) {
+            Column(Modifier) {
                 DeviceBatchNotice(stringResource(R.string.device_batch_notice))
                 if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
-                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                Column(Modifier) {
                     items.forEach { target ->
                         Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                         DeviceBatchSecondary(target.group.name)

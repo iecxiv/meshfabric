@@ -7,7 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Before
@@ -27,6 +27,7 @@ class AppearanceSelectorLayoutTest {
                 Box(Modifier.fillMaxSize().testTag("appearance_test_root")) { AppearanceModeSettings(AppThemeMode.SYSTEM,{}) }
             }
         }
+        compose.waitForIdle()
     }
     private fun choose(index:Int) {
         compose.onNodeWithTag("appearance_mode_selector").performClick()

@@ -3,8 +3,6 @@ package iecxiv.meshfabric.ui.devices
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -88,7 +86,7 @@ private data class UploadRequest(val targets: List<DeviceBatchPowerTarget>, val 
         (options.linuxDirectory.isBlank() || deviceBatchUploadRoute(options, DevicePlatform.LINUX) != null) &&
         (deviceBatchUploadRoute(options, DevicePlatform.WINDOWS) != null || deviceBatchUploadRoute(options, DevicePlatform.LINUX) != null)
     DeviceBatchAlertDialog(onDismissRequest = { if (!sending) onClose() }, title = { DeviceBatchDialogTitle(deviceBatchUploadTitle()) }, text = {
-        Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             DeviceBatchNotice(t("Un archivo para los dispositivos revisados. Sin reintentos automáticos. Se omiten las colisiones detectadas si no autorizas sobrescribir, sin garantía atómica frente a otros procesos. Algunos agentes no distinguen errores de listado de listas vacías. La sobrescritura conserva una copia .meshfabric-backup-. Una interrupción puede dejar temporales o copias.",
                 "One file for the reviewed devices. No automatic retries. Detected collisions are skipped unless overwriting is authorized; there is no atomic guarantee against other processes. Some agents do not distinguish listing errors from empty lists. Overwriting retains a .meshfabric-backup- copy. Interrupted operations may leave temporary files or backups."))
             if (!reviewed) {
