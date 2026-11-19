@@ -1,0 +1,316 @@
+name: Validate documentation localization audit and app version
+'on':
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/maintenance-docs-i18n.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: maintenance-docs-i18n-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare guarded maintenance changes
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='c37937c8a836a2e761aaedb34036f7dfcc50e2c3'
+          assert git('diff','--name-only','HEAD^','HEAD')=='.github/workflows/maintenance-docs-i18n.yml'
+          def replace(p,a,b):
+              s=p.read_text();assert s.count(a)==1,str(p)+': unexpected anchor';p.write_text(s.replace(a,b,1))
+          def write(p,s,new=False):
+              p=Path(p)
+              if new: assert not p.exists(),str(p)
+              p.parent.mkdir(parents=True,exist_ok=True);p.write_text(s)
+          p=Path('app/build.gradle.kts')
+          assert git('hash-object',str(p))=='71466c471ee7dc9cea48ad2ffbed23185aa4076d'
+          replace(p,'versionName = "1.4.0"','versionName = "1.4.1"')
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt')
+          assert git('hash-object',str(p))=='2207474a57b31ff13b3e2f472386e17bf3384780'
+          replace(p,'Text(if(node.isOnline) "ONLINE" else "OFFLINE",','Text(stringResource(if(node.isOnline) R.string.device_card_connection_online else R.string.device_card_connection_offline),')
+          for folder,online,offline in [('values','ONLINE','OFFLINE'),('values-en','ONLINE','OFFLINE'),('values-es','EN LÍNEA','DESCONECTADO')]:
+              write('app/src/main/res/'+folder+'/device_connection_labels.xml','<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <string name="device_card_connection_online">'+online+'</string>\n    <string name="device_card_connection_offline">'+offline+'</string>\n</resources>\n',True)
+          updates=[('README.md','### Appearance and language resources','## Requirements','''### Appearance and language resources
+
+          - Material 3 interface with System, Light, Dark, Scheduled and Automatic solar appearance modes.
+          - Scheduled mode uses editable light/dark times in the device time zone. Solar mode uses a manually selected city from the bundled catalogue and local calculations, without GPS, location permissions or a network lookup. Missing city or unavailable solar events temporarily use the system mode.
+          - The appearance selector and optional controls are compact and centered; menu icons and labels use aligned columns.
+          - Custom app display name and icon, plus a setting to hide the settings icon.
+          - English and Spanish resources are checked for missing declarations and placeholder compatibility. Source literals, accessibility labels, assets and translation meaning still need review; remote output is not automatically translated.
+
+          See [Device controls and batch actions](docs/device-controls.md) and [Localization audit](docs/i18n/README.md). The audit is not a declaration that every visible phrase has been translated.
+
+          '''),('README_ES.md','### Apariencia e idiomas','## Requisitos','''### Apariencia e idiomas
+
+          - Interfaz Material 3 con Sistema, Claro, Oscuro, Programado y Automático solar.
+          - Programado utiliza horas editables de claro y oscuro en la zona horaria del dispositivo. El modo solar usa una ciudad elegida manualmente del catálogo incluido y cálculos locales, sin GPS, permisos de ubicación ni consultas de red. Sin ciudad o sin eventos solares se usa temporalmente el modo del sistema.
+          - El selector y sus controles adicionales son compactos y centrados; los iconos y textos del menú mantienen columnas alineadas.
+          - Nombre e icono personalizados y opción para ocultar el icono de ajustes.
+          - Se comprueban declaraciones de recursos y compatibilidad de formatos en inglés y español. Los literales, la accesibilidad, los recursos web y el significado de las traducciones requieren revisión; la salida remota no se traduce automáticamente.
+
+          Consulta [Controles de dispositivos y acciones por lote](docs/es/device-controls.md) y [Auditoría de traducciones](docs/es/i18n/README.md). La auditoría no declara traducidas todas las frases visibles.
+
+          ''')]
+          for name,start,end,section in updates:
+              p=Path(name);s=p.read_text();a=s.index(start);b=s.index(end,a);p.write_text(s[:a]+section+s[b:])
+          additions=[('README.md','### Native management and account security','''### Device browsing and batch actions
+
+          - Sort and filter devices, keep local favorites, select visible devices or groups, and export a reviewed selection as JSON.
+          - The operating-system name preference is enabled by default when no choice is saved; toggling it does not change the filter-icon highlight.
+          - Reviewed batch actions include power requests, tags, notifications, commands, group moves, agent update/core operations, agent uninstallation, device removal and file upload, subject to eligibility and verified permissions.
+          - Batch dialogs adapt to content and screen space, keeping their title and action buttons outside the scrolling body. Accepted, queued, unconfirmed and verified results remain distinct.
+
+          '''),('README_ES.md','### Gestión nativa y seguridad de cuenta','''### Exploración y acciones por lote
+
+          - Ordena y filtra dispositivos, conserva favoritos locales, selecciona equipos o grupos visibles y exporta una selección revisada como JSON.
+          - El nombre del sistema operativo está activado por defecto si no hay elección guardada; alternarlo no cambia el resaltado del icono de filtro.
+          - Las acciones revisadas incluyen energía, etiquetas, notificaciones, comandos, movimiento de grupo, actualización y núcleos del agente, desinstalación, eliminación de dispositivos y subida de archivos, según requisitos y permisos verificados.
+          - Los diálogos se adaptan al contenido y al espacio disponible, con título y botones fuera del cuerpo desplazable. Se distinguen resultados aceptados, encolados, sin confirmar y verificados.
+
+          ''')]
+          for name,anchor,addition in additions: replace(Path(name),anchor,addition+anchor)
+          additions=[('README.md','#### Software and physical keyboard input','''#### Displays and floating controls
+
+          - Select a desktop monitor, or All displays when the agent supports it; unavailable capabilities are not invented.
+          - One persistent toggle alternates left/right mouse mode and highlights the active button in blue. Scroll has its own icon and restores the remembered click mode when leaving it.
+          - The separate one-shot right-click assistant is toggled after the toolbar collapse control, without a frame or visible text. Information remains last.
+          - New desktop sessions start in left-click mode; reconnecting or rotating an existing session preserves its mode.
+
+          '''),('README_ES.md','#### Teclado físico y teclado en pantalla','''#### Pantallas y controles flotantes
+
+          - Selecciona un monitor remoto o Todas las pantallas cuando lo permita el agente; no se inventan capacidades ausentes.
+          - Un selector persistente alterna clic izquierdo/derecho y resalta en azul el botón activo. Scroll tiene icono propio y permite recuperar el modo de clic recordado al abandonarlo.
+          - El asistente independiente de clic derecho de un solo uso se muestra u oculta después del colapsador de la barra, sin recuadro ni texto visible. Información permanece al final.
+          - Las sesiones nuevas empiezan en clic izquierdo; reconectar o girar una sesión existente conserva su modo.
+
+          ''')]
+          for name,anchor,addition in additions: replace(Path(name),anchor,addition+anchor)
+          write('docs/device-controls.md','''# Device controls, batch actions and appearance
+
+          English | [Español](es/device-controls.md)
+
+          ## Browsing and selection
+          Sorting, filtering, local favorites and selection operate within the active account and server context. Selection is reconciled with visible inventory; a changed authenticated context invalidates sensitive actions. The operating-system name preference preserves saved choices and does not control filter-icon highlighting. Power state is not inferred solely from connectivity.
+
+          ## Reviewed batch actions
+          Select devices or visible groups, then review the action and eligible targets. JSON export is local. Remote actions include power requests, tags, notifications, commands, group moves, agent updates, clearing/loading the default core, uninstallation, device removal and upload. Availability depends on the action, server, permissions and agent. Core operations and uninstallation require a connected compatible agent and the conservative full-rights checks used by those actions.
+
+          Review and confirmation do not form an atomic server transaction. Context is rechecked before sending. One attempt is made per approved target, without automatic resend. Stopping pending work does not undo requests or stop remote commands already started.
+
+          Acceptance, local queuing, received output, limited file observations and verified changes are different outcomes. Receiving command output does not prove successful completion. Upload observations do not verify a remote content hash. Read every result label and uncertainty notice.
+
+          Dialogs keep the shared theme, adapt width and height to available space and content, and keep title/actions outside the scroll area. Long lists, small windows and the keyboard can still require scrolling. Group-move choices show names rather than internal identifiers.
+
+          ## Remote desktop
+          Monitor selection depends on reported agent capabilities. The mouse-mode toggle is persistent; the separate floating right-click assistant is one-shot. Its toolbar control follows the collapse control. Scroll preserves the previous click mode, and Information is the final toolbar action. These controls do not imply that every planned desktop tool is implemented.
+
+          ## Appearance
+          System follows Android; Light and Dark are fixed. Scheduled uses device-local start times for light and dark, which must differ. Automatic solar uses a manually selected reference city from a bundled catalogue of 24 cities and local sunrise/sunset calculations in that city zone. It does not request location access, use GPS or query a location service. Change the reference city when travelling. Times are approximate; absent city or unavailable events temporarily fall back to System while preserving the selected mode.
+
+          Appearance refreshes while the app is active and when resumed; it does not require a background alarm. Existing saved fixed-theme choices remain available. The compact selector has fixed icon/text columns and adapts to narrow screens.
+
+          ## Validation limits
+          Build, JVM tests and lint are publication gates. Compiling instrumentation tests is not executing them. Check both languages, font scaling, portrait/landscape, keyboard insets and remote outcomes on the intended devices and server. Sharing and other planned tools must not be treated as delivered features.
+          ''',True)
+          write('docs/es/device-controls.md','''# Controles de dispositivos, acciones por lote y apariencia
+
+          [English](../device-controls.md) | Español
+
+          ## Exploración y selección
+          La ordenación, los filtros, favoritos locales y selección pertenecen al contexto de cuenta y servidor activos. La selección se reconcilia con el inventario visible; cambiar de contexto autenticado invalida acciones sensibles. El nombre del sistema operativo conserva la elección guardada y no controla el resaltado del filtro. El estado de energía no se deduce solo de la conexión.
+
+          ## Acciones por lote revisadas
+          Selecciona dispositivos o grupos visibles y revisa acción y destinos elegibles. Exportar JSON es local. Las acciones remotas incluyen energía, etiquetas, notificaciones, comandos, movimiento de grupo, actualización de agente, borrado/carga del núcleo predeterminado, desinstalación, eliminación y subida de archivos. La disponibilidad depende de acción, servidor, permisos y agente. Las operaciones de núcleo y desinstalación exigen un agente conectado compatible y las comprobaciones conservadoras de derechos completos de esas acciones.
+
+          Revisar y confirmar no constituye una transacción atómica del servidor. Se relee el contexto antes de enviar. Se intenta una vez por destino aprobado, sin reenvío automático. Detener pendientes no revierte solicitudes ni detiene comandos remotos ya iniciados.
+
+          Aceptación, encolado local, salida recibida, observaciones limitadas de archivos y cambios verificados son resultados distintos. Recibir salida no demuestra la finalización correcta de un comando. Las observaciones de subida no verifican un hash remoto. Lee las etiquetas y advertencias de incertidumbre.
+
+          Los diálogos conservan el tema compartido, adaptan ancho y alto al espacio y contenido y mantienen título y acciones fuera del desplazamiento. Las listas largas, ventanas pequeñas y el teclado pueden requerir scroll. Mover de grupo muestra nombres en lugar de identificadores internos.
+
+          ## Escritorio remoto
+          La selección de monitor depende de las capacidades comunicadas por el agente. El selector de clic es persistente; el asistente flotante independiente de clic derecho es de un solo uso. Su control sigue al colapsador. Scroll conserva el modo de clic anterior e Información es la última acción de la barra. Esto no implica que estén implementadas todas las herramientas previstas.
+
+          ## Apariencia
+          Sistema sigue Android; Claro y Oscuro son fijos. Programado usa horas locales de inicio de claro y oscuro, que deben ser distintas. Automático solar emplea una ciudad manual de un catálogo incluido de 24 ciudades y calcula localmente amanecer y anochecer en su zona horaria. No pide acceso a ubicación, no usa GPS ni consulta servicios de localización. Cambia la ciudad si viajas. Los horarios son aproximados; sin ciudad o sin eventos disponibles se usa temporalmente Sistema, conservando el modo elegido.
+
+          La apariencia se actualiza con la app activa y al reanudarla, sin necesitar alarmas en segundo plano. Se conservan las elecciones de tema fijo. El selector compacto mantiene columnas de iconos y texto y se adapta a pantallas estrechas.
+
+          ## Límites de validación
+          Compilación, pruebas JVM y lint condicionan la publicación. Compilar pruebas de interfaz no equivale a ejecutarlas. Revisa ambos idiomas, escala de fuente, orientación, teclado y resultados remotos con los dispositivos y servidor previstos. Compartir y las demás herramientas pendientes no deben considerarse funciones entregadas.
+          ''',True)
+          write('docs/i18n/README.md','''# Localization audit and review status
+
+          English | [Español](../es/i18n/README.md)
+
+          Run `python3 tools/i18n/audit.py` from the repository. The audit writes summary.json, resource-issues.json and candidates.csv here. Missing explicit English/Spanish resource declarations, duplicate resources, array shape differences and format-signature differences block this maintenance publication; they are not filled with untranslated English fallback.
+
+          Candidate scanning covers main Kotlin/Java literals, non-vendored JS/HTML literals and literal XML UI attributes. HTML text, interpolated/composed text, accessibility, runtime errors, aliases, identical translations and excluded assets require manual review. Candidates include protocol keys, test tags, proper names, technical data and already bilingual helpers; they are not automatically classified as untranslated UI. Never blindly replace commands, identifiers or backend data.
+
+          Resource parity does not prove translation meaning or complete localization. The report deliberately leaves overall UI completeness unverified. Review remaining candidates, both languages, font scaling and accessibility on device. Server/agent output and user data are not automatically translated. No runtime clipboard, credentials, terminal history or network content is collected.
+
+          App-provided YubiKit overrides remain subject to the same review. A completed key response must not be described as a verified authenticated session. Build/test/lint results belong to the publishing job and its artifacts, not to a blanket visual-validation claim.
+          ''')
+          write('docs/es/i18n/README.md','''# Auditoría de traducciones y estado de revisión
+
+          [English](../../i18n/README.md) | Español
+
+          Ejecuta `python3 tools/i18n/audit.py` desde el repositorio. Se generan summary.json, resource-issues.json y candidates.csv en docs/i18n. Las declaraciones explícitas inglesas/españolas ausentes, recursos duplicados, diferencias de estructura de arrays o formatos incompatibles bloquean esta publicación de mantenimiento; no se rellenan con inglés sin traducir.
+
+          Se inventarían literales Kotlin/Java principales, JS/HTML no vendorizados y atributos XML de interfaz literales. Texto HTML, cadenas interpoladas/compuestas, accesibilidad, errores de ejecución, alias, traducciones idénticas y recursos excluidos requieren revisión manual. Los candidatos incluyen claves de protocolo, etiquetas de pruebas, nombres propios, datos técnicos y ayudantes ya bilingües; no se clasifican automáticamente como interfaz sin traducir. Nunca sustituir a ciegas comandos, identificadores ni datos del backend.
+
+          La paridad de recursos no acredita el significado ni una localización completa. El informe deja la cobertura global sin verificar. Revisa candidatos, ambos idiomas, fuentes grandes y accesibilidad en dispositivo. Los datos del usuario y la salida del servidor/agente no se traducen automáticamente. No se recogen portapapeles, credenciales, historiales ni tráfico en ejecución.
+
+          Los recursos de YubiKit aportados por la app también requieren revisión. Una respuesta completada de la llave no equivale a una sesión autenticada verificada. Los resultados de compilación, pruebas y lint corresponden al trabajo de publicación y sus artefactos, no a una validación visual global.
+          ''')
+          write('tools/i18n/audit.py',r'''from pathlib import Path
+          import csv,json,re,sys,subprocess
+          import xml.etree.ElementTree as ET
+          ROOT=Path(__file__).resolve().parents[2]
+          FORMAT=re.compile(r'%(?:(\d+)\$)?[-#+ 0,(<]*\d*(?:\.\d+)?([tT][A-Za-z]|[A-Za-z%])')
+          def signature(text):
+              result=set();index=1;previous=1
+              for match in FORMAT.finditer(text):
+                  kind=match[2]
+                  if kind in ('%','n'): continue
+                  number=int(match[1]) if match[1] else previous if '<' in match[0] else index
+                  if not match[1] and '<' not in match[0]: index+=1
+                  previous=number;result.add((number,kind))
+              return sorted(result)
+          def leaves(kind,node):
+              if kind=='string': return {'text':''.join(node.itertext()).strip()}
+              return {(item.get('quantity') if kind=='plurals' else str(i)):''.join(item.itertext()).strip() for i,item in enumerate(node.findall('item'))}
+          def main():
+              out=ROOT/'docs/i18n';out.mkdir(parents=True,exist_ok=True)
+              issues=[];locales={};excluded=[];candidates=[]
+              for locale,folder in [('default','values'),('en','values-en'),('es','values-es')]:
+                  values={}
+                  for path in sorted((ROOT/'app/src/main/res'/folder).glob('*.xml')):
+                      for node in ET.parse(path).getroot():
+                          kind='string' if node.tag=='item' and node.get('type')=='string' else node.tag
+                          if kind not in ('string','plurals','string-array') or not node.get('name'): continue
+                          key=(kind,node.get('name'))
+                          if key in values: issues.append({'kind':'duplicate','locale':locale,'resource':list(key),'path':str(path.relative_to(ROOT))})
+                          values[key]=node
+                  locales[locale]=values
+              base={key:node for key,node in locales['default'].items() if node.get('translatable')!='false'}
+              aliases=0
+              for locale in ('en','es'):
+                  for key,node in sorted(base.items()):
+                      other=locales[locale].get(key)
+                      if other is None:
+                          issues.append({'kind':'missing','locale':locale,'resource':list(key)});continue
+                      expected=leaves(key[0],node);actual=leaves(key[0],other)
+                      if key[0]=='string-array' and len(expected)!=len(actual): issues.append({'kind':'array_length','locale':locale,'resource':list(key)})
+                      for slot,text in expected.items():
+                          translated=actual.get(slot,actual.get('other') if key[0]=='plurals' else None)
+                          if translated is None:
+                              issues.append({'kind':'missing_item','locale':locale,'resource':list(key),'slot':slot});continue
+                          if text.startswith('@') or translated.startswith('@'): aliases+=1;continue
+                          if node.get('formatted')=='false' or other.get('formatted')=='false': continue
+                          if signature(text)!=signature(translated): issues.append({'kind':'format','locale':locale,'resource':list(key),'slot':slot,'default':signature(text),'localized':signature(translated)})
+              token=re.compile(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"')
+              js=re.compile(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\x27(?:\\.|[^\x27\\])*\x27|`[\s\S]*?`')
+              scanned=0
+              for path in sorted((ROOT/'app/src/main').rglob('*')):
+                  if not path.is_file() or path.suffix not in ('.kt','.java','.js','.html','.xml'): continue
+                  rel=str(path.relative_to(ROOT))
+                  if any(part in ('node_modules','vendor','third_party') for part in path.parts) or path.name.startswith('xterm') or path.name.endswith('.min.js') or path.stat().st_size>2000000:
+                      excluded.append(rel);continue
+                  if path.suffix=='.xml' and path.parent.name.startswith('values'): continue
+                  text=path.read_text(errors='replace');scanned+=1
+                  if path.suffix=='.xml':
+                      for node in ET.fromstring(text).iter():
+                          for attr,value in node.attrib.items():
+                              if attr.rsplit('}',1)[-1] in ('text','textOn','textOff','hint','contentDescription','title','summary','dialogTitle') and value and not value.startswith(('@','?')):
+                                  candidates.append([rel,0,'xml_ui_attribute',value[:240],attr])
+                      continue
+                  for match in (js if path.suffix in ('.js','.html') else token).finditer(text):
+                      value=match[0]
+                      if value.startswith(('//','/*')) or not re.search(r'[A-Za-zÀ-ÿ]',value): continue
+                      line=text.count('\n',0,match.start())+1
+                      context=text[max(0,text.rfind('\n',0,match.start())+1):text.find('\n',match.end()) if text.find('\n',match.end())!=-1 else len(text)][:260]
+                      kind='direct_ui_candidate' if re.search(r'\b(Text|Icon|Toast|Snackbar|contentDescription|setText|setTitle)\b',context) else 'literal_candidate'
+                      candidates.append([rel,line,kind,value[:240],context])
+              equal=[]
+              for key in sorted(set(locales['en']) & set(locales['es']) & set(base)):
+                  if leaves(key[0],locales['en'][key])==leaves(key[0],locales['es'][key]): equal.append(list(key))
+              docrefs=[]
+              for path in [ROOT/'README.md',ROOT/'README_ES.md',*(ROOT/'docs').rglob('*.md')]:
+                  for line,value in enumerate(path.read_text(errors='replace').splitlines(),1):
+                      if re.search(r'versionName|app version|versión actual de la app',value,re.I): docrefs.append({'path':str(path.relative_to(ROOT)),'line':line,'text':value[:240]})
+              summary={'audited_base_commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'working_tree_candidate':True,'default_translatable_resources':len(base),'resource_issues':len(issues),'source_files_scanned':scanned,'literal_candidates':len(candidates),'aliases_requiring_review':aliases,'identical_en_es_resources':equal,'excluded_sources':excluded,'app_documentation_reference_candidates':docrefs,'all_ui_localized':None,'all_ui_externalized':False,'manual_review_required':True,'limitations':['Heuristic literals include technical and already bilingual text.','HTML body text, composed strings, translation meaning and runtime UI require manual review.','Remote output and user data are not automatically translated.']}
+              (out/'summary.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+              (out/'resource-issues.json').write_text(json.dumps(issues,ensure_ascii=False,indent=2)+'\n')
+              with (out/'candidates.csv').open('w',newline='') as stream:
+                  writer=csv.writer(stream);writer.writerow(['path','line','kind','literal','context']);writer.writerows(candidates)
+              print(json.dumps({'resource_issues':len(issues),'literal_candidates':len(candidates),'manual_review_required':True}))
+              return 1 if issues else 0
+          if __name__=='__main__':
+              if '--self-test' in sys.argv:
+                  assert signature('%s %d')==signature('%1$s %2$d')
+                  assert signature('%2$d %1$s')==signature('%1$s %2$d')
+                  assert signature('100%%')==[]
+                  assert signature('%1$d')!=signature('%1$s')
+              else: raise SystemExit(main())
+          ''',True)
+      - name: Audit resource parity formats and source candidates
+        run: |
+          python3 tools/i18n/audit.py --self-test
+          python3 tools/i18n/audit.py
+          git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Build compile UI tests run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: maintenance-audit-reports-${{ github.run_id }}
+          path: |
+            docs/i18n/summary.json
+            docs/i18n/resource-issues.json
+            docs/i18n/candidates.csv
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated maintenance and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          baseline=subprocess.check_output(['git','show','HEAD:app/build.gradle.kts'],text=True)
+          assert Path('app/build.gradle.kts').read_text()==baseline.replace('versionName = "1.4.0"','versionName = "1.4.1"',1)
+          report=Path('docs/i18n/summary.json');summary=json.loads(report.read_text());assert summary['resource_issues']==0
+          summary['validation']={'build':'passed','jvm_tests':'passed','lint':'passed','android_tests':'compiled_not_executed','manual_language_review':'pending'}
+          report.write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          workflow=Path('.github/workflows/maintenance-docs-i18n.yml');workflow.unlink()
+          paths=['app/build.gradle.kts','app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceListScreen.kt','README.md','README_ES.md','docs/device-controls.md','docs/es/device-controls.md','docs/i18n/README.md','docs/es/i18n/README.md','docs/i18n/summary.json','docs/i18n/resource-issues.json','docs/i18n/candidates.csv','tools/i18n/audit.py',str(workflow)]+['app/src/main/res/'+folder+'/device_connection_labels.xml' for folder in ['values','values-en','values-es']]
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())<=set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','chore(app): update version name docs and localization audit'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
