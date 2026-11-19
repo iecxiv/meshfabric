@@ -1,0 +1,90 @@
+name: Refine batch UI on dev
+'on':
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/refine-batch-ui.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: refine-batch-ui-dev
+  cancel-in-progress: false
+jobs:
+  integrate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply presentation-only changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/devices')
+          def edit(name, old, new, count=1):
+              p=root/name
+              s=p.read_text()
+              assert s.count(old)==count, name+': unexpected anchor count'
+              p.write_text(s.replace(old,new))
+          edit('DeviceListScreen.kt','preferences.getBoolean("$preferenceKey.osName",false)','preferences.getBoolean("$preferenceKey.osName",true)')
+          edit('DeviceListHeaderMenus.kt',' || menu.osName','')
+          edit('DeviceListBatchMove.kt','Column { Text(item.name); Text(item.group.id, style = MaterialTheme.typography.bodySmall) }','Text(item.name)')
+          edit('DeviceListBatchMove.kt','                    choice?.let { Text(it.group.id, style = MaterialTheme.typography.bodySmall) }\n','')
+          edit('DeviceListBatchMove.kt','; Text(it.group.id, style = MaterialTheme.typography.bodySmall)','')
+          edit('DeviceListBatchMove.kt','                        Text(row.group.id, style = MaterialTheme.typography.bodySmall)\n','')
+          edit('DeviceListBatchMove.kt','                        Text(row.node.id, style = MaterialTheme.typography.bodySmall)\n','')
+          edit('DeviceListBatchMove.kt','row.node.name.ifBlank { row.node.id }','row.node.name.ifBlank { t("Dispositivo sin nombre", "Unnamed device") }')
+          files=list(root.glob('DeviceListBatch*.kt'))+[root/'DeviceListManagedBatchActions.kt']
+          changed=0
+          for p in files:
+              s=p.read_text()
+              updated,n=re.subn(r'(?<![\w.])AlertDialog\s*\(', 'iecxiv.meshfabric.ui.components.AppAlertDialog(', s)
+              if n:
+                  p.write_text(updated)
+                  changed+=n
+          assert changed>0, 'No batch dialogs found'
+          screen=(root/'DeviceListScreen.kt').read_text()
+          header=(root/'DeviceListHeaderMenus.kt').read_text()
+          move=(root/'DeviceListBatchMove.kt').read_text()
+          assert 'preferences.getBoolean("$preferenceKey.osName",true)' in screen
+          assert ' || menu.osName' not in header
+          assert not re.search(r'Text\((?:item\.group|it\.group|row\.group|row\.node)\.id',move)
+          for p in files:
+              assert not re.search(r'(?<![\w.])AlertDialog\s*\(',p.read_text()), str(p)
+          PY
+      - run: git diff --check
+      - name: Build, compile UI tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: batch-ui-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated changes and retire workflow
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse HEAD)" = "$(git rev-parse FETCH_HEAD)"
+          rm .github/workflows/refine-batch-ui.yml
+          git add app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceList*.kt .github/workflows/refine-batch-ui.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(devices): unify batch dialogs and refine filter defaults'
+          git push origin HEAD:dev
