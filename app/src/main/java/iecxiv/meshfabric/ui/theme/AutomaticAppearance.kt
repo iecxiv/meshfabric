@@ -8,25 +8,19 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 
-import android.app.TimePickerDialog
 import android.content.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import iecxiv.meshfabric.R
-import iecxiv.meshfabric.ui.components.AppAlertDialog
 import kotlinx.coroutines.delay
 import java.text.Normalizer
 import java.time.*
@@ -149,15 +143,14 @@ private fun readAppearance(p:SharedPreferences)=AppearanceOptions(p.getString("m
         scheduledAppearanceDark(local.hour*60+local.minute,options.light,options.dark) ?: systemDark
     } else solarCities.firstOrNull { it.id==options.cityId }?.let { solarAppearanceDark(now,it) } ?: systemDark
 }
-private fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalizer.Form.NFD).replace(Regex("\\p{M}+"),"").lowercase(Locale.ROOT)
+internal fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalizer.Form.NFD).replace(Regex("\\p{M}+"),"").lowercase(Locale.ROOT)
 @Composable internal fun AppearanceModeSettings(mode:AppThemeMode,onMode:(AppThemeMode)->Unit) {
     val context=LocalContext.current
     val prefs=remember(context) { appearancePrefs(context) }
     val options=rememberAppearanceOptions()
     val now=rememberAppearanceNow()
     var expanded by remember { mutableStateOf(false) }
-    var choosingCity by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
+    var editingTime by remember { mutableStateOf<Boolean?>(null) }
     val labels=listOf(stringResource(R.string.theme_system),stringResource(R.string.theme_light),stringResource(R.string.theme_dark),stringResource(R.string.appearance_scheduled),stringResource(R.string.appearance_solar))
     val selected=when(options.mode) { "scheduled"->3;"solar"->4;else->when(mode) { AppThemeMode.SYSTEM->0;AppThemeMode.LIGHT->1;AppThemeMode.DARK->2 } }
     BoxWithConstraints(Modifier.fillMaxWidth().testTag("appearance_section_layout"),contentAlignment=Alignment.Center) {
@@ -201,18 +194,15 @@ private fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalizer
                 for(isLight in listOf(true,false)) {
                     val minutes=(if(isLight) options.light else options.dark).coerceIn(0,1439)
                     val label=stringResource(if(isLight) R.string.appearance_light_at else R.string.appearance_dark_at)
-                    OutlinedButton(onClick={
-                        TimePickerDialog(context,{_,hour,minute->
-                            val value=hour*60+minute
-                            if(value!=(if(isLight) options.dark else options.light)) prefs.edit().putInt(if(isLight) "light" else "dark",value).apply()
-                        },minutes/60,minutes%60,android.text.format.DateFormat.is24HourFormat(context)).show()
-                    },modifier=Modifier.fillMaxWidth().testTag(if(isLight) "appearance_light_time" else "appearance_dark_time")) { Text(label+": "+String.format(Locale.ROOT,"%02d:%02d",minutes/60,minutes%60)) }
+                    OutlinedButton(onClick={editingTime=isLight},modifier=Modifier.fillMaxWidth().testTag(if(isLight) "appearance_light_time" else "appearance_dark_time")) {
+              Text(label+": "+String.format(Locale.ROOT,"%02d:%02d",minutes/60,minutes%60))
+          }
                 }
                 Text(stringResource(R.string.appearance_schedule_note),style=MaterialTheme.typography.bodySmall)
             }
             if(selected==4) {
                 val city=solarCities.firstOrNull { it.id==options.cityId }
-                OutlinedButton(onClick={query="";choosingCity=true},modifier=Modifier.fillMaxWidth().testTag("appearance_city_selector")) { Text(city?.name ?: stringResource(R.string.appearance_choose_city)) }
+                AppearanceCitySelector(city=city,maximumWidth=controlWidth,onSelect={chosen -> prefs.edit().putString("city",chosen.id).apply()})
                 Text(stringResource(R.string.appearance_solar_note),style=MaterialTheme.typography.bodySmall)
                 if(city==null) Text(stringResource(R.string.appearance_missing_city),style=MaterialTheme.typography.bodySmall)
                 else {
@@ -225,16 +215,24 @@ private fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalizer
                     }
                 }
             }
-            if(choosingCity) AppAlertDialog(onDismissRequest={choosingCity=false},
-                title={Text(stringResource(R.string.appearance_choose_city),fontWeight=FontWeight.Bold,fontSize=18.sp)},
-                text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(query,{query=it},singleLine=true,label={Text(stringResource(R.string.appearance_city_search))},modifier=Modifier.fillMaxWidth())
-                    val cities=solarCities.filter { appearanceSearch(it.name).contains(appearanceSearch(query)) }
-                    if(cities.isEmpty()) Text(stringResource(R.string.appearance_no_cities))
-                    LazyColumn(Modifier.fillMaxWidth().heightIn(max=280.dp)) {
-                        items(cities,key={it.id}) { city -> TextButton(onClick={prefs.edit().putString("city",city.id).apply();choosingCity=false},modifier=Modifier.fillMaxWidth()) { Text(city.name) } }
-                    }
-                }},confirmButton={TextButton(onClick={choosingCity=false}) {Text(stringResource(R.string.close))}})
+
         }
     }
+    if(selected==3) editingTime?.let { light ->
+        key(light) {
+            AppearanceAnalogTimeDialog(
+                title=stringResource(if(light) R.string.appearance_light_at else R.string.appearance_dark_at),
+                initialMinutes=if(light) options.light else options.dark,
+                otherMinutes=if(light) options.dark else options.light,
+                is24Hour=android.text.format.DateFormat.is24HourFormat(context),
+                onDismiss={editingTime=null},onSave={value ->
+                    val current=readAppearance(prefs)
+                    val other=if(light) current.dark else current.light
+                    if(current.mode=="scheduled" && appearanceTimeCanSave(value/60,value%60,other)) {
+                        prefs.edit().putInt(if(light) "light" else "dark",value).apply();editingTime=null
+                    }
+                })
+        }
+    }
+
 }
