@@ -81,19 +81,19 @@ private class BatchUploadLink(private val source: MeshCentralClient, private val
                 "/meshrelay.ashx?p=5&nodeid=${URLEncoder.encode(node.id, "UTF-8")}&id=$tunnel&rauth=$auth&auth=$auth")
             socket = OkHttpHelper.createClient(identity.tls).newBuilder().followRedirects(false).followSslRedirects(false).build()
                 .newWebSocket(Request.Builder().url(url).header("Cookie", identity.cookie).build(), object : WebSocketListener() {
-                    override fun onOpen(ws: WebSocket, response: Response) {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
                         synchronized(lock) {
-                            if (socket !== ws || !valid()) { ws.cancel(); fail(); return }
+                            if (socket !== webSocket || !valid()) { webSocket.cancel(); fail(); return }
                             runCatching { source.requestTunnel(node.id, 5, tunnel) }.onFailure { fail() }
                         }
                     }
-                    override fun onMessage(ws: WebSocket, text: String) { accept(ws, text) }
-                    override fun onMessage(ws: WebSocket, bytes: ByteString) {
-                        if (bytes.size > 2000000) fail() else accept(ws, bytes.utf8())
+                    override fun onMessage(webSocket: WebSocket, text: String) { accept(webSocket, text) }
+                    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        if (bytes.size > 2000000) fail() else accept(webSocket, bytes.utf8())
                     }
-                    override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) { fail() }
-                    override fun onClosing(ws: WebSocket, code: Int, reason: String) { fail(); ws.cancel() }
-                    override fun onClosed(ws: WebSocket, code: Int, reason: String) { fail() }
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { fail() }
+                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { fail(); webSocket.cancel() }
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { fail() }
                 })
         }
         scope.launch { while (isActive) { delay(100); if (!valid()) { fail(); break } } }
