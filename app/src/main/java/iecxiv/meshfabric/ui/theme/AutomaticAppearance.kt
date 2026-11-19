@@ -1,5 +1,13 @@
 package iecxiv.meshfabric.ui.theme
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+
 import android.app.TimePickerDialog
 import android.content.*
 import androidx.compose.foundation.layout.*
@@ -152,53 +160,81 @@ private fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalizer
     var query by remember { mutableStateOf("") }
     val labels=listOf(stringResource(R.string.theme_system),stringResource(R.string.theme_light),stringResource(R.string.theme_dark),stringResource(R.string.appearance_scheduled),stringResource(R.string.appearance_solar))
     val selected=when(options.mode) { "scheduled"->3;"solar"->4;else->when(mode) { AppThemeMode.SYSTEM->0;AppThemeMode.LIGHT->1;AppThemeMode.DARK->2 } }
-    Box {
-        OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth()) { Text(labels[selected]) }
-        DropdownMenu(expanded=expanded,onDismissRequest={expanded=false}) {
-            labels.forEachIndexed { index,label ->
-                DropdownMenuItem(text={Text(label)},trailingIcon={RadioButton(selected==index,onClick=null)},onClick={
-                    if(index<3) onMode(listOf(AppThemeMode.SYSTEM,AppThemeMode.LIGHT,AppThemeMode.DARK)[index])
-                    prefs.edit().putString("mode",when(index) {3->"scheduled";4->"solar";else->""}).apply();expanded=false
-                })
+    BoxWithConstraints(Modifier.fillMaxWidth().testTag("appearance_section_layout"),contentAlignment=Alignment.Center) {
+        val controlWidth=minOf(280.dp,maxWidth*0.9f)
+        Column(Modifier.width(controlWidth).testTag("appearance_controls"),horizontalAlignment=Alignment.CenterHorizontally,
+            verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            val icons=listOf(Icons.Default.SettingsSuggest,Icons.Default.LightMode,Icons.Default.DarkMode,Icons.Default.Schedule,Icons.Default.WbTwilight)
+            Box {
+                OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth().testTag("appearance_mode_selector"),
+                    shape=MaterialTheme.shapes.medium,
+                    border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+                    contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {
+                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp)) }
+                        Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2)
+                        Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp))
+                    }
+                }
+                DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},
+                    modifier=Modifier.width(controlWidth).heightIn(max=320.dp).testTag("appearance_mode_menu"),
+                    shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                    labels.forEachIndexed { index,label ->
+                        val chosen=selected==index
+                        DropdownMenuItem(
+                            modifier=Modifier.testTag("appearance_mode_option_$index").semantics { this.selected=chosen },
+                            text={Text(label,modifier=Modifier.testTag("appearance_mode_label_$index"),maxLines=2)},
+                            leadingIcon={Box(Modifier.size(24.dp).testTag("appearance_mode_icon_$index"),contentAlignment=Alignment.Center) {
+                                Icon(icons[index],contentDescription=null,modifier=Modifier.size(20.dp),tint=if(chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }},
+                            trailingIcon={Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
+                                Icon(Icons.Default.Check,contentDescription=null,modifier=Modifier.size(18.dp),tint=if(chosen) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent)
+                            }},onClick={
+                                if(index<3) onMode(listOf(AppThemeMode.SYSTEM,AppThemeMode.LIGHT,AppThemeMode.DARK)[index])
+                                prefs.edit().putString("mode",when(index) {3->"scheduled";4->"solar";else->""}).apply();expanded=false
+                            })
+                    }
+                }
             }
+            if(selected==3) {
+                for(isLight in listOf(true,false)) {
+                    val minutes=(if(isLight) options.light else options.dark).coerceIn(0,1439)
+                    val label=stringResource(if(isLight) R.string.appearance_light_at else R.string.appearance_dark_at)
+                    OutlinedButton(onClick={
+                        TimePickerDialog(context,{_,hour,minute->
+                            val value=hour*60+minute
+                            if(value!=(if(isLight) options.dark else options.light)) prefs.edit().putInt(if(isLight) "light" else "dark",value).apply()
+                        },minutes/60,minutes%60,android.text.format.DateFormat.is24HourFormat(context)).show()
+                    },modifier=Modifier.fillMaxWidth().testTag(if(isLight) "appearance_light_time" else "appearance_dark_time")) { Text(label+": "+String.format(Locale.ROOT,"%02d:%02d",minutes/60,minutes%60)) }
+                }
+                Text(stringResource(R.string.appearance_schedule_note),style=MaterialTheme.typography.bodySmall)
+            }
+            if(selected==4) {
+                val city=solarCities.firstOrNull { it.id==options.cityId }
+                OutlinedButton(onClick={query="";choosingCity=true},modifier=Modifier.fillMaxWidth().testTag("appearance_city_selector")) { Text(city?.name ?: stringResource(R.string.appearance_choose_city)) }
+                Text(stringResource(R.string.appearance_solar_note),style=MaterialTheme.typography.bodySmall)
+                if(city==null) Text(stringResource(R.string.appearance_missing_city),style=MaterialTheme.typography.bodySmall)
+                else {
+                    val zone=ZoneId.of(city.zone)
+                    val window=solarWindow(now.atZone(zone).toLocalDate(),city)
+                    if(window==null) Text(stringResource(R.string.appearance_no_sun),style=MaterialTheme.typography.bodySmall)
+                    else {
+                        val fmt=DateTimeFormatter.ofPattern("HH:mm").withZone(zone)
+                        Text(stringResource(R.string.appearance_solar_times,fmt.format(window.sunrise),fmt.format(window.sunset),city.zone),style=MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            if(choosingCity) AppAlertDialog(onDismissRequest={choosingCity=false},
+                title={Text(stringResource(R.string.appearance_choose_city),fontWeight=FontWeight.Bold,fontSize=18.sp)},
+                text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(query,{query=it},singleLine=true,label={Text(stringResource(R.string.appearance_city_search))},modifier=Modifier.fillMaxWidth())
+                    val cities=solarCities.filter { appearanceSearch(it.name).contains(appearanceSearch(query)) }
+                    if(cities.isEmpty()) Text(stringResource(R.string.appearance_no_cities))
+                    LazyColumn(Modifier.fillMaxWidth().heightIn(max=280.dp)) {
+                        items(cities,key={it.id}) { city -> TextButton(onClick={prefs.edit().putString("city",city.id).apply();choosingCity=false},modifier=Modifier.fillMaxWidth()) { Text(city.name) } }
+                    }
+                }},confirmButton={TextButton(onClick={choosingCity=false}) {Text(stringResource(R.string.close))}})
         }
     }
-    if(selected==3) {
-        for(isLight in listOf(true,false)) {
-            val minutes=(if(isLight) options.light else options.dark).coerceIn(0,1439)
-            val label=stringResource(if(isLight) R.string.appearance_light_at else R.string.appearance_dark_at)
-            OutlinedButton(onClick={
-                TimePickerDialog(context,{_,hour,minute->
-                    val value=hour*60+minute
-                    if(value!=(if(isLight) options.dark else options.light)) prefs.edit().putInt(if(isLight) "light" else "dark",value).apply()
-                },minutes/60,minutes%60,android.text.format.DateFormat.is24HourFormat(context)).show()
-            },modifier=Modifier.fillMaxWidth()) { Text(label+": "+String.format(Locale.ROOT,"%02d:%02d",minutes/60,minutes%60)) }
-        }
-        Text(stringResource(R.string.appearance_schedule_note),style=MaterialTheme.typography.bodySmall)
-    }
-    if(selected==4) {
-        val city=solarCities.firstOrNull { it.id==options.cityId }
-        OutlinedButton(onClick={query="";choosingCity=true},modifier=Modifier.fillMaxWidth()) { Text(city?.name ?: stringResource(R.string.appearance_choose_city)) }
-        Text(stringResource(R.string.appearance_solar_note),style=MaterialTheme.typography.bodySmall)
-        if(city==null) Text(stringResource(R.string.appearance_missing_city),style=MaterialTheme.typography.bodySmall)
-        else {
-            val zone=ZoneId.of(city.zone)
-            val window=solarWindow(now.atZone(zone).toLocalDate(),city)
-            if(window==null) Text(stringResource(R.string.appearance_no_sun),style=MaterialTheme.typography.bodySmall)
-            else {
-                val fmt=DateTimeFormatter.ofPattern("HH:mm").withZone(zone)
-                Text(stringResource(R.string.appearance_solar_times,fmt.format(window.sunrise),fmt.format(window.sunset),city.zone),style=MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-    if(choosingCity) AppAlertDialog(onDismissRequest={choosingCity=false},
-        title={Text(stringResource(R.string.appearance_choose_city),fontWeight=FontWeight.Bold,fontSize=18.sp)},
-        text={Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(query,{query=it},singleLine=true,label={Text(stringResource(R.string.appearance_city_search))},modifier=Modifier.fillMaxWidth())
-            val cities=solarCities.filter { appearanceSearch(it.name).contains(appearanceSearch(query)) }
-            if(cities.isEmpty()) Text(stringResource(R.string.appearance_no_cities))
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max=280.dp)) {
-                items(cities,key={it.id}) { city -> TextButton(onClick={prefs.edit().putString("city",city.id).apply();choosingCity=false},modifier=Modifier.fillMaxWidth()) { Text(city.name) } }
-            }
-        }},confirmButton={TextButton(onClick={choosingCity=false}) {Text(stringResource(R.string.close))}})
 }
