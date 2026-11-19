@@ -25,7 +25,7 @@ internal fun DeviceListBrowseControls(
             OutlinedButton(onClick = { open = true }) { Text(stringResource(R.string.device_list_sort_by)) }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 DeviceListSort.entries.forEach { option ->
-                    val supported = option == DeviceListSort.GROUP || option == DeviceListSort.DEVICE
+                    val supported = option in deviceListAvailableSorts
                     DropdownMenuItem(enabled = supported, text = {
                         val label = stringResource(when (option) {
                             DeviceListSort.GROUP -> R.string.device_list_sort_group

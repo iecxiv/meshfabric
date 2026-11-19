@@ -33,6 +33,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import iecxiv.meshfabric.R
+import iecxiv.meshfabric.ui.components.RemoteHeaderActions
+import iecxiv.meshfabric.ui.components.RemoteHeaderIcon
 import iecxiv.meshfabric.data.model.*
 import iecxiv.meshfabric.data.remote.ConnectionStatus
 import iecxiv.meshfabric.ui.components.MeshFabricAppBar
@@ -69,7 +71,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
         java.security.MessageDigest.getInstance("SHA-256").digest(scope.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
     }
     var sortName by rememberSaveable(scope) { mutableStateOf(preferences.getString("$preferenceKey.sort", "GROUP") ?: "GROUP") }
-    val sort = DeviceListSort.entries.firstOrNull { it.name == sortName && it in setOf(DeviceListSort.GROUP, DeviceListSort.DEVICE) } ?: DeviceListSort.GROUP
+    val sort = DeviceListSort.entries.firstOrNull { it.name == sortName && it in deviceListAvailableSorts } ?: DeviceListSort.GROUP
     var reverse by rememberSaveable(scope) { mutableStateOf(preferences.getBoolean("$preferenceKey.reverse", false)) }
     var groupBy by rememberSaveable(scope) { mutableStateOf(preferences.getBoolean("$preferenceKey.group", true)) }
     LaunchedEffect(scope, sort, reverse, groupBy) {
@@ -77,7 +79,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
             .putBoolean("$preferenceKey.reverse", reverse).putBoolean("$preferenceKey.group", groupBy).apply()
     }
     val groups = remember(filteredGroups, sort, reverse, groupBy) {
-        val rows = filteredGroups.flatMap { (group, nodes) -> nodes.map { DeviceListSortRow(it.id, it.name, group.name) } }.associateBy { it.id }
+        val rows = filteredGroups.flatMap { (group, nodes) -> nodes.map { deviceListInventorySortRow(group, it) } }.associateBy { it.id }
         val comparator = deviceListComparator(sort, reverse)
         val nodeComparator = Comparator<MeshNode> { a, b -> comparator.compare(rows.getValue(a.id), rows.getValue(b.id)) }
         if (!groupBy) {
