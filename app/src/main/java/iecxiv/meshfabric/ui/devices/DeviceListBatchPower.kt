@@ -95,12 +95,14 @@ private fun batchPowerPhaseLabel(phase: DeviceBatchPowerPhase): Int = when (phas
 @Composable
 internal fun DeviceListBatchActionsButton(source: MeshCentralClient, entries: List<Pair<MeshGroup, MeshNode>>, enabled: Boolean, onExport: () -> Unit) {
     val connected by source.connectionState.collectAsState()
+    val editTags = rememberDeviceBatchTagsAction(source, entries)
     var expanded by remember { mutableStateOf(false) }
     var request by remember(source) { mutableStateOf<DeviceBatchPowerRequest?>(null) }
     Box {
         OutlinedButton(enabled = enabled, onClick = { expanded = true }) { Text(stringResource(R.string.device_batch_menu, entries.size)) }
         DropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(text = { Text(stringResource(R.string.device_list_export_json)) }, onClick = { expanded = false; onExport() })
+            DropdownMenuItem(enabled = connected, text = { Text(stringResource(R.string.device_batch_tags_action)) }, onClick = { expanded = false; editTags() })
             HorizontalDivider()
             batchPowerActions.forEach { action ->
                 DropdownMenuItem(enabled = connected, text = { Text(stringResource(batchPowerActionLabel(action))) }, onClick = {

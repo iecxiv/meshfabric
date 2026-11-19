@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_tags_action">Edit tags</string>
+    <string name="device_batch_tags_add">Add tags</string>
+    <string name="device_batch_tags_remove">Remove tags</string>
+    <string name="device_batch_tags_replace">Replace all tags</string>
+    <string name="device_batch_tags_input">Tags separated by commas or newlines</string>
+    <string name="device_batch_tags_notice">Review each device before applying. Replace overwrites its complete tag set; an empty replacement clears all tags. Permissions and reviewed data are checked again. Unconfirmed changes are not retried automatically. Stopping does not undo writes already sent.</string>
+    <string name="device_batch_tags_clear">I understand that all tags will be removed from eligible devices.</string>
+    <string name="device_batch_tags_review">Review changes</string>
+    <string name="device_batch_tags_apply">Apply to %1$d</string>
+    <string name="device_batch_tags_unchanged">No changes needed</string>
+    <string name="device_batch_tags_saving">Rechecking, saving and verifying…</string>
+    <string name="device_batch_tags_verified">Tags verified by server readback</string>
+    <string name="device_batch_tags_conflict">Reviewed device data changed; not written</string>
+    <string name="device_batch_tags_before">Before: %1$s</string>
+    <string name="device_batch_tags_after">After: %1$s</string>
+    <string name="device_batch_tags_back">Back</string>
+    <string name="device_batch_tags_summary">Verified: %1$d · Unchanged: %2$d · Skipped/not sent: %3$d · Conflicts: %4$d · Rejected: %5$d · Unconfirmed: %6$d</string>
+</resources>
