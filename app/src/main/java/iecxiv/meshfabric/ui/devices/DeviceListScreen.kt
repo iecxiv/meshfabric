@@ -1,6 +1,9 @@
 package iecxiv.meshfabric.ui.devices
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,7 +49,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val fallbackNetworkVisibility = remember { MutableStateFlow(false) }
     val hideDeviceNetworkInfo by (viewModel.sessionManager?.hideDeviceNetworkInfoFlow ?: fallbackNetworkVisibility).collectAsState()
     val onlyOnline by (viewModel.sessionManager?.onlyOnlineDevicesFlow ?: fallbackOnlineFilter).collectAsState()
-    val groups = remember(allGroups, onlyOnline) {
+    val filteredGroups = remember(allGroups, onlyOnline) {
         if (!onlyOnline) allGroups else allGroups.mapNotNull { (group, nodes) ->
             nodes.filter { it.isOnline }.takeIf { it.isNotEmpty() }?.let { group to it }
         }
@@ -56,6 +60,53 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val networkLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val search by viewModel.searchQuery.collectAsState()
     val collapsed by viewModel.collapsedGroups.collectAsState()
+    val user by viewModel.userInfo.collectAsState()
+    val server = viewModel.meshClient.serverUrl
+    val account = user?.id.orEmpty()
+    val scope = "${server.length}:$server${account.length}:$account"
+    val preferences = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("device_list_browse", android.content.Context.MODE_PRIVATE)
+    val preferenceKey = remember(scope) {
+        java.security.MessageDigest.getInstance("SHA-256").digest(scope.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
+    }
+    var sortName by rememberSaveable(scope) { mutableStateOf(preferences.getString("$preferenceKey.sort", "GROUP") ?: "GROUP") }
+    val sort = DeviceListSort.entries.firstOrNull { it.name == sortName && it in setOf(DeviceListSort.GROUP, DeviceListSort.DEVICE) } ?: DeviceListSort.GROUP
+    var reverse by rememberSaveable(scope) { mutableStateOf(preferences.getBoolean("$preferenceKey.reverse", false)) }
+    var groupBy by rememberSaveable(scope) { mutableStateOf(preferences.getBoolean("$preferenceKey.group", true)) }
+    LaunchedEffect(scope, sort, reverse, groupBy) {
+        if (server.isNotBlank() && account.isNotBlank()) preferences.edit().putString("$preferenceKey.sort", sort.name)
+            .putBoolean("$preferenceKey.reverse", reverse).putBoolean("$preferenceKey.group", groupBy).apply()
+    }
+    val groups = remember(filteredGroups, sort, reverse, groupBy) {
+        val rows = filteredGroups.flatMap { (group, nodes) -> nodes.map { DeviceListSortRow(it.id, it.name, group.name) } }.associateBy { it.id }
+        val comparator = deviceListComparator(sort, reverse)
+        val nodeComparator = Comparator<MeshNode> { a, b -> comparator.compare(rows.getValue(a.id), rows.getValue(b.id)) }
+        if (!groupBy) {
+            if (filteredGroups.isEmpty()) emptyList() else listOf(MeshGroup(id = "device_list_flat") to filteredGroups.flatMap { it.second }.sortedWith(nodeComparator))
+        } else {
+            val groupComparator = deviceListComparator(DeviceListSort.GROUP, sort == DeviceListSort.GROUP && reverse)
+            filteredGroups.sortedWith(Comparator { a, b -> groupComparator.compare(
+                DeviceListSortRow(a.first.id, a.first.name, a.first.name), DeviceListSortRow(b.first.id, b.first.name, b.first.name)
+            ) }).map { (group, nodes) -> group to nodes.sortedWith(nodeComparator) }
+        }
+    }
+    val visibleIds = remember(groups, groupBy, search, collapsed) {
+        groups.flatMap { (group, nodes) -> if (!groupBy || search.isNotBlank() || group.id !in collapsed) nodes.map { it.id } else emptyList() }.toSet()
+    }
+    var selectionScope by rememberSaveable { mutableStateOf(scope) }
+    var selectedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    val selection = DeviceListSelection(selectionScope, selectedIds.toSet()).reconcile(scope, visibleIds)
+    val selectionActive = selectionMode && selectionScope == scope
+    fun updateSelection(value: DeviceListSelection) {
+        selectionScope = value.scope
+        selectedIds = value.ids.toList()
+    }
+    LaunchedEffect(scope, visibleIds) {
+        val changedScope = selectionScope != scope
+        updateSelection(selection)
+        if (changedScope) selectionMode = false
+    }
+    BackHandler(enabled = selectionActive) { selectionMode = false; selectedIds = emptyList() }
     val desktop by viewModel.desktopSessionsStatus.collectAsState()
     val terminal by viewModel.terminalSessionsStatus.collectAsState()
     val files by viewModel.fileSessionsStatus.collectAsState()
@@ -86,7 +137,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 Icon(Icons.Default.Link,stringResource(R.string.close_active_connections),Modifier.size(20.dp),
                     tint=if(hasConnectedSessions) Color(0xFF2196F3) else LocalContentColor.current)
             }
-            ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+            if (groupBy) ToolIcon(if(expanded) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
                 stringResource(if(expanded) R.string.collapse_all_groups else R.string.expand_all_groups)) { viewModel.toggleAllGroups() }
             DeviceHeaderFilter(showIps=!hideDeviceNetworkInfo,showDisconnected=!onlyOnline,
                 onShowIps={show->
@@ -113,6 +164,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
             }
             if(!hideSettings) ToolIcon(Icons.Default.Settings,stringResource(R.string.settings),onOpenSettings)
         } })
+        DeviceListBrowseControls(sort, reverse, groupBy, selectionActive, selection.ids.size, visibleIds.isNotEmpty(),
+            onSort = { sortName = it.name }, onReverse = { reverse = !reverse }, onGroup = { groupBy = !groupBy },
+            onSelection = {
+                selectionMode = !selectionActive
+                updateSelection(selection.clear())
+            }, onSelectAll = {
+                updateSelection(if (selection.ids.containsAll(visibleIds)) selection.clear() else selection.selectVisible(scope, visibleIds))
+            })
         AnimatedVisibility(showSearch) {
             LaunchedEffect(showSearch) {
                 if(showSearch) {
@@ -140,9 +199,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
             }
         } else LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp,vertical=8.dp)) {
             groups.forEach { (group,nodes)->
-                item(key="group_${group.id}") { GroupHeaderCard(group,nodes.count { it.isOnline },nodes.count { !it.isOnline },
-                    search.isNotBlank() || group.id !in collapsed) { viewModel.toggleGroupExpanded(group.id) } }
-                if(search.isNotBlank() || group.id !in collapsed) items(nodes,key={ "node_${it.id}" }) { node ->
+                val groupExpanded = !groupBy || search.isNotBlank() || group.id !in collapsed
+                if (groupBy) item(key="group_${group.id}") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (selectionActive) Checkbox(
+                            checked = nodes.isNotEmpty() && nodes.all { it.id in selection.ids },
+                            enabled = groupExpanded && nodes.isNotEmpty(),
+                            onCheckedChange = { updateSelection(selection.toggleGroup(scope, nodes.map { it.id }.toSet(), visibleIds)) }
+                        )
+                        Box(Modifier.weight(1f)) {
+                            GroupHeaderCard(group,nodes.count { it.isOnline },nodes.count { !it.isOnline },groupExpanded) { viewModel.toggleGroupExpanded(group.id) }
+                        }
+                    }
+                }
+                if(groupExpanded) items(nodes,key={ "node_${it.id}" }) { node ->
                     LaunchedEffect(node.id, networkRefresh, networkLifecycle, networkConnected) {
                         if (networkConnected && networkLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
                             while (true) {
@@ -153,7 +223,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
                     }
                     val clean=node.id.removePrefix("node//").removePrefix("node/").trim()
                     DeviceCard(node,desktop[clean] ?: SessionStatus.NONE,terminal[clean] ?: SessionStatus.NONE,files[clean] ?: SessionStatus.NONE,
-                        { onOpenDesktop(node.id,node.name) },{ onOpenTerminal(node.id,node.name) },{ onOpenFiles(node.id,node.name) }, showNetworkInfo = !hideDeviceNetworkInfo)
+                        { onOpenDesktop(node.id,node.name) },{ onOpenTerminal(node.id,node.name) },{ onOpenFiles(node.id,node.name) }, showNetworkInfo = !hideDeviceNetworkInfo,
+                        selectionMode = selectionActive, selected = node.id in selection.ids,
+                        onToggleSelection = { if (selectionActive) updateSelection(selection.toggle(scope, node.id, visibleIds)) },
+                        onStartSelection = { selectionMode = true; updateSelection(selection.toggle(scope, node.id, visibleIds)) })
                 }
             }
         }
@@ -179,20 +252,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
         }
     }
 }
+@OptIn(ExperimentalFoundationApi::class)
 @Composable fun DeviceCard(node:MeshNode,desktopStatus:SessionStatus=SessionStatus.NONE,terminalStatus:SessionStatus=SessionStatus.NONE,
-    fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit,showNetworkInfo:Boolean=true) {
+    fileStatus:SessionStatus=SessionStatus.NONE,onOpenDesktop:()->Unit,onOpenTerminal:()->Unit,onOpenFiles:()->Unit,showNetworkInfo:Boolean=true,
+    selectionMode:Boolean=false,selected:Boolean=false,onToggleSelection:(()->Unit)?=null,onStartSelection:(()->Unit)?=null) {
     val os=node.osDisplayName.ifEmpty { stringResource(R.string.device_os_unknown) }
     var otherExpanded by androidx.compose.runtime.saveable.rememberSaveable(node.id) { mutableStateOf(false) }
     var statusBadgeHeight by remember(node.id) { mutableStateOf(0.dp) }
     val statusBadgeDensity=LocalDensity.current
-    Card(Modifier.fillMaxWidth().padding(vertical=4.dp),
-        border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+    Card(Modifier.fillMaxWidth().padding(vertical=4.dp).combinedClickable(
+        enabled = onStartSelection != null || selectionMode,
+        onClick = { onToggleSelection?.invoke() }, onLongClick = { onStartSelection?.invoke() }),
+        border=androidx.compose.foundation.BorderStroke(if(selected && selectionMode) 2.dp else 1.dp,if(selected && selectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors= iecxiv.meshfabric.ui.theme.appCardColors(
 CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
 ),
         elevation=CardDefaults.cardElevation(defaultElevation=2.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onToggleSelection?.invoke() })
                 Surface(Modifier.size(40.dp),shape=CircleShape,color=(if(node.isOnline) OnlineGreen else OfflineGray).copy(alpha=0.15f)) {
                     Box(contentAlignment=Alignment.Center) {
                         Icon(when {
@@ -220,15 +298,15 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                         color = if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Row(horizontalArrangement=Arrangement.spacedBy((-6).dp),verticalAlignment=Alignment.CenterVertically) {
+                if (!selectionMode) Row(horizontalArrangement=Arrangement.spacedBy((-6).dp),verticalAlignment=Alignment.CenterVertically) {
                     DeviceOptionsToggle(otherExpanded) { otherExpanded = !otherExpanded }
                     Box(Modifier.size(38.dp),contentAlignment=Alignment.Center) {
                         LocalDeviceActionMenu.current(node)
                     }
                 }
             }
-            AnimatedVisibility(otherExpanded) { DeviceOptionsRow(node,if(statusBadgeHeight>0.dp) statusBadgeHeight else 28.dp) }
-            if(node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE }) {
+            AnimatedVisibility(otherExpanded && !selectionMode) { DeviceOptionsRow(node,if(statusBadgeHeight>0.dp) statusBadgeHeight else 28.dp) }
+            if(!selectionMode && (node.isOnline || listOf(desktopStatus,terminalStatus,fileStatus).any { it!=SessionStatus.NONE })) {
                 Spacer(Modifier.height(if(otherExpanded) 4.dp else 8.dp))
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                     if(node.supportsDesktop || desktopStatus!=SessionStatus.NONE) SessionActionButton(stringResource(R.string.desktop),Icons.Default.DesktopWindows,desktopStatus,onOpenDesktop,Modifier.weight(1f)) else Spacer(Modifier.weight(1f))
