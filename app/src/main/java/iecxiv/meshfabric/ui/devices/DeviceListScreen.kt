@@ -172,6 +172,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
             }, onSelectAll = {
                 updateSelection(if (selection.ids.containsAll(visibleIds)) selection.clear() else selection.selectVisible(scope, visibleIds))
             })
+        if (selectionActive) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
+            DeviceListExportButton(viewModel.meshClient, filteredGroups.flatMap { (group, nodes) ->
+                nodes.filter { it.id in selection.ids }.map { group to it }
+            })
+        }
         AnimatedVisibility(showSearch) {
             LaunchedEffect(showSearch) {
                 if(showSearch) {

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_list_export_json">Exportar seleccionados a JSON</string>
+    <string name="device_list_export_done">Inventario guardado</string>
+    <string name="device_list_export_failed">No se pudo guardar el inventario o cambió la sesión. Selecciona los dispositivos e inténtalo de nuevo.</string>
+</resources>

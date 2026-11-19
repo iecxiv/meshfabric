@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_list_export_json">Export selected to JSON</string>
+    <string name="device_list_export_done">Inventory saved</string>
+    <string name="device_list_export_failed">Could not save the inventory, or the session changed. Select the devices and try again.</string>
+</resources>
