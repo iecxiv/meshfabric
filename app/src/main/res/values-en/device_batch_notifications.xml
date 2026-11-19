@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_notify_action">Notify devices</string>
+    <string name="device_batch_notify_title">Title</string>
+    <string name="device_batch_notify_body">Message</string>
+    <string name="device_batch_notify_notice">Remote system notification (toast), not a message box or mobile push. Title: up to 160 characters; message: up to 512. Review the fixed targets before sending. Requires a connected agent, permissions and remote graphical-session support. Server acceptance does not prove display or reading. One attempt per device, no automatic resend. Stopping does not retract notifications already sent.</string>
+    <string name="device_batch_notify_review">Review notification</string>
+    <string name="device_batch_notify_send">Send once to %1$d</string>
+    <string name="device_batch_notify_accepted">Accepted by the server; display and reading unconfirmed</string>
+</resources>

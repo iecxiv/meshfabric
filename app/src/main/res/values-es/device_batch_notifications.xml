@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_notify_action">Notificar dispositivos</string>
+    <string name="device_batch_notify_title">Título</string>
+    <string name="device_batch_notify_body">Mensaje</string>
+    <string name="device_batch_notify_notice">Aviso del sistema remoto (toast), no mensaje en ventana ni push móvil. Título: hasta 160 caracteres; mensaje: hasta 512. Revisa los destinos fijos antes de enviar. Requiere agente conectado, permisos y soporte de la sesión gráfica remota. La aceptación del servidor no acredita visualización ni lectura. Un intento por dispositivo, sin reenvío automático. Detener no retira los avisos ya enviados.</string>
+    <string name="device_batch_notify_review">Revisar notificación</string>
+    <string name="device_batch_notify_send">Enviar una vez a %1$d</string>
+    <string name="device_batch_notify_accepted">Aceptado por el servidor; visualización y lectura sin confirmar</string>
+</resources>
