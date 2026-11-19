@@ -57,7 +57,8 @@ class DeviceListInventoryTagsTest {
         val node = MeshNode(id = "node//one", tags = listOf("á", "tag"))
         assertEquals(node.tags, gson.fromJson(gson.toJson(node), MeshNode::class.java).tags)
     }
-    @Test fun unsupportedCriteriaRemainDisabled() {
-        assertEquals(setOf(DeviceListSort.GROUP, DeviceListSort.POWER, DeviceListSort.DEVICE, DeviceListSort.TAGS, DeviceListSort.GROUP_TAGS, DeviceListSort.LAST_BOOT), deviceListAvailableSorts)
+    @Test fun allSevenCriteriaAreAvailable() {
+        assertEquals(DeviceListSort.entries.toSet(), deviceListAvailableSorts)
+        assertEquals(7, deviceListAvailableSorts.size)
     }
 }

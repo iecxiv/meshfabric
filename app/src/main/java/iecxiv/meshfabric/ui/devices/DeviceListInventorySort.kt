@@ -3,10 +3,7 @@ package iecxiv.meshfabric.ui.devices
 import iecxiv.meshfabric.data.model.MeshGroup
 import iecxiv.meshfabric.data.model.MeshNode
 
-internal val deviceListAvailableSorts = setOf(
-    DeviceListSort.GROUP, DeviceListSort.POWER, DeviceListSort.DEVICE, DeviceListSort.TAGS,
-    DeviceListSort.GROUP_TAGS, DeviceListSort.LAST_BOOT
-)
+internal val deviceListAvailableSorts = DeviceListSort.entries.toSet()
 
 internal fun deviceListPoweredOn(state: Int?): Boolean? = when (state) {
     1 -> true
@@ -16,4 +13,5 @@ internal fun deviceListPoweredOn(state: Int?): Boolean? = when (state) {
 
 internal fun deviceListInventorySortRow(group: MeshGroup, node: MeshNode) =
     DeviceListSortRow(node.id, node.name, group.name, tags = node.tags.orEmpty(),
-        poweredOn = deviceListPoweredOn(node.pwr), lastBoot = node.lastBootTime)
+        poweredOn = deviceListPoweredOn(node.pwr), lastSeen = node.lastSeenAt,
+        lastBoot = node.lastBootTime, currentlyConnected = node.lastSeenConnected)

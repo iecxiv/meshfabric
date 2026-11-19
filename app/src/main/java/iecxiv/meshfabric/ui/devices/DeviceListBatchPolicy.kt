@@ -14,7 +14,8 @@ internal data class DeviceListSortRow(
     val tags: List<String> = emptyList(),
     val poweredOn: Boolean? = null,
     val lastSeen: Long? = null,
-    val lastBoot: Long? = null
+    val lastBoot: Long? = null,
+    val currentlyConnected: Boolean = false
 )
 
 private fun deviceListText(value: String): String? =
@@ -29,6 +30,17 @@ private fun <T : Comparable<T>> deviceListCompare(a: T?, b: T?, descending: Bool
     return if (descending) b.compareTo(a) else a.compareTo(b)
 }
 
+private fun deviceListLastSeenCompare(a: DeviceListSortRow, b: DeviceListSortRow, descending: Boolean): Int {
+    val aTime = a.lastSeen?.takeIf { it > 0L }
+    val bTime = b.lastSeen?.takeIf { it > 0L }
+    val aKnown = a.currentlyConnected || aTime != null
+    val bKnown = b.currentlyConnected || bTime != null
+    if (!aKnown) return if (!bKnown) 0 else 1
+    if (!bKnown) return -1
+    val connected = deviceListCompare(a.currentlyConnected, b.currentlyConnected, descending)
+    return if (connected != 0) connected else if (a.currentlyConnected) 0 else deviceListCompare(aTime, bTime, descending)
+}
+
 internal fun deviceListComparator(sort: DeviceListSort, reverse: Boolean = false): Comparator<DeviceListSortRow> {
     val descending = sort.newestFirst != reverse
     return Comparator { a, b ->
@@ -41,7 +53,7 @@ internal fun deviceListComparator(sort: DeviceListSort, reverse: Boolean = false
                 val group = deviceListCompare(deviceListText(a.groupName), deviceListText(b.groupName), descending)
                 if (group != 0) group else deviceListCompare(deviceListTags(a.tags), deviceListTags(b.tags), descending)
             }
-            DeviceListSort.LAST_SEEN -> deviceListCompare(a.lastSeen?.takeIf { it > 0L }, b.lastSeen?.takeIf { it > 0L }, descending)
+            DeviceListSort.LAST_SEEN -> deviceListLastSeenCompare(a, b, descending)
             DeviceListSort.LAST_BOOT -> deviceListCompare(a.lastBoot?.takeIf { it > 0L }, b.lastBoot?.takeIf { it > 0L }, descending)
         }
         if (primary != 0) primary else {
