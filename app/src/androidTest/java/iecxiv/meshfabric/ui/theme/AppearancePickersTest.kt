@@ -12,15 +12,18 @@ import org.junit.Rule
 import org.junit.Test
 class AppearancePickersTest {
     @get:Rule val compose=createComposeRule()
-    @Test fun cityAnchorGrowsWithName() {
+    @Test fun cityAnchorKeepsStableWidth() {
         var city by mutableStateOf(solarCities.first {it.id=="lima"})
         compose.setContent {MaterialTheme {Box(Modifier.fillMaxSize().testTag("picker_host")) {AppearanceCitySelector(city,280.dp,{city=it})}}}
         compose.waitForIdle()
         val small=compose.onNodeWithTag("appearance_city_selector").fetchSemanticsNode().boundsInRoot.width
         compose.runOnIdle {city=solarCities.first {it.id=="canarias"}};compose.waitForIdle()
         val large=compose.onNodeWithTag("appearance_city_selector").fetchSemanticsNode().boundsInRoot.width
-        assertTrue(large>small)
+        assertEquals(small,large,1f)
         assertTrue(large<compose.onNodeWithTag("picker_host").fetchSemanticsNode().boundsInRoot.width)
+        compose.onNodeWithTag("appearance_city_selector").performClick()
+        val menu=compose.onNodeWithTag("appearance_city_menu").fetchSemanticsNode().boundsInRoot.width
+        assertEquals(large,menu,1f)
     }
     @Test fun citySearchStillSelectsTheCorrectId() {
         var selected:SolarCity?=null

@@ -10,14 +10,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,14 +29,10 @@ import iecxiv.meshfabric.ui.components.AppDialogSurface
     var query by remember {mutableStateOf("")}
     val searchLabel=stringResource(R.string.appearance_city_search)
     val label=city?.name ?: stringResource(R.string.appearance_choose_city)
-    val measurer=rememberTextMeasurer()
-    val style=MaterialTheme.typography.bodyLarge
-    val pixels=(solarCities.map {it.name}+searchLabel).maxOf {measurer.measure(AnnotatedString(it),style=style,softWrap=false).size.width}
-    val contentWidth=with(LocalDensity.current) {pixels.toDp().value}
-    val menuWidth=appearanceCityPopupWidth(contentWidth,maximumWidth.value).dp
+    val menuWidth=maximumWidth
     val cities=solarCities.filter {appearanceSearch(it.name).contains(appearanceSearch(query))}
     Box {
-        OutlinedButton(onClick={query="";expanded=true},modifier=Modifier.widthIn(max=maximumWidth).testTag("appearance_city_selector"),
+        OutlinedButton(onClick={query="";expanded=true},modifier=Modifier.width(maximumWidth).testTag("appearance_city_selector"),
             shape=MaterialTheme.shapes.medium,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {
             Text(label,modifier=Modifier.weight(1f,fill=false),maxLines=2)
             Spacer(Modifier.width(8.dp))
