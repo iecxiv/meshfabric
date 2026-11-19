@@ -1,0 +1,203 @@
+name: Compact appearance controls and align option icons
+'on':
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/compact-appearance.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: compact-appearance-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare exact appearance layout candidate
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,textwrap
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='6936b035db7d15d4d2723540e99c274cb14d4885'
+          assert git('diff','--name-only','HEAD^','HEAD')=='.github/workflows/compact-appearance.yml'
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/theme/AutomaticAppearance.kt')
+          assert git('hash-object',str(p))=='b557d35ea01c680180eabc48af04ef1b22bf1b23'
+          old=p.read_text()
+          fn=old.index('@Composable internal fun AppearanceModeSettings(')
+          begin=old.index('    Box {\n        OutlinedButton(onClick={expanded=true}',fn)
+          lower=old.index('    if(selected==3) {',begin)
+          end=old.rfind('\n}')
+          assert old[end:].strip()=='}'
+          assert old[begin:lower].count('DropdownMenuItem(')==1
+          rest=old[lower:end]
+          anchor='},modifier=Modifier.fillMaxWidth()) { Text(label+": "+String.format'
+          assert rest.count(anchor)==1
+          rest=rest.replace(anchor,'},modifier=Modifier.fillMaxWidth().testTag(if(isLight) "appearance_light_time" else "appearance_dark_time")) { Text(label+": "+String.format',1)
+          anchor='OutlinedButton(onClick={query="";choosingCity=true},modifier=Modifier.fillMaxWidth())'
+          assert rest.count(anchor)==1
+          rest=rest.replace(anchor,'OutlinedButton(onClick={query="";choosingCity=true},modifier=Modifier.fillMaxWidth().testTag("appearance_city_selector"))',1)
+          selector='''    BoxWithConstraints(Modifier.fillMaxWidth().testTag("appearance_section_layout"),contentAlignment=Alignment.Center) {
+                  val controlWidth=minOf(280.dp,maxWidth*0.9f)
+                  Column(Modifier.width(controlWidth).testTag("appearance_controls"),horizontalAlignment=Alignment.CenterHorizontally,
+                      verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                      val icons=listOf(Icons.Default.SettingsSuggest,Icons.Default.LightMode,Icons.Default.DarkMode,Icons.Default.Schedule,Icons.Default.WbTwilight)
+                      Box {
+                          OutlinedButton(onClick={expanded=true},modifier=Modifier.fillMaxWidth().testTag("appearance_mode_selector"),
+                              shape=MaterialTheme.shapes.medium,
+                              border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+                              contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {
+                              Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                  Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp)) }
+                                  Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2)
+                                  Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp))
+                              }
+                          }
+                          DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},
+                              modifier=Modifier.width(controlWidth).heightIn(max=320.dp).testTag("appearance_mode_menu"),
+                              shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,
+                              tonalElevation=2.dp,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+                              labels.forEachIndexed { index,label ->
+                                  val chosen=selected==index
+                                  DropdownMenuItem(
+                                      modifier=Modifier.testTag("appearance_mode_option_$index").semantics { selected=chosen },
+                                      text={Text(label,modifier=Modifier.testTag("appearance_mode_label_$index"),maxLines=2)},
+                                      leadingIcon={Box(Modifier.size(24.dp).testTag("appearance_mode_icon_$index"),contentAlignment=Alignment.Center) {
+                                          Icon(icons[index],contentDescription=null,modifier=Modifier.size(20.dp),tint=if(chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                      }},
+                                      trailingIcon={Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
+                                          Icon(Icons.Default.Check,contentDescription=null,modifier=Modifier.size(18.dp),tint=if(chosen) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent)
+                                      }},onClick={
+                                          if(index<3) onMode(listOf(AppThemeMode.SYSTEM,AppThemeMode.LIGHT,AppThemeMode.DARK)[index])
+                                          prefs.edit().putString("mode",when(index) {3->"scheduled";4->"solar";else->""}).apply();expanded=false
+                                      })
+                              }
+                          }
+                      }
+          '''
+          s=old[:begin]+selector+textwrap.indent(rest,'        ')+'\n        }\n    }'+old[end:]
+          imports='''import androidx.compose.foundation.BorderStroke
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.semantics.selected
+          import androidx.compose.ui.semantics.semantics
+          '''
+          s=s.replace('package iecxiv.meshfabric.ui.theme\n','package iecxiv.meshfabric.ui.theme\n\n'+imports,1)
+          before=old.split('internal data class SolarCity',1)[1].split('@Composable internal fun AppearanceModeSettings',1)[0]
+          after=s.split('internal data class SolarCity',1)[1].split('@Composable internal fun AppearanceModeSettings',1)[0]
+          assert before==after,'Appearance policy or preferences changed'
+          assert s.count('appearance_mode_icon_$index')==1
+          assert s.count('if(index<3) onMode(')==1
+          p.write_text(s)
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/theme/AppearanceSelectorLayoutTest.kt')
+          assert not test.exists()
+          test.parent.mkdir(parents=True,exist_ok=True)
+          test.write_text('''package iecxiv.meshfabric.ui.theme
+
+          import android.content.Context
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.test.platform.app.InstrumentationRegistry
+          import org.junit.After
+          import org.junit.Before
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.Assert.*
+
+          class AppearanceSelectorLayoutTest {
+              @get:Rule val compose=createComposeRule()
+              private val context get()=InstrumentationRegistry.getInstrumentation().targetContext
+              private fun clearPreferences() { context.getSharedPreferences("automatic_appearance",Context.MODE_PRIVATE).edit().clear().commit() }
+              @Before fun setup() { clearPreferences() }
+              @After fun cleanup() { clearPreferences() }
+              private fun render() {
+                  compose.setContent {
+                      MaterialTheme {
+                          Box(Modifier.fillMaxSize().testTag("appearance_test_root")) { AppearanceModeSettings(AppThemeMode.SYSTEM,{}) }
+                      }
+                  }
+              }
+              private fun choose(index:Int) {
+                  compose.onNodeWithTag("appearance_mode_selector").performClick()
+                  compose.onNodeWithTag("appearance_mode_option_$index").performClick()
+                  compose.waitForIdle()
+              }
+              private fun compact(tag:String) {
+                  val root=compose.onNodeWithTag("appearance_test_root").fetchSemanticsNode().boundsInRoot
+                  val bounds=compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+                  assertTrue(bounds.width<root.width)
+                  assertTrue(bounds.width<=280f*context.resources.displayMetrics.density+1f)
+                  assertEquals(root.center.x,bounds.center.x,1f)
+              }
+              @Test fun selectorIsCompactAndCentered() {
+                  render();compact("appearance_mode_selector")
+              }
+              @Test fun menuIconsAndLabelsHaveStableColumns() {
+                  render();compose.onNodeWithTag("appearance_mode_selector").performClick()
+                  val firstIcon=compose.onNodeWithTag("appearance_mode_icon_0",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot
+                  val firstLabel=compose.onNodeWithTag("appearance_mode_label_0",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot
+                  for(index in 1..4) {
+                      val icon=compose.onNodeWithTag("appearance_mode_icon_$index",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot
+                      val label=compose.onNodeWithTag("appearance_mode_label_$index",useUnmergedTree=true).fetchSemanticsNode().boundsInRoot
+                      assertEquals(firstIcon.left,icon.left,1f);assertEquals(firstIcon.width,icon.width,1f)
+                      assertEquals(firstLabel.left,label.left,1f)
+                  }
+              }
+              @Test fun scheduledControlsStayCompact() {
+                  render();choose(3);compact("appearance_light_time");compact("appearance_dark_time")
+              }
+              @Test fun solarCityControlStaysCompact() {
+                  render();choose(4);compact("appearance_city_selector")
+              }
+          }
+          ''')
+          assert git('diff','--name-only')==str(p)
+          assert git('hash-object','app/build.gradle.kts')=='71466c471ee7dc9cea48ad2ffbed23185aa4076d'
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Build, compile UI tests, run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compact-appearance-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated layout and retire workflow
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse HEAD)" = "$(git rev-parse FETCH_HEAD)"
+          test "$(git hash-object app/build.gradle.kts)" = "71466c471ee7dc9cea48ad2ffbed23185aa4076d"
+          rm .github/workflows/compact-appearance.yml
+          git add app/src/main/java/iecxiv/meshfabric/ui/theme/AutomaticAppearance.kt app/src/androidTest/java/iecxiv/meshfabric/ui/theme/AppearanceSelectorLayoutTest.kt .github/workflows/compact-appearance.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(settings): compact appearance controls and align menu icons'
+          git push origin HEAD:dev
