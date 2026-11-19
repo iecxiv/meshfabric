@@ -12,7 +12,6 @@ internal data class DeviceListSortRow(
     val name: String,
     val groupName: String,
     val tags: List<String> = emptyList(),
-    val groupTags: List<String> = emptyList(),
     val poweredOn: Boolean? = null,
     val lastSeen: Long? = null,
     val lastBoot: Long? = null
@@ -38,7 +37,10 @@ internal fun deviceListComparator(sort: DeviceListSort, reverse: Boolean = false
             DeviceListSort.POWER -> deviceListCompare(a.poweredOn, b.poweredOn, descending)
             DeviceListSort.DEVICE -> deviceListCompare(deviceListText(a.name), deviceListText(b.name), descending)
             DeviceListSort.TAGS -> deviceListCompare(deviceListTags(a.tags), deviceListTags(b.tags), descending)
-            DeviceListSort.GROUP_TAGS -> deviceListCompare(deviceListTags(a.groupTags), deviceListTags(b.groupTags), descending)
+            DeviceListSort.GROUP_TAGS -> {
+                val group = deviceListCompare(deviceListText(a.groupName), deviceListText(b.groupName), descending)
+                if (group != 0) group else deviceListCompare(deviceListTags(a.tags), deviceListTags(b.tags), descending)
+            }
             DeviceListSort.LAST_SEEN -> deviceListCompare(a.lastSeen?.takeIf { it > 0L }, b.lastSeen?.takeIf { it > 0L }, descending)
             DeviceListSort.LAST_BOOT -> deviceListCompare(a.lastBoot?.takeIf { it > 0L }, b.lastBoot?.takeIf { it > 0L }, descending)
         }

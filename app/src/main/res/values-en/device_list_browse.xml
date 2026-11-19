@@ -5,7 +5,7 @@
     <string name="device_list_sort_power">Power state</string>
     <string name="device_list_sort_device">Device</string>
     <string name="device_list_sort_tags">Tags</string>
-    <string name="device_list_sort_group_tags">Group tags</string>
+    <string name="device_list_sort_group_tags">Group / tags</string>
     <string name="device_list_sort_seen">Last seen</string>
     <string name="device_list_sort_boot">Last boot time</string>
     <string name="device_list_sort_pending">%1$s (data integration pending)</string>

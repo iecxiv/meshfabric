@@ -4,7 +4,8 @@ import iecxiv.meshfabric.data.model.MeshGroup
 import iecxiv.meshfabric.data.model.MeshNode
 
 internal val deviceListAvailableSorts = setOf(
-    DeviceListSort.GROUP, DeviceListSort.POWER, DeviceListSort.DEVICE, DeviceListSort.TAGS, DeviceListSort.LAST_BOOT
+    DeviceListSort.GROUP, DeviceListSort.POWER, DeviceListSort.DEVICE, DeviceListSort.TAGS,
+    DeviceListSort.GROUP_TAGS, DeviceListSort.LAST_BOOT
 )
 
 internal fun deviceListPoweredOn(state: Int?): Boolean? = when (state) {

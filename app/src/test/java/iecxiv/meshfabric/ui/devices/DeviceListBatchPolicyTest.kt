@@ -33,7 +33,7 @@ class DeviceListBatchPolicyTest {
     @Test fun missingTagsStayLastInBothDirections() {
         for (sort in listOf(DeviceListSort.TAGS, DeviceListSort.GROUP_TAGS)) {
             for (reverse in listOf(false, true)) {
-                val present = row("present").copy(tags = listOf("tag"), groupTags = listOf("tag"))
+                val present = row("present").copy(tags = listOf("tag"))
                 assertEquals("missing", listOf(row("missing"), present).sortedWith(deviceListComparator(sort, reverse)).last().id)
             }
         }
@@ -91,5 +91,37 @@ class DeviceListBatchPolicyTest {
         assertEquals("new", selection.scope)
         assertEquals(setOf("a"), selection.ids)
         assertTrue(selection.clear().ids.isEmpty())
+    }
+
+    @Test fun combinedSortPrioritizesTheGroupBeforeTags() {
+        val rows = listOf(row("z", group = "Zulu").copy(tags = listOf("alpha")), row("a", group = "Alpha").copy(tags = listOf("zulu")))
+        assertEquals(listOf("a", "z"), rows.sortedWith(deviceListComparator(DeviceListSort.GROUP_TAGS)).map { it.id })
+    }
+
+    @Test fun combinedSortUsesDeviceTagsWithinTheGroup() {
+        val rows = listOf(row("a", "Alpha").copy(tags = listOf("zulu")), row("z", "Zulu").copy(tags = listOf("alpha")))
+        assertEquals(listOf("z", "a"), rows.sortedWith(deviceListComparator(DeviceListSort.GROUP_TAGS)).map { it.id })
+    }
+
+    @Test fun combinedSortCanReverseBothKeysInAFlatList() {
+        val rows = listOf(row("aa", group = "A").copy(tags = listOf("alpha")), row("az", group = "A").copy(tags = listOf("zulu")), row("ba", group = "B").copy(tags = listOf("alpha")))
+        assertEquals(listOf("aa", "az", "ba"), rows.sortedWith(deviceListComparator(DeviceListSort.GROUP_TAGS)).map { it.id })
+        assertEquals(listOf("ba", "az", "aa"), rows.sortedWith(deviceListComparator(DeviceListSort.GROUP_TAGS, true)).map { it.id })
+    }
+
+    @Test fun untaggedDevicesStayInTheirGroupWithoutBeingRemoved() {
+        val rows = listOf(row("missing", group = "A"), row("present", group = "A").copy(tags = listOf("tag")), row("other", group = "B"))
+        for (reverse in listOf(false, true)) {
+            val sorted = rows.sortedWith(deviceListComparator(DeviceListSort.GROUP_TAGS, reverse))
+            assertEquals(3, sorted.size)
+            assertTrue(sorted.indexOfFirst { it.id == "present" } < sorted.indexOfFirst { it.id == "missing" })
+        }
+    }
+
+    @Test fun combinedSortNormalizesGroupAndTagKeysWithoutDuplicatingRows() {
+        val rows = listOf(row("2", "same", "GROUP").copy(tags = listOf("alpha", "zulu")), row("1", "same", " group ").copy(tags = listOf("Zulu", " alpha ", "ALPHA")))
+        for (reverse in listOf(false, true)) {
+            assertEquals(listOf("1", "2"), rows.sortedWith(deviceListComparator(DeviceListSort.GROUP_TAGS, reverse)).map { it.id })
+        }
     }
 }
