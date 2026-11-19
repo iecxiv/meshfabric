@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_run_action">Ejecutar comandos</string>
+    <string name="device_batch_run_interpreter">Elegir intérprete</string>
+    <string name="device_batch_run_command">Comando o script</string>
+    <string name="device_batch_run_notice">Se usa el mismo comando y el intérprete elegido explícitamente en los dispositivos revisados. Los incompatibles o sin permisos se omiten. Se ejecuta en el contexto del servicio del agente y puede modificar o eliminar datos. Máximo 64000 caracteres; no incluyas contraseñas ni tokens. Recibir salida no acredita una finalización correcta. Se capturan hasta 16000 caracteres por dispositivo y 262144 en total. Un intento por dispositivo, sin reenvío automático. Cerrar o detener pendientes termina el seguimiento local, pero no detiene procesos remotos ya iniciados.</string>
+    <string name="device_batch_run_review">Revisar comando y dispositivos</string>
+    <string name="device_batch_run_send">Enviar una vez a %1$d</string>
+    <string name="device_batch_run_running">Recomprobando, enviando o esperando salida…</string>
+    <string name="device_batch_run_received">Salida recibida; finalización correcta no verificada</string>
+    <string name="device_batch_run_error">Error o comando rechazado; consulta los detalles</string>
+    <string name="device_batch_run_truncated">Se limitó u omitió salida para respetar el límite de captura local.</string>
+    <string name="device_batch_run_show_output">Ver salida capturada</string>
+    <string name="device_batch_run_hide_output">Ocultar salida</string>
+    <string name="device_batch_run_stop">Detener pendientes / seguimiento</string>
+    <string name="device_batch_run_summary">Con salida: %1$d · Omitidos/no enviados: %2$d · Errores/rechazos: %3$d · Sin confirmar: %4$d</string>
+</resources>

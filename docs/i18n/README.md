@@ -1,17 +1,13 @@
-# UI localization inventory - not a completed localization
+# Localization audit and review status
 
 English | [Español](../es/i18n/README.md)
 
-The original inventory snapshot was prepared for version 1.1.1. The current fido-support app versionName is 1.3.8; versionCode remains 1. Four reviewed English-default terminal resource modules are now explicit values-en resources. Default translatable resource keys have explicit English coverage and placeholders are checked. This verifies resource structure, not translation meaning.
+Run `python3 tools/i18n/audit.py` from the repository. The audit writes summary.json, resource-issues.json and candidates.csv here. Missing explicit English/Spanish resource declarations, duplicate resources, array shape differences and format-signature differences block this maintenance publication; they are not filled with untranslated English fallback.
 
-Hardcoded UI text still exists, notably management states, operation labels, errors and terminal labels. candidates.csv inventories literals across main Kotlin/Java and non-vendored JS/HTML plus literal XML UI attributes. It is heuristic: comments, protocol keys, technical data and non-UI strings may appear; interpolated/composed text and runtime/server errors require manual review. Candidate content/context are bounded. Never blindly replace protocol, command or backend data strings. No runtime clipboard, terminal history, credentials or network content is read.
+Candidate scanning covers main Kotlin/Java literals, non-vendored JS/HTML literals and literal XML UI attributes. HTML text, interpolated/composed text, accessibility, runtime errors, aliases, identical translations and excluded assets require manual review. Candidates include protocol keys, test tags, proper names, technical data and already bilingual helpers; they are not automatically classified as untranslated UI. Never blindly replace commands, identifiers or backend data.
 
-This inventory is not proof that every UI phrase was found or translated. all_ui_externalized is deliberately false. Remaining migration needs reviewed resource mappings and lifecycle-safe resolution outside composables. No automatic language guessing or Spanish-as-English fallback is introduced.
+Resource parity does not prove translation meaning or complete localization. The report deliberately leaves overall UI completeness unverified. Review remaining candidates, both languages, font scaling and accessibility on device. Server/agent output and user data are not automatically translated. No runtime clipboard, credentials, terminal history or network content is collected.
 
-Compilation and JVM/Node checks gate publication. Lint is collected separately and its outcome is recorded below; failed lint is not treated as clean. Device English/Spanish layout and accessibility need review. Focus, keyboard, special keys, scrolling and networking are unchanged.
+App-provided YubiKit overrides remain subject to the same review. A completed key response must not be described as a verified authenticated session. Build/test/lint results belong to the publishing job and its artifacts, not to a blanket visual-validation claim.
 
-Lint outcome: success
-
-## YubiKit resources
-
-YubiKit remains at 3.3.0. App overrides provide Spanish prompts, results, PIN messages, accessibility labels and plurals, with complete default/English declarations. A completed key response is not announced as a verified MeshCentral session. This does not make the entire app localization complete.
+ONLINE and OFFLINE are intentional shared labels in both languages. They are not missing translations. CSV reports use LF line endings, quote every field and display embedded CR/LF as escape sequences.

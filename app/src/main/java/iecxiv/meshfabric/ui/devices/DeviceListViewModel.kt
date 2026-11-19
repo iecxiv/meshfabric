@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 
 class DeviceListViewModel(
     val meshClient: MeshCentralClient,
@@ -32,6 +34,13 @@ class DeviceListViewModel(
     val userInfo = meshClient.userInfo
     val isConnected = meshClient.connectionState
     val connectionStatus = meshClient.connectionStatus
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val lastSeenSnapshots = combine(meshClient.connectionState, meshClient.userInfo, networkRefresh) { connected, user, _ ->
+        if (connected && user?.id?.isNotBlank() == true) DeviceLastSeenBinding(meshClient) else null
+    }.flatMapLatest { binding ->
+        if (binding == null) flowOf(DeviceLastSeenSnapshot()) else deviceLastSeenSnapshots(binding)
+    }
 
     private val _collapsedGroups = MutableStateFlow<Set<String>>(emptySet())
     val collapsedGroups: StateFlow<Set<String>> = _collapsedGroups.asStateFlow()
@@ -57,8 +66,8 @@ class DeviceListViewModel(
         sessionManager?.saveCollapsedGroups(current)
     }
 
-    fun toggleAllGroups() {
-        val allGroupIds = groupedDevices.value.map { it.first.id }.toSet()
+    fun toggleAllGroups(groupIds: Set<String>? = null) {
+        val allGroupIds = groupIds ?: groupedDevices.value.map { it.first.id }.toSet()
         val currentCollapsed = _collapsedGroups.value
         val isAnyExpanded = allGroupIds.any { it !in currentCollapsed }
 
@@ -78,28 +87,17 @@ class DeviceListViewModel(
     val groupedDevices: StateFlow<List<Pair<MeshGroup, List<MeshNode>>>> = combine(
         meshClient.groupedDevices,
         searchQuery,
-        meshClient.networkAddresses
-    ) { rawGroups, query, addresses ->
+        meshClient.networkAddresses,
+        lastSeenSnapshots
+    ) { rawGroups, _, addresses, lastSeen ->
+        val lastSeenMatches = lastSeen.binding?.matches() == true
         val groups = rawGroups.map { (group, nodes) ->
             group to nodes.map { node -> node.copy(networkIpv4 = addresses[
-                iecxiv.meshfabric.data.remote.DeviceNetworkIpv4.nodeKey(node.id)].orEmpty()) }
+                iecxiv.meshfabric.data.remote.DeviceNetworkIpv4.nodeKey(node.id)].orEmpty(),
+                lastSeenAt = if (lastSeenMatches) lastSeen.values[node.id] else null,
+                lastSeenConnected = lastSeenMatches && node.isOnline) }
         }
-        if (query.isBlank()) {
-            groups
-        } else {
-            val q = query.trim().lowercase()
-            groups.mapNotNull { (group, nodes) ->
-                val filteredNodes = nodes.filter { node ->
-                    node.name.lowercase().contains(q) ||
-                            (node.osdesc?.lowercase()?.contains(q) == true)
-                }
-                if (filteredNodes.isNotEmpty() || group.name.lowercase().contains(q)) {
-                    Pair(group, filteredNodes)
-                } else {
-                    null
-                }
-            }
-        }
+        groups
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),

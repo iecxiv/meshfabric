@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.data.model
 
 import com.google.gson.annotations.SerializedName
+import com.google.gson.annotations.JsonAdapter
 
 data class UserInfo(
     @SerializedName("_id") val id: String = "",
@@ -37,7 +38,16 @@ data class MeshNode(
     val icon: Int = 0,
     val caps: Int = 0,
     val p: Int = 0,
-    @Transient val networkIpv4: List<DeviceIpv4> = emptyList()
+    @Transient val networkIpv4: List<DeviceIpv4> = emptyList(),
+    @field:JsonAdapter(DeviceTagsAdapter::class) val tags: List<String>? = null,
+    @field:JsonAdapter(DeviceTimestampAdapter::class)
+    @SerializedName("lastbootuptime") val lastBootTime: Long? = null,
+    @field:JsonAdapter(DevicePowerStateAdapter::class) val pwr: Int? = null,
+    @Transient val lastSeenAt: Long? = null,
+    @Transient val lastSeenConnected: Boolean = false,
+    val rname: String? = null,
+    val intelamt: com.google.gson.JsonElement? = null,
+    val sessions: com.google.gson.JsonElement? = null
 ) {
     val isOnline: Boolean
         get() = (conn and 1) != 0 || (conn and 2) != 0 || conn > 0

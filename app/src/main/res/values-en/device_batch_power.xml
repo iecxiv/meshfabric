@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_menu">Group action (%1$d)</string>
+    <string name="device_batch_wake">Wake devices</string>
+    <string name="device_batch_restart">Restart devices</string>
+    <string name="device_batch_shutdown">Shut down devices</string>
+    <string name="device_batch_sleep">Sleep devices</string>
+    <string name="device_batch_review">%1$s · %2$d devices</string>
+    <string name="device_batch_notice">Review the fixed target list before sending. Only eligible devices will receive the request. Server acceptance does not confirm execution. Unconfirmed requests are not retried automatically. Stopping cannot undo requests already sent.</string>
+    <string name="device_batch_checking">Checking permissions and availability…</string>
+    <string name="device_batch_eligible">Eligible for confirmation</string>
+    <string name="device_batch_skipped">Skipped: permissions, connection or device data unavailable</string>
+    <string name="device_batch_sending">Checking again and sending…</string>
+    <string name="device_batch_accepted">Accepted by the server; execution not verified</string>
+    <string name="device_batch_rejected">Rejected by the server</string>
+    <string name="device_batch_not_sent">Not sent</string>
+    <string name="device_batch_unconfirmed">Unconfirmed; check the device before retrying</string>
+    <string name="device_batch_send">Send to %1$d</string>
+    <string name="device_batch_stop">Stop pending requests</string>
+    <string name="device_batch_summary">Accepted: %1$d · Skipped/not sent: %2$d · Rejected: %3$d · Unconfirmed: %4$d</string>
+</resources>

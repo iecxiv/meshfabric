@@ -189,7 +189,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                 },
                 actions = {
                     RemoteHeaderActions {
-                        DesktopRightClickAssistHeader(rightClickAssist)
                         IconButton(onClick = { showKeyboardDialog = true }, modifier = Modifier.size(38.dp)) {
                             RemoteHeaderIcon(Icons.Default.Keyboard, contentDescription = stringResource(R.string.keyboard_and_shortcuts))
                         }
@@ -529,6 +528,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.collapse_controls), modifier = Modifier.size(20.dp))
                                 }
                             }
+                            DesktopRightClickAssistToolbar(rightClickAssist)
                             val clickMode = desktopRememberedClickMode(selectedMode, lastClickMode)
                             val mouseModeActive = selectedMode == MouseMode.LEFT_CLICK || selectedMode == MouseMode.RIGHT_CLICK
                             val mouseModeDescription = stringResource(
@@ -572,7 +572,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     Icon(if (isFullScreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen, contentDescription = if (isFullScreen) stringResource(R.string.exit_fullscreen) else stringResource(R.string.fullscreen))
                                 }
                                 IconButton(onClick = { showGestureHelp = true }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Info, contentDescription = stringResource(R.string.desktop_gestures_title), modifier = Modifier.size(18.dp), tint = Color(0xFF9E9E9E))
+                                    Icon(Icons.Default.Info, contentDescription = stringResource(R.string.desktop_gestures_title), modifier = Modifier.size(18.dp).offset(x = (-3).dp), tint = Color(0xFF9E9E9E))
                                 }
                             }
                         }

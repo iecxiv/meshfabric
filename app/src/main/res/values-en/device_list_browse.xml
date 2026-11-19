@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_list_sort_by">Sort by</string>
+    <string name="device_list_sort_group">Group</string>
+    <string name="device_list_sort_power">Power state</string>
+    <string name="device_list_sort_device">Device</string>
+    <string name="device_list_sort_tags">Tags</string>
+    <string name="device_list_sort_group_tags">Group / tags</string>
+    <string name="device_list_sort_seen">Last seen</string>
+    <string name="device_list_sort_boot">Last boot time</string>
+    <string name="device_list_sort_pending">%1$s (data integration pending)</string>
+    <string name="device_list_reverse">Reverse order</string>
+    <string name="device_list_grouped">Group devices</string>
+    <string name="device_list_select">Select devices</string>
+    <string name="device_list_cancel_selection">Cancel selection</string>
+    <string name="device_list_selected_count">Selected: %1$d</string>
+    <string name="device_list_toggle_visible">Select / deselect visible</string>
+</resources>

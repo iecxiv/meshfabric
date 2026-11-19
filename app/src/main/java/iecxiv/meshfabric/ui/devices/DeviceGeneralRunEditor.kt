@@ -15,7 +15,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-internal data class GeneralRunDraft(val command:String,val interpreter:String,val os:String)
+internal data class GeneralRunDraft(val command:String,val interpreter:String,val os:String,val mesh:String?=null)
+internal fun generalRunContextMatches(draft:GeneralRunDraft,meta:GeneralMeta)=draft.os==meta.os && (draft.mesh==null || draft.mesh==meta.mesh)
 internal fun generalRunTextValid(value:String)=value.isNotBlank() && value.length<=64000 && !value.contains('\u0000') && Charsets.UTF_8.newEncoder().canEncode(value)
 internal fun generalRunAvailable(node:String,meta:GeneralMeta,inventory:List<Pair<MeshGroup,List<MeshNode>>>):Boolean {
     if(meta.rights and 131072L==0L) return false
@@ -26,7 +27,7 @@ internal fun generalRunAvailable(node:String,meta:GeneralMeta,inventory:List<Pai
 }
 internal fun generalRunPacket(node:String,id:String,draft:GeneralRunDraft,meta:GeneralMeta,inventory:List<Pair<MeshGroup,List<MeshNode>>>):JSONObject {
     require(node.startsWith("node/") && node.split('/').size==3 && node.substringAfterLast('/').isNotBlank() && node.length<=4096 && node.none {it.isISOControl()})
-    require(id.isNotBlank() && id.length<=128 && generalRunTextValid(draft.command) && draft.os==meta.os && generalRunAvailable(node,meta,inventory))
+    require(id.isNotBlank() && id.length<=128 && generalRunTextValid(draft.command) && generalRunContextMatches(draft,meta) && generalRunAvailable(node,meta,inventory))
     val interpreter=requireNotNull(commandInterpreters(meta.os).singleOrNull {it.key==draft.interpreter})
     return JSONObject().put("action","runcommands").put("nodeids",JSONArray().put(node)).put("type",interpreter.type).put("cmds",draft.command).put("runAsUser",0).put("reply",true).put("responseid",id)
 }

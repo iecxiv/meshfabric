@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_tags_action">Editar etiquetas</string>
+    <string name="device_batch_tags_add">Añadir etiquetas</string>
+    <string name="device_batch_tags_remove">Quitar etiquetas</string>
+    <string name="device_batch_tags_replace">Reemplazar todas las etiquetas</string>
+    <string name="device_batch_tags_input">Etiquetas separadas por comas o saltos de línea</string>
+    <string name="device_batch_tags_notice">Revisa cada dispositivo antes de aplicar. Reemplazar sobrescribe todas sus etiquetas; una lista vacía las elimina todas. Se vuelven a comprobar permisos y datos revisados. Los cambios sin confirmar no se reintentan automáticamente. Detener no deshace las escrituras ya enviadas.</string>
+    <string name="device_batch_tags_clear">Entiendo que se quitarán todas las etiquetas de los dispositivos aptos.</string>
+    <string name="device_batch_tags_review">Revisar cambios</string>
+    <string name="device_batch_tags_apply">Aplicar a %1$d</string>
+    <string name="device_batch_tags_unchanged">No necesita cambios</string>
+    <string name="device_batch_tags_saving">Recomprobando, guardando y verificando…</string>
+    <string name="device_batch_tags_verified">Etiquetas verificadas mediante lectura del servidor</string>
+    <string name="device_batch_tags_conflict">Cambiaron los datos revisados; no se ha escrito</string>
+    <string name="device_batch_tags_before">Antes: %1$s</string>
+    <string name="device_batch_tags_after">Después: %1$s</string>
+    <string name="device_batch_tags_back">Volver</string>
+    <string name="device_batch_tags_summary">Verificados: %1$d · Sin cambios: %2$d · Omitidos/no enviados: %3$d · Conflictos: %4$d · Rechazados: %5$d · Sin confirmar: %6$d</string>
+</resources>

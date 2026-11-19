@@ -18,6 +18,13 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 - Expand the card options to open General, Events, Details and the agent Console. Details remains available there without a duplicate information icon beside ONLINE/OFFLINE.
 - Header filters control offline-device and network-address visibility.
 
+### Device browsing and batch actions
+
+- Sort and filter devices, keep local favorites, select visible devices or groups, and export a reviewed selection as JSON.
+- The operating-system name preference is enabled by default when no choice is saved; toggling it does not change the filter-icon highlight.
+- Reviewed batch actions include power requests, tags, notifications, commands, group moves, agent update/core operations, agent uninstallation, device removal and file upload, subject to eligibility and verified permissions.
+- Batch dialogs adapt to content and screen space, keeping their title and action buttons outside the scrolling body. Accepted, queued, unconfirmed and verified results remain distinct.
+
 ### Native management and account security
 
 - Management provides My Account, Device Groups, Users and Groups (user groups) tabs.
@@ -82,6 +89,13 @@ Guide: [Agent installation and invitations](docs/agent-installation.md).
 - Clipboard controls and optional clipboard synchronization, subject to remote-session and server restrictions.
 - Settings for mouse-button swapping, wheel direction, remote keyboard mapping, and locking on disconnect.
 - Gesture capture is renewed when viewport or fitted-image dimensions change, so the handler no longer retains pre-rotation geometry. Test clicks, long presses, and scroll after rotating on the intended device.
+
+#### Displays and floating controls
+
+- Select a desktop monitor, or All displays when the agent supports it; unavailable capabilities are not invented.
+- One persistent toggle alternates left/right mouse mode and highlights the active button in blue. Scroll has its own icon and restores the remembered click mode when leaving it.
+- The separate one-shot right-click assistant is toggled after the toolbar collapse control, without a frame or visible text. Information remains last.
+- New desktop sessions start in left-click mode; reconnecting or rotating an existing session preserves its mode.
 
 #### Software and physical keyboard input
 
@@ -253,12 +267,13 @@ Guide: [Log and Events](docs/log.md). Protocol reference: [Trace sources](docs/r
 
 ### Appearance and language resources
 
-- Material 3 interface with system, light, and dark theme modes.
+- Material 3 interface with System, Light, Dark, Scheduled and Automatic solar appearance modes.
+- Scheduled mode uses editable light/dark times in the device time zone. Solar mode uses a manually selected city from the bundled catalogue and local calculations, without GPS, location permissions or a network lookup. Missing city or unavailable solar events temporarily use the system mode.
+- The appearance selector and optional controls are compact and centered; menu icons and labels use aligned columns.
 - Custom app display name and icon, plus a setting to hide the settings icon.
-- English and Spanish Android resource files are provided, including terminal reconnection, history-panel, deletion, close, and history-header controls.
-- English and Spanish coverage includes desktop controls, shortcut labels, terminal navigation, file-transfer feedback and related management messages. Coverage is not a guarantee that every visible phrase is localized; remote output and server/agent messages can remain in their original language.
+- English and Spanish resources are checked for missing declarations and placeholder compatibility. Source literals, accessibility labels, assets and translation meaning still need review; remote output is not automatically translated.
 
-The localization inventory and its limitations are documented in [docs/i18n](docs/i18n/README.md).
+See [Device controls and batch actions](docs/device-controls.md) and [Localization audit](docs/i18n/README.md). The audit is not a declaration that every visible phrase has been translated.
 
 ## Requirements
 

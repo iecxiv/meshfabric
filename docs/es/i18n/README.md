@@ -1,17 +1,13 @@
-# Inventario de localización de interfaz: no es una localización completada
+# Auditoría de traducciones y estado de revisión
 
 [English](../../i18n/README.md) | Español
 
-El inventario original se preparó para la versión 1.1.1. El versionName actual de la app en fido-support es 1.3.8; versionCode permanece en 1. Cuatro módulos revisados de recursos del terminal, con inglés predeterminado, son ahora recursos explícitos values-en. Las claves traducibles predeterminadas tienen cobertura inglesa explícita y se comprueban los marcadores de posición. Esto verifica la estructura de recursos, no el significado de las traducciones.
+Ejecuta `python3 tools/i18n/audit.py` desde el repositorio. Se generan summary.json, resource-issues.json y candidates.csv en docs/i18n. Las declaraciones explícitas inglesas/españolas ausentes, recursos duplicados, diferencias de estructura de arrays o formatos incompatibles bloquean esta publicación de mantenimiento; no se rellenan con inglés sin traducir.
 
-Sigue habiendo texto de interfaz escrito directamente en código, especialmente estados de gestión, etiquetas de operaciones, errores y etiquetas del terminal. [candidates.csv](../../i18n/candidates.csv) inventaría literales de Kotlin/Java principales, JS/HTML no vendorizados y atributos XML de interfaz literales. Es heurístico: puede incluir comentarios, claves de protocolo, datos técnicos y cadenas ajenas a la interfaz; el texto interpolado/compuesto y los errores de ejecución/servidor requieren revisión manual. El contenido/contexto de candidatos está acotado. Nunca sustituir a ciegas cadenas de protocolo, comandos o datos del backend. No se leen portapapeles en ejecución, historiales del terminal, credenciales ni contenido de red.
+Se inventarían literales Kotlin/Java principales, JS/HTML no vendorizados y atributos XML de interfaz literales. Texto HTML, cadenas interpoladas/compuestas, accesibilidad, errores de ejecución, alias, traducciones idénticas y recursos excluidos requieren revisión manual. Los candidatos incluyen claves de protocolo, etiquetas de pruebas, nombres propios, datos técnicos y ayudantes ya bilingües; no se clasifican automáticamente como interfaz sin traducir. Nunca sustituir a ciegas comandos, identificadores ni datos del backend.
 
-Este inventario no demuestra que se hayan localizado o traducido todas las frases. all_ui_externalized es deliberadamente false. La migración restante necesita correspondencias de recursos revisadas y resolución segura respecto al ciclo de vida fuera de composables. No se introduce detección automática de idioma ni español como alternativa al inglés.
+La paridad de recursos no acredita el significado ni una localización completa. El informe deja la cobertura global sin verificar. Revisa candidatos, ambos idiomas, fuentes grandes y accesibilidad en dispositivo. Los datos del usuario y la salida del servidor/agente no se traducen automáticamente. No se recogen portapapeles, credenciales, historiales ni tráfico en ejecución.
 
-La compilación y comprobaciones JVM/Node condicionan la publicación. Lint se recoge por separado y su resultado se registra debajo; un fallo no se considera limpio. Deben revisarse disposición y accesibilidad en inglés/español sobre dispositivo. No cambian foco, teclado, teclas especiales, desplazamiento ni red.
+Los recursos de YubiKit aportados por la app también requieren revisión. Una respuesta completada de la llave no equivale a una sesión autenticada verificada. Los resultados de compilación, pruebas y lint corresponden al trabajo de publicación y sus artefactos, no a una validación visual global.
 
-Resultado de lint: correcto.
-
-## Recursos de YubiKit
-
-YubiKit permanece en 3.3.0. La app aporta textos españoles de instrucciones, resultados, PIN, accesibilidad y plurales, con declaraciones completas predeterminadas e inglesas. La respuesta completada de la llave no se anuncia como sesión MeshCentral verificada. Esto no completa la localización de toda la app.
+ONLINE y OFFLINE son etiquetas intencionadamente comunes en ambos idiomas, no traducciones pendientes. El CSV usa finales LF, entrecomilla todos los campos y representa los CR/LF internos mediante secuencias de escape.

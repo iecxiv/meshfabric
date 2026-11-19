@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_card_connection_online">ONLINE</string>
+    <string name="device_card_connection_offline">OFFLINE</string>
+</resources>

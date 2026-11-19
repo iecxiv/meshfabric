@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_batch_run_action">Run commands</string>
+    <string name="device_batch_run_interpreter">Choose interpreter</string>
+    <string name="device_batch_run_command">Command or script</string>
+    <string name="device_batch_run_notice">The same command and explicitly chosen interpreter are used for the reviewed devices. Incompatible or unauthorized devices are skipped. Commands run in the agent service context and can modify or delete data. Up to 64000 characters; do not include passwords or tokens. Output reception does not prove successful completion. Captured output is limited to 16000 characters per device and 262144 in total. One attempt per device, no automatic resend. Closing or stopping pending requests ends local monitoring but does not stop remote processes already started.</string>
+    <string name="device_batch_run_review">Review command and devices</string>
+    <string name="device_batch_run_send">Send once to %1$d</string>
+    <string name="device_batch_run_running">Rechecking, sending or waiting for output…</string>
+    <string name="device_batch_run_received">Output received; successful completion not verified</string>
+    <string name="device_batch_run_error">Error or rejected command; inspect the details</string>
+    <string name="device_batch_run_truncated">Output was limited or omitted to respect the local capture budget.</string>
+    <string name="device_batch_run_show_output">Show captured output</string>
+    <string name="device_batch_run_hide_output">Hide output</string>
+    <string name="device_batch_run_stop">Stop pending requests / monitoring</string>
+    <string name="device_batch_run_summary">Output: %1$d · Skipped/not sent: %2$d · Errors/rejected: %3$d · Unconfirmed: %4$d</string>
+</resources>

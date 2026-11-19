@@ -18,6 +18,13 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 - Despliega las opciones de la tarjeta para abrir General, Eventos, Detalles y la Consola del agente. Detalles sigue disponible sin duplicar el icono de información junto a ONLINE/OFFLINE.
 - Los filtros de cabecera controlan la visibilidad de dispositivos desconectados y direcciones de red.
 
+### Exploración y acciones por lote
+
+- Ordena y filtra dispositivos, conserva favoritos locales, selecciona equipos o grupos visibles y exporta una selección revisada como JSON.
+- El nombre del sistema operativo está activado por defecto si no hay elección guardada; alternarlo no cambia el resaltado del icono de filtro.
+- Las acciones revisadas incluyen energía, etiquetas, notificaciones, comandos, movimiento de grupo, actualización y núcleos del agente, desinstalación, eliminación de dispositivos y subida de archivos, según requisitos y permisos verificados.
+- Los diálogos se adaptan al contenido y al espacio disponible, con título y botones fuera del cuerpo desplazable. Se distinguen resultados aceptados, encolados, sin confirmar y verificados.
+
 ### Gestión nativa y seguridad de cuenta
 
 - Gestión ofrece Mi cuenta, Grupos de dispositivos, Usuarios y Grupos (de usuarios).
@@ -82,6 +89,13 @@ Guía: [Instalación de agentes e invitaciones](docs/es/agent-installation.md).
 - Controles de portapapeles y sincronización opcional, sujetos a las restricciones de la sesión y del servidor.
 - Intercambio de botones del ratón, dirección de la rueda, distribución remota del teclado y bloqueo al desconectar.
 - La captura de gestos se renueva cuando cambian las dimensiones del área visible o de la imagen ajustada. Comprueba clics, pulsaciones largas y desplazamiento después de girar el dispositivo.
+
+#### Pantallas y controles flotantes
+
+- Selecciona un monitor remoto o Todas las pantallas cuando lo permita el agente; no se inventan capacidades ausentes.
+- Un selector persistente alterna clic izquierdo/derecho y resalta en azul el botón activo. Scroll tiene icono propio y permite recuperar el modo de clic recordado al abandonarlo.
+- El asistente independiente de clic derecho de un solo uso se muestra u oculta después del colapsador de la barra, sin recuadro ni texto visible. Información permanece al final.
+- Las sesiones nuevas empiezan en clic izquierdo; reconectar o girar una sesión existente conserva su modo.
 
 #### Teclado físico y teclado en pantalla
 
@@ -245,12 +259,13 @@ Guía técnica: [Registro y Eventos](docs/log.md) (en inglés). Referencia de pr
 
 ### Apariencia e idiomas
 
-- Interfaz Material 3 con tema del sistema, claro y oscuro.
-- Nombre e icono de aplicación personalizados y opción para ocultar el icono de ajustes.
-- Recursos Android en inglés y español, incluidos controles de reconexión, historial, eliminación y cierre del terminal.
-- La cobertura en inglés y español incluye controles y atajos del escritorio, navegación del terminal, mensajes de transferencias y acciones relacionadas de gestión. No garantiza que todas las frases estén localizadas; la salida remota y los mensajes del servidor o agente pueden conservar su idioma original.
+- Interfaz Material 3 con Sistema, Claro, Oscuro, Programado y Automático solar.
+- Programado utiliza horas editables de claro y oscuro en la zona horaria del dispositivo. El modo solar usa una ciudad elegida manualmente del catálogo incluido y cálculos locales, sin GPS, permisos de ubicación ni consultas de red. Sin ciudad o sin eventos solares se usa temporalmente el modo del sistema.
+- El selector y sus controles adicionales son compactos y centrados; los iconos y textos del menú mantienen columnas alineadas.
+- Nombre e icono personalizados y opción para ocultar el icono de ajustes.
+- Se comprueban declaraciones de recursos y compatibilidad de formatos en inglés y español. Los literales, la accesibilidad, los recursos web y el significado de las traducciones requieren revisión; la salida remota no se traduce automáticamente.
 
-El inventario y sus limitaciones se documentan en [docs/i18n](docs/es/i18n/README.md). La documentación técnica dispone de versiones en inglés y español.
+Consulta [Controles de dispositivos y acciones por lote](docs/es/device-controls.md) y [Auditoría de traducciones](docs/es/i18n/README.md). La auditoría no declara traducidas todas las frases visibles.
 
 ## Requisitos
 
