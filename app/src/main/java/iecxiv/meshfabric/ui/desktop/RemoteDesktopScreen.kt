@@ -207,9 +207,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                         IconButton(onClick = { showSettingsDialog = true }, modifier = Modifier.size(38.dp)) {
                             RemoteHeaderIcon(Icons.Default.Settings, contentDescription = stringResource(R.string.options))
                         }
-                        IconButton(onClick = { viewModel.refreshDisplay(nodeId) }, modifier = Modifier.size(38.dp)) {
-                            RemoteHeaderIcon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
-                        }
+                        iecxiv.meshfabric.ui.components.AppRefreshIconButton(onRefresh={viewModel.refreshDisplay(nodeId)},contentDescription=stringResource(R.string.refresh))
                         IconButton(onClick = { viewModel.stopSession(nodeId); onBack() }, modifier = Modifier.size(38.dp)) {
                             RemoteHeaderIcon(Icons.Default.Close, contentDescription = stringResource(R.string.disconnect_desktop), tint = Color.Red)
                         }

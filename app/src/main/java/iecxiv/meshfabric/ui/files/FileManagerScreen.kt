@@ -382,12 +382,7 @@ private fun FileManagerContent(
                         IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(38.dp)) {
                             RemoteHeaderIcon(Icons.Default.Storage, contentDescription = stringResource(if (windowsFiles) R.string.files_drives else R.string.files_root_shortcut_label), tint = if (if (windowsFiles) driveSelector else currentPath == "/") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(
-                            onClick = { viewModel.refresh(nodeId) },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            RemoteHeaderIcon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
-                        }
+                        iecxiv.meshfabric.ui.components.AppRefreshIconButton(onRefresh={viewModel.refresh(nodeId)},contentDescription=stringResource(R.string.refresh))
                         IconButton(
                             onClick = {
                                 viewModel.stopSession(nodeId)
