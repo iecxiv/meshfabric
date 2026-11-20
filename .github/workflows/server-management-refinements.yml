@@ -18,134 +18,23 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Apply combined corrections with narrow guards
+      - name: Reapply approved immutable patch with corrected horizontal alignment
         shell: python
         run: |
-          from pathlib import Path
-          import subprocess
-          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
-          assert git('rev-parse','HEAD^')=='77c0cc39a5c9741a4be41b12fba5ca46553c5ad9','Base changed; re-review required'
-          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
-          changed=set()
-          def edit(name,old,new,count=1):
-              p=root/name;text=p.read_text()
-              assert old and text.count(old)==count,(name,old,text.count(old))
-              p.write_text(text.replace(old,new,count));changed.add(str(p))
-          edit('ServerReadSurface.kt','Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp))','Column(Modifier.fillMaxSize().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp))')
-          edit('ServerReadSurface.kt','''        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                      TextButton(onClick=onDismissRequest,modifier=Modifier.heightIn(min=48.dp)) {Text(if(es) "Volver" else "Back")}
-                      Box(Modifier.weight(1f)) {title()}
-                  }''','''        Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}''')
-          edit('ServerReadSurface.kt','        Box(Modifier.weight(1f).fillMaxWidth()) {text()}','        Box(Modifier.weight(1f).fillMaxWidth()) {text()}\n        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {confirmButton()}')
-          edit('ServerReadSurface.kt','    val es=LocalConfiguration.current.locales[0].language=="es"\n','')
-          edit('ServerGeneralActionTitle.kt','    Text(text,style=MaterialTheme.typography.bodyLarge.copy(fontSize=18.sp,fontWeight=FontWeight.Bold))','    Text(text,style=if(LocalServerReadInline.current) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge.copy(fontSize=18.sp,fontWeight=FontWeight.Bold))')
-          edit('ProfileUserDetailSurface.kt','''    Surface(modifier=Modifier.fillMaxSize().pointerInput(Unit) {
-                  awaitPointerEventScope {
-                      while(true) awaitPointerEvent(PointerEventPass.Final).changes.forEach {it.consume()}
-                  }
-              },color=MaterialTheme.colorScheme.surface)''','''    Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.surface)''')
-          edit('ProfileUserDetailSurface.kt','Column(Modifier.fillMaxSize().imePadding().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp))','Column(Modifier.fillMaxSize().imePadding().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp))')
-          edit('ProfileUserDetailSurface.kt','''            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                          TextButton(onClick=onDismissRequest,modifier=Modifier.heightIn(min=48.dp)) {Text(if(es) "Volver" else "Back")}
-                          Box(Modifier.weight(1f)) {title()}
-                      }''','''            Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}''')
-          edit('ProfileUserDetailSurface.kt','    val es=LocalConfiguration.current.locales[0].language=="es"\n','')
-          edit('ProfileScreen.kt','import androidx.compose.ui.semantics.clearAndSetSemantics','import androidx.compose.ui.semantics.clearAndSetSemantics\nimport androidx.compose.ui.input.pointer.pointerInput\nimport androidx.compose.ui.input.pointer.PointerEventPass')
-          edit('ProfileScreen.kt','Column(Modifier.fillMaxSize().then(if(inlineUser) Modifier.clearAndSetSemantics {} else Modifier))','''Column(Modifier.fillMaxSize().then(if(inlineUser) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
-              awaitPointerEventScope {while(true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach {it.consume()}}
-          } else Modifier))''')
-          edit('ProfileScreen.kt','UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),query=groupSearch,','UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),query=groupSearch,connectionReady=liveState.ready && liveState.id==state.id,')
-          edit('UserGroupsDirectoryPane.kt','onOpenDeviceGroup:(String)->Unit,query:String="")','onOpenDeviceGroup:(String)->Unit,query:String="",connectionReady:Boolean=s.ready)')
-          edit('UserGroupsDirectoryPane.kt','LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=null}}','LaunchedEffect(connectionReady,s.id) {if(!userGroupActionCanStayOpen(connectionReady,s.id)) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=null}}')
-          edit('MyServerScreen.kt','''    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                  listOf(if(es) "Conexiones"''','''    CenteredServerControls {
-                  listOf(if(es) "Conexiones"''')
-          edit('MyServerScreen.kt','''    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                  serverHistoryPeriods.forEach''','''    CenteredServerControls {
-                  serverHistoryPeriods.forEach''')
-          edit('ServerConsoleTerminal.kt','Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)) {','CenteredServerControls {')
-          edit('ServerConsoleTerminal.kt','''        TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }''','''        Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
-                      TextButton(onClick={ showText=!showText },modifier=Modifier.weight(1f)) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
-                      ServerConsoleTextDownload(snapshot)
-                  }''')
-          edit('ServerCsvDownload.kt','import androidx.compose.material3.*','import androidx.compose.material3.*\nimport androidx.compose.foundation.layout.size\nimport androidx.compose.ui.Modifier')
-          edit('ServerCsvDownload.kt','@Composable internal fun ServerCsvDownload(enabled:Boolean,fileName:String,create:()->String) {','''@Composable internal fun ServerCsvDownload(enabled:Boolean,fileName:String,create:()->String) {ServerOutputDownload(enabled,fileName,false,create)}
-          @Composable internal fun ServerConsoleTextDownload(snapshot:String) {ServerOutputDownload(snapshot.isNotBlank(),"serverconsole-output.txt",true) {snapshot}}
-          @OptIn(ExperimentalMaterial3Api::class)
-          @Composable private fun ServerOutputDownload(enabled:Boolean,fileName:String,plainText:Boolean,create:()->String) {''')
-          edit('ServerCsvDownload.kt','ActivityResultContracts.CreateDocument("text/csv")','ActivityResultContracts.CreateDocument(if(plainText) "text/plain" else "text/csv")')
-          edit('ServerCsvDownload.kt','serverCsvBytes(build())','if(plainText) serverConsoleExportBytes(build()) else serverCsvBytes(build())')
-          edit('ServerCsvDownload.kt','label("CSV guardado.","CSV saved.")','label(if(plainText) "TXT guardado." else "CSV guardado.",if(plainText) "TXT saved." else "CSV saved.")')
-          edit('ServerCsvDownload.kt','label("No se pudo guardar el CSV.","Could not save CSV.")','label(if(plainText) "No se pudo guardar el TXT." else "No se pudo guardar el CSV.",if(plainText) "Could not save TXT." else "Could not save CSV.")')
-          edit('ServerCsvDownload.kt','label("Descargar CSV","Download CSV")','label(if(plainText) "Descargar salida TXT" else "Descargar CSV",if(plainText) "Download output TXT" else "Download CSV")',2)
-          edit('ServerCsvDownload.kt','label("No se pudo preparar la descarga CSV.","Could not prepare CSV download.")','label(if(plainText) "No se pudo preparar la descarga TXT." else "No se pudo preparar la descarga CSV.",if(plainText) "Could not prepare TXT download." else "Could not prepare CSV download.")')
-          edit('ServerCsvDownload.kt','Icon(Icons.Default.Download,contentDescription=','Icon(Icons.Default.Download,modifier=Modifier.size(serverOutputIconSize),contentDescription=')
-          edit('ServerAdminPanel.kt','import androidx.compose.material.icons.filled.ArrowDropDown','import androidx.compose.material.icons.filled.*')
-          edit('ServerAdminPanel.kt','val sourcesIssue:String="")','val sourcesIssue:String="",val tracePaused:Boolean=false)')
-          edit('ServerAdminPanel.kt','"trace"->if(state.value.admin) state.update','"trace"->if(serverTraceAcceptsLive(state.value.admin,state.value.tracePaused)) state.update')
-          edit('ServerAdminPanel.kt','    @Synchronized fun dismissNotice()','''    @Synchronized fun toggleTracePause() {
-                  if(available()) state.update {it.copy(tracePaused=!it.tracePaused)}
-              }
-              @Synchronized fun dismissNotice()''')
-          edit('ServerAdminPanel.kt','''            ServerCsvDownload(enabled=enabled && exportable,fileName="servertrace.csv",create={ serverTraceCsv(output,selectedSources) })''','''            val pauseLabel=if(state.tracePaused) label("Reanudar seguimiento live","Resume live trace") else label("Pausar seguimiento live","Pause live trace")
-                      IconButton(enabled=enabled,onClick={channel?.toggleTracePause()},modifier=Modifier.testTag("server-trace-pause")) {
-                          Icon(if(state.tracePaused) Icons.Default.PlayArrow else Icons.Default.Pause,contentDescription=pauseLabel,modifier=Modifier.size(serverOutputIconSize))
-                      }
-                      ServerCsvDownload(enabled=enabled && exportable,fileName="servertrace.csv",create={ serverTraceCsv(output,selectedSources) })''')
-          edit('ServerAdminPanel.kt','''        Text(label("Más recientes primero","Newest received first"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)''','''        if(state.tracePaused) Text(label("Pausado localmente. Los eventos recibidos durante la pausa no se incorporan ni se recuperan al reanudar.","Paused locally. Events received while paused are not added or recovered on resume."),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
-                  Text(label("Más recientes primero","Newest received first"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)''')
-          edit('ServerAdminPanel.kt','La descarga CSV guarda una copia donde elijas.','La exportación guarda una copia donde elijas.')
-          edit('ServerAdminPanel.kt','CSV download saves a copy at your chosen location.','Export saves a copy at your chosen location.')
-          p=root/'ServerManagementRefinements.kt';assert not p.exists()
-          p.write_text('''package iecxiv.meshfabric.ui.management
-          
-          import androidx.compose.foundation.horizontalScroll
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.foundation.rememberScrollState
-          import androidx.compose.runtime.Composable
-          import androidx.compose.ui.Alignment
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.unit.dp
-          
-          internal val serverOutputIconSize=18.dp
-          internal fun serverConsoleExportBytes(text:String)=text.toByteArray(Charsets.UTF_8)
-          internal fun serverTraceAcceptsLive(admin:Boolean,paused:Boolean)=admin && !paused
-          internal fun userGroupActionCanStayOpen(connectionReady:Boolean,actor:String)=connectionReady && actor.isNotBlank()
-          @Composable internal fun CenteredServerControls(content:@Composable RowScope.()->Unit) {
-              BoxWithConstraints(Modifier.fillMaxWidth()) {
-                  val viewportWidth=maxWidth
-                  Row(Modifier.horizontalScroll(rememberScrollState()).widthIn(min=viewportWidth),horizontalArrangement=Arrangement.spacedBy(6.dp,Alignment.Center),verticalAlignment=Alignment.CenterVertically,content=content)
-              }
-          }
-          ''');changed.add(str(p))
-          p=Path('app/src/test/java/iecxiv/meshfabric/ui/management/ServerManagementRefinementsTest.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True)
-          p.write_text(r'''package iecxiv.meshfabric.ui.management
-          import org.junit.Assert.*
-          import org.junit.Test
-          class ServerManagementRefinementsTest {
-              @Test fun pausedTraceNeverAppendsAndResumeNeedsAuthority() {
-                  assertTrue(serverTraceAcceptsLive(true,false))
-                  assertFalse(serverTraceAcceptsLive(true,true))
-                  assertFalse(serverTraceAcceptsLive(false,false))
-                  assertFalse(serverTraceAcceptsLive(false,true))
-              }
-              @Test fun groupActionSurvivesPresentationRefreshButNotDisconnect() {
-                  assertTrue(userGroupActionCanStayOpen(true,"user//admin"))
-                  assertFalse(userGroupActionCanStayOpen(false,"user//admin"))
-                  assertFalse(userGroupActionCanStayOpen(true,""))
-              }
-              @Test fun textExportIsUtf8WithoutCsvFormatting() {
-                  val text="línea uno\ncomando,valor\n"
-                  assertArrayEquals(text.toByteArray(Charsets.UTF_8),serverConsoleExportBytes(text))
-                  assertEquals(0,serverConsoleExportBytes("").size)
-              }
-          }
-          ''');changed.add(str(p))
-          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
-          assert actual==changed,(actual,changed)
-          assert 'PointerEventPass.Final' not in (root/'ProfileUserDetailSurface.kt').read_text()
-          assert 'connectionReady=liveState.ready && liveState.id==state.id' in (root/'ProfileScreen.kt').read_text()
-          assert 'serverconsole-output.txt' in (root/'ServerCsvDownload.kt').read_text()
+          import subprocess,textwrap
+          ref='13f91e15e32e0063f4452934f5c3ba237ac491ee:.github/workflows/server-management-refinements.yml'
+          original=subprocess.check_output(['git','show',ref],text=True)
+          section=original.split('      - name: Apply combined corrections with narrow guards\n',1)[1].split('      - run: git diff --check\n',1)[0]
+          code=textwrap.dedent(section.split('        run: |\n',1)[1])
+          guard="assert git('rev-parse','HEAD^')=='77c0cc39a5c9741a4be41b12fba5ca46553c5ad9','Base changed; re-review required'"
+          replacement="assert git('diff','--name-only','77c0cc39a5c9741a4be41b12fba5ca46553c5ad9','HEAD')=='.github/workflows/server-management-refinements.yml','Application base changed; re-review required'"
+          assert code.count(guard)==1
+          code=code.replace(guard,replacement,1)
+          old='Arrangement.spacedBy(6.dp,Alignment.Center)'
+          new='Arrangement.spacedBy(6.dp,Alignment.CenterHorizontally)'
+          assert code.count(old)==1
+          code=code.replace(old,new,1)
+          exec(compile(code,'approved-refinements-corrected.py','exec'),{})
       - run: git diff --check
       - uses: actions/setup-java@v4
         with:
@@ -171,17 +60,9 @@ jobs:
       - name: Publish all validated corrections and retire workflow
         shell: python
         run: |
-          from pathlib import Path
-          import subprocess
-          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
-          subprocess.run(['git','fetch','origin','dev'],check=True)
-          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
-          workflow='.github/workflows/server-management-refinements.yml'
-          Path(workflow).unlink()
-          root='app/src/main/java/iecxiv/meshfabric/ui/management/'
-          paths=[root+n for n in ['ServerReadSurface.kt','ServerGeneralActionTitle.kt','ProfileUserDetailSurface.kt','ProfileScreen.kt','UserGroupsDirectoryPane.kt','MyServerScreen.kt','ServerConsoleTerminal.kt','ServerCsvDownload.kt','ServerAdminPanel.kt','ServerManagementRefinements.kt']]+['app/src/test/java/iecxiv/meshfabric/ui/management/ServerManagementRefinementsTest.kt',workflow]
-          subprocess.run(['git','add','--',*paths],check=True)
-          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
-          subprocess.run(['git','diff','--cached','--check'],check=True)
-          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(ui): refine server controls exports and management interactions'],check=True)
-          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
+          import subprocess,textwrap
+          ref='13f91e15e32e0063f4452934f5c3ba237ac491ee:.github/workflows/server-management-refinements.yml'
+          original=subprocess.check_output(['git','show',ref],text=True)
+          section=original.split('      - name: Publish all validated corrections and retire workflow\n',1)[1]
+          code=textwrap.dedent(section.split('        run: |\n',1)[1])
+          exec(compile(code,'approved-refinements-publish.py','exec'),{})
