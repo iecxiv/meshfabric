@@ -23,7 +23,7 @@ import org.json.JSONObject
     val identityReady=identity.usable
     val initial=remember(id,initialField) { runCatching { userContactSnapshot(user) }.getOrNull() }
     if(initial==null) {
-        ManagementDialog(onDismissRequest=onDismiss,title={Text(t("Datos incompatibles","Incompatible data"))},text={Text(t("Actualiza la ficha antes de editar el contacto.","Refresh the details before editing contact information."))},confirmButton={TextButton(onClick=onDismiss){Text(t("Cerrar","Close"))}})
+        UserActionSurface(onDismissRequest=onDismiss,title={Text(t("Datos incompatibles","Incompatible data"))},text={Text(t("Actualiza la ficha antes de editar el contacto.","Refresh the details before editing contact information."))},confirmButton={TextButton(onClick=onDismiss){Text(t("Cerrar","Close"))}})
         return
     }
     val field=initialField
@@ -38,7 +38,7 @@ import org.json.JSONObject
     val packet=userContactPacket(id,initial,field,if(field=="phone") phone else verified)
     val current=s.users.firstOrNull { it.optString("_id")==id }
     val allowed=identityReady && visible && userContactAllowed(s,current,packet)
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(field=="phone") t("Teléfono","Phone") else t("Estado del correo","Email status"))},text={
+    UserActionSurface(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(field=="phone") t("Teléfono","Phone") else t("Estado del correo","Email status"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text(identity.label,style=MaterialTheme.typography.titleSmall)
             if(!identityReady) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente al usuario. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the user. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)

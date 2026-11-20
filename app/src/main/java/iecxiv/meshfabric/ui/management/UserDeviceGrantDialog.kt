@@ -52,7 +52,7 @@ internal fun userDeviceChoices(s:ProfileState,user:JSONObject,query:String,es:Bo
     LaunchedEffect(frozen,context) {if(frozen!=null && !context && !submitted) {invalidated=true;approved=false}}
     val current=context && !invalidated && !submitted
     val choices=if(subject!=null && frozen==null && !submitted) userDeviceChoices(s,subject,query,es) else emptyList()
-    ManagementDialog(onDismissRequest=onBack,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Agregar dispositivo","Add device"))},text={
+    UserActionSurface(onDismissRequest=onBack,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Agregar dispositivo","Add device"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Usuario: ","User: ")+identity.label,style=MaterialTheme.typography.titleSmall)
             Text(server,style=MaterialTheme.typography.bodySmall)

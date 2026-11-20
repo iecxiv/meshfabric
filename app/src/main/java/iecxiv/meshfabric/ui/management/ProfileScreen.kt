@@ -80,7 +80,7 @@ LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecy
 if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation() } finally { session.stop() } } else session.stop()
 } }
 LaunchedEffect(agentIdentity) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null }
-val inlineUser=tab!=0 && form?.let {it.operation=="create" || (it.users && it.operation=="edit")}==true
+val inlineUser=profileFormUsesSubview(tab,form)
 val inlineGroup=tab!=0 && groupDetails!=null && form==null && userGroupDetails==null
 val groupDetailsHolder=key(agentIdentity) {androidx.compose.runtime.saveable.rememberSaveableStateHolder()}
 @Composable fun RenderProfileForm() {

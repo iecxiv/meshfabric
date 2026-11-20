@@ -25,7 +25,7 @@ import java.util.Locale
     val identityReady=identity.usable
     val initial=remember(id) { runCatching { userAdvancedSnapshot(user) }.getOrNull() }
     if(initial==null) {
-        ManagementDialog(onDismissRequest=onDismiss,title={Text(t("Datos incompatibles","Incompatible data"))},text={Text(t("No se pueden editar estos valores sin perder información. Actualiza la ficha.","These values cannot be edited without losing information. Refresh the details."))},confirmButton={TextButton(onClick=onDismiss){Text(t("Cerrar","Close"))}})
+        UserActionSurface(onDismissRequest=onDismiss,title={Text(t("Datos incompatibles","Incompatible data"))},text={Text(t("No se pueden editar estos valores sin perder información. Actualiza la ficha.","These values cannot be edited without losing information. Refresh the details."))},confirmButton={TextButton(onClick=onDismiss){Text(t("Cerrar","Close"))}})
         return
     }
     var raw by remember(id) { mutableStateOf(initial.toString()) }
@@ -50,7 +50,7 @@ import java.util.Locale
     val dirty=packet?.let { p->USER_ADVANCED_FIELDS.any { p.has(it) && !userEditFieldMatches(it,initial,p) } }==true
     val current=s.users.firstOrNull { it.optString("_id")==id }
     val allowed=identityReady && s.canWrite && packet!=null && userAdvancedAllowed(s,current,packet)
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),
+    UserActionSurface(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),
         title={Text(t("Permisos y características","Permissions and features"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(identity.label,style=MaterialTheme.typography.titleSmall)

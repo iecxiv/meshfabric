@@ -47,7 +47,7 @@ internal fun userMessageContext(s:ProfileState,before:JSONObject?,actor:String,s
     LaunchedEffect(frozen,context) {if(frozen!=null && !context && !submitted) {invalidated=true;approved=false}}
     val active=context && !invalidated && !submitted
     val identity=profileReviewIdentity(baseline,s.users,es)
-    ProfileUserDetailSurface(inline=LocalNoticeComposeInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=720.dp).fillMaxWidth(0.96f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(if(frozen==null) t("Enviar mensaje","Send message") else t("Revisar mensaje","Review message"))},text={
+    UserActionSurface(inline=LocalNoticeComposeInline.current || LocalProfileUserInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=720.dp).fillMaxWidth(0.96f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(if(frozen==null) t("Enviar mensaje","Send message") else t("Revisar mensaje","Review message"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.82f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Destinatario: ","Recipient: ")+identity.label,style=MaterialTheme.typography.titleSmall)
             Text(beforeServer,style=MaterialTheme.typography.bodySmall)

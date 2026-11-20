@@ -62,7 +62,7 @@ private fun editMask(value:Long)=java.lang.String.format(java.util.Locale.ROOT,"
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {approved=false;invalidated=true}}
     val packet=review?.let {JSONObject(it.toString()).put("_userEditConfirmed",approved)}
     val observed=submitted && s.notice=="userMeshEditedObserved" && s.editedDirectUser==uid && s.editedDirectMesh==mid
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar derechos directos","Edit direct rights"))},text={
+    UserActionSurface(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar derechos directos","Edit direct rights"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color= iecxiv.meshfabric.ui.theme.appCardBackground(
 MaterialTheme.colorScheme.surfaceVariant
