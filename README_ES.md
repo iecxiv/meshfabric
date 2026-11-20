@@ -6,6 +6,31 @@ MeshFabric es un cliente Android nativo no oficial para MeshCentral. Ofrece escr
 
 La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, el agente remoto, el sistema operativo y la sesión. MeshFabric no sustituye la consola completa de administración de MeshCentral.
 
+## Capturas de pantalla
+
+<!-- screenshot-gallery:start -->
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/devices-actions.jpg" width="180" alt="Acciones de dispositivo"><br>Acciones de dispositivo</td>
+    <td align="center"><img src="docs/screenshots/devices-filters.jpg" width="180" alt="Filtros de dispositivos"><br>Filtros de dispositivos</td>
+    <td align="center"><img src="docs/screenshots/devices-sorting.jpg" width="180" alt="Ordenación de dispositivos"><br>Ordenación de dispositivos</td>
+    <td align="center"><img src="docs/screenshots/remote-desktop.jpg" width="180" alt="Escritorio remoto"><br>Escritorio remoto</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/keyboard-shortcuts.jpg" width="180" alt="Teclado y atajos"><br>Teclado y atajos</td>
+    <td align="center"><img src="docs/screenshots/terminal.jpg" width="180" alt="Terminal"><br>Terminal</td>
+    <td align="center"><img src="docs/screenshots/file-manager.jpg" width="180" alt="Gestor de archivos"><br>Gestor de archivos</td>
+    <td align="center"><img src="docs/screenshots/device-groups.jpg" width="180" alt="Grupos de dispositivos"><br>Grupos de dispositivos</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/server-statistics.jpg" width="180" alt="Estadísticas del servidor"><br>Estadísticas del servidor</td>
+    <td align="center"><img src="docs/screenshots/events.jpg" width="180" alt="Eventos"><br>Eventos</td>
+    <td align="center"><img src="docs/screenshots/notices.jpg" width="180" alt="Avisos"><br>Avisos</td>
+    <td align="center"><img src="docs/screenshots/application-settings.jpg" width="180" alt="Ajustes de la aplicación"><br>Ajustes de la aplicación</td>
+  </tr>
+</table>
+<!-- screenshot-gallery:end -->
+
 ## Funciones
 
 ### Dispositivos y navegación

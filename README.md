@@ -6,6 +6,31 @@ MeshFabric is an unofficial native Android client for MeshCentral. It provides r
 
 Availability depends on the MeshCentral server, account permissions, remote agent, operating system, and remote session. MeshFabric is not a replacement for the full MeshCentral administration console.
 
+## Screenshots
+
+<!-- screenshot-gallery:start -->
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/devices-actions.jpg" width="180" alt="Device actions"><br>Device actions</td>
+    <td align="center"><img src="docs/screenshots/devices-filters.jpg" width="180" alt="Device filters"><br>Device filters</td>
+    <td align="center"><img src="docs/screenshots/devices-sorting.jpg" width="180" alt="Device sorting"><br>Device sorting</td>
+    <td align="center"><img src="docs/screenshots/remote-desktop.jpg" width="180" alt="Remote desktop"><br>Remote desktop</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/keyboard-shortcuts.jpg" width="180" alt="Keyboard and shortcuts"><br>Keyboard and shortcuts</td>
+    <td align="center"><img src="docs/screenshots/terminal.jpg" width="180" alt="Terminal"><br>Terminal</td>
+    <td align="center"><img src="docs/screenshots/file-manager.jpg" width="180" alt="File manager"><br>File manager</td>
+    <td align="center"><img src="docs/screenshots/device-groups.jpg" width="180" alt="Device groups"><br>Device groups</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/server-statistics.jpg" width="180" alt="Server statistics"><br>Server statistics</td>
+    <td align="center"><img src="docs/screenshots/events.jpg" width="180" alt="Events"><br>Events</td>
+    <td align="center"><img src="docs/screenshots/notices.jpg" width="180" alt="Notices"><br>Notices</td>
+    <td align="center"><img src="docs/screenshots/application-settings.jpg" width="180" alt="Application settings"><br>Application settings</td>
+  </tr>
+</table>
+<!-- screenshot-gallery:end -->
+
 ## Features
 
 ### Devices and navigation
