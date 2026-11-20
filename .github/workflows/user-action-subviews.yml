@@ -1,0 +1,152 @@
+name: Validate user action subviews
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/user-action-subviews.yml']
+permissions:
+  contents: write
+concurrency:
+  group: user-action-subviews-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check all embedded Python syntax before preparing changes
+        shell: python
+        run: |
+          import ast,textwrap
+          from pathlib import Path
+          lines=Path('.github/workflows/user-action-subviews.yml').read_text().splitlines();checked=0
+          for i,line in enumerate(lines):
+              if line!='        run: |': continue
+              body=[]
+              for following in lines[i+1:]:
+                  if following.strip() and not following.startswith('          '): break
+                  body.append(following)
+              ast.parse(textwrap.dedent('\n'.join(body))+'\n');checked+=1
+          assert checked==3,checked
+      - name: Prepare user subviews without changing server operations
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='da329c3287fa252be7cbb8afd1ac3665fadc9e7a','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management');changed=set()
+          def edit(name,old,new,count=1):
+              p=root/name;t=p.read_text();assert t.count(old)==count,(name,old,t.count(old));p.write_text(t.replace(old,new,count));changed.add(str(p))
+          actions={'UserContactEditor.kt':2,'UserAdvancedEditor.kt':2,'UserDeleteDialog.kt':1,'UserMfaResetDialog.kt':1,'UserDeviceGrantDialog.kt':1,'UserMeshAssignmentReview.kt':1,'UserMeshEditDialog.kt':1,'UserMeshGrantDialog.kt':1}
+          for name,count in actions.items():
+              edit(name,'ManagementDialog(onDismissRequest=','UserActionSurface(onDismissRequest=',count)
+          edit('ProfileScreen.kt','val inlineUser=tab!=0 && form?.let {it.operation=="create" || (it.users && it.operation=="edit")}==true','val inlineUser=profileFormUsesSubview(tab,form)')
+          edit('UserAdministration.kt','ProfileUserDetailSurface(inline=LocalProfileUserInline.current && (editing || creating) && mode=="profile",onDismissRequest=onDismiss,','val backToUserProfile:()->Unit={if(mode!="profile") {mode="profile";approved=false;password="";repeated="";session.clearHistory()} else onDismiss()}\nUserActionSurface(onDismissRequest=backToUserProfile,')
+          edit('UserMessageDialog.kt','ProfileUserDetailSurface(inline=LocalNoticeComposeInline.current,onDismissRequest=','UserActionSurface(inline=LocalNoticeComposeInline.current || LocalProfileUserInline.current,onDismissRequest=')
+          p=root/'UserActionSurface.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.automirrored.filled.ArrowBack
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.window.DialogProperties
+          internal fun profileFormUsesSubview(tab:Int,form:ProfileForm?)=tab in 1..3 && form!=null && (form.users || form.operation=="create")
+          @Composable internal fun UserActionSurface(
+              onDismissRequest:()->Unit,
+              modifier:Modifier=Modifier,
+              properties:DialogProperties=DialogProperties(),
+              inline:Boolean=LocalProfileUserInline.current,
+              title:@Composable ()->Unit,
+              text:@Composable ()->Unit,
+              confirmButton:@Composable ()->Unit,
+              dismissButton:@Composable ()->Unit={}
+          ) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              ProfileUserDetailSurface(inline=inline,onDismissRequest=onDismissRequest,modifier=modifier,properties=properties,
+                  title={
+                      if(inline) Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                          IconButton(onClick=onDismissRequest,modifier=Modifier.testTag("user-action-back")) {
+                              Icon(Icons.AutoMirrored.Filled.ArrowBack,if(es) "Volver" else "Back")
+                          }
+                          Spacer(Modifier.width(4.dp))
+                          Box(Modifier.weight(1f)) {title()}
+                      } else title()
+                  },text=text,confirmButton=confirmButton,dismissButton=dismissButton)
+          }
+          ''');changed.add(str(p))
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/management/UserActionSubviewTest.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class UserActionSubviewTest {
+              @Test fun everyUserOperationIsIntegratedFromDirectoryTabs() {
+                  for(tab in 1..3) for(operation in listOf("create","edit","delete","lock","unlock")) {
+                      assertTrue(profileFormUsesSubview(tab,ProfileForm(true,operation)))
+                  }
+              }
+              @Test fun accountAndAbsentFormsDoNotOpenDirectorySubviews() {
+                  assertFalse(profileFormUsesSubview(0,ProfileForm(true,"edit")))
+                  assertFalse(profileFormUsesSubview(2,null))
+                  assertFalse(profileFormUsesSubview(-1,ProfileForm(true,"edit")))
+                  assertFalse(profileFormUsesSubview(4,ProfileForm(true,"edit")))
+              }
+              @Test fun deviceGroupEditingRemainsForItsOwnMigration() {
+                  assertTrue(profileFormUsesSubview(1,ProfileForm(false,"create")))
+                  assertFalse(profileFormUsesSubview(1,ProfileForm(false,"edit")))
+                  assertFalse(profileFormUsesSubview(1,ProfileForm(false,"delete")))
+              }
+          }
+          ''');changed.add(str(p))
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines());assert actual==changed
+          Path(os.environ['RUNNER_TEMP'],'user-action-subview-paths.json').write_text(json.dumps(sorted(changed)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: user-action-subview-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/user-action-subview-paths.json
+          if-no-files-found: ignore
+      - name: Apply validated user subviews and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          names={'UserContactEditor.kt','UserAdvancedEditor.kt','UserDeleteDialog.kt','UserMfaResetDialog.kt','UserDeviceGrantDialog.kt','UserMeshAssignmentReview.kt','UserMeshEditDialog.kt','UserMeshGrantDialog.kt','ProfileScreen.kt','UserAdministration.kt','UserMessageDialog.kt','UserActionSurface.kt'}
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/'+name for name in names}|{'app/src/test/java/iecxiv/meshfabric/ui/management/UserActionSubviewTest.kt'}
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'user-action-subview-paths.json').read_text());assert set(paths)==expected
+          workflow='.github/workflows/user-action-subviews.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(users): integrate administration actions as subviews'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
