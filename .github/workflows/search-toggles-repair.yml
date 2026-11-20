@@ -53,7 +53,12 @@ jobs:
           script='\n'.join(lines[:begin]+replacement+lines[ends[0]:])+'\n'
           compile(script,'repaired-search-preparation','exec')
           exec(compile(script,'repaired-search-preparation','exec'),{})
-          files=Path('app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt').read_text()
+          file_path=Path('app/src/main/java/iecxiv/meshfabric/ui/files/FileManagerScreen.kt')
+          files=file_path.read_text()
+          cleaned='\n'.join('' if not line.strip() else line for line in files.split('\n'))
+          assert ''.join(files.split())==''.join(cleaned.split())
+          file_path.write_text(cleaned)
+          files=cleaned
           assert files.count('.focusRequester(fileSearchFocus)')==1
           assert 'import androidx.compose.runtime.withFrameNanos' in files
           assert 'onClick = { if(isSearchActive) closeFileSearch() else isSearchActive=true }' in files
