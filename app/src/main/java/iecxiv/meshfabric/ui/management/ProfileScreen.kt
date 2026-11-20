@@ -7,12 +7,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.*
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
@@ -48,6 +50,14 @@ var deviceAssignment by remember {mutableStateOf<Pair<String,String>?>(null)}
 var origins by remember {mutableStateOf<List<ProfileOrigin>>(emptyList())}
 var groupDetailTab by remember {mutableIntStateOf(0)}
 var groupSearch by rememberSaveable { mutableStateOf("") }
+var directorySearchOpen by remember(section,agentIdentity) {mutableStateOf(false)}
+val directorySearchFocus=remember {androidx.compose.ui.focus.FocusRequester()}
+val directoryFocus=androidx.compose.ui.platform.LocalFocusManager.current
+val directoryKeyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+val closeDirectorySearch:()->Unit={directorySearchOpen=false;groupSearch="";directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}
+LaunchedEffect(section,agentIdentity) {closeDirectorySearch()}
+androidx.activity.compose.BackHandler(enabled=directorySearchOpen) {closeDirectorySearch()}
+
 var broadcast by remember { mutableStateOf(false) }
 var ownAccountRequest by remember(source,state.id,source.serverUrl,source.authCookie,connected) {mutableStateOf<ProfileOwnAccountRequest?>(null)}
 val canOpenProfileDevice:(String)->Boolean={nodeId->profileReceivedDevice(state,profileFlattenReceivedDevices(source.groupedDevices.value),nodeId,session.broadcastServerLabel().isNotBlank())!=null}
@@ -64,11 +74,24 @@ if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation
 } }
 LaunchedEffect(agentIdentity) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null }
 Column(modifier) {
-ProfileStableSectionHeader(header={ProfileRefreshHeader(tab,state,header) {performProfileHeaderRefresh(tab,session)}},tabs={
+ProfileStableSectionHeader(header={ProfileRefreshHeader(tab,state,header={refresh->header {
+Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
+refresh()
+if(tab in 1..3) IconButton(onClick={if(directorySearchOpen) closeDirectorySearch() else directorySearchOpen=true},modifier=Modifier.size(38.dp).then(Modifier.testTag("profile-directory-search-toggle"))) {
+Icon(if(directorySearchOpen) Icons.Default.Close else Icons.Default.Search,if(directorySearchOpen) t("Cerrar búsqueda","Close search") else t("Buscar","Search"),Modifier.size(20.dp),tint=if(directorySearchOpen) androidx.compose.ui.graphics.Color(0xFF2196F3) else LocalContentColor.current)
+}
+}
+}}) {performProfileHeaderRefresh(tab,session)}},tabs={
 ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { ownAccountRequest=null;section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false }
 })
+if(tab in 1..3 && directorySearchOpen) {
+LaunchedEffect(Unit) {withFrameNanos {};directorySearchFocus.requestFocus();directoryKeyboard?.show()}
+OutlinedTextField(groupSearch,{groupSearch=it.take(256)},singleLine=true,
+placeholder={Text(if(tab==2) t("Buscar usuarios","Search users") else t("Buscar grupos","Search groups"))},
+modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRequester(directorySearchFocus).testTag("profile-directory-search-input"))
+}
 if(tab!=0) ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
-if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null}) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
+if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null}) else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),query=groupSearch,onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
 "userMeshEditedObserved"->t("Derechos directos editados y máscara exacta observada en ambos enlaces. Usuario: ","Direct rights edited and exact mask observed in both links. User: ")+displayNames.label(state.editedDirectUser,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(state.editedDirectMesh,es)
@@ -86,7 +109,7 @@ else->t("Sin conexión o cargando.","Offline or loading.")
 }
 val users=section=="users"
 val permitted=!users || ProfilePermissions.manageUsers(state.site)
-val rows=if(users) state.users else state.groups.filter { deviceGroupMatches(groupSearch,it.optString("name"),it.optString("desc")) }
+val rows=if(users) state.users.filter {user->groupSearch.isBlank() || listOf(profileReviewIdentity(user,state.users,es).label,user.optString("name"),user.optString("email")).any {it.contains(groupSearch,true)}} else state.groups.filter { deviceGroupMatches(groupSearch,it.optString("name"),it.optString("desc")) }
 LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
 item { Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -96,7 +119,7 @@ if(users) TextButton(enabled=state.canWrite && profileBroadcastRoleAllowed(state
 TextButton(enabled=state.canWrite && permitted && (if(users) state.canCreateUser else ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }
 }
 Text(if(users) t("Usuarios","Users") else t("Grupos de dispositivos","Device groups"),style=MaterialTheme.typography.titleMedium)
-if(!users) OutlinedTextField(groupSearch,{groupSearch=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
+
 } }
 if(!permitted) item { ManagementCard { Text(t("Sin permiso para administrar usuarios.","No permission to manage users.")) } } else {
 if(rows.isEmpty() && !state.loading) item { ManagementCard { Text(if(state.ready && !state.readError) t("No hay elementos.","No items.") else t("Listado no disponible.","List unavailable.")) } }

@@ -13,11 +13,11 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 internal fun profileUserGroupDomainAllowed(actor:String,group:String)=actor.startsWith("user/") && actor.split('/').size==3 && group.startsWith("ugrp/") && group.split('/').size==3 && userDomain(actor)==userDomain(group)
-@Composable internal fun UserGroupsDirectoryPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,onOpenUser:(String)->Unit,onOpenDeviceGroup:(String)->Unit) {
+@Composable internal fun UserGroupsDirectoryPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,onOpenUser:(String)->Unit,onOpenDeviceGroup:(String)->Unit,query:String="") {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     val displayNames=rememberProfileDisplayNames(s,session.broadcastServerLabel())
-    var query by rememberSaveable(s.id) { mutableStateOf("") }
+
 var editing by remember(s.id) { mutableStateOf<JSONObject?>(null) }
 var creating by remember(s.id) {mutableStateOf(false)}
 var deleting by remember(s.id) {mutableStateOf<JSONObject?>(null)}
@@ -46,7 +46,7 @@ if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en
 if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+displayNames.label(s.revokedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.revokedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshGrantedObserved") Text(t("Derechos solicitados observados en ambos enlaces. Grupo de usuarios: ","Requested rights observed in both links. User group: ")+displayNames.label(s.grantedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.grantedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshEditedObserved") Text(t("Máscara exacta editada y observada en ambos enlaces. Grupo de usuarios: ","Edited exact mask observed in both links. User group: ")+displayNames.label(s.editedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.editedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
-OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
+
             if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)
             if(s.userGroupPhase=="failed") Text(t("No se ha podido consultar el listado. Puedes volver a actualizar.","The list could not be retrieved. Refresh to try again."),color=MaterialTheme.colorScheme.error)
