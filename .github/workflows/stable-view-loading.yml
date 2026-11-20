@@ -1,0 +1,142 @@
+name: Validate history message width and bottom loading
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/stable-view-loading.yml']
+permissions:
+  contents: write
+concurrency:
+  group: stable-view-loading-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Correct real history route and message margins and route view loading
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,re,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='987ddfa9b0da2149f1b3d2f090d6cfa5e1dc4b92','Base changed; re-review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui');changed=set()
+          def edit(name,old,new,count=1):
+              p=root/name;t=p.read_text();assert old and t.count(old)==count,(name,old,t.count(old));p.write_text(t.replace(old,new,count));changed.add(str(p))
+          edit('management/PreviousLoginPresentation.kt','ManagementDialog(onDismissRequest=close,modifier=','ProfileUserDetailSurface(inline=true,onDismissRequest=close,modifier=')
+          edit('management/NoticeCenterScreen.kt','NoticeSection.MESSAGES->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {','NoticeSection.MESSAGES->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth(),padded=!(deviceComposeOpen || (recipient!=null && !devices))) {')
+          edit('management/NoticeCenterScreen.kt','onReconnect:()->Unit,modifier:Modifier,content:@Composable ColumnScope.()->Unit)','onReconnect:()->Unit,modifier:Modifier,padded:Boolean=true,content:@Composable ColumnScope.()->Unit)')
+          edit('management/NoticeCenterScreen.kt','Column(Modifier.weight(1f).fillMaxWidth().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)','Column(Modifier.weight(1f).fillMaxWidth().padding(if(padded) managementConnectionContentPadding else PaddingValues(0.dp)),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)')
+          edit('management/MeshFabricHome.kt','    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),','    val bottomLoading=remember(page) {iecxiv.meshfabric.ui.components.BottomLoadingState()}\n    CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading) {\n    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),')
+          edit('management/MeshFabricHome.kt','    ActionFeedbackDialogs(management.feedback)','    }\n    ActionFeedbackDialogs(management.feedback)')
+          edit('management/CompactBottomNavigation.kt','Column {\nHorizontalDivider(color=scheme.outlineVariant)','Column {\niecxiv.meshfabric.ui.components.BottomViewLoadingBar()\nHorizontalDivider(color=scheme.outlineVariant)')
+          edit('components/AppDialogAppearance.kt','CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {','CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp,LocalBottomLoadingState provides null) {',3)
+          pattern=re.compile(r'(?<![.\w])LinearProgressIndicator\(\s*(?:modifier\s*=\s*)?Modifier\.fillMaxWidth\(\)\s*\)')
+          routed=[]
+          for p in root.rglob('*.kt'):
+              if p.name=='AppDialogAppearance.kt': continue
+              text=p.read_text();new,count=pattern.subn('iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())',text)
+              if count:
+                  p.write_text(new);changed.add(str(p));routed.append((str(p),count))
+          assert routed,'No view loading indicators found'
+          p=root/'components/BottomViewLoading.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.components
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.LinearProgressIndicator
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          internal class BottomLoadingState {
+              private val active=mutableStateListOf<Any>()
+              val loading:Boolean get()=active.isNotEmpty()
+              fun begin(token:Any) {if(token !in active) active.add(token)}
+              fun end(token:Any) {active.remove(token)}
+          }
+          internal val LocalBottomLoadingState=staticCompositionLocalOf<BottomLoadingState?> {null}
+          @Composable internal fun RoutedViewLoadingIndicator(modifier:Modifier=Modifier) {
+              val owner=LocalBottomLoadingState.current
+              if(owner==null) {LinearProgressIndicator(modifier);return}
+              val token=remember {Any()}
+              DisposableEffect(owner,token) {
+                  owner.begin(token)
+                  onDispose {owner.end(token)}
+              }
+          }
+          @Composable internal fun BottomViewLoadingBar() {
+              val owner=LocalBottomLoadingState.current
+              Box(Modifier.fillMaxWidth().height(4.dp).testTag("bottom_loading_slot")) {
+                  if(owner?.loading==true) LinearProgressIndicator(Modifier.fillMaxSize().testTag("bottom_loading_indicator"))
+              }
+          }
+          ''');changed.add(str(p))
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/components/BottomLoadingStateTest.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text('''package iecxiv.meshfabric.ui.components
+          import org.junit.Assert.*
+          import org.junit.Test
+          class BottomLoadingStateTest {
+              @Test fun overlappingLoadsDoNotHideEachOther() {
+                  val state=BottomLoadingState();val first=Any();val second=Any()
+                  assertFalse(state.loading)
+                  state.begin(first);state.begin(second);assertTrue(state.loading)
+                  state.end(first);assertTrue(state.loading)
+                  state.end(second);assertFalse(state.loading)
+              }
+              @Test fun duplicateRegistrationAndRepeatedCleanupAreSafe() {
+                  val state=BottomLoadingState();val token=Any()
+                  state.begin(token);state.begin(token);state.end(token);assertFalse(state.loading)
+                  state.end(token);assertFalse(state.loading)
+              }
+              @Test fun ownersAreIndependentAcrossPages() {
+                  val old=BottomLoadingState();val current=BottomLoadingState();val token=Any()
+                  old.begin(token);assertFalse(current.loading);old.end(token);assertFalse(current.loading)
+              }
+          }
+          ''');changed.add(str(p))
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines());assert actual==changed
+          Path(os.environ['RUNNER_TEMP'],'stable-view-loading-paths.json').write_text(json.dumps(sorted(changed)))
+          Path(os.environ['RUNNER_TEMP'],'stable-view-loading-routing.json').write_text(json.dumps(routed,indent=2))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stable-view-loading-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/stable-view-loading-paths.json
+            ${{ runner.temp }}/stable-view-loading-routing.json
+          if-no-files-found: ignore
+      - name: Publish validated fixes and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          workflow='.github/workflows/stable-view-loading.yml';Path(workflow).unlink()
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'stable-view-loading-paths.json').read_text())+[workflow]
+          assert all(p==workflow or (p.startswith('app/src/main/java/iecxiv/meshfabric/ui/') && p.endswith('.kt')) or p=='app/src/test/java/iecxiv/meshfabric/ui/components/BottomLoadingStateTest.kt' for p in paths)
+          subprocess.run(['git','add','--',*paths],check=True);assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(ui): integrate account history match message width and stabilize loading'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
