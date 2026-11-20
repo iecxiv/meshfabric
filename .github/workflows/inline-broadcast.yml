@@ -18,7 +18,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Integrate existing Broadcast form without changing send policy
+      - name: Integrate Broadcast in both entry points without changing send policy
         shell: python
         run: |
           from pathlib import Path
@@ -84,7 +84,29 @@ jobs:
                'LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=directoryListState,contentPadding=managementConnectionContentPadding'),
               ('if(broadcast && form==null && groupDetails==null) ProfileBroadcastDialog(session,state) {broadcast=false}\n','')
           ])
-          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())=={str(root/'ProfileScreen.kt'),str(root/'ProfileBroadcastDialog.kt')}
+          apply('NoticeCenterScreen.kt','29f0f89857c24157d2e9d9887d0ae3660cd09317',[
+              ('    BackHandler(enabled=section==NoticeSection.MESSAGES && searchState.open)',
+               '    BackHandler(enabled=broadcast && section==NoticeSection.BROADCAST) {broadcast=false}\n    BackHandler(enabled=section==NoticeSection.MESSAGES && searchState.open)'),
+              ('            NoticeSection.BROADCAST->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {',
+               '''            NoticeSection.BROADCAST->if(broadcast) {
+                          Column(Modifier.weight(1f).fillMaxWidth()) {
+                              ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
+                              NoticeSubmissionStatus(state.notice,es)
+                              ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth()) {broadcast=false}
+                          }
+                      } else NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {'''),
+              ('El diálogo de revisión muestra el servidor, dominio y alcance efectivo. No es correo ni acceso temporal.',
+               'La vista de revisión muestra el servidor, dominio y alcance efectivo. No es correo ni acceso temporal.'),
+              ('The review dialog shows the server, domain and effective scope. This is not email or temporary access.',
+               'The review view shows the server, domain and effective scope. This is not email or temporary access.'),
+              ('    if(broadcast && section==NoticeSection.BROADCAST) ProfileBroadcastDialog(session,state) {broadcast=false}\n','')
+          ])
+          expected={str(root/name) for name in ['ProfileScreen.kt','ProfileBroadcastDialog.kt','NoticeCenterScreen.kt']}
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==expected
+          for p in Path('app/src/main').rglob('*.kt'):
+              assert 'ProfileBroadcastDialog(' not in p.read_text(),str(p)
+          assert 'ProfileBroadcastPane(session,state,' in (root/'ProfileScreen.kt').read_text()
+          assert 'ProfileBroadcastPane(session,state,' in (root/'NoticeCenterScreen.kt').read_text()
       - run: git diff --check
       - uses: actions/setup-java@v4
         with:
@@ -117,9 +139,9 @@ jobs:
           assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
           workflow='.github/workflows/inline-broadcast.yml'
           Path(workflow).unlink()
-          paths=['app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/management/ProfileBroadcastDialog.kt',workflow]
+          paths=['app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/management/ProfileBroadcastDialog.kt','app/src/main/java/iecxiv/meshfabric/ui/management/NoticeCenterScreen.kt',workflow]
           subprocess.run(['git','add','--',*paths],check=True)
           assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
           subprocess.run(['git','diff','--cached','--check'],check=True)
-          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(broadcast): integrate composer and review into Users view'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(broadcast): integrate composer into Users and notice center views'],check=True)
           subprocess.run(['git','push','origin','HEAD:dev'],check=True)
