@@ -84,11 +84,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 trailingIcon={ if(search.isNotEmpty()) IconButton(onClick={ search="" }) { Icon(Icons.Default.Close,contentDescription=stringResource(R.string.clear_search)) } })
         }
     } }) { padding->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(iecxiv.meshfabric.ui.management.registrationBottomFlushPadding),
-            verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             iecxiv.meshfabric.ui.components.ReportViewLoading(!actionsReady && iecxiv.meshfabric.ui.management.actionChannelConnecting(actionsStatus))
-            iecxiv.meshfabric.ui.management.ManagementConnectionStatus(ready=actionsReady,connecting=iecxiv.meshfabric.ui.management.actionChannelConnecting(actionsStatus),reconnectEnabled=connected,onReconnect=onReconnect)
-            ActivityTimeline(journal,feedback,Modifier.weight(1f),query=search)
+            iecxiv.meshfabric.ui.management.ManagementConnectionStatus(ready=actionsReady,connecting=iecxiv.meshfabric.ui.management.actionChannelConnecting(actionsStatus),reconnectEnabled=connected,modifier=Modifier.padding(horizontal=16.dp),onReconnect=onReconnect)
+            ActivityTimeline(journal,feedback,Modifier.weight(1f).padding(iecxiv.meshfabric.ui.management.registrationBottomFlushPadding),query=search)
         }
     }
 }

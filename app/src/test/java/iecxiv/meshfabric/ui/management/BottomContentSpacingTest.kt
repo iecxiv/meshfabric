@@ -9,10 +9,10 @@ class BottomContentSpacingTest {
         assertEquals(0.dp,registrationBottomFlushPadding.calculateBottomPadding())
         assertEquals(0.dp,noticeInboxBottomFlushPadding.calculateBottomPadding())
     }
-    @Test fun topAndSideMarginsRemainUnchanged() {
+    @Test fun sectionTopSpacingAndSideMarginsAreConsistent() {
         assertEquals(8.dp,registrationBottomFlushPadding.calculateTopPadding())
         assertEquals(12.dp,registrationBottomFlushPadding.calculateLeftPadding(LayoutDirection.Ltr))
-        assertEquals(16.dp,noticeInboxBottomFlushPadding.calculateTopPadding())
+        assertEquals(0.dp,noticeInboxBottomFlushPadding.calculateTopPadding())
         assertEquals(16.dp,noticeInboxBottomFlushPadding.calculateRightPadding(LayoutDirection.Ltr))
         assertEquals(0.dp,managementBottomFlushPadding.calculateTopPadding())
     }
