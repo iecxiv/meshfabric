@@ -71,7 +71,10 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
             onCloseDeviceComposer();recipient=null;searchState=searchState.cleared();section=it
         }
         when(section) {
-            NoticeSection.INBOX->NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())
+            NoticeSection.INBOX->Column(Modifier.weight(1f).fillMaxWidth()) {
+                NoticeLocalChannelRow(Modifier.padding(horizontal=16.dp))
+                NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())
+            }
             NoticeSection.BROADCAST->Column(Modifier.weight(1f).fillMaxWidth()) {
                 ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
                 ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth(),embedded=true) {}
@@ -107,7 +110,9 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
 @Composable private fun NoticeManagementBody(state:ProfileState,onReconnect:()->Unit,modifier:Modifier,padded:Boolean=true,content:@Composable ColumnScope.()->Unit) {
     Column(modifier) {
         ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),onReconnect)
-        Column(Modifier.weight(1f).fillMaxWidth().padding(if(padded) managementConnectionContentPadding else PaddingValues(0.dp)),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
+        CompositionLocalProvider(LocalNoticeComposeInline provides true) {
+            Column(Modifier.weight(1f).fillMaxWidth().padding(if(padded) managementBottomFlushPadding else PaddingValues(0.dp)),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
+        }
     }
 }
 

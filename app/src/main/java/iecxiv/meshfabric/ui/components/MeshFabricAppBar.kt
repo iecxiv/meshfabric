@@ -64,7 +64,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val requester=remember { FocusRequester() }
     val keyboard=LocalSoftwareKeyboardController.current
     val focusManager=LocalFocusManager.current
-    Scaffold(topBar={ Column {
+    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),topBar={ Column {
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!actionsReady) IconButton(onClick=onReconnect,enabled=connected,modifier=Modifier.size(38.dp)) {
                 Icon(Icons.Default.Refresh,contentDescription="Reconectar actividad",modifier=Modifier.size(20.dp))
@@ -84,7 +84,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 trailingIcon={ if(search.isNotEmpty()) IconButton(onClick={ search="" }) { Icon(Icons.Default.Close,contentDescription=stringResource(R.string.clear_search)) } })
         }
     } }) { padding->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(horizontal=12.dp,vertical=8.dp),
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(iecxiv.meshfabric.ui.management.registrationBottomFlushPadding),
             verticalArrangement=Arrangement.spacedBy(4.dp)) {
             iecxiv.meshfabric.ui.components.ReportViewLoading(!actionsReady && iecxiv.meshfabric.ui.management.actionChannelConnecting(actionsStatus))
             iecxiv.meshfabric.ui.management.ManagementConnectionStatus(ready=actionsReady,connecting=iecxiv.meshfabric.ui.management.actionChannelConnecting(actionsStatus),reconnectEnabled=connected,onReconnect=onReconnect)

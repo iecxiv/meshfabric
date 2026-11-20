@@ -102,6 +102,7 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
         val group=receivedInviteGroup(s,id,device,invitation=!enrollment)
         LaunchedEffect(group?.optString("_id"),group?.opt("mtype"),group?.optJSONObject("links")?.toString(),s.user?.optJSONObject("links")?.toString(),s.site,s.id,connected) {val wasBusy=busy;invalidate();if(wasBusy) notice=t("Contexto de permisos actualizado; resultado sin confirmar.","Authority context updated; outcome unconfirmed.")}
         val enabled=connected && foreground && binding.matches(source) && s.id==binding.actor && group!=null
+        val contextDiagnostic=agentContextDiagnostic(connected,foreground,s.ready,s.loading || s.busy || busy,s.detailsBusy,s.readError,s.id==binding.actor,group!=null)
         fun generate() {
             if(!enabled || busy) return
             invalidate();notice="";version++;val ticket=version;val selected=options
@@ -131,9 +132,9 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
             Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState())) {
                 if(s.loading || s.detailsBusy || !s.ready) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if(enrollment) AgentEnrollmentContent(source,group,s.server,enabled) else AgentInviteLinkForm(group?.optString("name").orEmpty(),options,enabled,busy,es,onChange={invalidate();options=it;notice=""},onGenerate={generate()})
-                if(!enabled) Text(t("Esperando un grupo de agentes y permisos válidos. No se adivina el grupo del dispositivo.","Waiting for a valid agent group and permissions. The device group is not guessed."),style=MaterialTheme.typography.bodySmall)
-                if(!enabled) Text("INVITE_CONTEXT_"+when { !connected->"DISCONNECTED"; !foreground->"BACKGROUND"; !s.ready->"NOT_READY"; s.loading->"LOADING"; s.readError->"READ_FAILED"; s.detailsBusy->"DETAILS_LOADING"; s.id!=binding.actor->"ACTOR_MISMATCH"; else->"GROUP_OR_RIGHTS" },style=MaterialTheme.typography.bodySmall)
-                if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)
+                if(!enabled && foreground && contextDiagnostic==null) Text(if(enrollment) t("Cargando instaladores…","Loading installers…") else t("Cargando datos…","Loading data…"),style=MaterialTheme.typography.bodySmall)
+                if(contextDiagnostic!=null) {Text(agentContextMessage(contextDiagnostic,es),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error);AgentDiagnosticDetails(contextDiagnostic,es)}
+                if(notice.isNotBlank()) AgentOperationNotice(notice,es)
                 link?.let {generated->SelectionContainer {Text(generated.url,style=MaterialTheme.typography.bodySmall)};TextButton(onClick={
                     val copied=runCatching {val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: error("Clipboard unavailable");clipboard.setPrimaryClip(ClipData.newPlainText(t("Invitación de instalación","Agent installation invitation"),generated.url))}.isSuccess
                     notice=if(copied) t("Enlace copiado.","Link copied.") else t("No se ha podido copiar el enlace.","Could not copy the link.")

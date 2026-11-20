@@ -58,15 +58,15 @@ import java.util.Date
     var showSearch by rememberSaveable {mutableStateOf(false)}
     LaunchedEffect(reader,lifecycle,selection) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {try {reader.load(selection);awaitCancellation()} finally {reader.pause(selection)}}}
     DisposableEffect(reader) {onDispose {reader.close()}}
-    Scaffold(topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header,refreshEnabled=eventsHeaderRefreshEnabled(connected,!actor?.id.isNullOrBlank(),state.selection==selection,state.phase),onRefresh={reader.load(selection)})}) {padding->
+    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header,refreshEnabled=eventsHeaderRefreshEnabled(connected,!actor?.id.isNullOrBlank(),state.selection==selection,state.phase),onRefresh={reader.load(selection)})}) {padding->
         val visible=if(state.selection==selection) state else ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=selection)
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             ManagementConnectionStatus(ready=channelReady,connecting=visible.phase==ServerEventsPhase.LOADING && !channelReady,reconnectEnabled=connected && !actor?.id.isNullOrBlank(),modifier=Modifier.padding(horizontal=16.dp),onReconnect={reader.load(selection)})
-            ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.weight(1f).fillMaxWidth(),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
+            ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.weight(1f).fillMaxWidth(),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory,flushBottom=true)
         }
     }
 }
-@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory(),scopeLabel:String?=null,showDeviceLabel:Boolean=true) {
+@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory(),scopeLabel:String?=null,showDeviceLabel:Boolean=true,flushBottom:Boolean=false) {
     var detail by remember(selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}
     LaunchedEffect(state,enabled,selection,inventory) {
         detail=detail?.takeIf {opened->
@@ -91,7 +91,7 @@ import java.util.Date
         ServerEventsPhase.INVALIDATED->R.string.log_invalidated
         ServerEventsPhase.READY->null
     }
-    Column(modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    Column(modifier.padding(if(flushBottom) registrationBottomFlushPadding else PaddingValues(horizontal=12.dp,vertical=8.dp)),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         detail?.let {ServerEventDetailsDialog(it) {detail=null}}
         Text(scopeLabel ?: stringResource(R.string.log_scope),style=MaterialTheme.typography.bodySmall)
         if(onSelection!=null) ServerEventsControls(selection,enabled,onSelection)
