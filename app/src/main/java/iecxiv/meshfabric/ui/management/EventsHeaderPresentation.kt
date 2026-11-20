@@ -31,7 +31,7 @@ import java.util.Date
                 if(expanded) {onQuery("");focus.clearFocus(force=true);keyboard?.hide()}
                 onExpanded(!expanded)
             },modifier=Modifier.size(38.dp).testTag("log-events-search-toggle")) {
-                Icon(if(expanded) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search),Modifier.size(20.dp))
+                Icon(if(expanded) Icons.Default.Close else Icons.Default.Search,stringResource(R.string.search),Modifier.size(20.dp),tint=if(expanded) androidx.compose.ui.graphics.Color(0xFF2196F3) else LocalContentColor.current)
             }
         }}
         tabs()

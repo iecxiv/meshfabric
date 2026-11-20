@@ -73,7 +73,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
                 if(showSearch) { search=""; focusManager.clearFocus(force=true); keyboard?.hide() }
                 showSearch=!showSearch
             },modifier=Modifier.size(38.dp)) {
-                Icon(if(showSearch) Icons.Default.Close else Icons.Default.Search,contentDescription=stringResource(R.string.search),modifier=Modifier.size(20.dp))
+                Icon(if(showSearch) Icons.Default.Close else Icons.Default.Search,contentDescription=stringResource(R.string.search),modifier=Modifier.size(20.dp),tint=if(showSearch) Color(0xFF2196F3) else LocalContentColor.current)
             }
         } })
         header()
