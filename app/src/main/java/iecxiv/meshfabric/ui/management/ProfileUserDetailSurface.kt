@@ -33,17 +33,9 @@ internal val LocalProfileUserInline=staticCompositionLocalOf {false}
         onDispose {if(!previouslySecure) window.clearFlags(flag)}
     }
     BackHandler(onBack=onDismissRequest)
-    val es=LocalConfiguration.current.locales[0].language=="es"
-    Surface(modifier=Modifier.fillMaxSize().pointerInput(Unit) {
-        awaitPointerEventScope {
-            while(true) awaitPointerEvent(PointerEventPass.Final).changes.forEach {it.consume()}
-        }
-    },color=MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxSize().imePadding().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick=onDismissRequest,modifier=Modifier.heightIn(min=48.dp)) {Text(if(es) "Volver" else "Back")}
-                Box(Modifier.weight(1f)) {title()}
-            }
+    Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxSize().imePadding().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}
             Box(Modifier.weight(1f).fillMaxWidth()) {text()}
             FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.End),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 dismissButton()

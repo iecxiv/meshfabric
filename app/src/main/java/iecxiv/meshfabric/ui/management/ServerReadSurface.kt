@@ -29,12 +29,9 @@ internal val LocalServerReadInline=staticCompositionLocalOf {false}
         window.addFlags(flag)
         onDispose {if(!previouslySecure) window.clearFlags(flag)}
     }
-    val es=LocalConfiguration.current.locales[0].language=="es"
-    Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick=onDismissRequest,modifier=Modifier.heightIn(min=48.dp)) {Text(if(es) "Volver" else "Back")}
-            Box(Modifier.weight(1f)) {title()}
-        }
+    Column(Modifier.fillMaxSize().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}
         Box(Modifier.weight(1f).fillMaxWidth()) {text()}
+        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {confirmButton()}
     }
 }

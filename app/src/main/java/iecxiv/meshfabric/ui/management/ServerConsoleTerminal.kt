@@ -306,7 +306,7 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
     val pasteAllowed=active && loaded && enabled && !failed
     val currentPasteAllowed by rememberUpdatedState(pasteAllowed)
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+        CenteredServerControls {
             TextButton(enabled=font>10,onClick={ font-- },contentPadding=PaddingValues(6.dp)) { Text("A−") }
             TextButton(enabled=font<20,onClick={ font++ },contentPadding=PaddingValues(6.dp)) { Text("A+") }
             TextButton(enabled=snapshot.isNotEmpty(),onClick={ scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("plain text",snapshot))) } }) { Text(label("Copiar salida","Copy output")) }
@@ -331,7 +331,10 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
             }
         }
         if(active && !loaded && !failed) LinearProgressIndicator(Modifier.fillMaxWidth())
-        TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+        Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+            TextButton(onClick={ showText=!showText },modifier=Modifier.weight(1f)) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+            ServerConsoleTextDownload(snapshot)
+        }
         if(showText || failed) Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
 MaterialTheme.colorScheme.surfaceVariant
 ),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),

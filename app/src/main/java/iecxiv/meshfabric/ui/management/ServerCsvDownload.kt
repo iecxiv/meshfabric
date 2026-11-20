@@ -7,13 +7,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.*
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Modifier
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.*
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun ServerCsvDownload(enabled:Boolean,fileName:String,create:()->String) {
+@Composable internal fun ServerCsvDownload(enabled:Boolean,fileName:String,create:()->String) {ServerOutputDownload(enabled,fileName,false,create)}
+@Composable internal fun ServerConsoleTextDownload(snapshot:String) {ServerOutputDownload(snapshot.isNotBlank(),"serverconsole-output.txt",true) {snapshot}}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable private fun ServerOutputDownload(enabled:Boolean,fileName:String,plainText:Boolean,create:()->String) {
     val context=LocalContext.current
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun label(a:String,b:String)=if(es) a else b
@@ -24,7 +29,7 @@ import kotlinx.coroutines.*
     val currentCreate by rememberUpdatedState(create)
     val currentName by rememberUpdatedState(fileName)
     DisposableEffect(Unit) { onDispose { pending=null; job?.cancel() } }
-    val picker=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri->
+    val picker=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(if(plainText) "text/plain" else "text/csv")) { uri->
         val bytes=pending
         pending=null
         if(uri==null) busy=false
@@ -45,31 +50,31 @@ import kotlinx.coroutines.*
                     }
                 }
                 success=true
-                Toast.makeText(context,label("CSV guardado.","CSV saved."),Toast.LENGTH_SHORT).show()
+                Toast.makeText(context,label(if(plainText) "TXT guardado." else "CSV guardado.",if(plainText) "TXT saved." else "CSV saved."),Toast.LENGTH_SHORT).show()
             } catch(e:CancellationException) { throw e }
-            catch(_:Exception) { Toast.makeText(context,label("No se pudo guardar el CSV.","Could not save CSV."),Toast.LENGTH_LONG).show() }
+            catch(_:Exception) { Toast.makeText(context,label(if(plainText) "No se pudo guardar el TXT." else "No se pudo guardar el CSV.",if(plainText) "Could not save TXT." else "Could not save CSV."),Toast.LENGTH_LONG).show() }
             finally {
                 if(!success) withContext(NonCancellable+Dispatchers.IO) { runCatching { DocumentsContract.deleteDocument(context.contentResolver,uri) } }
                 busy=false
             }
         }
     }
-    TooltipBox(positionProvider=TooltipDefaults.rememberTooltipPositionProvider(positioning=TooltipAnchorPosition.Above),tooltip={ PlainTooltip { Text(label("Descargar CSV","Download CSV")) } },state=rememberTooltipState()) {
+    TooltipBox(positionProvider=TooltipDefaults.rememberTooltipPositionProvider(positioning=TooltipAnchorPosition.Above),tooltip={ PlainTooltip { Text(label(if(plainText) "Descargar salida TXT" else "Descargar CSV",if(plainText) "Download output TXT" else "Download CSV")) } },state=rememberTooltipState()) {
         IconButton(enabled=enabled && !busy,onClick={
             val build=currentCreate
             val name=currentName
             busy=true
             job=scope.launch {
                 try {
-                    val bytes=withContext(Dispatchers.Default) { serverCsvBytes(build()) }
+                    val bytes=withContext(Dispatchers.Default) { if(plainText) serverConsoleExportBytes(build()) else serverCsvBytes(build()) }
                     ensureActive(); pending=bytes
                     picker.launch(name)
                 } catch(e:CancellationException) { pending=null; busy=false; throw e }
                 catch(_:Exception) {
                     pending=null; busy=false
-                    Toast.makeText(context,label("No se pudo preparar la descarga CSV.","Could not prepare CSV download."),Toast.LENGTH_LONG).show()
+                    Toast.makeText(context,label(if(plainText) "No se pudo preparar la descarga TXT." else "No se pudo preparar la descarga CSV.",if(plainText) "Could not prepare TXT download." else "Could not prepare CSV download."),Toast.LENGTH_LONG).show()
                 }
             }
-        }) { Icon(Icons.Default.Download,contentDescription=label("Descargar CSV","Download CSV")) }
+        }) { Icon(Icons.Default.Download,modifier=Modifier.size(serverOutputIconSize),contentDescription=label(if(plainText) "Descargar salida TXT" else "Descargar CSV",if(plainText) "Download output TXT" else "Download CSV")) }
     }
 }

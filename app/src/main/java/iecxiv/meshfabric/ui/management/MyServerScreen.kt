@@ -280,7 +280,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     }
     val colors=listOf(Color(0xFFB28704),Color(0xFF2878C0),Color(0xFFD94A78),Color(0xFF238A37),Color(0xFF9B4AAA),Color(0xFF00838F))
     fun seriesColor(index:Int)=colors[if(kind==3) index/directions.size.coerceAtLeast(1) else index]
-    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+    CenteredServerControls {
         listOf(if(es) "Conexiones" else "Connections","CPU",if(es) "Memoria" else "Memory",if(es) "Tráfico" else "Traffic").forEachIndexed { i,label->FilterChip(selected=kind==i,onClick={ kind=i },label={ Text(label) }) }
     }
     if(kind==3) {
@@ -290,7 +290,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
         }
         Text(if(es) "Desde el servidor: entrante, línea continua; saliente, línea discontinua. Al menos una dirección activa." else "Server perspective: inbound, solid line; outbound, dashed line. At least one direction stays active.",style=MaterialTheme.typography.bodySmall)
     }
-    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+    CenteredServerControls {
         serverHistoryPeriods.forEach { period->FilterChip(selected=hours==period,enabled=ready && !busy,onClick={ onLoad(period) },label={ Text(if(period==720) { if(es) "30 días" else "30 days" } else "$period h") }) }
     }
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {

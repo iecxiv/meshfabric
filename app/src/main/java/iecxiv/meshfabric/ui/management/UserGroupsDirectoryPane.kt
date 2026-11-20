@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 internal fun profileUserGroupDomainAllowed(actor:String,group:String)=actor.startsWith("user/") && actor.split('/').size==3 && group.startsWith("ugrp/") && group.split('/').size==3 && userDomain(actor)==userDomain(group)
-@Composable internal fun UserGroupsDirectoryPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,onOpenUser:(String)->Unit,onOpenDeviceGroup:(String)->Unit,query:String="") {
+@Composable internal fun UserGroupsDirectoryPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,onOpenUser:(String)->Unit,onOpenDeviceGroup:(String)->Unit,query:String="",connectionReady:Boolean=s.ready) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     val displayNames=rememberProfileDisplayNames(s,session.broadcastServerLabel())
@@ -26,7 +26,7 @@ var adding by remember(s.id) {mutableStateOf<JSONObject?>(null)}
 var grantingMesh by remember(s.id) {mutableStateOf<String?>(null)}
 var reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
 var editingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
-LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=null}}
+LaunchedEffect(connectionReady,s.id) {if(!userGroupActionCanStayOpen(connectionReady,s.id)) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=null}}
     LaunchedEffect(s.ready,s.id,s.site,s.userGroupPhase) { if(s.ready && s.userGroupPhase=="idle") session.loadUserGroupDirectory() }
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
 val feedback=userGroupsNoticeText(s.notice,es)
