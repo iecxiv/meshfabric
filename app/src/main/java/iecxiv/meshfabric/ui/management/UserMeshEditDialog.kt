@@ -62,7 +62,7 @@ private fun editMask(value:Long)=java.lang.String.format(java.util.Locale.ROOT,"
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {approved=false;invalidated=true}}
     val packet=review?.let {JSONObject(it.toString()).put("_userEditConfirmed",approved)}
     val observed=submitted && s.notice=="userMeshEditedObserved" && s.editedDirectUser==uid && s.editedDirectMesh==mid
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar derechos directos","Edit direct rights"))},text={
+    UserActionSurface(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar derechos directos","Edit direct rights"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color= iecxiv.meshfabric.ui.theme.appCardBackground(
 MaterialTheme.colorScheme.surfaceVariant
@@ -84,7 +84,7 @@ androidx.compose.ui.unit.Dp(0f)
             }
             if(!identityReady) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             Text(t("Solo modifica un acceso directo existente y coherente en ambos enlaces. No modifica los accesos heredados ni calcula todos los permisos efectivos.","Only edits an existing direct assignment consistent in both links. Does not modify inherited assignments or calculate all effective rights."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.detailsBusy || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.detailsBusy || (submitted && s.busy)) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(before!=null) {
                 Text(editMask(before),Modifier.testTag("direct-edit-before"))
                 Text(deviceGroupRightsLabel(before,es),style=MaterialTheme.typography.bodySmall)

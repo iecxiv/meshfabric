@@ -89,7 +89,7 @@ private suspend fun managedSend(source:MeshCentralClient,request:ManagedRequest,
             }
             DeviceBatchNotice(detail)
             Text(t("Esta integración exige derechos completos. Núcleos y desinstalación requieren un agente conectado. Un intento por equipo, sin reenvío automático. Detener no deshace lo enviado.","This integration requires full rights. Core operations and uninstallation require a connected agent. One attempt per device, no automatic resend. Stopping does not undo requests already sent."))
-            if(checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(checking || running) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             rows.forEach {row->
                 HorizontalDivider();Text(row.node.name.ifBlank {row.node.id},style=MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold);DeviceBatchSecondary(row.group.name)
                 val label=when(row.phase) {

@@ -22,12 +22,16 @@ import org.json.JSONArray
         when {
             choices==null->Text(t("Lista de llaves no disponible o incompatible. Actualiza antes de eliminar.","Key list unavailable or incompatible. Refresh before removing."),style=MaterialTheme.typography.bodySmall)
             choices.isEmpty()->Text(t("No hay claves registradas.","No registered keys."))
-            else->choices.forEach {item->
-                OutlinedButton(enabled=enabled && !submitted,onClick={review=item},modifier=Modifier.fillMaxWidth().testTag("account_security_key_"+item.id)) {
-                    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-                        Text(name(item),style=MaterialTheme.typography.titleSmall)
-                        Text("ID: "+item.id,style=MaterialTheme.typography.bodySmall)
-                        Text(t("Seleccionar para eliminar…","Select to remove…"),style=MaterialTheme.typography.labelSmall)
+            else->Box(Modifier.fillMaxWidth(),contentAlignment=androidx.compose.ui.Alignment.TopCenter) {
+                Column(Modifier.width(IntrinsicSize.Max),verticalArrangement=Arrangement.spacedBy(8.dp),horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally) {
+                    choices.forEach {item->
+                        OutlinedButton(enabled=enabled && !submitted,onClick={review=item},modifier=Modifier.fillMaxWidth().testTag("account_security_key_"+item.id)) {
+                            Column(Modifier.fillMaxWidth(),horizontalAlignment=androidx.compose.ui.Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                                Text(name(item),modifier=Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Center,style=MaterialTheme.typography.titleSmall)
+                                Text("ID: "+item.id,modifier=Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Center,style=MaterialTheme.typography.bodySmall)
+                                Text(t("Seleccionar para eliminar…","Select to remove…"),modifier=Modifier.fillMaxWidth(),textAlign=androidx.compose.ui.text.style.TextAlign.Center,style=MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
             }

@@ -35,8 +35,10 @@ import iecxiv.meshfabric.ui.components.AppDialogSurface
         OutlinedButton(onClick={query="";expanded=true},modifier=Modifier.width(maximumWidth).testTag("appearance_city_selector"),
             shape=MaterialTheme.shapes.medium,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {
             Text(label,modifier=Modifier.weight(1f,fill=false),maxLines=2)
-            Spacer(Modifier.width(8.dp))
-            Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp))
+            if(city==null) {
+                Spacer(Modifier.width(8.dp))
+                Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp).testTag("appearance_city_dropdown_arrow"))
+            }
         }
         DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},modifier=Modifier.width(menuWidth).heightIn(max=320.dp).testTag("appearance_city_menu"),
             shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,tonalElevation=2.dp,

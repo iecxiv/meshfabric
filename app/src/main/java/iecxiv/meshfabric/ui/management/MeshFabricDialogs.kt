@@ -23,7 +23,7 @@ import iecxiv.meshfabric.ui.components.NumberedTextEditor
 
 @Composable internal fun FabricDialog(title:String,onDismiss:()->Unit,confirm:String,enabled:Boolean=true,
     onConfirm:()->Unit,cancel:String?=stringResource(R.string.cancel),dangerous:Boolean=false,content:@Composable ()->Unit) {
-    ManagementDialog(onDismissRequest=onDismiss,title={ Text(title,fontWeight=FontWeight.Bold,fontSize=18.sp) },
+    ManagementDialog(onDismissRequest=onDismiss,title={ Text(title) },
         text={ Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) { content() } },
         confirmButton={
             if(dangerous) Button(onClick=onConfirm,enabled=enabled,colors=ButtonDefaults.buttonColors(
@@ -52,7 +52,7 @@ import iecxiv.meshfabric.ui.components.NumberedTextEditor
                 }
                 Spacer(Modifier.height(10.dp))
                 if(busy) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                     Text(if(notes.phase==NotesPhase.LOADING) t("Cargando notas del equipo…","Loading device notes…") else t("Verificando el guardado con el servidor…","Verifying the save with the server…"),
                         style=MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))

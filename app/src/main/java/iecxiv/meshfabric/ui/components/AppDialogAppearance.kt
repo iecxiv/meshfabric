@@ -3,6 +3,8 @@ package iecxiv.meshfabric.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,7 +16,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 
 internal fun appDialogBackground(scheme:ColorScheme):Color=scheme.surfaceColorAtElevation(6.dp)
+internal val LocalWideAccountDialogs=staticCompositionLocalOf {false}
 internal object AppDialogAppearance {
+    val wideMaxWidth=640.dp
+    const val wideWidthFraction=0.94f
     val cornerRadius=16.dp
     val borderWidth=1.dp
     val shape:Shape=RoundedCornerShape(cornerRadius)
@@ -35,11 +40,21 @@ internal object AppDialogAppearance {
     textContentColor:Color=MaterialTheme.colorScheme.onSurfaceVariant,tonalElevation:Dp=AppDialogAppearance.tonalElevation,
     properties:DialogProperties=DialogProperties()
 ) {
-    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+    val wide=LocalWideAccountDialogs.current
+    val dialogModifier=if(wide) Modifier.widthIn(max=AppDialogAppearance.wideMaxWidth).fillMaxWidth(AppDialogAppearance.wideWidthFraction).then(modifier) else modifier
+    val dialogProperties=if(wide) DialogProperties(
+        dismissOnBackPress=properties.dismissOnBackPress,
+        dismissOnClickOutside=properties.dismissOnClickOutside,
+        securePolicy=properties.securePolicy,
+        usePlatformDefaultWidth=false,
+        decorFitsSystemWindows=properties.decorFitsSystemWindows,
+        windowTitle=properties.windowTitle
+    ) else properties
+    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp,LocalBottomLoadingState provides null) {
         AlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,
-            modifier=modifier.border(AppDialogAppearance.border(),shape),dismissButton=dismissButton,icon=icon,
+            modifier=dialogModifier.border(AppDialogAppearance.border(),shape),dismissButton=dismissButton,icon=icon,
             title=title,text=text,shape=shape,containerColor=containerColor,iconContentColor=iconContentColor,
-            titleContentColor=titleContentColor,textContentColor=textContentColor,tonalElevation=tonalElevation,properties=properties)
+            titleContentColor=titleContentColor,textContentColor=textContentColor,tonalElevation=tonalElevation,properties=dialogProperties)
     }
 }
 @Composable internal fun AppDialogSurface(
@@ -47,7 +62,7 @@ internal object AppDialogAppearance {
     contentColor:Color=MaterialTheme.colorScheme.onSurface,tonalElevation:Dp=AppDialogAppearance.tonalElevation,
     shadowElevation:Dp=0.dp,border:BorderStroke?=AppDialogAppearance.border(),content:@Composable ()->Unit
 ) {
-    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp,LocalBottomLoadingState provides null) {
         Surface(modifier=modifier,shape=shape,color=color,contentColor=contentColor,tonalElevation=tonalElevation,
             shadowElevation=shadowElevation,border=border,content=content)
     }
@@ -57,7 +72,7 @@ internal object AppDialogAppearance {
     elevation:CardElevation=CardDefaults.cardElevation(),border:BorderStroke?=AppDialogAppearance.border(),
     content:@Composable ColumnScope.()->Unit
 ) {
-    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp,LocalBottomLoadingState provides null) {
         Card(modifier=modifier,shape=shape,colors=colors,elevation=elevation,border=border,content=content)
     }
 }

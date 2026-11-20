@@ -17,19 +17,23 @@ import androidx.compose.ui.window.Dialog
 import iecxiv.meshfabric.R
 
 @Composable internal fun OperationFormDialog(form:Boolean,title:String,onDismiss:()->Unit,confirm:String,
-    enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,content:@Composable ()->Unit) {
+    enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,expanded:Boolean=false,inline:Boolean=false,content:@Composable ()->Unit) {
+    if(inline && form && !dangerous) {
+        ProfileUserDetailSurface(inline=true,onDismissRequest=onDismiss,title={Text(title)},text={Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {content()}},confirmButton={Button(enabled=enabled,onClick=onConfirm) {Text(confirm)}},dismissButton={TextButton(onClick=onDismiss) {Text(stringResource(R.string.cancel))}})
+        return
+    }
     if(!form && dangerous) {
         FabricDialog(title=title,onDismiss=onDismiss,confirm=confirm,enabled=enabled,
             dangerous=dangerous,onConfirm=onConfirm,content=content)
         return
     }
-    Dialog(onDismissRequest=onDismiss) {
+    Dialog(onDismissRequest=onDismiss,properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=!expanded)) {
         iecxiv.meshfabric.ui.components.AppDialogSurface(shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
-            modifier=Modifier.fillMaxWidth().padding(horizontal=4.dp,vertical=8.dp)) {
+            modifier=(if(expanded) Modifier.widthIn(max=720.dp).fillMaxWidth(0.96f) else Modifier.fillMaxWidth()).padding(horizontal=4.dp,vertical=8.dp)) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text(title,fontWeight=FontWeight.Bold,fontSize=18.sp)
                 Spacer(Modifier.height(10.dp))
-                Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),
+                Column(Modifier.fillMaxWidth().heightIn(max=if(expanded) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp*0.82f).dp else 440.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.bodyLarge) { content() }
                 }

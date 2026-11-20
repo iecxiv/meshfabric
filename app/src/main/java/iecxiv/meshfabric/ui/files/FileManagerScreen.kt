@@ -107,6 +107,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -115,6 +116,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -177,6 +179,12 @@ private fun FileManagerContent(
 
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+            val fileSearchFocus=remember {androidx.compose.ui.focus.FocusRequester()}
+            val fileFocus=androidx.compose.ui.platform.LocalFocusManager.current
+            val fileKeyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+            val closeFileSearch:()->Unit={isSearchActive=false;searchQuery="";fileFocus.clearFocus(force=true);fileKeyboard?.hide()}
+            LaunchedEffect(isSearchActive) {if(isSearchActive) {withFrameNanos {};fileSearchFocus.requestFocus();fileKeyboard?.show()}}
+
 
     var showCreateFolderDialog by remember { mutableStateOf(false) }
     var newFolderName by remember { mutableStateOf("") }
@@ -326,7 +334,7 @@ private fun FileManagerContent(
                             onValueChange = { searchQuery = it },
                             placeholder = { Text(stringResource(R.string.search_files_placeholder)) },
                             singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().focusRequester(fileSearchFocus)
                         )
                     } else {
                         Column {
@@ -342,8 +350,7 @@ private fun FileManagerContent(
                 navigationIcon = {
                     IconButton(onClick = {
                         if (isSearchActive) {
-                            isSearchActive = false
-                            searchQuery = ""
+                            closeFileSearch()
                         } else {
                             onBack()
                         }
@@ -354,12 +361,13 @@ private fun FileManagerContent(
                 actions = {
                     RemoteHeaderActions {
                         IconButton(
-                            onClick = { isSearchActive = !isSearchActive },
+                            onClick = { if(isSearchActive) closeFileSearch() else isSearchActive=true },
                             modifier = Modifier.size(38.dp)
                         ) {
                             RemoteHeaderIcon(
-                                if (isSearchActive) Icons.Default.Clear else Icons.Default.Search,
-                                contentDescription = stringResource(R.string.search)
+                                if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                                contentDescription = stringResource(R.string.search),
+                                tint = if(isSearchActive) Color(0xFF2196F3) else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         IconButton(
@@ -374,12 +382,7 @@ private fun FileManagerContent(
                         IconButton(onClick = { viewModel.openDirectory(nodeId, "/") }, modifier = Modifier.size(38.dp)) {
                             RemoteHeaderIcon(Icons.Default.Storage, contentDescription = stringResource(if (windowsFiles) R.string.files_drives else R.string.files_root_shortcut_label), tint = if (if (windowsFiles) driveSelector else currentPath == "/") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(
-                            onClick = { viewModel.refresh(nodeId) },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            RemoteHeaderIcon(Icons.Default.Refresh, contentDescription = stringResource(R.string.refresh))
-                        }
+                        iecxiv.meshfabric.ui.components.AppRefreshIconButton(onRefresh={viewModel.refresh(nodeId)},contentDescription=stringResource(R.string.refresh))
                         IconButton(
                             onClick = {
                                 viewModel.stopSession(nodeId)

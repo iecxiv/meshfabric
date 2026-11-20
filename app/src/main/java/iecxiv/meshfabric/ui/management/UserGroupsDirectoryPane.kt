@@ -13,11 +13,11 @@ import androidx.compose.ui.unit.dp
 import org.json.JSONObject
 
 internal fun profileUserGroupDomainAllowed(actor:String,group:String)=actor.startsWith("user/") && actor.split('/').size==3 && group.startsWith("ugrp/") && group.split('/').size==3 && userDomain(actor)==userDomain(group)
-@Composable internal fun UserGroupsDirectoryPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,onOpenUser:(String)->Unit,onOpenDeviceGroup:(String)->Unit) {
+@Composable internal fun UserGroupsDirectoryPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,onOpenUser:(String)->Unit,onOpenDeviceGroup:(String)->Unit,query:String="",connectionReady:Boolean=s.ready) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     val displayNames=rememberProfileDisplayNames(s,session.broadcastServerLabel())
-    var query by rememberSaveable(s.id) { mutableStateOf("") }
+
 var editing by remember(s.id) { mutableStateOf<JSONObject?>(null) }
 var creating by remember(s.id) {mutableStateOf(false)}
 var deleting by remember(s.id) {mutableStateOf<JSONObject?>(null)}
@@ -26,11 +26,13 @@ var adding by remember(s.id) {mutableStateOf<JSONObject?>(null)}
 var grantingMesh by remember(s.id) {mutableStateOf<String?>(null)}
 var reviewingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
 var editingMesh by remember(s.id) {mutableStateOf<Pair<String,String>?>(null)}
-LaunchedEffect(s.ready) {if(!s.ready) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=null}}
+LaunchedEffect(connectionReady,s.id) {if(!userGroupActionCanStayOpen(connectionReady,s.id)) {editing=null;creating=false;deleting=null;removing=null;adding=null;reviewingMesh=null;grantingMesh=null;editingMesh=null}}
     LaunchedEffect(s.ready,s.id,s.site,s.userGroupPhase) { if(s.ready && s.userGroupPhase=="idle") session.loadUserGroupDirectory() }
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
 val feedback=userGroupsNoticeText(s.notice,es)
-    LazyColumn(modifier,contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
+    CompositionLocalProvider(LocalUserGroupActionsInline provides true) {
+    Box(modifier) {
+    LazyColumn(Modifier.fillMaxSize().blockCoveredNavigation(userGroupSubviewActive(creating,editing!=null,deleting!=null,removing!=null,adding!=null,grantingMesh!=null,reviewingMesh!=null,editingMesh!=null)),contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item {
             Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=if(userGroupsNoticeIsError(s.notice)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -46,8 +48,8 @@ if(s.notice=="userGroupMemberAddedObserved") Text(t("Enlace de alta observado en
 if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausentes. Grupo de usuarios: ","Both links observed absent. User group: ")+displayNames.label(s.revokedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.revokedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshGrantedObserved") Text(t("Derechos solicitados observados en ambos enlaces. Grupo de usuarios: ","Requested rights observed in both links. User group: ")+displayNames.label(s.grantedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.grantedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshEditedObserved") Text(t("Máscara exacta editada y observada en ambos enlaces. Grupo de usuarios: ","Edited exact mask observed in both links. User group: ")+displayNames.label(s.editedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.editedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
-OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo","Search groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
-            if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
+
+            if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)
             if(s.userGroupPhase=="failed") Text(t("No se ha podido consultar el listado. Puedes volver a actualizar.","The list could not be retrieved. Refresh to try again."),color=MaterialTheme.colorScheme.error)
             if(s.ready && ProfilePermissions.normalized(s.site) and 256L==0L) Text(t("Vista limitada: el servidor proporciona solo nombres.","Limited view: the server provides names only."),style=MaterialTheme.typography.bodySmall)
@@ -92,12 +94,15 @@ if(profileGroupMeshId(s.id,id)) TextButton(enabled=presentation.usable && s.canW
             }
         }
     }
+if(creating && editing==null) Column(Modifier.fillMaxSize()) {UserGroupCreateDialog(session,s) {creating=false}}
 grantingMesh?.let {GroupMeshGrantDialog(session,s,it) {grantingMesh=null}}
 editing?.let {UserGroupEditDialog(session,s,it) {editing=null}}
-if(creating && editing==null) UserGroupCreateDialog(session,s) {creating=false}
+
 deleting?.let {UserGroupDeleteDialog(session,s,it) {deleting=null}}
 removing?.let {(group,id)->UserGroupMemberRemoveDialog(session,s,group,id) {removing=null}}
 adding?.let {UserGroupMemberAddDialog(session,s,it) {adding=null}}
 reviewingMesh?.let {(gid,mid)->GroupMeshAssignmentReview(session,s,gid,mid) {reviewingMesh=null}}
 editingMesh?.let {(gid,mid)->key(gid,mid) {GroupMeshEditDialog(session,s,gid,mid) {editingMesh=null}}}
+}
+}
 }

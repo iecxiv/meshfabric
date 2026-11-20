@@ -236,57 +236,17 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val snackbar=remember { SnackbarHostState() }
     val uiScope=rememberCoroutineScope()
     var page by rememberSaveable { mutableIntStateOf(0) }
+    var openActivity by rememberSaveable { mutableStateOf(false) }
     var returnPage by rememberSaveable { mutableIntStateOf(0) }
     var profileReturnPage by rememberSaveable { mutableIntStateOf(0) }
     var noticeReturnPage by rememberSaveable { mutableIntStateOf(0) }
     var operation by remember { mutableStateOf<Operation?>(null) }
+    var noticeCompose by remember {mutableStateOf(false)}
     var operationNode by remember { mutableStateOf("") }
     BackHandler(enabled=page in 2..4) { page=when(page) { 4->noticeReturnPage.coerceIn(0,3); 3->profileReturnPage.coerceIn(0,2); else->returnPage.coerceIn(0,1) } }
     LaunchedEffect(connected,viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie) { if(connected) management.connect() else management.pause() }
     LaunchedEffect(groups) { management.activity.rememberDevices(nodes.associate { it.id to it.name }) }
-    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
-        bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
-            if(next in 0..4 && next!=page) {
-                if(next==2 && page in 0..1) returnPage=page
-                if(next==3 && page in 0..2) profileReturnPage=page
-                if(next==4) noticeReturnPage=page.coerceIn(0,3)
-                page=next
-            }
-        } } }) { padding->
-        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-            if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
-                val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
-                val hasActiveSessions = iecxiv.meshfabric.ui.devices.hasDeviceConnectedSession(
-                    desktopSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
-                    terminalSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
-                    fileSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE)
-                DeviceActionMenu(node,state.ready,hasActiveSessions,
-                    onDisconnectSessions={ viewModel.closeDeviceActiveSessions(node.id) },onRead={ management.openNotes(node,false) },onEdit={ management.openNotes(node,true) },
-                    onSelect={ op->operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
-            }) {
-                DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
-            } else if(page==2) CompositionLocalProvider(LocalDeviceDetailsClient provides viewModel.meshClient) {
-                MyServerScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
-            } else if(page==3) {
-                ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
-            } else if(page==4) {
-                NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},onDeviceMessage={node->
-                    operationNode=node.id
-                    operation=Operation(managementText("Notificación remota · ${node.name}","Remote notification · ${node.name}"),listOf("title" to managementText("Título","Title"),"msg" to managementText("Mensaje","Message")),true,Icons.Default.Notifications) {values->
-                        val title=values.getValue("title")
-                        val message=values.getValue("msg")
-                        require(title.isNotBlank() && title.length<=160 && !title.contains('\u0000')) { managementText("Escribe un título válido (máximo 160 caracteres)","Enter a valid title (up to 160 characters)") }
-                        require(userMessageValid(message)) { managementText("Escribe un mensaje válido (máximo 512 caracteres)","Enter a valid message (up to 512 characters)") }
-                        json("action" to "toast","nodeids" to JSONArray(listOf(node.id)),"title" to title,"msg" to message)
-                    }
-                })
-            } else LogScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
-                actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
-        }
-    }
-    ActionFeedbackDialogs(management.feedback)
-    state.notes?.let { n->DeviceNotesDialog(n,management::closeNotes,management::editNotes,management::changeNotes,management::saveNotes,
-        onReload={ nodes.find { it.id==n.nodeId }?.let { management.openNotes(it,n.editable) } },connected=state.ready) }
+    @Composable fun RenderOperation() {
     operation?.let { op->key(op.title,operationNode) {
         val targetOs=nodes.find { it.id==operationNode }?.osdesc
         val interpreters=commandInterpreters(targetOs)
@@ -296,7 +256,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
         val confirmLabel=if(op.directSend) managementText("Enviar","Send") else if(singleConfirmation) op.title.substringBefore(" · ") else if(review) managementText("Confirmar envío","Confirm send") else managementText("Revisar","Review")
-        OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
+        val expandedMessage=op.fields.map {it.first}.toSet()==setOf("title","msg")
+        OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,expanded=expandedMessage,inline=noticeCompose,onConfirm={
             runCatching {
                 if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { managementText("Elige un intérprete válido para este equipo","Choose a valid interpreter for this device") }
                 op.build(values)
@@ -309,7 +270,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                             snackbar.currentSnackbarData?.dismiss()
                             val result=snackbar.showSnackbar(message=managementText("${op.title}: solicitud enviada; ejecución sin confirmar.","${op.title}: request sent; execution unconfirmed."),
                                 actionLabel=managementText("Ver actividad","View activity"),withDismissAction=true,duration=SnackbarDuration.Long)
-                            if(result==SnackbarResult.ActionPerformed) page=1
+                            if(result==SnackbarResult.ActionPerformed) {openActivity=true;page=1}
                         }
                     } else error=managementText("No se ha podido enviar la solicitud. Revisa la conexión; no se reintentará automáticamente.","Could not send the request. Check the connection; it will not be retried automatically.")
                 }
@@ -334,13 +295,64 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 } else OutlinedTextField(value=values[key].orEmpty(),
                     onValueChange={ values=values+(key to it); error="" },
                     label={ Text(label) },textStyle=MaterialTheme.typography.bodyLarge,
-                    singleLine=key=="url" || key=="title",minLines=1,
-                    maxLines=if(key=="url" || key=="title") 1 else 3,
-                    modifier=Modifier.fillMaxWidth().heightIn(min=52.dp,max=90.dp))
+                    singleLine=key=="url" || key=="title",minLines=if(expandedMessage && key=="msg") 6 else 1,
+                    maxLines=if(key=="url" || key=="title") 1 else if(expandedMessage && key=="msg") 12 else 3,
+                    modifier=Modifier.fillMaxWidth().then(if(expandedMessage && key=="msg") Modifier else Modifier.heightIn(min=52.dp,max=90.dp)))
             }
             if(error.isNotBlank()) Text(error,color=MaterialTheme.colorScheme.error)
         }
     } }
+    }
+    LaunchedEffect(page) {if(page!=4 && noticeCompose) {operation=null;noticeCompose=false}}
+    val bottomLoading=remember(page) {iecxiv.meshfabric.ui.components.BottomLoadingState()}
+    CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading) {
+    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
+        bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
+            if(next in 0..4 && next!=page) {
+                if(next==2 && page in 0..1) returnPage=page
+                if(next==3 && page in 0..2) profileReturnPage=page
+                if(next==4) noticeReturnPage=page.coerceIn(0,3)
+                page=next
+            }
+        } } }) { padding->
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
+                val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
+                val hasActiveSessions = iecxiv.meshfabric.ui.devices.hasDeviceConnectedSession(
+                    desktopSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                    terminalSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE,
+                    fileSessions[cleanNodeId] ?: iecxiv.meshfabric.data.model.SessionStatus.NONE)
+                DeviceActionMenu(node,state.ready,hasActiveSessions,
+                    onDisconnectSessions={ viewModel.closeDeviceActiveSessions(node.id) },onRead={ management.openNotes(node,false) },onEdit={ management.openNotes(node,true) },
+                    onSelect={ op->noticeCompose=false;operationNode=node.id; operation=op.copy(title="${op.title} · ${node.name}") })
+            }) {
+                DeviceListScreen(viewModel,{ management.clear(); onLogout() },onOpenSettings,onOpenDesktop,onOpenTerminal,onOpenFiles)
+            } else if(page==2) CompositionLocalProvider(LocalDeviceDetailsClient provides viewModel.meshClient) {
+                MyServerScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
+            } else if(page==3) {
+                ProfileScreen(viewModel.meshClient,Modifier.fillMaxSize(),header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})})
+            } else if(page==4) {
+                NoticeCenterScreen(viewModel.meshClient,management.inbox,state.ready,nodes,Modifier.fillMaxSize(),deviceComposeOpen=noticeCompose && operation!=null,deviceComposer={RenderOperation()},onCloseDeviceComposer={operation=null;noticeCompose=false},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},onDeviceMessage={node->
+                    noticeCompose=true
+                    operationNode=node.id
+                    operation=Operation(managementText("Notificación remota · ${node.name}","Remote notification · ${node.name}"),listOf("title" to managementText("Título","Title"),"msg" to managementText("Mensaje","Message")),true,Icons.Default.Notifications) {values->
+                        val title=values.getValue("title")
+                        val message=values.getValue("msg")
+                        require(title.isNotBlank() && title.length<=160 && !title.contains('\u0000')) { managementText("Escribe un título válido (máximo 160 caracteres)","Enter a valid title (up to 160 characters)") }
+                        require(userMessageValid(message)) { managementText("Escribe un mensaje válido (máximo 512 caracteres)","Enter a valid message (up to 512 characters)") }
+                        json("action" to "toast","nodeids" to JSONArray(listOf(node.id)),"title" to title,"msg" to message)
+                    }
+                })
+            } else LogScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
+                actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings,openActivity=openActivity,onActivityOpened={openActivity=false})
+        }
+    }
+    }
+    ActionFeedbackDialogs(management.feedback)
+    state.notes?.let { n->DeviceNotesDialog(n,management::closeNotes,management::editNotes,management::changeNotes,management::saveNotes,
+        onReload={ nodes.find { it.id==n.nodeId }?.let { management.openNotes(it,n.editable) } },connected=state.ready) }
+    if(!noticeCompose) RenderOperation()
+
 }
 @Composable private fun DeviceActionMenu(node:MeshNode,ready:Boolean,hasActiveSessions:Boolean,onDisconnectSessions:()->Unit,onRead:()->Unit,onEdit:()->Unit,onSelect:(Operation)->Unit) {
     var expanded by remember(node.id) { mutableStateOf(false) }

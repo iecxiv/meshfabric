@@ -53,14 +53,14 @@ internal fun profileGroupMeshReadbackReady(s:ProfileState,gid:String,mid:String,
     val canSend=identityReady && !identityInvalidated && !submitted && packet!=null && profileGroupMeshRevokeAllowed(s,packet,server)
     val observed=submitted && s.notice=="groupMeshRevokedObserved" && s.revokedGroup==gid && s.revokedDeviceGroup==mid
     LaunchedEffect(session,gid,mid,s.ready,s.busy,s.userGroupPhase) {if(s.ready && !s.busy && s.userGroupPhase=="idle") session.loadUserGroupDirectory()}
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar asignación","Review assignment"))},text={
+    UserActionSurface(inline=LocalUserGroupActionsInline.current || LocalProfileUserInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar asignación","Review assignment"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(beforeServer,style=MaterialTheme.typography.bodySmall)
             Text(t("Grupo de usuarios: ","User group: ")+identityA.label)
             Text(t("Grupo de dispositivos: ","Device group: ")+identityB.label)
             if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             Text(t("Enlace recibido en el grupo de usuarios: ","Link received in the user group: ")+mask(profileGroupMeshReportedRights(group,mid)))
             Text(t("Enlace recibido en el grupo de dispositivos: ","Link received in the device group: ")+mask(profileGroupMeshReportedRights(mesh,gid)))
             Text(t("Derechos directos recibidos del actor: ","Received direct actor rights: ")+mask(profileGroupMeshReportedRights(mesh,actor)))

@@ -7,7 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,7 +41,7 @@ internal fun boundedAdminOutput(previous:List<String>,text:String):List<String> 
 internal val serverTraceSources=listOf("cookie","dispatch","main","peer","agent","agentupdate","cert","db","email","web","webrequest","relay","httpheaders","authlog","amt","webrelay","mps","mpscmd")
 internal fun validTraceSelection(current:Set<String>,desired:Set<String>)=desired.all { it in serverTraceSources || it in current }
 internal data class AdminState(val ready:Boolean=false,val admin:Boolean=false,val failed:Boolean=false,val sources:Set<String>?=null,
-    val console:List<String> = emptyList(),val trace:List<ServerTraceCsvEntry> = emptyList(),val pending:String="",val token:Long=0,val desired:Set<String> = emptySet(),val notice:String="",val sourcesIssue:String="")
+    val console:List<String> = emptyList(),val trace:List<ServerTraceCsvEntry> = emptyList(),val pending:String="",val token:Long=0,val desired:Set<String> = emptySet(),val notice:String="",val sourcesIssue:String="",val tracePaused:Boolean=false)
 internal data class TraceProposal(val base:Set<String>,val desired:Set<String>)
 internal class ServerAdminChannel(private val source:MeshCentralClient,private val open:(MeshCentralClient,WebSocketListener)->WebSocket={s,l->
     OkHttpHelper.createClient(s.ignoreSsl).newWebSocket(Request.Builder().url(OkHttpHelper.toWebSocketUrl(s.serverUrl,"/control.ashx?moreargs=1")).header("Cookie",s.authCookie).build(),l)
@@ -81,7 +81,7 @@ internal class ServerAdminChannel(private val source:MeshCentralClient,private v
                         }
                         "traceinfo"->receiveSources(packet)
                         "event"->packet.optJSONObject("event")?.let { if(it.optString("action")=="traceinfo") receiveSources(it) }
-                        "trace"->if(state.value.admin) state.update { it.copy(trace=boundedServerTrace(it.trace,serverTraceCsvEntry(packet.toString()))) }
+                        "trace"->if(serverTraceAcceptsLive(state.value.admin,state.value.tracePaused)) state.update { it.copy(trace=boundedServerTrace(it.trace,serverTraceCsvEntry(packet.toString()))) }
                         "close","stopped"->fail(epoch)
                     }
                 } }
@@ -124,6 +124,9 @@ internal class ServerAdminChannel(private val source:MeshCentralClient,private v
     @Synchronized fun sourcesTimeout() {
         if(state.value.ready && state.value.admin && state.value.sources==null && state.value.sourcesIssue.isEmpty()) state.update {it.copy(sourcesIssue="timeout")}
     }
+    @Synchronized fun toggleTracePause() {
+        if(available()) state.update {it.copy(tracePaused=!it.tracePaused)}
+    }
     @Synchronized fun dismissNotice() { state.update { it.copy(notice="") } }
     @Synchronized private fun fail(epoch:Long) {
         if(epoch!=generation) return
@@ -155,7 +158,7 @@ internal class ServerAdminChannel(private val source:MeshCentralClient,private v
     val enabled=state.ready && state.admin && state.pending.isEmpty()
     Text(when { state.failed->label("Sin conexión. Reconecta manualmente.","Disconnected. Reconnect manually."); !state.ready->label("Conectando…","Connecting…"); !state.admin->label("Se requiere administrador completo del servidor.","Full server administrator required."); else->label("Administrador conectado. El servidor valida también sus restricciones.","Administrator connected. Server restrictions still apply.") })
     if(state.failed || (traceView && state.sourcesIssue.isNotBlank())) TextButton(onClick={ retry++ },modifier=Modifier.testTag("server-trace-reconnect")) { Text(label("Reconectar","Reconnect")) }
-    val privacy=label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda automáticamente en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. La descarga CSV guarda una copia donde elijas. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not automatically saved to disk or diagnostic logs; cleared on exit or background. CSV download saves a copy at your chosen location. May contain sensitive data.")
+    val privacy=label("Salida local limitada a 200 entradas y 64 000 caracteres. No se guarda automáticamente en disco ni en diagnóstico; se borra al salir o pasar a segundo plano. La exportación guarda una copia donde elijas. Puede contener datos sensibles.","Local output limited to 200 entries and 64,000 characters. Not automatically saved to disk or diagnostic logs; cleared on exit or background. Export saves a copy at your chosen location. May contain sensitive data.")
     val notice=when(state.notice) {
         "sent"->label("Solicitud enviada; resultado pendiente.","Request sent; result pending.")
         "reply"->label("Respuesta recibida del servidor. Revisa su contenido.","Server reply received. Review its contents.")
@@ -203,7 +206,7 @@ androidx.compose.ui.unit.Dp(0f)
                         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                         if(state.pending=="trace") {
                             Text(label("Aplicando cambios…","Applying changes…"),Modifier.padding(horizontal=16.dp,vertical=8.dp),style=MaterialTheme.typography.bodySmall)
-                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                         }
                         options.forEach { name->
                             DropdownMenuItem(enabled=enabled,modifier=Modifier.testTag("trace-source-$name"),text={ Column {
@@ -231,7 +234,7 @@ androidx.compose.ui.unit.Dp(0f)
         }
         Text(privacy,style=MaterialTheme.typography.bodySmall)
     }
-    if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if(state.pending.isNotEmpty()) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
     if(traceView) {
         val output=remember(state.trace) { state.trace.asReversed() }
         val selectedSources=state.sources.orEmpty()
@@ -240,8 +243,13 @@ androidx.compose.ui.unit.Dp(0f)
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
                 TextButton(onClick={ channel?.clear(true) }) { Text(label("Limpiar solo la salida local","Clear local output only")) }
             }
+            val pauseLabel=if(state.tracePaused) label("Reanudar seguimiento live","Resume live trace") else label("Pausar seguimiento live","Pause live trace")
+            IconButton(enabled=enabled,onClick={channel?.toggleTracePause()},modifier=Modifier.testTag("server-trace-pause")) {
+                Icon(if(state.tracePaused) Icons.Default.PlayArrow else Icons.Default.Pause,contentDescription=pauseLabel,modifier=Modifier.size(serverOutputIconSize))
+            }
             ServerCsvDownload(enabled=enabled && exportable,fileName="servertrace.csv",create={ serverTraceCsv(output,selectedSources) })
         }
+        if(state.tracePaused) Text(label("Pausado localmente. Los eventos recibidos durante la pausa no se incorporan ni se recuperan al reanudar.","Paused locally. Events received while paused are not added or recovered on resume."),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
         Text(label("Más recientes primero","Newest received first"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
 MaterialTheme.colorScheme.surface

@@ -30,7 +30,7 @@ import org.json.JSONObject
     var identityInvalidated by remember {mutableStateOf(false)}
     LaunchedEffect(review,identityReady) {if(review && !identityReady) {identityInvalidated=true;approved=false}}
     val context=identityReady && !identityInvalidated && profileUserGroupMemberRemoveContext(s,packet,server)
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Retirar usuario del grupo","Remove user from group"))},text={
+    ProfileUserDetailSurface(inline=LocalUserGroupActionsInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Retirar usuario del grupo","Remove user from group"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(identity.label,style=MaterialTheme.typography.titleSmall)
             if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente el destino. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the target. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)

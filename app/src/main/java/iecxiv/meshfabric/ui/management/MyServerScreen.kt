@@ -194,11 +194,18 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     val readIdentity=remember(source,source?.serverUrl,source?.authCookie,source?.ignoreSsl,source?.isUserLogout,actor?.id,actor?.siteadmin) {Any()}
     val reader=remember(source,preferences,readIdentity) { source?.let { ServerReader(it,preferences.hours()) } }
     val state=reader?.state?.collectAsState()?.value ?: ServerReadState(failed=true,hours=preferences.hours())
+    iecxiv.meshfabric.ui.components.ReportViewLoading(state.pending.isNotEmpty() || (!state.ready && !state.failed))
     val resultDialog=rememberServerReadDialog(state.result,state.resultKind,readIdentity)
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var retry by remember { mutableIntStateOf(0) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var confirmConfig by remember(readIdentity) { mutableStateOf(false) }
+    val generalScroll=rememberScrollState()
+    val historyScroll=rememberScrollState()
+    val consoleScroll=rememberScrollState()
+    val traceScroll=rememberScrollState()
+    val closeResult:()->Unit={resultDialog.value=null;reader?.dismiss()}
+    androidx.activity.compose.BackHandler(enabled=tab==0 && resultDialog.value!=null && !confirmConfig,onBack=closeResult)
     LaunchedEffect(reader,lifecycle,retry) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
         try { reader?.connect(); awaitCancellation() } finally { reader?.close() }
     } }
@@ -211,9 +218,18 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     }
     Column(modifier) {
         ServerStatisticsHeader(tab,state.ready,state.pending.isNotEmpty(),header) {refreshHistory(state.hours)}
-        ServerSectionTabs(tab) { tab=it }
+        ServerSectionTabs(tab) { if(it!=tab) {closeResult();tab=it} }
         ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,modifier=Modifier.padding(horizontal=16.dp),onReconnect={retry++})
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        val selectedResult=resultDialog.value?.takeIf {tab==0}
+        if(selectedResult!=null) {
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                key(readIdentity,selectedResult.action) {
+                    CompositionLocalProvider(LocalServerReadInline provides true) {
+                        ServerReadResultDialog(selectedResult.raw,selectedResult.action,closeResult)
+                    }
+                }
+            }
+        } else Column(Modifier.weight(1f).verticalScroll(when(tab) {0->generalScroll;1->historyScroll;2->consoleScroll;else->traceScroll}).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             when(tab) {
                 0->{
                     ServerGeneralActions {
@@ -228,12 +244,11 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
                 1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty(),onLoad=::refreshHistory)
                 else->ServerAdminPanel(source,tab==3)
             }
-            if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(state.pending.isNotEmpty()) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         }
     }
     if(confirmConfig) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ confirmConfig=false },title={ ServerGeneralActionTitle(stringResource(R.string.my_server_config)) },text={ Text(stringResource(R.string.my_server_sensitive)) },
         confirmButton={ TextButton(onClick={ confirmConfig=false; reader?.request("serverconfig") }) { Text(stringResource(R.string.my_server_view)) } },dismissButton={ TextButton(onClick={ confirmConfig=false }) { Text(stringResource(R.string.my_server_cancel)) } })
-    key(readIdentity) { resultDialog.value?.let { result->ServerReadResultDialog(result.raw,result.action) {resultDialog.value=null;reader?.dismiss()} } }
 }
 
 @Composable private fun HistoryPanel(raw:String,hours:Int,ready:Boolean,busy:Boolean,onLoad:(Int)->Unit) {
@@ -266,7 +281,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     }
     val colors=listOf(Color(0xFFB28704),Color(0xFF2878C0),Color(0xFFD94A78),Color(0xFF238A37),Color(0xFF9B4AAA),Color(0xFF00838F))
     fun seriesColor(index:Int)=colors[if(kind==3) index/directions.size.coerceAtLeast(1) else index]
-    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+    CenteredServerControls {
         listOf(if(es) "Conexiones" else "Connections","CPU",if(es) "Memoria" else "Memory",if(es) "Tráfico" else "Traffic").forEachIndexed { i,label->FilterChip(selected=kind==i,onClick={ kind=i },label={ Text(label) }) }
     }
     if(kind==3) {
@@ -276,7 +291,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
         }
         Text(if(es) "Desde el servidor: entrante, línea continua; saliente, línea discontinua. Al menos una dirección activa." else "Server perspective: inbound, solid line; outbound, dashed line. At least one direction stays active.",style=MaterialTheme.typography.bodySmall)
     }
-    Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+    CenteredServerControls {
         serverHistoryPeriods.forEach { period->FilterChip(selected=hours==period,enabled=ready && !busy,onClick={ onLoad(period) },label={ Text(if(period==720) { if(es) "30 días" else "30 days" } else "$period h") }) }
     }
     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {

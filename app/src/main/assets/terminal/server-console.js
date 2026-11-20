@@ -98,7 +98,13 @@
     }
     window.serverConsoleFocus = function () {
         if (disposed || window.serverConsoleFailed || !term || !interactive || !available) return false;
-        term.focus(); follow = true; dirty = true; schedule(); return true;
+        var state = editor && editor.snapshot();
+        if (!state || !state.enabled || state.pending || state.disposed) return false;
+        var textarea = term.textarea;
+        if (!textarea || textarea.disabled || textarea.readOnly) return false;
+        term.focus();
+        if (document.activeElement !== textarea) return false;
+        return true;
     };
     window.serverConsoleRender = function (data, id) {
         if (disposed || window.serverConsoleFailed || !Number.isSafeInteger(id) || id < 1 || !data || typeof data.text !== 'string' || data.text.length > 64000 || typeof data.title !== 'string' || typeof data.empty !== 'string' || data.title.length > 200 || data.empty.length > 200 || !Number.isInteger(data.font) || data.font < 10 || data.font > 20) return false;

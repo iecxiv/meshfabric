@@ -102,15 +102,24 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
             if(!destroyed && !broken && value!="true") fail("input-state")
         }
     }
+    private fun inputFocusAllowed() = !destroyed && !broken && ready && view.isAttachedToWindow && view.hasWindowFocus() && canSend()
     fun focusInput() {
-        if(destroyed || broken || !ready || !view.isAttachedToWindow || !canSend()) return
-        view.requestFocus()
-        view.evaluateJavascript("window.serverConsoleFocus && window.serverConsoleFocus()") { value->
-            if(value=="true") view.post {
-                if(!destroyed && !broken && ready && view.isAttachedToWindow && canSend()) {
-                    (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(view,0)
+        if(!inputFocusAllowed() || !view.requestFocusFromTouch()) return
+        view.evaluateJavascript("window.serverConsoleSetInputEnabled && window.serverConsoleSetInputEnabled(true) && window.serverConsoleFocus && window.serverConsoleFocus()") { value->
+            if(value!="true" || !inputFocusAllowed()) return@evaluateJavascript
+            view.postDelayed({
+                if(inputFocusAllowed() && view.hasFocus()) {
+                    view.evaluateJavascript("window.serverConsoleFocus && window.serverConsoleFocus()") { focused->
+                        if(focused=="true" && inputFocusAllowed() && view.hasFocus()) {
+                            val ime=view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                            ime?.restartInput(view)
+                            view.post {
+                                if(inputFocusAllowed() && view.hasFocus()) ime?.showSoftInput(view,0)
+                            }
+                        }
+                    }
                 }
-            }
+            },100L)
         }
     }
     fun paste(text:String) {
@@ -297,7 +306,7 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
     val pasteAllowed=active && loaded && enabled && !failed
     val currentPasteAllowed by rememberUpdatedState(pasteAllowed)
     Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+        CenteredServerControls {
             TextButton(enabled=font>10,onClick={ font-- },contentPadding=PaddingValues(6.dp)) { Text("A−") }
             TextButton(enabled=font<20,onClick={ font++ },contentPadding=PaddingValues(6.dp)) { Text("A+") }
             TextButton(enabled=snapshot.isNotEmpty(),onClick={ scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("plain text",snapshot))) } }) { Text(label("Copiar salida","Copy output")) }
@@ -321,8 +330,12 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
                 AndroidView(modifier=Modifier.fillMaxWidth().height(320.dp),factory={ ctx->FrameLayout(ctx) },onReset=null,onRelease={ renderer.close() },update={ parent->renderer.attach(context,parent); renderer.submit(payload); renderer.syncInput() })
             }
         }
-        if(active && !loaded && !failed) LinearProgressIndicator(Modifier.fillMaxWidth())
-        TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+        if(active && !loaded && !failed) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
+        Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+            TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+            Spacer(Modifier.weight(1f))
+            ServerConsoleTextDownload(snapshot)
+        }
         if(showText || failed) Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
 MaterialTheme.colorScheme.surfaceVariant
 ),border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),

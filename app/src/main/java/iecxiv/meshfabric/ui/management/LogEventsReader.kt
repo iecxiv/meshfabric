@@ -14,6 +14,8 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
     private val jobs=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val mutable=MutableStateFlow(ServerEventsSnapshot())
     val state=mutable.asStateFlow()
+    private val channel=MutableStateFlow(false)
+    val channelReady=channel.asStateFlow()
     private val gate=ServerEventsReadGate()
     private var socket:WebSocket?=null
     private var binding:LogEventsBinding?=null
@@ -75,7 +77,7 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
                 if(resumeAuthority!=null && resumeAuthority!=authority) {stop(ServerEventsPhase.INVALIDATED);return}
                 val previous=queryScope
                 if(previous!=null) {if(previous.authority!=authority) stop(ServerEventsPhase.INVALIDATED);return}
-                val scope=ServerEventsScope(b.server,b.actor,epoch,authority);queryScope=scope
+                val scope=ServerEventsScope(b.server,b.actor,epoch,authority);queryScope=scope;channel.value=true
                 val tag=UUID.randomUUID().toString();attempt=gate.begin(scope,tag,requested)
                 if(!ws.send(serverEventsRequest(tag,requested).toString())) stop(ServerEventsPhase.ERROR)
             }
@@ -94,7 +96,7 @@ internal class LogEventsReader(private val current:()->LogEventsBinding?,private
     @Synchronized fun timeout() {if(mutable.value.phase==ServerEventsPhase.LOADING) stop(ServerEventsPhase.TIMEOUT)}
     @Synchronized private fun failed(generation:Long) {if(generation==epoch) stop(ServerEventsPhase.ERROR)}
     @Synchronized private fun stop(phase:ServerEventsPhase) {
-        epoch++;timer?.cancel();timer=null;binding=null;queryScope=null;gate.invalidate()
+        channel.value=false;epoch++;timer?.cancel();timer=null;binding=null;queryScope=null;gate.invalidate()
         pausedBinding=null;pausedAuthority=null;resumeAuthority=null
         val previous=socket;socket=null;mutable.value=ServerEventsSnapshot(phase,selection=requested);previous?.cancel()
     }

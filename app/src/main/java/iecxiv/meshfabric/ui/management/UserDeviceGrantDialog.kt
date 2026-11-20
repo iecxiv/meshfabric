@@ -52,12 +52,12 @@ internal fun userDeviceChoices(s:ProfileState,user:JSONObject,query:String,es:Bo
     LaunchedEffect(frozen,context) {if(frozen!=null && !context && !submitted) {invalidated=true;approved=false}}
     val current=context && !invalidated && !submitted
     val choices=if(subject!=null && frozen==null && !submitted) userDeviceChoices(s,subject,query,es) else emptyList()
-    ManagementDialog(onDismissRequest=onBack,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Agregar dispositivo","Add device"))},text={
+    UserActionSurface(onDismissRequest=onBack,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Agregar dispositivo","Add device"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Usuario: ","User: ")+identity.label,style=MaterialTheme.typography.titleSmall)
             Text(server,style=MaterialTheme.typography.bodySmall)
             Text(t("Concede acceso directo a un dispositivo existente; no instala un agente. No revoca permisos heredados y puede sustituir una asignación directa existente.","Grants direct access to an existing device; does not install an agent. Does not revoke inherited rights and may replace an existing direct assignment."),style=MaterialTheme.typography.bodySmall)
-            if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.detailsBusy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(frozen==null && !submitted) {
                 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar dispositivo","Search device"))},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("device-grant-search"))
                 for(choice in choices.take(100)) TextButton(enabled=identity.usable && choice.usable,modifier=Modifier.testTag("device-grant-candidate"),onClick={selected=JSONObject(choice.node.toString());parent=choice.mesh?.let {JSONObject(it.toString())};approved=false;error=false}) {Text((if(selected?.optString("_id")==choice.node.optString("_id")) "● " else "○ ")+choice.label)}

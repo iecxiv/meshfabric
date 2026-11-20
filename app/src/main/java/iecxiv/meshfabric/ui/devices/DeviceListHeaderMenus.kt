@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.LiveHelp
+import androidx.compose.material.icons.automirrored.filled.LabelOff
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,11 +45,11 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
 }
 @Composable private fun ColumnScope.BrowseSortItems(menu:DeviceBrowseMenuState,es:Boolean,close:()->Unit) {
     DeviceListSort.entries.forEach { option ->
-        DropdownMenuItem(text={Text(sortLabel(option,es))},trailingIcon={RadioButton(selected=menu.sort==option,onClick=null)},
+        DropdownMenuItem(text={Text(sortLabel(option,es))},leadingIcon={Icon(browseSortImage(option),null,Modifier.size(20.dp))},trailingIcon={RadioButton(selected=menu.sort==option,onClick=null)},
             onClick={menu.onSort(option);close()})
     }
     HorizontalDivider()
-    DropdownMenuItem(text={Text(if(es) "Invertir orden" else "Reverse order")},
+    DropdownMenuItem(text={Text(if(es) "Invertir orden" else "Reverse order")},leadingIcon={Icon(Icons.Default.SwapVert,null,Modifier.size(20.dp))},
         trailingIcon={Checkbox(checked=menu.reverse,onCheckedChange=null)},onClick=menu.onReverse)
 }
 @Composable internal fun DeviceHeaderSort(menu:DeviceBrowseMenuState) {
@@ -77,7 +80,7 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
             border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             if(page!=0) DropdownMenuItem(text={Text(if(es) "Volver" else "Back")},leadingIcon={Icon(Icons.AutoMirrored.Filled.ArrowBack,null)},onClick={page=0})
             when(page) {
-                2->DeviceListFilter.entries.forEach { option -> DropdownMenuItem(text={Text(filterLabel(option,es))},
+                2->DeviceListFilter.entries.forEach { option -> DropdownMenuItem(text={Text(filterLabel(option,es))},leadingIcon={Icon(browseFilterImage(option),null,Modifier.size(20.dp))},
                     trailingIcon={RadioButton(selected=menu.filter==option,onClick=null)},onClick={menu.onFilter(option);close()}) }
                 else->{
                     DropdownMenuItem(text={Text(if(menu.selecting) {if(es) "Cancelar selección" else "Cancel selection"} else {if(es) "Seleccionar" else "Select"})},
@@ -89,9 +92,35 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
                         leadingIcon={Icon(Icons.Default.LinkOff,null)},trailingIcon={Checkbox(checked=showDisconnected,onCheckedChange=null)},
                         modifier=Modifier.testTag("devices_header_show_disconnected").semantics {selected=showDisconnected},onClick={onShowDisconnected(!showDisconnected);close()})
                     HorizontalDivider()
-                    DropdownMenuItem(text={Text(if(es) "Nombre de sistema operativo" else "Show OS name")},trailingIcon={Checkbox(checked=menu.osName,onCheckedChange=null)},onClick={menu.onOsName();close()})
+                    DropdownMenuItem(text={Text(if(es) "Nombre de sistema operativo" else "Show OS name")},leadingIcon={Icon(Icons.Default.Computer,null,Modifier.size(20.dp))},trailingIcon={Checkbox(checked=menu.osName,onCheckedChange=null)},onClick={menu.onOsName();close()})
+                    HorizontalDivider()
+                    DropdownMenuItem(text={Text(if(es) "Restablecer filtros" else "Reset filters")},
+                        leadingIcon={Icon(Icons.Default.FilterAltOff,null,Modifier.size(20.dp))},
+                        modifier=Modifier.testTag("devices_header_reset_filters"),
+                        onClick={menu.onFilter(DeviceListFilter.ALL);onShowIps(false);onShowDisconnected(false);close()})
                 }
             }
         }
     }
+}
+
+private fun browseSortImage(value:DeviceListSort)=when(value) {
+    DeviceListSort.GROUP->Icons.Default.Folder
+    DeviceListSort.POWER->Icons.Default.PowerSettingsNew
+    DeviceListSort.DEVICE->Icons.Default.Computer
+    DeviceListSort.TAGS->Icons.AutoMirrored.Filled.Label
+    DeviceListSort.GROUP_TAGS->Icons.Default.FolderShared
+    DeviceListSort.LAST_SEEN->Icons.Default.History
+    DeviceListSort.LAST_BOOT->Icons.Default.RestartAlt
+}
+private fun browseFilterImage(value:DeviceListFilter)=when(value) {
+    DeviceListFilter.ALL->Icons.Default.Devices
+    DeviceListFilter.ONLINE->Icons.Default.Link
+    DeviceListFilter.OFFLINE->Icons.Default.LinkOff
+    DeviceListFilter.SESSIONS->Icons.Default.DesktopWindows
+    DeviceListFilter.STARRED->Icons.Default.Star
+    DeviceListFilter.AMT->Icons.Default.Memory
+    DeviceListFilter.HELP->Icons.AutoMirrored.Filled.LiveHelp
+    DeviceListFilter.TAGGED->Icons.AutoMirrored.Filled.Label
+    DeviceListFilter.UNTAGGED->Icons.AutoMirrored.Filled.LabelOff
 }

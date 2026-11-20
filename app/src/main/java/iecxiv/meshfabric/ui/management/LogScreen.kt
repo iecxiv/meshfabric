@@ -26,9 +26,10 @@ import java.util.Date
     val holder=rememberSaveableStateHolder()
     holder.SaveableStateProvider(selected) {content(selected)}
 }
-@Composable internal fun LogScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit) {
+@Composable internal fun LogScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit,openActivity:Boolean=false,onActivityOpened:()->Unit={}) {
     val actor by viewModel.userInfo.collectAsState()
-    var tab by rememberSaveable {mutableIntStateOf(0)}
+    var tab by rememberSaveable {mutableIntStateOf(if(openActivity) 0 else 1)}
+    LaunchedEffect(openActivity) {if(openActivity) {tab=0;onActivityOpened()}}
     key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,viewModel.meshClient.ignoreSsl,viewModel.meshClient.isUserLogout,actor?.id,actor?.siteadmin) {
         LogSectionContent(tab) {selected->
             if(selected==0) MeshFabricActivityScreen(viewModel,journal,feedback,actionsReady,actionsStatus,onReconnect,onOpenSettings,header={RegistroSectionTabs(tab) {tab=it}})
@@ -51,17 +52,21 @@ import java.util.Date
         else LogEventsBinding(source.serverUrl,user.id,source.authCookie,source.ignoreSsl,user.siteadmin,source.extractRawToken(source.authCookie))
     })}
     val state by reader.state.collectAsState()
+    val channelReady by reader.channelReady.collectAsState()
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var query by rememberSaveable {mutableStateOf("")}
     var showSearch by rememberSaveable {mutableStateOf(false)}
     LaunchedEffect(reader,lifecycle,selection) {lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {try {reader.load(selection);awaitCancellation()} finally {reader.pause(selection)}}}
     DisposableEffect(reader) {onDispose {reader.close()}}
-    Scaffold(topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header,refreshEnabled=eventsHeaderRefreshEnabled(connected,!actor?.id.isNullOrBlank(),state.selection==selection,state.phase),onRefresh={reader.load(selection)})}) {padding->
+    Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header,refreshEnabled=eventsHeaderRefreshEnabled(connected,!actor?.id.isNullOrBlank(),state.selection==selection,state.phase),onRefresh={reader.load(selection)})}) {padding->
         val visible=if(state.selection==selection) state else ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=selection)
-        ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            ManagementConnectionStatus(ready=channelReady,connecting=visible.phase==ServerEventsPhase.LOADING && !channelReady,reconnectEnabled=connected && !actor?.id.isNullOrBlank(),modifier=Modifier.padding(horizontal=16.dp),onReconnect={reader.load(selection)})
+            ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.weight(1f).fillMaxWidth(),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory,flushBottom=true)
+        }
     }
 }
-@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory(),scopeLabel:String?=null,showDeviceLabel:Boolean=true) {
+@Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory(),scopeLabel:String?=null,showDeviceLabel:Boolean=true,flushBottom:Boolean=false) {
     var detail by remember(selection,inventory) {mutableStateOf<ServerEventRecord?>(null)}
     LaunchedEffect(state,enabled,selection,inventory) {
         detail=detail?.takeIf {opened->
@@ -86,13 +91,13 @@ import java.util.Date
         ServerEventsPhase.INVALIDATED->R.string.log_invalidated
         ServerEventsPhase.READY->null
     }
-    Column(modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    Column(modifier.padding(if(flushBottom) registrationBottomFlushPadding else PaddingValues(horizontal=12.dp,vertical=8.dp)),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         detail?.let {ServerEventDetailsDialog(it) {detail=null}}
         Text(scopeLabel ?: stringResource(R.string.log_scope),style=MaterialTheme.typography.bodySmall)
         if(onSelection!=null) ServerEventsControls(selection,enabled,onSelection)
         if(status!=null) Text(stringResource(status),Modifier.testTag("log-events-state"),color=if(state.phase in setOf(ServerEventsPhase.DENIED,ServerEventsPhase.ERROR,ServerEventsPhase.INVALID,ServerEventsPhase.TIMEOUT)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         if(state.phase==ServerEventsPhase.INVALID && state.issue!=null) Text(stringResource(R.string.log_diagnostic,state.issue.safeCode()),Modifier.testTag("log-events-diagnostic"),style=MaterialTheme.typography.bodySmall)
-        if(state.phase==ServerEventsPhase.LOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(state.phase==ServerEventsPhase.LOADING) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         if(state.phase==ServerEventsPhase.READY) {
             val rows=state.records.map {it.withInventory(inventory)}.filter {row->listOf(row.message,row.actor,row.nodeName,row.action,row.groupName,row.nodeId,row.meshId,row.details["cmds"].orEmpty()).any {it.contains(query.trim(),true)}}
             if(state.records.isEmpty()) Text(stringResource(R.string.log_empty),Modifier.testTag("log-events-empty"))

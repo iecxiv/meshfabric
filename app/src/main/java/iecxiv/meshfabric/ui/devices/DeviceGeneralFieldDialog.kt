@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.sp
             Text(label,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
             Text(value,style=MaterialTheme.typography.bodyMedium)
         }
-        IconButton(onClick=onEdit,enabled=enabled,modifier=Modifier.testTag("${tag}_edit")) {Icon(Icons.Default.Edit,editLabel)}
+        IconButton(onClick=onEdit,enabled=enabled,modifier=Modifier.testTag("${tag}_edit")) {Icon(Icons.Default.Edit,editLabel,modifier=Modifier.size(18.dp))}
     }
 }
 

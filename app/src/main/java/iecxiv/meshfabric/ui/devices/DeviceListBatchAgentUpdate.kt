@@ -118,7 +118,7 @@ private fun AgentUpdateDialog(source: MeshCentralClient, request: AgentUpdateReq
                 DeviceBatchNotice(agentActionDetail(AgentConsoleAction.FORCE_UPDATE, es))
                 Text(t("Puede interrumpir sesiones remotas. No comprueba la instalación ni la versión final. Un intento por dispositivo, sin reenvío automático. Detener pendientes no revierte solicitudes ya encoladas.",
                     "May interrupt remote sessions. Installation and final version are not checked. One attempt per device, no automatic resend. Stopping pending requests does not undo requests already queued."))
-                if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (checking || running) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 rows.forEach { row ->
                     HorizontalDivider()
                     Text(row.node.name.ifBlank { row.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)

@@ -49,7 +49,7 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {invalidated=true;approved=false}}
     val packet=review?.let {JSONObject(it.toString()).put("_advancedConfirmed",approved)}
     val observed=submitted && s.notice=="deviceGroupAdvancedObserved" && s.advancedEditedDeviceGroup==id
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Ajustes avanzados del grupo","Advanced group settings"))},text={
+    UserActionSurface(inline=LocalDeviceGroupInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Ajustes avanzados del grupo","Advanced group settings"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(server,style=MaterialTheme.typography.bodySmall)
             Text(t("Actor: ","Actor: ")+actorIdentity.label,style=MaterialTheme.typography.bodySmall)
@@ -85,7 +85,7 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
             }
             Text(t("Cero elimina la caducidad específica del grupo; NO garantiza desactivar la eliminación automática global. La retirada al desconectar y la caducidad pueden eliminar dispositivos y sus datos asociados. Comprueba la política del servidor antes de confirmar.","Zero removes the group-specific expiry; it does NOT guarantee disabling global automatic removal. Removal on disconnect and inactivity expiry may delete devices and associated data. Check server policy before confirming."),style=MaterialTheme.typography.bodySmall)
             Text(t("Se conservan los bits desconocidos. El consentimiento se combina con las obligaciones del servidor y otras capas; desmarcarlo no elimina las heredadas. Las comprobaciones y el envío no son atómicos: un cambio concurrente puede ser sobrescrito. No hay reintentos automáticos y cerrar no cancela un envío.","Unknown bits are preserved. Consent combines with server requirements and other layers; clearing it does not remove inherited requirements. Checks and sending are not atomic: concurrent changes may be overwritten. No automatic retries; closing does not cancel a sent request."),style=MaterialTheme.typography.bodySmall)
-            if(submitted && s.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(submitted && s.busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(observed) Text(t("Acuse confirmado y valores exactos observados.","Acknowledgement confirmed and exact values observed."),Modifier.testTag("advanced-observed"))
             else if(submitted) Text(if(s.notice=="rejected") t("Solicitud rechazada.","Request rejected.") else t("Enviada; resultado aún no verificado. Consulta el estado antes de repetir.","Sent; outcome not yet verified. Check state before repeating."))
             else if(error || (review!=null && !current)) Text(t("Revisión invalidada. Cierra, actualiza y vuelve a abrir.","Review invalidated. Close, refresh and reopen."),color=MaterialTheme.colorScheme.error)

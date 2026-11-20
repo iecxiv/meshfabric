@@ -52,6 +52,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     val hideDeviceNetworkInfo by (viewModel.sessionManager?.hideDeviceNetworkInfoFlow ?: fallbackNetworkVisibility).collectAsState()
     val onlyOnline by (viewModel.sessionManager?.onlyOnlineDevicesFlow ?: fallbackOnlineFilter).collectAsState()
     val connection by viewModel.connectionStatus.collectAsState()
+    iecxiv.meshfabric.ui.components.ReportViewLoading(connection==ConnectionStatus.CONNECTING)
     val networkRefresh by viewModel.networkRefresh.collectAsState()
     val networkConnected by viewModel.isConnected.collectAsState()
     val networkLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()

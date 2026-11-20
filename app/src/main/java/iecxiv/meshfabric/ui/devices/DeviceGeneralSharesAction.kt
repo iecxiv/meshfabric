@@ -61,7 +61,7 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
                     else->if(r.attempted) t("Resultado sin confirmar. La revocación puede haberse aplicado; recarga antes de repetir.","Outcome unconfirmed. Revocation may have taken effect; reload before repeating.") else t("No se ha enviado la revocación: datos cambiados o verificación no disponible.","Revocation was not sent: changed data or verification unavailable.")
                 },style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("general_share_revoke_status"))}
                 when(state.phase) {
-                    "loading"->{LinearProgressIndicator(Modifier.fillMaxWidth());Text(t("Verificando permisos y consultando accesos…","Verifying permissions and reading sharing entries…"))}
+                    "loading"->{iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth());Text(t("Verificando permisos y consultando accesos…","Verifying permissions and reading sharing entries…"))}
                     "ready"->{
                         Text(t("Consultado: ","Read at: ")+generalSharesDate(state.loadedAt,es),style=MaterialTheme.typography.bodySmall)
                         if(state.shares.isEmpty()) Text(t("El servidor no ha devuelto accesos compartidos para este equipo.","The server returned no sharing entries for this device."),modifier=Modifier.testTag("general_shares_empty"))

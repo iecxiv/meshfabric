@@ -66,7 +66,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                     if(editing) OutlinedTextField(draft,{draft=it},readOnly=!state.canEdit,minLines=4,maxLines=10,modifier=Modifier.fillMaxWidth().testTag("general_notes_text"))
                     else Text(draft.ifEmpty {t("Este dispositivo no tiene notas.","This device has no notes.")})
                 }
-                if(state.phase in setOf("loading","saving")) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if(state.phase in setOf("loading","saving")) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if(status.isNotEmpty()) Text(status,modifier=Modifier.testTag("general_notes_status"),style=MaterialTheme.typography.bodySmall)
                 if(state.phase=="ready" && !state.canEdit) Text(t("Solo consulta: sin permiso específico de editar notas.","Read-only: no specific edit-notes permission."),style=MaterialTheme.typography.bodySmall)
                 if(editing) Text(t("Máximo 64000 caracteres. Guardar vacío elimina las notas existentes. No hay reenvíos automáticos; las comprobaciones no son atómicas con el servidor.","Up to 64000 characters. Saving empty clears existing notes. No automatic resends; checks are not atomic with the server."),style=MaterialTheme.typography.bodySmall)

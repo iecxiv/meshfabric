@@ -35,7 +35,7 @@ internal fun userDeleteContext(s:ProfileState,before:JSONObject?,actor:String,si
     LaunchedEffect(review,context) {if(review && !context && !submitted) {invalidated=true;approved=false}}
     val active=context && !invalidated && !submitted
     val exact=typed.isNotBlank() && typed==baseline?.optString("name")
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Eliminar usuario","Delete user"))},text={
+    UserActionSurface(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Eliminar usuario","Delete user"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(identity.label,style=MaterialTheme.typography.titleSmall)
             Text(beforeServer,style=MaterialTheme.typography.bodySmall)

@@ -63,7 +63,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                     Text(t("Título: hasta 128 caracteres. Mensaje: hasta 1024. No introduzcas contraseñas ni tokens.","Title: up to 128 characters. Message: up to 1024. Do not enter passwords or tokens."),style=MaterialTheme.typography.bodySmall)
                 } else review?.let {draft->Text(draft.title,style=MaterialTheme.typography.titleSmall);Text(draft.body,modifier=Modifier.testTag("general_message_review"))}
                 Text(t("Se solicita cierre automático a los 120 segundos; depende del soporte remoto. Enviar no acredita recepción ni lectura. Un intento por apertura, sin reenvíos automáticos. Cerrar no retira un mensaje enviado.","Automatic closing is requested after 120 seconds; remote support determines behavior. Sending does not establish receipt or reading. One attempt per opening, no automatic resends. Closing does not retract a sent message."),style=MaterialTheme.typography.bodySmall)
-                if(state.phase in setOf("loading","checking")) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if(state.phase in setOf("loading","checking")) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if(status.isNotEmpty()) Text(status,style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("general_message_status"))
                 if(!submitted && state.phase=="error") TextButton(onClick={retry++}) {Text(t("Reverificar","Recheck"))}
             },footer={

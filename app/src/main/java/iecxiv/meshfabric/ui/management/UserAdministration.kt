@@ -81,6 +81,8 @@ var reset by remember { mutableStateOf(false) }
 var approved by remember { mutableStateOf(false) }
 var typedId by remember { mutableStateOf("") }
 var mode by remember { mutableStateOf("profile") }
+val mainProfileScroll=rememberScrollState()
+val secondaryProfileScroll=rememberScrollState()
 var userMessage by remember {mutableStateOf(false)}
 var mfaReset by remember {mutableStateOf(false)}
 var advanced by remember { mutableStateOf(false) }
@@ -116,8 +118,9 @@ mode=="history"->false
 else->original!=null && (email.isEmpty() || validUserEmail(email)) && realname.length<=256 && ((!s.emailIdentity && email!=original.optString("email")) || realname!=original.optString("realname"))
 }
 if(userMessage) { UserMessageDialog(session,s,form.id) {userMessage=false} } else if(mfaReset) { UserMfaResetDialog(session,s,form.id) {mfaReset=false} } else if(deleting) { UserDeleteDialog(session,s,form.id,onDismiss) } else if(mode=="device") { UserDeviceGrantDialog(session,s,form.id,onBack={mode="profile";approved=false},onSaved=onDismiss) } else if(directEdit!=null) { key(form.id,directEdit) { UserMeshEditDialog(session,s,form.id,requireNotNull(directEdit)) {directEdit=null} } } else if(directGrant) { UserMeshGrantDialog(session,s,form.id) {directGrant=false} } else if(directMesh!=null) { key(form.id,directMesh) { UserMeshAssignmentReview(session,s,form.id,requireNotNull(directMesh)) {directMesh=null} } } else if(contact && user!=null) { UserContactEditor(session,s,user,onDismiss={contact=false},onSaved=onDismiss,initialField=contactField) } else if(advanced && user!=null) { UserAdvancedEditor(session,s,user,onDismiss={advanced=false},onSaved=onDismiss) } else {
-ManagementDialog(onDismissRequest=onDismiss,modifier=if(editing) Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!editing),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
-Column(Modifier.fillMaxWidth().heightIn(max=if(editing) (LocalConfiguration.current.screenHeightDp*0.68f).dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+val backToUserProfile:()->Unit={if(mode!="profile") {mode="profile";approved=false;password="";repeated="";session.clearHistory()} else onDismiss()}
+UserActionSurface(onDismissRequest=backToUserProfile,modifier=if(editing || creating) Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f) else Modifier,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=!(editing || creating)),title={ Text(when { creating->t("Crear usuario","Create user"); deleting->t("Eliminar usuario","Delete user"); locking->if(form.operation=="lock") t("Bloquear usuario","Lock user") else t("Desbloquear usuario","Unlock user"); mode=="password"->t("Cambiar contraseña","Change password"); mode=="device"->t("Agregar dispositivo","Add device"); mode=="history"->t("Inicios de sesión anteriores","Previous logins"); else->t("Editar usuario","Edit user") }) },text={
+Column(Modifier.fillMaxWidth().heightIn(max=if(LocalProfileUserInline.current && (editing || creating) && mode=="profile") LocalConfiguration.current.screenHeightDp.dp else if(editing) (LocalConfiguration.current.screenHeightDp*0.68f).dp else 440.dp).verticalScroll(if(mode=="profile") mainProfileScroll else secondaryProfileScroll),verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(!creating) { if(locking && user!=null) ProfileUserListIdentity(user,s.users) else { Text(user?.optString("name").orEmpty().ifBlank { form.name },style=MaterialTheme.typography.titleSmall); if(deleting) Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) else ProfileDisclosure(t("Identificador","Identifier")) { Text(form.id,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } } }
 when {
 creating->{
@@ -142,7 +145,7 @@ Text(t("Se conservan sus métodos de autenticación multifactor. Si el servidor 
 }
 mode=="device"->{
 Text(t("Concede acceso directo a un dispositivo existente; no instala un agente. Solo se muestran dispositivos visibles para tu cuenta.","Grants direct access to an existing device; does not install an agent. Only devices visible to your account are shown."),style=MaterialTheme.typography.bodySmall)
-if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(s.detailsBusy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 field(t("Buscar dispositivo","Search device"),search,{ search=it })
 if(s.nodes==null) Text(t("Listado de dispositivos no disponible.","Device list unavailable."))
 val options=s.nodes.orEmpty().filter { it.optString("name").contains(search,true) || it.optString("_id").contains(search,true) }.take(100)
@@ -155,7 +158,7 @@ option(t("Confirmo asignar estos permisos al usuario y dispositivo indicados.","
 }
 mode=="history"->{
 Text(t("Historial de accesos web registrado por el servidor; puede no incluir los accesos de la app.","Server-recorded web sign-ins; app sign-ins may not be included."),style=MaterialTheme.typography.bodySmall)
-if(s.historyBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(s.historyBusy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 if(s.historyFailed) Text(t("Historial no disponible o respuesta incompatible.","History unavailable or unsupported response."),color=MaterialTheme.colorScheme.error)
 val a=s.history.takeIf { s.historyUser==form.id }
 if(a!=null && a.length()==0) Text(t("Sin registros.","No records."))
@@ -190,7 +193,7 @@ ManagementInfoRow(t("Seguridad","Security"),security.joinToString(", ").ifBlank 
 ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(form.id,0)?.toString() ?: missing)
 }
 }
-if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(s.detailsBusy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 ProfileActionGroup {
 ProfileGroupActionButton(t("Permisos, características y consentimiento","Permissions, features and consent"),Icons.Default.Security,allowed,onClick={ advanced=true })
 ProfileGroupActionButton(t("Actualizar ficha","Refresh details"),Icons.Default.Refresh,!s.detailsBusy,onClick=session::loadDetails)

@@ -61,7 +61,7 @@ internal fun powerLabel(state:Int?,es:Boolean,future:Boolean=false):String {
         Spacer(Modifier.weight(1f))
         DevicePowerCsv(binding,state.phase=="ready")
     }
-    if(state.phase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())
+    if(state.phase=="loading") iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
     if(state.phase!="ready" && state.phase!="loading") Text(when(state.phase) {
         "timeout"->label("Sin respuesta de energía; comprueba conexión y permisos.","No power response; check connection and permissions.")
         "invalid"->label("Historial energético inválido o fecha futura del servidor.","Invalid power history or future server timestamp.")

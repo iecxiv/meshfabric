@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,21 +24,26 @@ internal fun previousLoginPalette(code:Any?,dark:Boolean,neutral:Color,foregroun
 @Composable internal fun PreviousLoginEntry(item:JSONObject,date:String,details:String,es:Boolean,modifier:Modifier=Modifier) {
     val scheme=MaterialTheme.colorScheme
     val colors=previousLoginPalette(item.opt("m"),scheme.surface.luminance()<0.5f,scheme.surfaceVariant,scheme.onSurfaceVariant)
-    Column(modifier.fillMaxWidth().background(colors.first),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        Text(date,style=MaterialTheme.typography.titleSmall,color=colors.second)
-        Text(loginHistoryLabel(item.opt("m"),es)+" · "+details,style=MaterialTheme.typography.bodySmall,color=colors.second)
-        HorizontalDivider(color=scheme.outlineVariant)
+    Surface(modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=colors.first,contentColor=colors.second,border=androidx.compose.foundation.BorderStroke(1.dp,colors.second.copy(alpha=0.20f))) {
+        Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.Top) {
+            Icon(when(accountLoginOutcome(item.opt("m"))) {true->androidx.compose.material.icons.Icons.Default.VerifiedUser;false->androidx.compose.material.icons.Icons.Default.ErrorOutline;null->androidx.compose.material.icons.Icons.Default.Info},null,Modifier.size(20.dp))
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                Text(date,style=MaterialTheme.typography.titleSmall)
+                Text(loginHistoryLabel(item.opt("m"),es),style=MaterialTheme.typography.bodyMedium)
+                if(details.isNotBlank()) Text(details,style=MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 @Composable internal fun OwnPreviousLoginsDialog(name:String,actor:String,events:JSONArray?,busy:Boolean,failed:Boolean,es:Boolean,onRefresh:()->Unit,onDismiss:()->Unit,error:String="") {
     fun t(a:String,b:String)=if(es) a else b
     val close={if(!busy) onDismiss()}
-    ManagementDialog(onDismissRequest=close,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f).testTag("own-previous-logins-dialog"),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(t("Inicios de sesión anteriores","Previous logins"))},text={
+    ProfileUserDetailSurface(inline=true,onDismissRequest=close,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f).testTag("own-previous-logins-dialog"),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(t("Inicios de sesión anteriores","Previous logins"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text(name,style=MaterialTheme.typography.titleSmall)
             ProfileDisclosure(t("Identificador","Identifier")) {Text(actor,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
             Text(t("Historial de accesos web registrado por el servidor; puede no incluir los accesos de la app.","Server-recorded web sign-ins; app sign-ins may not be included."),style=MaterialTheme.typography.bodySmall)
-            if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(failed) Text(t("Historial no disponible o respuesta incompatible.","History unavailable or unsupported response."),color=MaterialTheme.colorScheme.error)
             if(events!=null && events.length()==0) Text(t("Sin registros.","No records."))
             if(events!=null) for(i in 0 until minOf(events.length(),200)) events.optJSONObject(i)?.let {event->

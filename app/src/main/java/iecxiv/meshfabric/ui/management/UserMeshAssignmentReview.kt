@@ -38,7 +38,7 @@ import org.json.JSONObject
     val reviewCurrent=identityReady && !identityInvalidated && packet!=null && profileUserMeshRevokeAllowed(s,JSONObject(packet.toString()).put("_directConfirmed",true),server)
     val canSend=identityReady && !identityInvalidated && !submitted && packet!=null && profileUserMeshRevokeAllowed(s,packet,server)
     val observed=submitted && s.notice=="userMeshRevokedObserved" && s.revokedDirectUser==uid && s.revokedDirectMesh==mid
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar acceso directo","Review direct access"))},text={
+    UserActionSurface(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Revisar acceso directo","Review direct access"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             Surface(Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small,color= iecxiv.meshfabric.ui.theme.appCardBackground(
 MaterialTheme.colorScheme.surfaceVariant
@@ -59,7 +59,7 @@ androidx.compose.ui.unit.Dp(0f)
             }
             if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.detailsBusy || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.detailsBusy || (submitted && s.busy)) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             ProfileDisclosure(t("Detalles técnicos de los enlaces","Technical link details")) {
             Text(t("Enlace recibido en el usuario: ","Link received in the user: ")+mask(profileGroupMeshReportedRights(user,mid)))
             Text(t("Enlace recibido en el grupo: ","Link received in the group: ")+mask(profileGroupMeshReportedRights(mesh,uid)))

@@ -10,10 +10,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.SecureFlagPolicy
 
-@Composable internal fun ProfileBroadcastDialog(session:ProfileSession,s:ProfileState,onDismiss:()->Unit) {
+@Composable internal fun ProfileBroadcastPane(session:ProfileSession,s:ProfileState,modifier:Modifier=Modifier,embedded:Boolean=false,onDismiss:()->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     val server=session.broadcastServerLabel()
@@ -22,11 +20,12 @@ import androidx.compose.ui.window.SecureFlagPolicy
     var review by remember(s.id) { mutableStateOf(false) }
     var approved by remember(s.id) { mutableStateOf(false) }
     var feedback by remember(s.id) { mutableStateOf("") }
+    var submitted by remember(s.id) {mutableStateOf(false)}
     val scopeAllowed=scope!=null && profileBroadcastScopeAllowed(s,scope,server)
     val packet=scope?.let {profileBroadcastPacket(it,message,approved)}
-    val canSend=packet!=null && profileBroadcastAllowed(s,packet,server)
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(if(review) t("Revisar difusión","Review Broadcast") else t("Difusión","Broadcast"))},text={
-        Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    val canSend=!submitted && packet!=null && profileBroadcastAllowed(s,packet,server)
+    ProfileBroadcastInlineLayout(modifier=modifier,flushBottom=embedded,onBack=if(embedded) null else onDismiss,title={Text(if(review) t("Revisar difusión","Review Broadcast") else t("Difusión a sesiones conectadas","Broadcast to connected sessions"))},text={
+        Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Sesiones conectadas del dominio actual","Connected sessions in the current domain"),style=MaterialTheme.typography.titleSmall)
             Text(scope?.optString("server").orEmpty(),style=MaterialTheme.typography.bodySmall)
             val domain=scope?.let {userDomain(it.getString("actor"))}
@@ -36,11 +35,34 @@ import androidx.compose.ui.window.SecureFlagPolicy
             Text(t("Solo el nodo que procese la solicitud. No incluye usuarios desconectados ni difusión a otros nodos. El servidor decide los destinatarios al procesarla.","Only the node processing the request. Offline users and other nodes are not included. The server determines recipients when processing it."),style=MaterialTheme.typography.bodySmall)
             if(review) {
                 ManagementCard { SelectionContainer { Text(message,style=MaterialTheme.typography.bodyMedium) } }
-                Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(approved,{approved=it},enabled=scopeAllowed);Text(t("Confirmo difundir este mensaje con el alcance indicado.","I confirm broadcasting this message with the stated scope."),Modifier.weight(1f)) }
-            } else OutlinedTextField(message,{if(it.length<=4096) {message=it;approved=false;feedback=""}},label={Text(t("Mensaje","Message"))},supportingText={Text("${message.length}/512")},isError=message.isNotEmpty() && !profileBroadcastMessageValid(message),enabled=scopeAllowed,modifier=Modifier.fillMaxWidth(),minLines=3,maxLines=6)
-            if(!scopeAllowed) Text(t("La conexión, los permisos o el alcance han cambiado o no permiten enviar. Espera o cierra y vuelve a abrir para revisar.","The connection, rights or scope changed or do not allow sending. Wait or close and reopen to review."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                if(!submitted) Row(verticalAlignment=Alignment.CenterVertically) { Checkbox(approved,{approved=it},enabled=scopeAllowed);Text(t("Confirmo difundir este mensaje con el alcance indicado.","I confirm broadcasting this message with the stated scope."),Modifier.weight(1f)) }
+            } else OutlinedTextField(message,{if(it.length<=4096) {message=it;approved=false;feedback=""}},label={Text(t("Mensaje","Message"))},supportingText={Text("${message.length}/512")},isError=message.isNotEmpty() && !profileBroadcastMessageValid(message),enabled=scopeAllowed,modifier=Modifier.fillMaxWidth(),minLines=6,maxLines=12)
+            if(!scopeAllowed && !submitted) Text(t("La conexión, los permisos o el alcance han cambiado o no permiten enviar. Espera o cierra y vuelve a abrir para revisar.","The connection, rights or scope changed or do not allow sending. Wait or close and reopen to review."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             Text(t("La aceptación del servidor no acredita recepción ni lectura. Ante un resultado sin confirmar, no se reenvía automáticamente.","Server acceptance does not prove receipt or reading. Unconfirmed requests are not automatically retried."),style=MaterialTheme.typography.bodySmall)
             if(feedback.isNotBlank()) Text(feedback,color=MaterialTheme.colorScheme.error)
         }
-    },confirmButton={Button(enabled=if(review) canSend else scopeAllowed && profileBroadcastMessageValid(message),onClick={if(!review) {review=true;approved=false} else if(packet!=null && session.submit(packet)) onDismiss() else feedback=t("No se ha enviado. Comprueba la conexión, el alcance y los permisos.","Not sent. Check the connection, scope and rights.")}) {Text(if(review) t("Enviar difusión","Send Broadcast") else t("Revisar","Review"))}},dismissButton={Row {if(review) TextButton(onClick={review=false;approved=false}) {Text(t("Volver","Back"))};TextButton(onClick=onDismiss){Text(t("Cancelar","Cancel"))}}})
+    },confirmButton={Button(enabled=if(review) canSend else !submitted && scopeAllowed && profileBroadcastMessageValid(message),onClick={if(!review) {review=true;approved=false} else if(packet!=null && session.submit(packet)) {if(embedded) {submitted=true;approved=false} else onDismiss()} else feedback=t("No se ha enviado. Comprueba la conexión, el alcance y los permisos.","Not sent. Check the connection, scope and rights.")}) {Text(if(review) t("Enviar difusión","Send Broadcast") else t("Revisar","Review"))}},dismissButton={Row {if(review && !submitted) TextButton(onClick={review=false;approved=false}) {Text(t("Volver","Back"))};if(embedded) TextButton(enabled=!s.busy,onClick={message="";review=false;approved=false;feedback="";submitted=false}) {Text(if(submitted) t("Nueva difusión","New Broadcast") else t("Limpiar","Clear"))} else TextButton(onClick=onDismiss){Text(t("Cancelar","Cancel"))}}})
+}
+
+@Composable private fun ProfileBroadcastInlineLayout(modifier:Modifier,flushBottom:Boolean=false,onBack:(()->Unit)?=null,title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val window=remember(context) {
+        var owner:android.content.Context=context
+        while(owner is android.content.ContextWrapper && owner !is android.app.Activity) owner=owner.baseContext
+        requireNotNull((owner as? android.app.Activity)?.window)
+    }
+    DisposableEffect(window) {
+        val flag=android.view.WindowManager.LayoutParams.FLAG_SECURE
+        val previouslySecure=window.attributes.flags and flag != 0
+        window.addFlags(flag)
+        onDispose {if(!previouslySecure) window.clearFlags(flag)}
+    }
+    Column(modifier.imePadding().padding(if(flushBottom) managementBottomFlushPadding else managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        if(onBack!=null) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onBack,title=title) else ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {text()}
+        androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalArrangement=Arrangement.spacedBy(4.dp)) {
+            dismissButton()
+            confirmButton()
+        }
+    }
 }

@@ -41,7 +41,7 @@ import com.google.gson.JsonObject
         text={ Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(state.server)
             if(state.phase in setOf(FidoLoginFlow.Phase.PENDING,FidoLoginFlow.Phase.VERIFYING)) Text(stringResource(R.string.fido_login_pending),modifier=Modifier.testTag("fido-pending"))
-            else { Text(stringResource(R.string.fido_login_prompt)); LinearProgressIndicator(Modifier.fillMaxWidth()) }
+            else { Text(stringResource(R.string.fido_login_prompt)); iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth()) }
             if(state.phase==FidoLoginFlow.Phase.AUTHENTICATOR && state.options!=null) key(state.id) { AssertionHost(state,{ onCredential(state.id,it) },{ onFailure(state.id) }) }
         } })
 }
