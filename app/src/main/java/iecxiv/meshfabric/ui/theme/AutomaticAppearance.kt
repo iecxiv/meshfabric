@@ -164,9 +164,9 @@ internal fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalize
                     border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
                     contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp),tint=androidx.compose.ui.graphics.Color(0xFF2196F3)) }
-                        Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2,color=androidx.compose.ui.graphics.Color(0xFF2196F3))
-                        Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp))
+                        Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp),tint=MaterialTheme.colorScheme.primary) }
+                        Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2,textAlign=androidx.compose.ui.text.style.TextAlign.Center,color=MaterialTheme.colorScheme.primary)
+                        Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp)) }
                     }
                 }
                 DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},
