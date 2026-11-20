@@ -13,9 +13,9 @@ class UserActionSubviewTest {
         assertFalse(profileFormUsesSubview(-1,ProfileForm(true,"edit")))
         assertFalse(profileFormUsesSubview(4,ProfileForm(true,"edit")))
     }
-    @Test fun deviceGroupEditingRemainsForItsOwnMigration() {
+    @Test fun deviceGroupFormOperationsAreIntegrated() {
         assertTrue(profileFormUsesSubview(1,ProfileForm(false,"create")))
-        assertFalse(profileFormUsesSubview(1,ProfileForm(false,"edit")))
-        assertFalse(profileFormUsesSubview(1,ProfileForm(false,"delete")))
+        assertTrue(profileFormUsesSubview(1,ProfileForm(false,"edit")))
+        assertTrue(profileFormUsesSubview(1,ProfileForm(false,"delete")))
     }
 }

@@ -25,7 +25,7 @@ internal fun profileReceivedUserGroup(s:ProfileState,id:String):JSONObject? {
     val group=profileReceivedUserGroup(s,id)
     var query by remember(id) {mutableStateOf("")}
     LaunchedEffect(session,id,s.ready,s.busy,s.userGroupPhase) {if(s.ready && !s.busy && s.userGroupPhase=="idle") session.loadUserGroupDirectory()}
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(t("Grupo de usuarios","User group"))},text={
+    UserActionSurface(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(t("Grupo de usuarios","User group"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Ficha de consulta. La administración sigue en la pestaña Grupos.","Read-only details. Administration remains in the Groups tab."),style=MaterialTheme.typography.bodySmall)
             if(s.loading || s.detailsBusy || s.userGroupPhase=="loading") iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())

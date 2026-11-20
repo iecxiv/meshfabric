@@ -10,7 +10,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
-internal fun profileFormUsesSubview(tab:Int,form:ProfileForm?)=tab in 1..3 && form!=null && (form.users || form.operation=="create")
+internal fun profileFormUsesSubview(tab:Int,form:ProfileForm?)=tab in 1..3 && form!=null && (form.users || form.operation in setOf("create","edit","delete"))
+internal fun profileLinkedGroupSubview(tab:Int,group:String?,assignment:Pair<String,String>?)=tab in 1..3 && (group!=null || assignment!=null)
 @Composable internal fun UserActionSurface(
     onDismissRequest:()->Unit,
     modifier:Modifier=Modifier,

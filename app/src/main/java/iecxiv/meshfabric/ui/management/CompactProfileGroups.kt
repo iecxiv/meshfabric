@@ -69,13 +69,13 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
-    var query by remember(id) { mutableStateOf("") }
+    var query by rememberSaveable(id) { mutableStateOf("") }
     var advanced by remember(id) { mutableStateOf(false) }
     if(advanced) { DeviceGroupAdvancedEditor(session,s,id) {advanced=false}; return }
     val group=s.groups.firstOrNull { it.optString("_id")==id }
     val live by session.state.collectAsState()
     GroupDetailsAutoLoad(session,id,session.connectionGeneration(),live.ready,live.loading,live.busy,live.readError,live.groups.count {it.optString("_id")==id}==1,onLoadDetails)
-    ProfileUserDetailSurface(inline=LocalDeviceGroupInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(group?.optString("name")?.ifBlank { t("Grupo sin nombre","Unnamed group") } ?: t("Grupo no disponible","Group unavailable"))},text={
+    UserActionSurface(inline=LocalDeviceGroupInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(group?.optString("name")?.ifBlank { t("Grupo sin nombre","Unnamed group") } ?: t("Grupo no disponible","Group unavailable"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(s.busy || s.detailsBusy || s.loading) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(group==null) Text(t("El grupo ya no está disponible en los datos recibidos.","The group is no longer available in the received data.")) else {

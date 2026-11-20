@@ -49,7 +49,7 @@ private fun advancedHex(value:Long)="0x"+java.lang.Long.toHexString(value).padSt
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {invalidated=true;approved=false}}
     val packet=review?.let {JSONObject(it.toString()).put("_advancedConfirmed",approved)}
     val observed=submitted && s.notice=="deviceGroupAdvancedObserved" && s.advancedEditedDeviceGroup==id
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Ajustes avanzados del grupo","Advanced group settings"))},text={
+    UserActionSurface(inline=LocalDeviceGroupInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Ajustes avanzados del grupo","Advanced group settings"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(server,style=MaterialTheme.typography.bodySmall)
             Text(t("Actor: ","Actor: ")+actorIdentity.label,style=MaterialTheme.typography.bodySmall)
