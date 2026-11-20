@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.automirrored.filled.LiveHelp
+import androidx.compose.material.icons.automirrored.filled.LabelOff
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -105,7 +108,7 @@ private fun browseSortImage(value:DeviceListSort)=when(value) {
     DeviceListSort.GROUP->Icons.Default.Folder
     DeviceListSort.POWER->Icons.Default.PowerSettingsNew
     DeviceListSort.DEVICE->Icons.Default.Computer
-    DeviceListSort.TAGS->Icons.Default.Label
+    DeviceListSort.TAGS->Icons.AutoMirrored.Filled.Label
     DeviceListSort.GROUP_TAGS->Icons.Default.FolderShared
     DeviceListSort.LAST_SEEN->Icons.Default.History
     DeviceListSort.LAST_BOOT->Icons.Default.RestartAlt
@@ -117,7 +120,7 @@ private fun browseFilterImage(value:DeviceListFilter)=when(value) {
     DeviceListFilter.SESSIONS->Icons.Default.DesktopWindows
     DeviceListFilter.STARRED->Icons.Default.Star
     DeviceListFilter.AMT->Icons.Default.Memory
-    DeviceListFilter.HELP->Icons.Default.LiveHelp
-    DeviceListFilter.TAGGED->Icons.Default.Label
-    DeviceListFilter.UNTAGGED->Icons.Default.LabelOff
+    DeviceListFilter.HELP->Icons.AutoMirrored.Filled.LiveHelp
+    DeviceListFilter.TAGGED->Icons.AutoMirrored.Filled.Label
+    DeviceListFilter.UNTAGGED->Icons.AutoMirrored.Filled.LabelOff
 }

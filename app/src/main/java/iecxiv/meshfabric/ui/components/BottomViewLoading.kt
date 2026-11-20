@@ -1,5 +1,8 @@
 package iecxiv.meshfabric.ui.components
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -23,8 +26,9 @@ internal val LocalBottomLoadingState=staticCompositionLocalOf<BottomLoadingState
 }
 @Composable internal fun BottomViewLoadingBar() {
     val owner=LocalBottomLoadingState.current
-    Box(Modifier.fillMaxWidth().height(4.dp).testTag("bottom_loading_slot")) {
-        if(owner?.loading==true) LinearProgressIndicator(Modifier.fillMaxSize().testTag("bottom_loading_indicator"))
+    val barColor=MaterialTheme.colorScheme.primary
+    Box(Modifier.fillMaxWidth().height(4.dp).background(barColor.copy(alpha=0.40f)).testTag("bottom_loading_slot")) {
+        if(owner?.loading==true) LinearProgressIndicator(Modifier.fillMaxSize().testTag("bottom_loading_indicator"),color=barColor,trackColor=Color.Transparent)
     }
 }
 
