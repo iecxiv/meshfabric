@@ -1,0 +1,110 @@
+name: Validate settings polish block 6
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/settings-polish.yml']
+permissions:
+  contents: write
+concurrency:
+  group: settings-polish-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare block 6 only
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          base='app/src/main/java/iecxiv/meshfabric/ui/'
+          specs={base+'theme/AppearancePickers.kt':'c5913d93e2a1058d6839d0efa1ac4b98e46e8a1c',base+'theme/AutomaticAppearance.kt':'c185de873995294e1e67d86756e750eec2c92601',base+'settings/DisconnectAllConfirmation.kt':'22d8dcd4969e5d4f3435820a1cc9d01d9724780c','app/src/androidTest/java/iecxiv/meshfabric/ui/theme/AppearancePickersTest.kt':'f15a8dd215f9ff961b0d2dd7d80ca04f04bb5146'}
+          def replace(old,new):
+              global s
+              assert s.count(old)==1,(str(p),old)
+              s=s.replace(old,new,1)
+          for name,sha in specs.items():
+              p=Path(name)
+              assert git('hash-object',name)==sha
+              s=p.read_text()
+              if p.name=='AppearancePickers.kt':
+                  clock=s[s.index('@OptIn(ExperimentalMaterial3Api::class,ExperimentalLayoutApi::class)'):]
+                  replace('            Spacer(Modifier.width(8.dp))\n            Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp))','            if(city==null) {\n                Spacer(Modifier.width(8.dp))\n                Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp).testTag("appearance_city_dropdown_arrow"))\n            }')
+                  assert s[s.index('@OptIn(ExperimentalMaterial3Api::class,ExperimentalLayoutApi::class)'):]==clock
+              elif p.name=='AutomaticAppearance.kt':
+                  replace('AppearanceCitySelector(city=city,maximumWidth=controlWidth,','AppearanceCitySelector(city=city,maximumWidth=minOf(controlWidth,260.dp),')
+                  replace('Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp))','Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp),tint=androidx.compose.ui.graphics.Color(0xFF2196F3))')
+                  replace('Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2)','Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2,color=androidx.compose.ui.graphics.Color(0xFF2196F3))')
+                  assert 'val controlWidth=minOf(280.dp,maxWidth*0.9f)' in s
+              elif p.name=='DisconnectAllConfirmation.kt':
+                  behavior=s[:s.index('@Composable\ninternal fun DisconnectAllConfirmationSetting()')]
+                  replace('import androidx.compose.material3.*','import androidx.compose.material3.*\nimport androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.LinkOff')
+                  replace('            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {','            Icon(Icons.Default.LinkOff,contentDescription=null,modifier=Modifier.size(24.dp),tint=MaterialTheme.colorScheme.primary)\n            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {')
+                  restored=s[:s.index('@Composable\ninternal fun DisconnectAllConfirmationSetting()')].replace('\nimport androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.LinkOff','',1)
+                  assert restored==behavior
+              else:
+                  assert s.count('280.dp')==2
+                  s=s.replace('280.dp','260.dp')
+                  replace('        compose.waitForIdle()','        compose.waitForIdle()\n        compose.onNodeWithTag("appearance_city_selector").assertWidthIsEqualTo(260.dp)')
+                  marker='    @Test fun clockCancelDoesNotSave()'
+                  test='''    @Test fun cityArrowDisappearsAfterSelection() {
+                      var city by mutableStateOf<SolarCity?>(null)
+                      compose.setContent {MaterialTheme {AppearanceCitySelector(city,260.dp,{city=it})}}
+                      compose.onNodeWithTag("appearance_city_dropdown_arrow",useUnmergedTree=true).assertExists()
+                      compose.onNodeWithTag("appearance_city_selector").performClick()
+                      compose.onNodeWithTag("appearance_city_search").performTextInput("Lima")
+                      compose.onNodeWithTag("appearance_city_option_lima").performClick()
+                      compose.onNodeWithTag("appearance_city_dropdown_arrow",useUnmergedTree=true).assertDoesNotExist()
+                      compose.onNodeWithTag("appearance_city_selector").assertWidthIsEqualTo(260.dp).performClick()
+                      compose.onNodeWithTag("appearance_city_menu").assertExists()
+                  }
+          '''
+                  replace(marker,test+marker)
+              p.write_text(s)
+          assert set(git('diff','--name-only').splitlines())==set(specs)
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: settings-polish-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish block 6 and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          workflow='.github/workflows/settings-polish.yml'
+          Path(workflow).unlink()
+          base='app/src/main/java/iecxiv/meshfabric/ui/'
+          paths=[base+'theme/AppearancePickers.kt',base+'theme/AutomaticAppearance.kt',base+'settings/DisconnectAllConfirmation.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/theme/AppearancePickersTest.kt',workflow]
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','style(settings): refine city selector selected theme and disconnect preference'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
