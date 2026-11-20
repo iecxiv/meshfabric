@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -61,8 +63,8 @@ import kotlinx.coroutines.*
     }
     val busy=state.phase in setOf("checking","cookie","uploading")
     val close:()->Unit={if(busy) discard=true else {reader?.cancel();file=null;writer.close();onClose()}}
-    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=close,title={Text(t("Cargar archivo de núcleo","Upload a core file"))},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-        Text(t("Dispositivo: ","Device: ")+nodeName);Text(nodeId,style=MaterialTheme.typography.labelSmall)
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=close,title={Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {Icon(Icons.Default.UploadFile,null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.primary);Box(Modifier.weight(1f)) {DeviceBatchDialogTitle(t("Cargar archivo de núcleo","Upload a core file"))} }},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        iecxiv.meshfabric.ui.components.AppDialogCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) { Text(t("Dispositivo: ","Device: ")+nodeName);Text(nodeId,style=MaterialTheme.typography.labelSmall) } }
         Text(t("Reemplaza el núcleo del agente por código JavaScript de tu archivo. Usa solo código de confianza: puede interrumpir el acceso remoto. No es una transferencia de archivos ordinaria.","Replaces the agent core with JavaScript from your file. Use only trusted code: it may interrupt remote access. This is not an ordinary file transfer."))
         Text(t("Solo dominio principal, HTTPS y derechos completos sobre el dispositivo. Archivo .js UTF-8, sin NUL, no vacío y de hasta 1 MiB. Se conservan los bytes revisados en memoria; no se vuelve a leer el archivo al enviar.","Main domain, HTTPS and full device rights only. Non-empty UTF-8 .js file, without NUL, up to 1 MiB. Reviewed bytes stay in memory; the file is not reread when sending."),style=MaterialTheme.typography.bodySmall)
         TextButton(enabled=state.phase=="ready" && !reading,onClick={file=null;error=false;picker.launch(arrayOf("*/*"))},modifier=Modifier.testTag("agent_core_choose_file")) {Text(t("Seleccionar archivo local","Choose local file"))}
@@ -79,5 +81,5 @@ import kotlinx.coroutines.*
         },style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("agent_core_upload_status"))
         Text(t("Una sola solicitud, sin reintentos ni reenvíos al reconectar. Cerrar no revierte una carga que haya empezado.","One request, with no retries or replay on reconnection. Closing does not undo an upload that has started."),style=MaterialTheme.typography.bodySmall)
     }},confirmButton={TextButton(enabled=state.phase=="ready" && file!=null && !reading,onClick={file?.let {writer.submit(it)}},modifier=Modifier.testTag("agent_core_upload_confirm")) {Text(t("Cargar una vez","Upload once"))}},dismissButton={TextButton(onClick=close) {Text(t("Cerrar","Close"))}})
-    if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar carga","Close upload"))},text={Text(t("Se cancelará el seguimiento y la transferencia local si sigue en curso. No deshace lo que el servidor ya haya recibido; el resultado puede quedar sin confirmar.","Local transfer and monitoring will be canceled if still running. This does not undo what the server has received; the outcome may remain unconfirmed."))},confirmButton={TextButton(onClick={file=null;writer.close();onClose()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+    if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={DeviceBatchDialogTitle(t("Cerrar carga","Close upload"))},text={Text(t("Se cancelará el seguimiento y la transferencia local si sigue en curso. No deshace lo que el servidor ya haya recibido; el resultado puede quedar sin confirmar.","Local transfer and monitoring will be canceled if still running. This does not undo what the server has received; the outcome may remain unconfirmed."))},confirmButton={TextButton(onClick={file=null;writer.close();onClose()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
 }
