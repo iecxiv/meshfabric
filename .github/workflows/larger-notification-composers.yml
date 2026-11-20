@@ -1,0 +1,107 @@
+name: Validate larger notification composers
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/larger-notification-composers.yml']
+permissions:
+  contents: write
+concurrency:
+  group: larger-notification-composers-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Enlarge notification layouts only
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          def apply(name,sha,changes):
+              p=root/name
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,name
+              original=p.read_text(); updated=original; undo=[]
+              for old,new in changes:
+                  assert old and updated.count(old)==1,(name,old)
+                  position=updated.index(old);undo.append((position,old,new))
+                  updated=updated[:position]+new+updated[position+len(old):]
+              restored=updated
+              for position,old,new in reversed(undo):
+                  assert restored[position:position+len(new)]==new
+                  restored=restored[:position]+old+restored[position+len(new):]
+              assert restored==original
+              p.write_text(updated)
+          apply('UserMessageDialog.kt','ecc2f598e18bce9024c5e745a991f92657c81da4',[
+              ('Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f)','Modifier.widthIn(max=720.dp).fillMaxWidth(0.96f)'),
+              ('LocalConfiguration.current.screenHeightDp*0.68f','LocalConfiguration.current.screenHeightDp*0.82f'),
+              ('minLines=3,maxLines=6','minLines=6,maxLines=12')
+          ])
+          apply('OperationFormDialog.kt','fa76ab2ac1dadeb13a8261808f04826884fa32ab',[
+              ('enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,content:@Composable ()->Unit)',
+               'enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,expanded:Boolean=false,content:@Composable ()->Unit)'),
+              ('Dialog(onDismissRequest=onDismiss) {',
+               'Dialog(onDismissRequest=onDismiss,properties=androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth=!expanded)) {'),
+              ('modifier=Modifier.fillMaxWidth().padding(horizontal=4.dp,vertical=8.dp)',
+               'modifier=(if(expanded) Modifier.widthIn(max=720.dp).fillMaxWidth(0.96f) else Modifier.fillMaxWidth()).padding(horizontal=4.dp,vertical=8.dp)'),
+              ('Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState())',
+               'Modifier.fillMaxWidth().heightIn(max=if(expanded) (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp*0.82f).dp else 440.dp).verticalScroll(rememberScrollState())')
+          ])
+          apply('MeshFabricHome.kt','96d52a525afd79619d696522a3bba58fede87a60',[
+              ('        OperationFormDialog(op.fields.isNotEmpty(),op.title,',
+               '        val expandedMessage=op.fields.map {it.first}.toSet()==setOf("title","msg")\n        OperationFormDialog(op.fields.isNotEmpty(),op.title,'),
+              ('enabled=state.ready && available,dangerous=op.dangerous,onConfirm={',
+               'enabled=state.ready && available,dangerous=op.dangerous,expanded=expandedMessage,onConfirm={'),
+              ('singleLine=key=="url" || key=="title",minLines=1,',
+               'singleLine=key=="url" || key=="title",minLines=if(expandedMessage && key=="msg") 6 else 1,'),
+              ('maxLines=if(key=="url" || key=="title") 1 else 3,',
+               'maxLines=if(key=="url" || key=="title") 1 else if(expandedMessage && key=="msg") 12 else 3,'),
+              ('modifier=Modifier.fillMaxWidth().heightIn(min=52.dp,max=90.dp))',
+               'modifier=Modifier.fillMaxWidth().then(if(expandedMessage && key=="msg") Modifier else Modifier.heightIn(min=52.dp,max=90.dp)))')
+          ])
+          expected={str(root/name) for name in ['UserMessageDialog.kt','OperationFormDialog.kt','MeshFabricHome.kt']}
+          assert set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())==expected
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: larger-notification-composers-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated layouts and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          workflow='.github/workflows/larger-notification-composers.yml'
+          Path(workflow).unlink()
+          paths=['app/src/main/java/iecxiv/meshfabric/ui/management/UserMessageDialog.kt','app/src/main/java/iecxiv/meshfabric/ui/management/OperationFormDialog.kt','app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricHome.kt',workflow]
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(messages): enlarge user and device notification composers'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
