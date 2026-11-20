@@ -5,6 +5,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -152,7 +153,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                 Text(t("Código técnico: ","Technical code: ")+state.code,style=MaterialTheme.typography.labelSmall)
             }
             if(searching) OutlinedTextField(query,{query=it.take(128)},singleLine=true,label={Text(t("Filtrar líneas de salida","Filter output lines"))},modifier=Modifier.fillMaxWidth())
-            SelectionContainer(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll)) {Text(visible.ifEmpty {t("Sin salida recibida.","No output received.")},fontFamily=FontFamily.Monospace,fontSize=12.sp,modifier=Modifier.fillMaxWidth().testTag("agent_console_output"))}
+            SelectionContainer(Modifier.weight(1f).fillMaxWidth().background(androidx.compose.ui.graphics.Color.Black).verticalScroll(scroll).padding(8.dp)) {Text(visible.ifEmpty {t("Sin salida recibida.","No output received.")},fontFamily=FontFamily.Monospace,fontSize=12.sp,color=androidx.compose.ui.graphics.Color.White,modifier=Modifier.fillMaxWidth().testTag("agent_console_output"))}
             if(!follow) TextButton(onClick={query="";follow=true}) {Text(t("Ir al final y seguir salida","Go to end and follow output"))}
             if(copyStatus.isNotEmpty()) Text(copyStatus,style=MaterialTheme.typography.labelSmall)
             Text(t("Salida sin prueba de finalización. Búfer: 1000 entradas / 256000 caracteres; historial: 50 comandos, solo en memoria.","Output does not prove completion. Buffer: 1000 entries / 256000 characters; history: 50 commands, memory only."),style=MaterialTheme.typography.labelSmall)
