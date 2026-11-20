@@ -150,7 +150,7 @@ private fun assistantLabel(v:Int,es:Boolean)=if(es) mapOf(2 to "Aplicación, con
         if(payload!=null) TextButton(onClick={copy(payload)}) {Text(t("Copiar configuración móvil","Copy mobile configuration"))} else Text(t("No hay configuración móvil completa recibida del servidor. No se inventa un QR.","Complete mobile configuration has not been received. No QR is fabricated."))
         Row {for((label,url) in listOf("Google Play" to "https://play.google.com/store/apps/details?id=com.meshcentral.agent2","Amazon Appstore" to "https://www.amazon.co.uk/gp/product/B097Z4Q7SK/")) TextButton(onClick={runCatching {context.startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(url)))}}) {Text(label)}}
     }
-    if(download.first) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if(download.first) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
     if(download.second.isNotBlank()) Text(download.second,style=MaterialTheme.typography.bodySmall)
     if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)
 }

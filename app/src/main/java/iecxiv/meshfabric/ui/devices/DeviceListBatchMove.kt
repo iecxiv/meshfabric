@@ -123,7 +123,7 @@ private fun BatchMoveDialog(source: MeshCentralClient, request: BatchMoveRequest
                     "Mover cambia el grupo y puede cambiar permisos y políticas. Solo grupos de agentes del mismo dominio. Los permisos heredados no verificables se omiten. Se relee antes de enviar; no es una transacción atómica frente a cambios simultáneos. Un intento por dispositivo, sin reenvío automático.",
                     "Moving changes the group and may change permissions and policies. Agent groups in the same domain only. Unverifiable inherited rights are skipped. Data is reread before sending; this is not an atomic transaction against concurrent changes. One attempt per device, no automatic resend."
                 ))
-                if (read.phase == "loading" || checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (read.phase == "loading" || checking || running) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if (read.phase == "error") Text(t("No se pudo verificar la lectura de grupos. Cierra y vuelve a abrir.", "Group read could not be verified. Close and reopen."))
                 if (destination == null) {
                     Box {

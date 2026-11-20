@@ -134,7 +134,7 @@ private fun BatchRunDialog(source: MeshCentralClient, request: BatchRunRequest, 
                     Text(choices.firstOrNull { it.key == text.interpreter }?.label.orEmpty(), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     SelectionContainer { Text(text.command, fontFamily = FontFamily.Monospace) }
                 }
-                if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (checking || running) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if (text != null) items.forEach { target ->
                     Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     DeviceBatchSecondary(target.group.name)

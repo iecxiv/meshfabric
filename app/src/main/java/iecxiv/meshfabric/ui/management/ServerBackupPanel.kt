@@ -240,10 +240,10 @@ private data class BackupRequest(val password:String,val override:Boolean) { ove
     when(val state=phase) {
         BackupPhase.Idle->Unit
         BackupPhase.Checking->Text(stringResource(R.string.my_server_backup_checking),style=MaterialTheme.typography.bodySmall)
-        BackupPhase.Sending->{ Text(stringResource(R.string.my_server_backup_sending),style=MaterialTheme.typography.bodySmall); LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        BackupPhase.Sending->{ Text(stringResource(R.string.my_server_backup_sending),style=MaterialTheme.typography.bodySmall); iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth()) }
         is BackupPhase.Working->{
             Text(stringResource(R.string.my_server_backup_working,Formatter.formatShortFileSize(context,state.bytes)),style=MaterialTheme.typography.bodySmall)
-            LinearProgressIndicator(Modifier.fillMaxWidth())
+            iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             TextButton(onClick={ call?.cancel() }) { Text(stringResource(R.string.my_server_backup_cancel_download)) }
         }
         is BackupPhase.Done->Text(stringResource(R.string.my_server_backup_done,Formatter.formatShortFileSize(context,state.bytes)),style=MaterialTheme.typography.bodySmall)

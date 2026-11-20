@@ -162,7 +162,7 @@ val rows=if(users) state.users.filter {user->groupSearch.isBlank() || listOf(pro
 LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=if(users) usersListState else deviceGroupsListState,contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
 item { Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(state.loading || state.busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 ServerGeneralActions {
 if(users) TextButton(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={form=null;groupDetails=null;origins=emptyList();groupDetailTab=0;broadcast=true}) {Text(t("Difusión","Broadcast"))}
 TextButton(enabled=state.canWrite && permitted && (if(users) state.canCreateUser else ProfilePermissions.createGroup(state.site)),onClick={ form=ProfileForm(users,"create") }) { Text(if(users) t("Crear usuario","Create user") else t("Crear grupo","Create group")) }

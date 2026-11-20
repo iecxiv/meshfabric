@@ -70,7 +70,7 @@ private fun groupEditMask(value:Long)=java.lang.String.format(java.util.Locale.R
             Text(t("Grupo de dispositivos: ","Device group: ")+meshIdentity.label,style=MaterialTheme.typography.bodySmall)
             if(!identityReady) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             Text(t("Solo modifica una asignación existente y coherente entre este grupo de usuarios y este grupo de dispositivos. Puede cambiar el acceso heredado de sus miembros. No modifica sus enlaces directos ni calcula todos los permisos efectivos.","Only edits an existing consistent assignment between this user group and this device group. May change inherited access for its members. Does not modify their direct links or calculate all effective rights."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.detailsBusy || s.userGroupPhase=="loading" || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.detailsBusy || s.userGroupPhase=="loading" || (submitted && s.busy)) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(before!=null) {
                 Text(groupEditMask(before),Modifier.testTag("group-edit-before"))
                 Text(deviceGroupRightsLabel(before,es),style=MaterialTheme.typography.bodySmall)

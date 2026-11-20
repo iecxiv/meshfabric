@@ -243,7 +243,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
                 1->HistoryPanel(state.history,state.hours,state.ready,state.pending.isNotEmpty(),onLoad=::refreshHistory)
                 else->ServerAdminPanel(source,tab==3)
             }
-            if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(state.pending.isNotEmpty()) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         }
     }
     if(confirmConfig) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ confirmConfig=false },title={ ServerGeneralActionTitle(stringResource(R.string.my_server_config)) },text={ Text(stringResource(R.string.my_server_sensitive)) },

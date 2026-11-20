@@ -52,7 +52,7 @@ import iecxiv.meshfabric.ui.components.NumberedTextEditor
                 }
                 Spacer(Modifier.height(10.dp))
                 if(busy) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                    iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                     Text(if(notes.phase==NotesPhase.LOADING) t("Cargando notas del equipo…","Loading device notes…") else t("Verificando el guardado con el servidor…","Verifying the save with the server…"),
                         style=MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(8.dp))

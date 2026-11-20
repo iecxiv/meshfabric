@@ -330,7 +330,7 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
                 AndroidView(modifier=Modifier.fillMaxWidth().height(320.dp),factory={ ctx->FrameLayout(ctx) },onReset=null,onRelease={ renderer.close() },update={ parent->renderer.attach(context,parent); renderer.submit(payload); renderer.syncInput() })
             }
         }
-        if(active && !loaded && !failed) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(active && !loaded && !failed) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
             TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
             Spacer(Modifier.weight(1f))

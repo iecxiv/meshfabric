@@ -58,7 +58,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                     if(draft.action==GeneralDeviceAction.UNINSTALL_AGENT) Text(t("Se solicitará desinstalar el agente de este equipo. Puede cerrar las sesiones y dejarlo sin acceso remoto hasta reinstalarlo. No elimina el dispositivo del inventario. La desconexión no confirma que la desinstalación haya finalizado.","Agent uninstall will be requested for this device. It may close sessions and remove remote access until reinstalled. It does not delete the device from inventory. Disconnection does not confirm uninstall completion."),color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("general_action_uninstall_warning"))
                     Text(t("Antes de enviar se comprobarán de nuevo identidad, dispositivo, grupo, sistema y permisos. Si han cambiado, no se enviará.","Identity, device, group, OS and permissions will be checked again before sending. If they changed, nothing will be sent."),style=MaterialTheme.typography.bodySmall)
                 }
-                if(state.phase in setOf("loading","checking")) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if(state.phase in setOf("loading","checking")) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 val status=when(state.phase) {
                     "loading"->t("Verificando datos y permisos…","Verifying data and permissions…")
                     "checking"->t("Reverificando antes del envío…","Rechecking before sending…")

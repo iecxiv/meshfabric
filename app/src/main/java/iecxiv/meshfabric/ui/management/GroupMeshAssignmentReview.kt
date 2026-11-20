@@ -60,7 +60,7 @@ internal fun profileGroupMeshReadbackReady(s:ProfileState,gid:String,mid:String,
             Text(t("Grupo de dispositivos: ","Device group: ")+identityB.label)
             if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             Text(t("Enlace recibido en el grupo de usuarios: ","Link received in the user group: ")+mask(profileGroupMeshReportedRights(group,mid)))
             Text(t("Enlace recibido en el grupo de dispositivos: ","Link received in the device group: ")+mask(profileGroupMeshReportedRights(mesh,gid)))
             Text(t("Derechos directos recibidos del actor: ","Received direct actor rights: ")+mask(profileGroupMeshReportedRights(mesh,actor)))

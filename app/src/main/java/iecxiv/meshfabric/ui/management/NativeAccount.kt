@@ -453,7 +453,7 @@ feedback=if(runCatching { checkNotNull(clipboard).setPrimaryClip(clip) }.isSucce
 if(selected==3) OwnPreviousLoginsDialog(state.user?.optString("name").orEmpty(),actor,reply?.optJSONArray("events"),state.busy,state.status in setOf("incompatible","rejected","unknown","malformed","timeout"),es,onRefresh={run("previousLogins")},onDismiss={wire.clearResult();mode=null},error=feedback) else AccountOptionSurface(inline=accountInlineOption(selected),onDismissRequest=::closeAccountOption,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(labels[selected]) },text={
 Column(Modifier.fillMaxWidth().heightIn(max=if(accountInlineOption(selected)) LocalConfiguration.current.screenHeightDp.dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
 if(status.isNotBlank()) Text(status)
-if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(state.busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 when(selected) {
 10->{ProfileOwnMfaChoices(state.ready && !state.busy,onSelect={openAction(it)})}
 0->{
@@ -624,7 +624,7 @@ ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connectin
 if(mode?.let(::accountInlineOption)==true) Box(Modifier.weight(1f).fillMaxWidth()) {RenderAccountOption()} else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(accountMainScroll).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https","notRevoked") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 AccountNoticeBanner(state.notice,options,alerts,es,dateLocale,hours24)
-if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(state.busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 Text(t("Detalles de la cuenta","Account details"),style=MaterialTheme.typography.titleMedium)
 ManagementCard {
 ManagementInfoRow(t("Nombre de usuario","Username"),state.user?.optString("name").orEmpty())

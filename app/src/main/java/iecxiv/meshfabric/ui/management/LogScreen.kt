@@ -93,7 +93,7 @@ import java.util.Date
         if(onSelection!=null) ServerEventsControls(selection,enabled,onSelection)
         if(status!=null) Text(stringResource(status),Modifier.testTag("log-events-state"),color=if(state.phase in setOf(ServerEventsPhase.DENIED,ServerEventsPhase.ERROR,ServerEventsPhase.INVALID,ServerEventsPhase.TIMEOUT)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         if(state.phase==ServerEventsPhase.INVALID && state.issue!=null) Text(stringResource(R.string.log_diagnostic,state.issue.safeCode()),Modifier.testTag("log-events-diagnostic"),style=MaterialTheme.typography.bodySmall)
-        if(state.phase==ServerEventsPhase.LOADING) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(state.phase==ServerEventsPhase.LOADING) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         if(state.phase==ServerEventsPhase.READY) {
             val rows=state.records.map {it.withInventory(inventory)}.filter {row->listOf(row.message,row.actor,row.nodeName,row.action,row.groupName,row.nodeId,row.meshId,row.details["cmds"].orEmpty()).any {it.contains(query.trim(),true)}}
             if(state.records.isEmpty()) Text(stringResource(R.string.log_empty),Modifier.testTag("log-events-empty"))

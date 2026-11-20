@@ -304,6 +304,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     } }
     }
     LaunchedEffect(page) {if(page!=4 && noticeCompose) {operation=null;noticeCompose=false}}
+    val bottomLoading=remember(page) {iecxiv.meshfabric.ui.components.BottomLoadingState()}
+    CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading) {
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
         bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
             if(next in 0..4 && next!=page) {
@@ -344,6 +346,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             } else LogScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
                 actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings,openActivity=openActivity,onActivityOpened={openActivity=false})
         }
+    }
     }
     ActionFeedbackDialogs(management.feedback)
     state.notes?.let { n->DeviceNotesDialog(n,management::closeNotes,management::editNotes,management::changeNotes,management::saveNotes,

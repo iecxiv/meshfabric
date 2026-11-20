@@ -45,6 +45,7 @@ val es=LocalConfiguration.current.locales[0].language=="es"
 val unread=LocalNoticeUnread.current
 Surface(color=scheme.surface,tonalElevation=0.dp,shadowElevation=0.dp) {
 Column {
+iecxiv.meshfabric.ui.components.BottomViewLoadingBar()
 HorizontalDivider(color=scheme.outlineVariant)
 Row(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Horizontal+WindowInsetsSides.Bottom)).selectableGroup(),verticalAlignment=Alignment.CenterVertically) {
 val labels=listOf(if(es) "Equipos" else "Devices",stringResource(R.string.registro_title),stringResource(R.string.navigation_server),if(es) "Gestión" else "Management",if(es) "Avisos" else "Notices")

@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
                 clipboard.setPrimaryClip(ClipData.newPlainText(managementText("Salida remota","Remote output"),command.output)); copied=true
             },cancel=managementText("Cerrar","Close")) {
             SelectionContainer { Text(command.command,style=MaterialTheme.typography.bodySmall,fontFamily=FontFamily.Monospace,maxLines=3,overflow=TextOverflow.Ellipsis) }
-            if(command.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(command.busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             Text(command.message,color=if(command.phase==CommandPhase.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             if(command.output.isNotEmpty()) key(command.id) {
                 OutlinedTextField(value=command.output,onValueChange={},readOnly=true,label={ Text(managementText("Salida","Output")) },
@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
     }
     if(state.clipboardWindow) state.clipboard?.let { clipboard->
         FabricDialog(title=clipboard.title,onDismiss=controller::closeClipboard,confirm=managementText("Cerrar","Close"),onConfirm=controller::closeClipboard,cancel=null) {
-            if(clipboard.phase==ClipboardPhase.VERIFYING) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(clipboard.phase==ClipboardPhase.VERIFYING) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             Text(clipboard.message,color=if(clipboard.phase==ClipboardPhase.ERROR || clipboard.phase==ClipboardPhase.UNKNOWN) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
             Text(managementText("Canal: ${clipboard.transport}","Channel: ${clipboard.transport}"),style=MaterialTheme.typography.bodySmall)
             Text(managementText("No se abre un escritorio ni se simula Ctrl+V. La disponibilidad depende también de las políticas del servidor y de la sesión gráfica remota.","No desktop is opened and Ctrl+V is not simulated. Availability also depends on server policies and the remote graphical session."),style=MaterialTheme.typography.bodySmall)

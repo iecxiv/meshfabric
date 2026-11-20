@@ -206,7 +206,7 @@ androidx.compose.ui.unit.Dp(0f)
                         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                         if(state.pending=="trace") {
                             Text(label("Aplicando cambios…","Applying changes…"),Modifier.padding(horizontal=16.dp,vertical=8.dp),style=MaterialTheme.typography.bodySmall)
-                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                            iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                         }
                         options.forEach { name->
                             DropdownMenuItem(enabled=enabled,modifier=Modifier.testTag("trace-source-$name"),text={ Column {
@@ -234,7 +234,7 @@ androidx.compose.ui.unit.Dp(0f)
         }
         Text(privacy,style=MaterialTheme.typography.bodySmall)
     }
-    if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if(state.pending.isNotEmpty()) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
     if(traceView) {
         val output=remember(state.trace) { state.trace.asReversed() }
         val selectedSources=state.sources.orEmpty()

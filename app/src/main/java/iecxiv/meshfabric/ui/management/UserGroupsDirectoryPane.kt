@@ -48,7 +48,7 @@ if(s.notice=="groupMeshRevokedObserved") Text(t("Ambos enlaces observados ausent
 if(s.notice=="groupMeshGrantedObserved") Text(t("Derechos solicitados observados en ambos enlaces. Grupo de usuarios: ","Requested rights observed in both links. User group: ")+displayNames.label(s.grantedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.grantedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
 if(s.notice=="groupMeshEditedObserved") Text(t("Máscara exacta editada y observada en ambos enlaces. Grupo de usuarios: ","Edited exact mask observed in both links. User group: ")+displayNames.label(s.editedGroup,es)+t("; grupo de dispositivos: ","; device group: ")+displayNames.label(s.editedDeviceGroup,es),style=MaterialTheme.typography.bodySmall)
 
-            if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.busy || s.loading || s.userGroupPhase=="loading" || s.notice=="connecting") iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 if(s.notice=="userGroupObserved") Text(t("Estado del grupo verificado en una consulta al servidor.","Group state verified by a server read."),style=MaterialTheme.typography.bodySmall)
             if(s.userGroupPhase=="failed") Text(t("No se ha podido consultar el listado. Puedes volver a actualizar.","The list could not be retrieved. Refresh to try again."),color=MaterialTheme.colorScheme.error)
             if(s.ready && ProfilePermissions.normalized(s.site) and 256L==0L) Text(t("Vista limitada: el servidor proporciona solo nombres.","Limited view: the server provides names only."),style=MaterialTheme.typography.bodySmall)

@@ -59,7 +59,7 @@ androidx.compose.ui.unit.Dp(0f)
             }
             if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente los destinos. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the targets. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(review) Text(t("Datos congelados para esta revisión.","Data frozen for this review."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.detailsBusy || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.detailsBusy || (submitted && s.busy)) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             ProfileDisclosure(t("Detalles técnicos de los enlaces","Technical link details")) {
             Text(t("Enlace recibido en el usuario: ","Link received in the user: ")+mask(profileGroupMeshReportedRights(user,mid)))
             Text(t("Enlace recibido en el grupo: ","Link received in the group: ")+mask(profileGroupMeshReportedRights(mesh,uid)))

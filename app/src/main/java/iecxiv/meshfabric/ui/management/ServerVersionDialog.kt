@@ -169,7 +169,7 @@ private class ServerVersionChannel(private val source:MeshCentralClient) {
         Column(Modifier.heightIn(max=if(LocalServerReadInline.current) LocalConfiguration.current.screenHeightDp.dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text(channel?.serverLabel ?: "—",style=MaterialTheme.typography.bodySmall)
             if(notice.isNotEmpty()) Text(notice,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("unknown","rejected","denied","session","https","invalid","changed","connection","timeout")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            if(state.pending.isNotEmpty()) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(state.pending.isNotEmpty()) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceVariant,border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
                 Column(Modifier.fillMaxWidth().padding(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(label("Versión actual","Current version"),style=MaterialTheme.typography.labelLarge)

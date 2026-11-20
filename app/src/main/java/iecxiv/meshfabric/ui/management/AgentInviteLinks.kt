@@ -58,7 +58,7 @@ internal fun modeLabel(v:Int,es:Boolean)=if(es) mapOf(0 to "Segundo plano e inte
         if(options.hours==720) Text(t("1 mes equivale a 30 días (720 horas).","1 month means 30 days (720 hours)."),style=MaterialTheme.typography.bodySmall)
         InviteChoice(t("Agentes","Agents"),"invite-agent",options.agents,AgentInviteLinkOptions.agentKinds,enabled && !busy,{agentLabel(it,es)}) {onChange(options.selectAgent(it))}
         if(options.showsType) InviteChoice(t("Tipo de instalación","Installation type"),"invite-mode",options.flags,AgentInviteLinkOptions.installationModes,enabled && !busy,{modeLabel(it,es)}) {onChange(options.copy(flags=it))}
-        if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         TextButton(onClick=onGenerate,enabled=enabled && !busy,modifier=Modifier.fillMaxWidth().testTag("invite-generate")) {Text(t("Generar enlace","Generate link"))}
     }
 }
@@ -129,7 +129,7 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
         }
         ManagementDialog(onDismissRequest={invalidate();onDismiss()},modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(enrollment) t("Agregar agente","Add agent") else t("Invitar","Invite"))},text={
             Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState())) {
-                if(s.loading || s.detailsBusy || !s.ready) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if(s.loading || s.detailsBusy || !s.ready) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if(enrollment) AgentEnrollmentContent(source,group,s.server,enabled) else AgentInviteLinkForm(group?.optString("name").orEmpty(),options,enabled,busy,es,onChange={invalidate();options=it;notice=""},onGenerate={generate()})
                 if(!enabled) Text(t("Esperando un grupo de agentes y permisos válidos. No se adivina el grupo del dispositivo.","Waiting for a valid agent group and permissions. The device group is not guessed."),style=MaterialTheme.typography.bodySmall)
                 if(!enabled) Text("INVITE_CONTEXT_"+when { !connected->"DISCONNECTED"; !foreground->"BACKGROUND"; !s.ready->"NOT_READY"; s.loading->"LOADING"; s.readError->"READ_FAILED"; s.detailsBusy->"DETAILS_LOADING"; s.id!=binding.actor->"ACTOR_MISMATCH"; else->"GROUP_OR_RIGHTS" },style=MaterialTheme.typography.bodySmall)

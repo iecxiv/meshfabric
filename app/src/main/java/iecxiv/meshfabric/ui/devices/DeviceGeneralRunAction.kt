@@ -74,7 +74,7 @@ import iecxiv.meshfabric.ui.management.defaultInterpreterKey
                     Text(t("Intérprete: ","Interpreter: ")+draft.interpreter)
                     Text(draft.command,modifier=Modifier.testTag("general_run_review"))
                 }
-                if(state.phase in setOf("loading","checking")) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if(state.phase in setOf("loading","checking")) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if(status.isNotEmpty()) Text(status,style=MaterialTheme.typography.bodySmall)
                 feedback.commands.firstOrNull()?.let {result->
                     Text(result.message,style=MaterialTheme.typography.bodySmall)

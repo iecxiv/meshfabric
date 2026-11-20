@@ -144,7 +144,7 @@ Text(t("Se conservan sus métodos de autenticación multifactor. Si el servidor 
 }
 mode=="device"->{
 Text(t("Concede acceso directo a un dispositivo existente; no instala un agente. Solo se muestran dispositivos visibles para tu cuenta.","Grants direct access to an existing device; does not install an agent. Only devices visible to your account are shown."),style=MaterialTheme.typography.bodySmall)
-if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(s.detailsBusy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 field(t("Buscar dispositivo","Search device"),search,{ search=it })
 if(s.nodes==null) Text(t("Listado de dispositivos no disponible.","Device list unavailable."))
 val options=s.nodes.orEmpty().filter { it.optString("name").contains(search,true) || it.optString("_id").contains(search,true) }.take(100)
@@ -157,7 +157,7 @@ option(t("Confirmo asignar estos permisos al usuario y dispositivo indicados.","
 }
 mode=="history"->{
 Text(t("Historial de accesos web registrado por el servidor; puede no incluir los accesos de la app.","Server-recorded web sign-ins; app sign-ins may not be included."),style=MaterialTheme.typography.bodySmall)
-if(s.historyBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(s.historyBusy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 if(s.historyFailed) Text(t("Historial no disponible o respuesta incompatible.","History unavailable or unsupported response."),color=MaterialTheme.colorScheme.error)
 val a=s.history.takeIf { s.historyUser==form.id }
 if(a!=null && a.length()==0) Text(t("Sin registros.","No records."))
@@ -192,7 +192,7 @@ ManagementInfoRow(t("Seguridad","Security"),security.joinToString(", ").ifBlank 
 ManagementInfoRow(t("Sesiones activas","Active sessions"),s.sessions?.optInt(form.id,0)?.toString() ?: missing)
 }
 }
-if(s.detailsBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
+if(s.detailsBusy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
 ProfileActionGroup {
 ProfileGroupActionButton(t("Permisos, características y consentimiento","Permissions, features and consent"),Icons.Default.Security,allowed,onClick={ advanced=true })
 ProfileGroupActionButton(t("Actualizar ficha","Refresh details"),Icons.Default.Refresh,!s.detailsBusy,onClick=session::loadDetails)

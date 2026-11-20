@@ -98,7 +98,7 @@ private data class UploadRequest(val targets: List<DeviceBatchPowerTarget>, val 
                 Text("${metadata.size} bytes")
                 Text("SHA-256 local: ${metadata.sha256}", style = MaterialTheme.typography.bodySmall)
             }
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if (busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if (message.isNotBlank()) Text(message)
             if (reviewed) rows.forEach { row ->
                 HorizontalDivider()

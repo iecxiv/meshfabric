@@ -28,7 +28,7 @@ internal fun profileReceivedUserGroup(s:ProfileState,id:String):JSONObject? {
     ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(t("Grupo de usuarios","User group"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Ficha de consulta. La administración sigue en la pestaña Grupos.","Read-only details. Administration remains in the Groups tab."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.detailsBusy || s.userGroupPhase=="loading") LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.detailsBusy || s.userGroupPhase=="loading") iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(group==null) Text(t("Ficha no disponible en los datos actuales. Espera la consulta o actualiza; su ausencia no acredita que se haya eliminado.","Entry unavailable in current data. Wait for the query or refresh; absence does not prove deletion."),style=MaterialTheme.typography.bodySmall) else {
                 Text(group.optString("name").ifBlank {t("Sin nombre informado","Name not reported")},style=MaterialTheme.typography.titleSmall)
                 if(!group.isNull("desc") && group.optString("desc").isNotBlank()) Text(group.optString("desc"))

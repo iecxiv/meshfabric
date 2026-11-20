@@ -50,7 +50,7 @@ internal object AppDialogAppearance {
         decorFitsSystemWindows=properties.decorFitsSystemWindows,
         windowTitle=properties.windowTitle
     ) else properties
-    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp,LocalBottomLoadingState provides null) {
         AlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,
             modifier=dialogModifier.border(AppDialogAppearance.border(),shape),dismissButton=dismissButton,icon=icon,
             title=title,text=text,shape=shape,containerColor=containerColor,iconContentColor=iconContentColor,
@@ -62,7 +62,7 @@ internal object AppDialogAppearance {
     contentColor:Color=MaterialTheme.colorScheme.onSurface,tonalElevation:Dp=AppDialogAppearance.tonalElevation,
     shadowElevation:Dp=0.dp,border:BorderStroke?=AppDialogAppearance.border(),content:@Composable ()->Unit
 ) {
-    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp,LocalBottomLoadingState provides null) {
         Surface(modifier=modifier,shape=shape,color=color,contentColor=contentColor,tonalElevation=tonalElevation,
             shadowElevation=shadowElevation,border=border,content=content)
     }
@@ -72,7 +72,7 @@ internal object AppDialogAppearance {
     elevation:CardElevation=CardDefaults.cardElevation(),border:BorderStroke?=AppDialogAppearance.border(),
     content:@Composable ColumnScope.()->Unit
 ) {
-    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp,LocalBottomLoadingState provides null) {
         Card(modifier=modifier,shape=shape,colors=colors,elevation=elevation,border=border,content=content)
     }
 }

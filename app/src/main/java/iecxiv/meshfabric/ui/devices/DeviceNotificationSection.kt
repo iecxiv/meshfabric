@@ -41,7 +41,7 @@ internal fun deviceNotifyLabel(value:Long,es:Boolean):String {
             }
         }
         GeneralValueRow(t("Notificaciones","Notifications"),state.value?.let {deviceNotifyLabel(it,es)} ?: t("Sin verificar","Unverified"),state.canEdit,"general_notifications",t("Editar notificaciones","Edit notifications")) {editing=state.value}
-        if(state.phase in setOf("loading","saving")) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(state.phase in setOf("loading","saving")) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         val status=when {
             state.phase=="confirmed"->t("Preferencia confirmada por relectura de la cuenta.","Preference confirmed by re-reading the account.")
             state.code=="conflict"->t("La preferencia cambió. Recarga y vuelve a revisar. No se ha enviado el cambio.","The preference changed. Reload and review again. No change was sent.")

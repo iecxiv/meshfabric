@@ -62,7 +62,7 @@ import java.util.Date
                 Text(t("El horario queda fijado. Si pasan más de dos minutos antes del envío, debes volver a revisar. La utilidad del enlace depende del agente y de las políticas del servidor.","Times are frozen. If more than two minutes pass before sending, review again. Link usability depends on the agent and server policies."),style=MaterialTheme.typography.bodySmall)
             }
             state?.let {s->
-                if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if(busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 Text(when(s.phase) {
                     "checking"->t("Verificando identidad, dispositivo, permisos y accesos existentes; aún no se ha creado.","Verifying identity, device, permissions and existing entries; not created yet.")
                     "creating","verifying"->t("Solicitud enviada; creación y alcance aún sin confirmar. El enlace no se revela hasta releerlo.","Request sent; creation and scope are still unconfirmed. The link is not revealed until readback.")

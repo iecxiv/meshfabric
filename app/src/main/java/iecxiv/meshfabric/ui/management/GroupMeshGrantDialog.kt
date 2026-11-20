@@ -70,7 +70,7 @@ internal fun profileGroupMeshGrantDraft(s:ProfileState,gid:String,mid:String,rig
             if(querying) Text(t("Consultando datos del grupo...","Loading group details..."),Modifier.testTag("group-grant-loading"))
             if(s.userGroupPhase=="failed") Text(t("No se pudo consultar el directorio. Cierra y actualiza.","Could not read the directory. Close and refresh."),color=MaterialTheme.colorScheme.error)
             Text(t("Solo asignaciones nuevas. No se sobrescriben enlaces existentes. Se exige autoridad directa completa sobre el grupo de dispositivos.","New assignments only. Existing links are not overwritten. Direct full authority over the device group is required."),style=MaterialTheme.typography.bodySmall)
-            if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) LinearProgressIndicator(Modifier.fillMaxWidth())
+            if(s.loading || s.userGroupPhase=="loading" || (submitted && s.busy)) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(review==null && !submitted) {
                 OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar grupo de dispositivos","Search device groups"))},singleLine=true,modifier=Modifier.fillMaxWidth())
                 for(mesh in candidates.take(100)) {val mid=mesh.optString("_id");TextButton(modifier=Modifier.testTag("group-grant-candidate-"+mid),enabled=subjectIdentity.usable && profileGroupChoiceUsable(mesh,s.groups) && profileReviewIdentity(mesh,s.groups,es).usable,onClick={selected=mid;selectedMesh=JSONObject(mesh.toString());error=false}) {Text((if(selected==mid) "● " else "○ ")+profileReviewIdentity(mesh,s.groups,es).label)}}

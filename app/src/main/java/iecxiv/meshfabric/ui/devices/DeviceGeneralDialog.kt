@@ -87,7 +87,7 @@ import iecxiv.meshfabric.data.model.MeshNode
             DevicePowerSection(node.id)
             DeviceAuthorizationSection(node.id,meta?.mesh.orEmpty())
             if(state.phase in setOf("loading","saving")) {
-                LinearProgressIndicator(Modifier.fillMaxWidth())
+                iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 Text(if(state.phase=="saving") text("Verificando guardado…","Verifying save…") else text("Cargando datos y permisos…","Loading device data and permissions…"))
             }
             if(state.phase=="confirmed") Text(text("Guardado confirmado por relectura.","Save confirmed by re-reading."),modifier=Modifier.testTag("general_saved"))

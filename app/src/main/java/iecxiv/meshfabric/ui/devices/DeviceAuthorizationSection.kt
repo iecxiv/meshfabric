@@ -57,7 +57,7 @@ import kotlinx.coroutines.awaitCancellation
         val scoped=generalAuthorizationScope(state,actor,nodeId,meshId,bound)
         val candidates=scoped?.let {generalAuthorizationCandidates(it,es)}.orEmpty()
         Text(t("Solo enlaces recibidos del dispositivo y su grupo. Los grupos de usuarios no se expanden a sus miembros y no se calcula aquí el acceso efectivo completo.","Received device and device-group links only. User groups are not expanded into members; complete effective access is not calculated here."),style=MaterialTheme.typography.bodySmall)
-        if(state.loading || state.detailsBusy || !state.ready && connected) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(state.loading || state.detailsBusy || !state.ready && connected) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         if(scoped==null) Text(t("Autorizaciones no disponibles o pendientes de una lectura válida. No se interpretan como una lista vacía.","Authorizations unavailable or awaiting a valid read. This is not interpreted as an empty list."))
         else GeneralAuthorizationRows(generalAuthorizationRows(scoped),es)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {

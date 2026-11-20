@@ -104,7 +104,7 @@ private fun BatchNotificationDialog(source: MeshCentralClient, request: BatchNot
                     Text(text.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     Text(text.message)
                 }
-                if (checking || running) LinearProgressIndicator(Modifier.fillMaxWidth())
+                if (checking || running) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if (text != null) items.forEach { target ->
                     Text(target.node.name.ifBlank { target.node.id }, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                     DeviceBatchSecondary(target.group.name)

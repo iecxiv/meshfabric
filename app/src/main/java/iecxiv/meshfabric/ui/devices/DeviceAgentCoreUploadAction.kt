@@ -68,7 +68,7 @@ import kotlinx.coroutines.*
         Text(t("Reemplaza el núcleo del agente por código JavaScript de tu archivo. Usa solo código de confianza: puede interrumpir el acceso remoto. No es una transferencia de archivos ordinaria.","Replaces the agent core with JavaScript from your file. Use only trusted code: it may interrupt remote access. This is not an ordinary file transfer."))
         Text(t("Solo dominio principal, HTTPS y derechos completos sobre el dispositivo. Archivo .js UTF-8, sin NUL, no vacío y de hasta 1 MiB. Se conservan los bytes revisados en memoria; no se vuelve a leer el archivo al enviar.","Main domain, HTTPS and full device rights only. Non-empty UTF-8 .js file, without NUL, up to 1 MiB. Reviewed bytes stay in memory; the file is not reread when sending."),style=MaterialTheme.typography.bodySmall)
         TextButton(enabled=state.phase=="ready" && !reading,onClick={file=null;error=false;picker.launch(arrayOf("*/*"))},modifier=Modifier.testTag("agent_core_choose_file")) {Text(t("Seleccionar archivo local","Choose local file"))}
-        if(reading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if(reading) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
         if(error) Text(t("No se pudo leer el archivo o no cumple el formato/límite. No se ha enviado.","The file could not be read or does not meet the format/size limit. Nothing was sent."),color=MaterialTheme.colorScheme.error)
         file?.let {Text(t("Archivo: ","File: ")+it.name);Text(t("Bytes: ","Bytes: ")+it.size);Text("SHA-256: "+it.sha256,style=MaterialTheme.typography.labelSmall,modifier=Modifier.testTag("agent_core_sha256"))}
         Text(when(state.phase) {

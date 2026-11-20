@@ -187,7 +187,7 @@ private suspend fun restoreControl(source:MeshCentralClient,target:RestoreIdenti
         else->""
     }
     if(status.isNotEmpty()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(note in setOf("unknown","invalid","rejected","prepare-failed")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-    if(busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+    if(busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
     candidate?.let { frozen->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ if(!busy) clearFiles() },title={ Text(label("Preparar restauración","Prepare restore")) },
         text={ Column(Modifier.heightIn(max=400.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(frozen.identity.url); Text(frozen.name); Text("${frozen.file.length()} bytes")

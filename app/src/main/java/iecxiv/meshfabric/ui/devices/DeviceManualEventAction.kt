@@ -57,7 +57,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                         OutlinedTextField(text,{text=it},label={Text(t("Texto del evento","Event text"))},minLines=2,maxLines=6,enabled=state.canSubmit,modifier=Modifier.fillMaxWidth().testTag("general_event_text"))
                         Text(t("Hasta 1024 caracteres; el texto codificado para el envío también tiene límite. Si no permite revisar, reduce la longitud o elimina caracteres de control.","Up to 1024 characters; encoded wire text is also limited. If review is disabled, shorten the text or remove control characters."),style=MaterialTheme.typography.bodySmall)
                     } else Text(review.orEmpty(),modifier=Modifier.testTag("general_event_review"))
-                    if(state.phase in setOf("loading","checking")) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if(state.phase in setOf("loading","checking")) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                     if(status.isNotEmpty()) Text(status,style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("general_event_status"))
                     Text(t("El servidor puede no devolver acuse. Un envío no confirma el registro. Solo un intento por apertura; cerrar no revierte un envío. No introduzcas contraseñas ni tokens.","The server may not acknowledge. Sending does not confirm recording. One attempt per opening; closing does not undo a send. Do not enter passwords or tokens."),style=MaterialTheme.typography.bodySmall)
                     if(submitted) TextButton(onClick={history=true}) {Text(t("Comprobar en Eventos","Check in Events"))}

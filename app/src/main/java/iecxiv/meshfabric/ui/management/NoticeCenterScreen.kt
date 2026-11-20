@@ -76,7 +76,7 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
                 ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth(),embedded=true) {}
                 Box(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {NoticeSubmissionStatus(state.notice,es)}
             }
-            NoticeSection.MESSAGES->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {
+            NoticeSection.MESSAGES->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth(),padded=!(deviceComposeOpen || (recipient!=null && !devices))) {
                 val selectedRecipient=recipient
                 if(deviceComposeOpen) deviceComposer()
                 else if(selectedRecipient!=null && !devices) key(selectedRecipient) {
@@ -103,10 +103,10 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
     }
 }
 
-@Composable private fun NoticeManagementBody(state:ProfileState,onReconnect:()->Unit,modifier:Modifier,content:@Composable ColumnScope.()->Unit) {
+@Composable private fun NoticeManagementBody(state:ProfileState,onReconnect:()->Unit,modifier:Modifier,padded:Boolean=true,content:@Composable ColumnScope.()->Unit) {
     Column(modifier) {
         ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),onReconnect)
-        Column(Modifier.weight(1f).fillMaxWidth().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
+        Column(Modifier.weight(1f).fillMaxWidth().padding(if(padded) managementConnectionContentPadding else PaddingValues(0.dp)),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)
     }
 }
 
