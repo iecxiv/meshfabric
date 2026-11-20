@@ -32,7 +32,7 @@ import org.json.JSONObject
     val packet=profileUserGroupEditPacket(actor,original,name,desc,approved)
     val canReview=context && profileUserGroupEditAllowed(s,JSONObject(packet.toString()).put("_groupConfirmed",true))
     val canSend=context && profileUserGroupEditAllowed(s,packet)
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar grupo de usuarios","Edit user group"))},text={
+    ProfileUserDetailSurface(inline=LocalUserGroupActionsInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar grupo de usuarios","Edit user group"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(identity.label,style=MaterialTheme.typography.titleSmall)
             if(!identityReady || identityInvalidated) Text(t("No se puede confirmar: falta un nombre o los datos visibles no distinguen inequívocamente el destino. Cierra y actualiza la ficha.","Cannot confirm: a name is missing or visible information does not uniquely identify the target. Close and refresh the details."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)

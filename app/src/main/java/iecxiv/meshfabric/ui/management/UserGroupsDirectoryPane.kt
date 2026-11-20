@@ -30,8 +30,9 @@ LaunchedEffect(connectionReady,s.id) {if(!userGroupActionCanStayOpen(connectionR
     LaunchedEffect(s.ready,s.id,s.site,s.userGroupPhase) { if(s.ready && s.userGroupPhase=="idle") session.loadUserGroupDirectory() }
     val rows=s.listedUserGroups.orEmpty().filter { deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
 val feedback=userGroupsNoticeText(s.notice,es)
+    CompositionLocalProvider(LocalUserGroupActionsInline provides true) {
     Box(modifier) {
-    LazyColumn(Modifier.fillMaxSize().blockCoveredNavigation(creating && editing==null),contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
+    LazyColumn(Modifier.fillMaxSize().blockCoveredNavigation(userGroupSubviewActive(creating,editing!=null,deleting!=null,removing!=null,adding!=null,grantingMesh!=null,reviewingMesh!=null,editingMesh!=null)),contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
         item {
             Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             if(feedback.isNotBlank()) Text(feedback,style=MaterialTheme.typography.bodySmall,color=if(userGroupsNoticeIsError(s.notice)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -94,7 +95,6 @@ if(profileGroupMeshId(s.id,id)) TextButton(enabled=presentation.usable && s.canW
         }
     }
 if(creating && editing==null) Column(Modifier.fillMaxSize()) {UserGroupCreateDialog(session,s) {creating=false}}
-}
 grantingMesh?.let {GroupMeshGrantDialog(session,s,it) {grantingMesh=null}}
 editing?.let {UserGroupEditDialog(session,s,it) {editing=null}}
 
@@ -103,4 +103,6 @@ removing?.let {(group,id)->UserGroupMemberRemoveDialog(session,s,group,id) {remo
 adding?.let {UserGroupMemberAddDialog(session,s,it) {adding=null}}
 reviewingMesh?.let {(gid,mid)->GroupMeshAssignmentReview(session,s,gid,mid) {reviewingMesh=null}}
 editingMesh?.let {(gid,mid)->key(gid,mid) {GroupMeshEditDialog(session,s,gid,mid) {editingMesh=null}}}
+}
+}
 }

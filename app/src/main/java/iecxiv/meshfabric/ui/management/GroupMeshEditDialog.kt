@@ -62,7 +62,7 @@ private fun groupEditMask(value:Long)=java.lang.String.format(java.util.Locale.R
     LaunchedEffect(review,current) {if(review!=null && !current && !submitted) {approved=false;invalidated=true}}
     val packet=review?.let {JSONObject(it.toString()).put("_groupEditConfirmed",approved)}
     val observed=submitted && s.notice=="groupMeshEditedObserved" && s.editedGroup==gid && s.editedDeviceGroup==mid
-    ManagementDialog(onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar derechos de asignación","Edit assignment rights"))},text={
+    ProfileUserDetailSurface(inline=LocalUserGroupActionsInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false,dismissOnClickOutside=false),title={Text(t("Editar derechos de asignación","Edit assignment rights"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(server,style=MaterialTheme.typography.bodySmall)
             Text(t("Actor: ","Actor: ")+displayNames.label(actor,es),style=MaterialTheme.typography.bodySmall)
