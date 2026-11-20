@@ -60,11 +60,11 @@ internal fun serverEventImage(type:ServerEventType):ImageVector=when(type) {
             BoxWithConstraints(Modifier.weight(1f)) {
                 val countWidth=maxWidth
                 val label=selection.limit?.let {stringResource(R.string.log_event_latest,it)} ?: stringResource(R.string.log_event_unlimited)
-                EventFilterButton(label,"log-event-count",enabled) {limitsOpen=true}
+                EventFilterButton(label,"log-event-count",enabled,if(selection.limit==null) Icons.Default.AllInclusive else Icons.Default.History) {limitsOpen=true}
                 DropdownMenu(expanded=limitsOpen,onDismissRequest={limitsOpen=false},modifier=Modifier.width(countWidth).heightIn(max=280.dp).testTag("log-event-count-menu"),shape=MaterialTheme.shapes.medium,containerColor=scheme.surfaceVariant,tonalElevation=2.dp,border=BorderStroke(1.dp,scheme.outlineVariant)) {
                     serverEventLimitChoices.forEach {value->
                         val label=if(value==0) stringResource(R.string.log_event_unlimited) else stringResource(R.string.log_event_latest,value)
-                        EventFilterOption(label,"log-event-limit-$value","log-event-limit-text-$value") {limitsOpen=false;onSelection(selection.copy(limit=value.takeUnless {it==0}))}
+                        EventFilterOption(label,"log-event-limit-$value","log-event-limit-text-$value",if(value==0) Icons.Default.AllInclusive else Icons.Default.History) {limitsOpen=false;onSelection(selection.copy(limit=value.takeUnless {it==0}))}
                     }
                 }
             }
@@ -81,7 +81,7 @@ internal fun serverEventImage(type:ServerEventType):ImageVector=when(type) {
 @Composable private fun EventFilterOption(label:String,tag:String,textTag:String,icon:ImageVector?=null,onClick:()->Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag(tag).clickable(role=Role.Button,onClick=onClick).padding(horizontal=16.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
         if(icon!=null) {
-            Icon(icon,null,Modifier.size(20.dp).testTag(tag.replace("log-event-type-","log-event-type-icon-")))
+            Icon(icon,null,Modifier.size(20.dp).testTag(if(tag.startsWith("log-event-type-")) tag.replace("log-event-type-","log-event-type-icon-") else tag+"-icon"))
             Spacer(Modifier.width(12.dp))
         }
         Text(label,Modifier.weight(1f).testTag(textTag),textAlign=if(icon==null) TextAlign.Center else TextAlign.Start,style=MaterialTheme.typography.bodyMedium,fontWeight=FontWeight.Medium,softWrap=true,overflow=TextOverflow.Clip)

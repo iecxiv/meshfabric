@@ -27,3 +27,5 @@ internal val LocalBottomLoadingState=staticCompositionLocalOf<BottomLoadingState
         if(owner?.loading==true) LinearProgressIndicator(Modifier.fillMaxSize().testTag("bottom_loading_indicator"))
     }
 }
+
+@Composable internal fun ReportViewLoading(active:Boolean) {if(active) RoutedViewLoadingIndicator()}

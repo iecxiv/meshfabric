@@ -52,6 +52,7 @@ import java.util.Date
         else LogEventsBinding(source.serverUrl,user.id,source.authCookie,source.ignoreSsl,user.siteadmin,source.extractRawToken(source.authCookie))
     })}
     val state by reader.state.collectAsState()
+    val channelReady by reader.channelReady.collectAsState()
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var query by rememberSaveable {mutableStateOf("")}
     var showSearch by rememberSaveable {mutableStateOf(false)}
@@ -59,7 +60,10 @@ import java.util.Date
     DisposableEffect(reader) {onDispose {reader.close()}}
     Scaffold(topBar={ServerEventsSearchHeader(query,{query=it},showSearch,{showSearch=it},header={actions->MeshFabricAppBar(viewModel,onOpenSettings,actions={actions()})},tabs=header,refreshEnabled=eventsHeaderRefreshEnabled(connected,!actor?.id.isNullOrBlank(),state.selection==selection,state.phase),onRefresh={reader.load(selection)})}) {padding->
         val visible=if(state.selection==selection) state else ServerEventsSnapshot(ServerEventsPhase.LOADING,selection=selection)
-        ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            ManagementConnectionStatus(ready=channelReady,connecting=visible.phase==ServerEventsPhase.LOADING && !channelReady,reconnectEnabled=connected && !actor?.id.isNullOrBlank(),modifier=Modifier.padding(horizontal=16.dp),onReconnect={reader.load(selection)})
+            ServerEventsPanel(visible,query,{query=it},connected && !actor?.id.isNullOrBlank(),{reader.load(selection)},Modifier.weight(1f).fillMaxWidth(),selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory)
+        }
     }
 }
 @Composable internal fun ServerEventsPanel(state:ServerEventsSnapshot,query:String,onQuery:(String)->Unit,enabled:Boolean,onRefresh:()->Unit,modifier:Modifier=Modifier,selection:ServerEventsQuery=legacyServerEventsQuery,onSelection:((ServerEventsQuery)->Unit)?=null,inventory:ServerEventInventory=ServerEventInventory(),scopeLabel:String?=null,showDeviceLabel:Boolean=true) {

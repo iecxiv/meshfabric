@@ -204,6 +204,7 @@ persistInbox()
 
 @Composable internal fun NoticeInboxScreen(inbox:NoticeInbox,connected:Boolean,modifier:Modifier=Modifier) {
 val s by inbox.state.collectAsState()
+iecxiv.meshfabric.ui.components.ReportViewLoading(s.storageLoading || s.storageSaving)
 val context=LocalContext.current
 var permissionDenied by remember { mutableStateOf(false) }
 val permissionLauncher=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed->permissionDenied=!allowed }
@@ -214,7 +215,7 @@ var unreadOnly by rememberSaveable { mutableStateOf(false) }
 var confirmClear by remember { mutableStateOf(false) }
 val visible=entries.filter { !unreadOnly || !it.read }
 Column(modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-Text(t("Avisos","Notices"),style=MaterialTheme.typography.titleMedium)
+Text(t("Avisos recibidos en la app","Notices received in the app"),style=MaterialTheme.typography.titleMedium)
 Text(t("Si llega un aviso con la app en segundo plano, se mostrará una notificación Android si el sistema lo permite. No se garantiza recepción con el proceso detenido. El permiso Android no activa la recepción de la cuenta.","If a notice arrives while the app is backgrounded, an Android notification is shown if allowed by the system. Delivery is not guaranteed when the process is stopped. Android permission does not enable account reception."),style=MaterialTheme.typography.bodySmall)
 TextButton(onClick={
 if(Build.VERSION.SDK_INT>=33 && androidx.core.content.ContextCompat.checkSelfPermission(context,Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED && !permissionDenied) permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -223,7 +224,7 @@ else runCatching { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION
 if(permissionDenied) Text(t("Permiso denegado. Avisos sigue funcionando; puedes cambiar el permiso en Ajustes.","Permission denied. The inbox still works; permission can be changed in Settings."),style=MaterialTheme.typography.bodySmall)
 NoticeInboxStorageStatus(s,es,inbox::retryStorage)
 Text("${entries.count { !it.read }} "+t("sin leer","unread"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-if(!connected) Text(t("Canal de avisos desconectado. Se conserva lo ya recibido en esta sesión.","Notice channel disconnected. Already received session entries are retained."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)
+Text(noticeChannelLabel(es,connected),style=MaterialTheme.typography.bodySmall,color=if(connected) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
 if(!s.enabled) Text(t("La recepción está desactivada. Actívala en Perfil → Mi Usuario → Habilitar notificaciones en la app. Los avisos existentes no se borran al desactivarla.","Reception is disabled. Enable it in Profile → My user → Enable in-app notifications. Disabling it does not erase existing notices."),style=MaterialTheme.typography.bodySmall)
 Text(t("Bandeja local cifrada por cuenta y servidor. Conserva todos los no leídos y hasta 200 leídos; solo los leídos antiguos se limpian automáticamente. No es historial del servidor ni garantiza recepción con el proceso detenido.","Encrypted local inbox per account and server. Keeps all unread and up to 200 read notices; only old read notices are removed automatically. Not server history; reception with the process stopped is not guaranteed."),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {

@@ -78,6 +78,7 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
             else deviceInventory(source, node.id).collect { value = it }
         }
     }
+    if(inline) iecxiv.meshfabric.ui.components.ReportViewLoading(inventory.pending.isNotEmpty())
     val identityTitle = if (es) "Identificación" else "Identification"
     val identity = listOf(
         InventoryValue(stringResource(R.string.device_details_name), node.name),

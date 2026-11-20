@@ -86,7 +86,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
     } }) { padding->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).padding(horizontal=12.dp,vertical=8.dp),
             verticalArrangement=Arrangement.spacedBy(4.dp)) {
-            if(!actionsReady) Text(actionsStatus,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            iecxiv.meshfabric.ui.components.ReportViewLoading(!actionsReady && iecxiv.meshfabric.ui.management.actionChannelConnecting(actionsStatus))
+            iecxiv.meshfabric.ui.management.ManagementConnectionStatus(ready=actionsReady,connecting=iecxiv.meshfabric.ui.management.actionChannelConnecting(actionsStatus),reconnectEnabled=connected,onReconnect=onReconnect)
             ActivityTimeline(journal,feedback,Modifier.weight(1f),query=search)
         }
     }

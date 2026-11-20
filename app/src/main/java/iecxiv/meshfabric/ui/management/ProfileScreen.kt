@@ -41,6 +41,7 @@ val lifecycle=LocalLifecycleOwner.current.lifecycle
 val session=remember(source) { ProfileSession(source) }
 val liveState by session.state.collectAsState()
 val state=rememberProfileDialogPresentation(liveState,agentIdentity,agentActor?.id.orEmpty())
+iecxiv.meshfabric.ui.components.ReportViewLoading(liveState.loading || liveState.busy || liveState.detailsBusy || liveState.historyBusy || liveState.userGroupPhase=="loading")
 val displayNames=rememberProfileDisplayNames(state,session.broadcastServerLabel())
 val connected by source.connectionState.collectAsState()
 val profileDeviceGroups by source.groupedDevices.collectAsState()

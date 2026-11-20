@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -23,10 +24,15 @@ internal fun previousLoginPalette(code:Any?,dark:Boolean,neutral:Color,foregroun
 @Composable internal fun PreviousLoginEntry(item:JSONObject,date:String,details:String,es:Boolean,modifier:Modifier=Modifier) {
     val scheme=MaterialTheme.colorScheme
     val colors=previousLoginPalette(item.opt("m"),scheme.surface.luminance()<0.5f,scheme.surfaceVariant,scheme.onSurfaceVariant)
-    Column(modifier.fillMaxWidth().background(colors.first),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        Text(date,style=MaterialTheme.typography.titleSmall,color=colors.second)
-        Text(loginHistoryLabel(item.opt("m"),es)+" · "+details,style=MaterialTheme.typography.bodySmall,color=colors.second)
-        HorizontalDivider(color=scheme.outlineVariant)
+    Surface(modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color=colors.first,contentColor=colors.second,border=androidx.compose.foundation.BorderStroke(1.dp,colors.second.copy(alpha=0.20f))) {
+        Row(Modifier.padding(12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=androidx.compose.ui.Alignment.Top) {
+            Icon(when(accountLoginOutcome(item.opt("m"))) {true->androidx.compose.material.icons.Icons.Default.VerifiedUser;false->androidx.compose.material.icons.Icons.Default.ErrorOutline;null->androidx.compose.material.icons.Icons.Default.Info},null,Modifier.size(20.dp))
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                Text(date,style=MaterialTheme.typography.titleSmall)
+                Text(loginHistoryLabel(item.opt("m"),es),style=MaterialTheme.typography.bodyMedium)
+                if(details.isNotBlank()) Text(details,style=MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 @Composable internal fun OwnPreviousLoginsDialog(name:String,actor:String,events:JSONArray?,busy:Boolean,failed:Boolean,es:Boolean,onRefresh:()->Unit,onDismiss:()->Unit,error:String="") {

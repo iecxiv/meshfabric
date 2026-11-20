@@ -194,6 +194,7 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     val readIdentity=remember(source,source?.serverUrl,source?.authCookie,source?.ignoreSsl,source?.isUserLogout,actor?.id,actor?.siteadmin) {Any()}
     val reader=remember(source,preferences,readIdentity) { source?.let { ServerReader(it,preferences.hours()) } }
     val state=reader?.state?.collectAsState()?.value ?: ServerReadState(failed=true,hours=preferences.hours())
+    iecxiv.meshfabric.ui.components.ReportViewLoading(state.pending.isNotEmpty() || (!state.ready && !state.failed))
     val resultDialog=rememberServerReadDialog(state.result,state.resultKind,readIdentity)
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     var retry by remember { mutableIntStateOf(0) }

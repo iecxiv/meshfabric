@@ -51,6 +51,7 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
     val groupNames=recipientGroups.flatMap { (group,members)->members.map {it.id to group.name} }.toMap()
     val session=remember(source) {ProfileSession(source)}
     val state by session.state.collectAsState()
+    iecxiv.meshfabric.ui.components.ReportViewLoading(state.loading || state.busy || state.detailsBusy || state.historyBusy)
     val lifecycle=LocalLifecycleOwner.current.lifecycle
     val connected by source.connectionState.collectAsState()
     DisposableEffect(session) {onDispose {session.close()}}
