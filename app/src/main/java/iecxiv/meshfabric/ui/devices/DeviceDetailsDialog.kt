@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -55,6 +56,7 @@ internal fun DeviceDetailsButton(node: MeshNode) {
 
 @Composable
 internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
+    val inline=LocalDeviceDetailsInline.current
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val locale = configuration.locales[0]
@@ -107,13 +109,12 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
         feedbackVersion++
     }
     LaunchedEffect(feedbackVersion) { if (feedbackVersion > 0) { delay(2500); feedback = "" } }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        iecxiv.meshfabric.ui.components.AppDialogSurface(shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape, color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
-            tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation, modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)
-                .widthIn(max = 600.dp).fillMaxWidth().heightIn(max = (configuration.screenHeightDp * 0.88f).dp)) {
+    DeviceDetailsFrame(inline=inline,onDismiss=onDismiss) {
+        DeviceDetailsContentSurface(inline=inline,modifier=if(inline) Modifier.fillMaxSize() else Modifier.padding(horizontal=16.dp,vertical=24.dp).widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp)) {
             Column {
                 Column(Modifier.padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if(inline) IconButton(onClick=onDismiss) {Icon(Icons.AutoMirrored.Filled.ArrowBack,if(es) "Volver" else "Back")}
                         Icon(Icons.Default.Computer, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
                             Text(node.name.ifBlank { stringResource(R.string.unknown_device) }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -136,7 +137,7 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                                     onClick = { technical = !technical; menu = false })
                             }
                         }
-                        IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.device_details_close)) }
+                        if(!inline) IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.device_details_close)) }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Surface(shape = RoundedCornerShape(6.dp), color = if (node.isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
@@ -150,7 +151,7 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                LazyColumn(Modifier.weight(1f, fill = false), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                LazyColumn(Modifier.weight(1f, fill = inline), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                     item(key = "inventory_notice") {
                         Text(if (es) "Inventario guardado por MeshCentral; no es una lectura en tiempo real."
                             else "Inventory stored by MeshCentral; not a live reading.", Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
@@ -229,7 +230,7 @@ androidx.compose.ui.unit.Dp(0f)
                         Text(if (es) "Actualizar" else "Reload")
                     }
                     Spacer(Modifier.width(8.dp))
-                    TextButton(onClick = onDismiss) { Text(stringResource(R.string.device_details_close)) }
+                    TextButton(onClick = onDismiss) { Text(if(inline) {if(es) "Volver" else "Back"} else stringResource(R.string.device_details_close)) }
                 }
             }
         }

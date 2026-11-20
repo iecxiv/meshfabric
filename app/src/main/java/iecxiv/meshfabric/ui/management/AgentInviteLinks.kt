@@ -127,7 +127,7 @@ internal fun receivedInviteGroup(s:ProfileState,id:String,device:Boolean,invitat
             channel=created;busy=true
             if(!created.start(payload)) {version++;channel=null;created.close();busy=false;notice=t("La solicitud no se ha enviado.","The request was not sent.")+" ["+created.diagnosticCode+"]"}
         }
-        ManagementDialog(onDismissRequest={invalidate();onDismiss()},modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(enrollment) t("Agregar agente","Add agent") else t("Invitar","Invite"))},text={
+        UserActionSurface(onDismissRequest={invalidate();onDismiss()},modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(if(enrollment) t("Agregar agente","Add agent") else t("Invitar","Invite"))},text={
             Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState())) {
                 if(s.loading || s.detailsBusy || !s.ready) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 if(enrollment) AgentEnrollmentContent(source,group,s.server,enabled) else AgentInviteLinkForm(group?.optString("name").orEmpty(),options,enabled,busy,es,onChange={invalidate();options=it;notice=""},onGenerate={generate()})

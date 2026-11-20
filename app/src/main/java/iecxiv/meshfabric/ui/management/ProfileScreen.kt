@@ -34,7 +34,7 @@ internal data class ProfileForm(val users:Boolean,val operation:String,val id:St
 @Composable internal fun ProfileScreen(source:MeshCentralClient,modifier:Modifier=Modifier,header:@Composable (@Composable ()->Unit)->Unit={}) {
 val agentActor by source.userInfo.collectAsState()
 val agentIdentity=remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,agentActor?.id) {Any()}
-AgentGroupDialogsHost(agentIdentity,render={target,close->AgentInviteLinkDialog(source,target.mesh,false,enrollment=target.enrollment,onDismiss=close)}) {
+AgentGroupSubviewHost(agentIdentity) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(s:String,e:String)=if(es) s else e
 val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -46,6 +46,8 @@ val connected by source.connectionState.collectAsState()
 val profileDeviceGroups by source.groupedDevices.collectAsState()
 var section by rememberSaveable { mutableStateOf("account") }
 val tab=profileSectionKeys.indexOf(section).coerceAtLeast(0)
+val agentTarget=LocalAgentGroupSubviewTarget.current
+val closeAgentSubview=LocalAgentGroupSubviewClose.current
 var form by remember { mutableStateOf<ProfileForm?>(null) }
 var groupDetails by remember { mutableStateOf<String?>(null) }
 var userGroupDetails by remember {mutableStateOf<String?>(null)}
@@ -59,7 +61,7 @@ val directorySearchFocus=remember {androidx.compose.ui.focus.FocusRequester()}
 val directoryFocus=androidx.compose.ui.platform.LocalFocusManager.current
 val directoryKeyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
 val closeDirectorySearch:()->Unit={directorySearchOpen=false;groupSearch="";directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}
-LaunchedEffect(section,agentIdentity) {closeDirectorySearch()}
+LaunchedEffect(section,agentIdentity) {closeDirectorySearch();closeAgentSubview()}
 androidx.activity.compose.BackHandler(enabled=directorySearchOpen) {closeDirectorySearch()}
 
 var broadcast by remember { mutableStateOf(false) }
@@ -82,6 +84,7 @@ if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation
 LaunchedEffect(agentIdentity) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null }
 val inlineUser=profileFormUsesSubview(tab,form)
 val inlineLinked=profileLinkedGroupSubview(tab,userGroupDetails,deviceAssignment)
+val inlineAux=profileAuxiliarySubview(tab,agentTarget!=null,deviceDetails!=null)
 val inlineGroup=tab!=0 && groupDetails!=null && form==null && userGroupDetails==null
 val groupDetailsHolder=key(agentIdentity) {androidx.compose.runtime.saveable.rememberSaveableStateHolder()}
 @Composable fun RenderProfileForm() {
@@ -122,7 +125,11 @@ groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->groupDe
 userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}
 deviceAssignment?.let {(gid,mid)->GroupMeshAssignmentReview(session,state,gid,mid) {deviceAssignment=null}}
 }
-LaunchedEffect(inlineUser,inlineGroup,inlineLinked) {if(inlineUser || inlineGroup || inlineLinked) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}
+@Composable fun RenderAuxiliarySubviews() {
+deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}
+agentTarget?.let {target->AgentInviteLinkDialog(source,target.mesh,false,enrollment=target.enrollment,onDismiss=closeAgentSubview)}
+}
+LaunchedEffect(inlineUser,inlineGroup,inlineLinked,inlineAux) {if(inlineUser || inlineGroup || inlineLinked || inlineAux) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}
 Column(modifier) {
 ProfileStableSectionHeader(header={ProfileRefreshHeader(tab,state,header={refresh->header {
 Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
@@ -142,7 +149,7 @@ modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRe
 }
 if(tab!=0) ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
 Box(Modifier.weight(1f).fillMaxWidth()) {
-Column(Modifier.fillMaxSize().then(if(inlineUser || inlineGroup || inlineLinked) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+Column(Modifier.fillMaxSize().then(if(inlineUser || inlineGroup || inlineLinked || inlineAux) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
     awaitPointerEventScope {while(true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach {it.consume()}}
 } else Modifier)) {
 if(tab==0) CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalWideAccountDialogs provides true) {NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null})} else if(broadcast && section=="users") ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth()) {broadcast=false} else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),query=groupSearch,connectionReady=liveState.ready && liveState.id==state.id,onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
@@ -198,11 +205,12 @@ if(!users || !profileOwnAccount(state.id,id)) TextButton(enabled=state.canWrite 
 }
 }
 }
-if(inlineUser) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineLinked)) {
+if(inlineUser) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineLinked || inlineAux)) {
     CompositionLocalProvider(LocalProfileUserInline provides true) {RenderProfileForm()}
 }
-if(inlineGroup) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineLinked)) {CompositionLocalProvider(LocalDeviceGroupInline provides true) {RenderDeviceGroup()}}
-if(inlineLinked) Column(Modifier.fillMaxSize()) {CompositionLocalProvider(LocalProfileUserInline provides true,LocalUserGroupActionsInline provides true) {RenderLinkedGroups()}}
+if(inlineGroup) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineLinked || inlineAux)) {CompositionLocalProvider(LocalDeviceGroupInline provides true) {RenderDeviceGroup()}}
+if(inlineLinked) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineAux)) {CompositionLocalProvider(LocalProfileUserInline provides true,LocalUserGroupActionsInline provides true) {RenderLinkedGroups()}}
+if(inlineAux) Column(Modifier.fillMaxSize()) {CompositionLocalProvider(LocalProfileUserInline provides true) {RenderAuxiliarySubviews()}}
 }
 
 }
@@ -211,6 +219,6 @@ if(!inlineUser) RenderProfileForm()
 if(!inlineLinked) RenderLinkedGroups()
 
 
-deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}
+if(!inlineAux) deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}
 }
 }

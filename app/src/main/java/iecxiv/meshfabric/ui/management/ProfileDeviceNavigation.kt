@@ -22,9 +22,9 @@ internal fun profileReceivedDevice(s:ProfileState,visible:List<MeshNode>,id:Stri
 }
 @Composable internal fun ProfileDeviceDetailsOverlay(source:MeshCentralClient,session:ProfileSession,s:ProfileState,visible:List<MeshNode>,id:String,onDismiss:()->Unit) {
     val node=profileReceivedDevice(s,visible,id,session.broadcastServerLabel().isNotBlank())
-    if(node!=null) CompositionLocalProvider(LocalDeviceDetailsClient provides source) {DeviceDetailsDialog(node,onDismiss)} else {
+    if(node!=null) CompositionLocalProvider(LocalDeviceDetailsClient provides source,iecxiv.meshfabric.ui.devices.LocalDeviceDetailsInline provides LocalProfileUserInline.current) {DeviceDetailsDialog(node,onDismiss)} else {
         val es=LocalConfiguration.current.locales[0].language=="es"
-        ManagementDialog(onDismissRequest=onDismiss,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={Text(if(es) "Dispositivo no disponible" else "Device unavailable")},text={Text(if(es) "No se puede abrir esta ficha con los datos y conexión actuales. No se reconstruye un dispositivo a partir de datos parciales y su ausencia no acredita que se haya eliminado." else "This entry cannot be opened with current data and connection. A device is not reconstructed from partial data and absence does not prove deletion.")},confirmButton={TextButton(onClick=onDismiss) {Text(if(es) "Volver" else "Back")}},dismissButton={})
+        UserActionSurface(onDismissRequest=onDismiss,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={Text(if(es) "Dispositivo no disponible" else "Device unavailable")},text={Text(if(es) "No se puede abrir esta ficha con los datos y conexión actuales. No se reconstruye un dispositivo a partir de datos parciales y su ausencia no acredita que se haya eliminado." else "This entry cannot be opened with current data and connection. A device is not reconstructed from partial data and absence does not prove deletion.")},confirmButton={TextButton(onClick=onDismiss) {Text(if(es) "Volver" else "Back")}},dismissButton={})
     }
 }
 
