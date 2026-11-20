@@ -1,0 +1,79 @@
+name: Add bilingual screenshot galleries
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/readme-screenshots.yml']
+permissions:
+  contents: write
+concurrency:
+  group: readme-screenshots-dev
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Insert validate and publish galleries
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          items = [
+              ('devices-actions', 'Device actions', 'Acciones de dispositivo'),
+              ('devices-filters', 'Device filters', 'Filtros de dispositivos'),
+              ('devices-sorting', 'Device sorting', 'Ordenación de dispositivos'),
+              ('remote-desktop', 'Remote desktop', 'Escritorio remoto'),
+              ('keyboard-shortcuts', 'Keyboard and shortcuts', 'Teclado y atajos'),
+              ('terminal', 'Terminal', 'Terminal'),
+              ('file-manager', 'File manager', 'Gestor de archivos'),
+              ('device-groups', 'Device groups', 'Grupos de dispositivos'),
+              ('server-statistics', 'Server statistics', 'Estadísticas del servidor'),
+              ('events', 'Events', 'Eventos'),
+              ('notices', 'Notices', 'Avisos'),
+              ('application-settings', 'Application settings', 'Ajustes de la aplicación'),
+          ]
+          for slug, _, _ in items:
+              image = Path(f'docs/screenshots/{slug}.jpg')
+              assert image.is_file() and image.stat().st_size > 0, image
+              assert image.read_bytes().startswith(b'\xff\xd8'), image
+          for filename, title, language in [('README.md', 'Screenshots', 1), ('README_ES.md', 'Capturas de pantalla', 2)]:
+              path = Path(filename)
+              original = path.read_bytes()
+              text = original.decode('utf-8')
+              assert 'docs/screenshots/' not in text, 'Gallery already present; manual review required'
+              anchor = re.search(r'^## .+$', text, re.M)
+              assert anchor, filename
+              lines = [f'## {title}', '', '<!-- screenshot-gallery:start -->', '<table>']
+              for index in range(0, len(items), 4):
+                  lines.append('  <tr>')
+                  for item in items[index:index+4]:
+                      slug, label = item[0], item[language]
+                      lines.append(f'    <td align="center"><img src="docs/screenshots/{slug}.jpg" width="180" alt="{label}"><br>{label}</td>')
+                  lines.append('  </tr>')
+              lines.extend(['</table>', '<!-- screenshot-gallery:end -->', '', ''])
+              gallery = '\n'.join(lines).encode('utf-8')
+              offset = len(text[:anchor.start()].encode('utf-8'))
+              updated = original[:offset] + gallery + original[offset:]
+              assert updated[:offset] + updated[offset+len(gallery):] == original
+              assert gallery.count(b'<img ') == 12 and gallery.count(b'<tr>') == 3
+              path.write_bytes(updated)
+          assert set(git('diff', '--name-only').splitlines()) == {'README.md', 'README_ES.md'}
+          subprocess.run(['git', 'diff', '--check'], check=True)
+          subprocess.run(['git', 'fetch', 'origin', 'dev'], check=True)
+          assert git('rev-parse', 'HEAD') == git('rev-parse', 'FETCH_HEAD'), 'dev advanced; no force push'
+          workflow = '.github/workflows/readme-screenshots.yml'
+          Path(workflow).unlink()
+          paths = ['README.md', 'README_ES.md', workflow]
+          subprocess.run(['git', 'add', '--', *paths], check=True)
+          assert set(git('diff', '--cached', '--name-only').splitlines()) == set(paths)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          subprocess.run(['git', '-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com', 'commit', '-m', 'docs: add bilingual screenshot galleries in 3 rows of 4'], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:dev'], check=True)
