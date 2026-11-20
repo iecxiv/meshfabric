@@ -164,8 +164,8 @@ internal fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalize
                     border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
                     contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp)) {
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp)) }
-                        Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2)
+                        Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp),tint=androidx.compose.ui.graphics.Color(0xFF2196F3)) }
+                        Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2,color=androidx.compose.ui.graphics.Color(0xFF2196F3))
                         Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp))
                     }
                 }
@@ -202,7 +202,7 @@ internal fun appearanceSearch(value:String)=Normalizer.normalize(value,Normalize
             }
             if(selected==4) {
                 val city=solarCities.firstOrNull { it.id==options.cityId }
-                AppearanceCitySelector(city=city,maximumWidth=controlWidth,onSelect={chosen -> prefs.edit().putString("city",chosen.id).apply()})
+                AppearanceCitySelector(city=city,maximumWidth=minOf(controlWidth,260.dp),onSelect={chosen -> prefs.edit().putString("city",chosen.id).apply()})
                 Text(stringResource(R.string.appearance_solar_note),style=MaterialTheme.typography.bodySmall)
                 if(city==null) Text(stringResource(R.string.appearance_missing_city),style=MaterialTheme.typography.bodySmall)
                 else {

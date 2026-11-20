@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -104,6 +106,7 @@ internal fun DisconnectAllConfirmationSetting() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Icon(Icons.Default.LinkOff,contentDescription=null,modifier=Modifier.size(24.dp),tint=MaterialTheme.colorScheme.primary)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.settings_confirm_disconnect_all_title), fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Text(stringResource(R.string.settings_confirm_disconnect_all_desc), style = MaterialTheme.typography.bodySmall,

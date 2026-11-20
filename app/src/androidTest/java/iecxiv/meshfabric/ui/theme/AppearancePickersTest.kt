@@ -14,8 +14,9 @@ class AppearancePickersTest {
     @get:Rule val compose=createComposeRule()
     @Test fun cityAnchorKeepsStableWidth() {
         var city by mutableStateOf(solarCities.first {it.id=="lima"})
-        compose.setContent {MaterialTheme {Box(Modifier.fillMaxSize().testTag("picker_host")) {AppearanceCitySelector(city,280.dp,{city=it})}}}
+        compose.setContent {MaterialTheme {Box(Modifier.fillMaxSize().testTag("picker_host")) {AppearanceCitySelector(city,260.dp,{city=it})}}}
         compose.waitForIdle()
+        compose.onNodeWithTag("appearance_city_selector").assertWidthIsEqualTo(260.dp)
         val small=compose.onNodeWithTag("appearance_city_selector").fetchSemanticsNode().boundsInRoot.width
         compose.runOnIdle {city=solarCities.first {it.id=="canarias"}};compose.waitForIdle()
         val large=compose.onNodeWithTag("appearance_city_selector").fetchSemanticsNode().boundsInRoot.width
@@ -27,12 +28,23 @@ class AppearancePickersTest {
     }
     @Test fun citySearchStillSelectsTheCorrectId() {
         var selected:SolarCity?=null
-        compose.setContent {MaterialTheme {AppearanceCitySelector(null,280.dp,{selected=it})}}
+        compose.setContent {MaterialTheme {AppearanceCitySelector(null,260.dp,{selected=it})}}
         compose.onNodeWithTag("appearance_city_selector").performClick()
         compose.onNodeWithTag("appearance_city_search").performTextInput("Lima")
         compose.onNodeWithTag("appearance_city_option_lima").performClick()
         compose.runOnIdle {assertEquals("lima",selected?.id)}
     }
+    @Test fun cityArrowDisappearsAfterSelection() {
+            var city by mutableStateOf<SolarCity?>(null)
+            compose.setContent {MaterialTheme {AppearanceCitySelector(city,260.dp,{city=it})}}
+            compose.onNodeWithTag("appearance_city_dropdown_arrow",useUnmergedTree=true).assertExists()
+            compose.onNodeWithTag("appearance_city_selector").performClick()
+            compose.onNodeWithTag("appearance_city_search").performTextInput("Lima")
+            compose.onNodeWithTag("appearance_city_option_lima").performClick()
+            compose.onNodeWithTag("appearance_city_dropdown_arrow",useUnmergedTree=true).assertDoesNotExist()
+            compose.onNodeWithTag("appearance_city_selector").assertWidthIsEqualTo(260.dp).performClick()
+            compose.onNodeWithTag("appearance_city_menu").assertExists()
+        }
     @Test fun clockCancelDoesNotSave() {
         var saved:Int?=null;var dismissed=false
         compose.setContent {MaterialTheme {AppearanceAnalogTimeDialog("Test",420,1200,true,{dismissed=true},{saved=it})}}
