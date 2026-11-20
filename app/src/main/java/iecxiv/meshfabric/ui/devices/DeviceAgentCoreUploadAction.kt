@@ -24,7 +24,7 @@ import kotlinx.coroutines.*
     TextButton(enabled=enabled,onClick={opened=true},modifier=Modifier.testTag("agent_action_upload_core_file")) {Text(t("Cargar archivo de núcleo…","Upload a core file…"))}
     if(opened) DeviceAgentCoreUploadDialog(source,nodeId,nodeName,es) {opened=false}
 }
-@Composable private fun DeviceAgentCoreUploadDialog(source:MeshCentralClient,nodeId:String,nodeName:String,es:Boolean,onClose:()->Unit) {
+@Composable internal fun DeviceAgentCoreUploadDialog(source:MeshCentralClient,nodeId:String,nodeName:String,es:Boolean,onClose:()->Unit) {
     fun t(a:String,b:String)=if(es) a else b
     val context=LocalContext.current;val owner=LocalLifecycleOwner.current;val scope=rememberCoroutineScope()
     var retry by remember {mutableIntStateOf(0)}

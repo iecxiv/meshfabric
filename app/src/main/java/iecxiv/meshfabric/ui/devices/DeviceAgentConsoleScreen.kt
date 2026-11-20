@@ -12,7 +12,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -72,6 +72,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
         var clear by remember {mutableStateOf(false)}
         var leave by remember {mutableStateOf(false)}
         var actions by remember {mutableStateOf(false)}
+        var coreUpload by remember {mutableStateOf(false)}
         var review by remember {mutableStateOf<AgentConsoleAction?>(null)}
         var follow by remember {mutableStateOf(true)}
         var copyStatus by remember {mutableStateOf("")}
@@ -102,18 +103,38 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
         Scaffold(modifier=Modifier.fillMaxSize().safeDrawingPadding().imePadding(),contentWindowInsets=WindowInsets(0,0,0,0),topBar={TopAppBar(
             title={Column {Text(nodeName,maxLines=1,overflow=TextOverflow.Ellipsis);Text(t("Consola del agente","Agent console"),style=MaterialTheme.typography.labelSmall)}},
             navigationIcon={IconButton(onClick=exit) {Icon(Icons.AutoMirrored.Filled.ArrowBack,t("Volver","Back"))}},actions={Box {
-                IconButton(onClick={menu=true},modifier=Modifier.testTag("agent_console_menu")) {Icon(Icons.Default.MoreVert,t("Herramientas de consola","Console tools"))}
-                DropdownMenu(menu,{menu=false}) {
-                    DropdownMenuItem(text={Text(t("Acciones del agente…","Agent actions…"))},enabled=state.phase=="ready" && connected,onClick={actions=true;menu=false},modifier=Modifier.testTag("agent_console_actions"))
+                IconButton(onClick={actions=false;menu=true},modifier=Modifier.testTag("agent_console_menu")) {Icon(Icons.Default.MoreVert,t("Herramientas de consola","Console tools"))}
+                DropdownMenu(expanded=menu,onDismissRequest={menu=false;actions=false},
+            modifier=Modifier.heightIn(max=(LocalConfiguration.current.screenHeightDp.dp-96.dp).coerceAtLeast(48.dp)).testTag("agent_console_tools_popup"),
+            shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation=2.dp,border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
+            if(actions) {
+                AgentConsoleAction.values().forEach {action->
+                    val icon=when(action) {
+                        AgentConsoleAction.DEFAULT_CORE->Icons.Default.CloudUpload
+                        AgentConsoleAction.CLEAR_CORE->Icons.Default.Delete
+                        AgentConsoleAction.RECOVERY_CORE->Icons.Default.Build
+                        AgentConsoleAction.TINY_CORE->Icons.Default.Memory
+                        AgentConsoleAction.SOFT_DISCONNECT,AgentConsoleAction.HARD_DISCONNECT->Icons.Default.LinkOff
+                        AgentConsoleAction.RESTART_SERVICE->Icons.Default.Refresh
+                        AgentConsoleAction.FORCE_UPDATE->Icons.Default.SystemUpdateAlt
+                    }
+                    DropdownMenuItem(text={Text(agentActionLabel(action,es))},leadingIcon={Icon(icon,null,Modifier.size(20.dp))},enabled=actionEnabled(action),onClick={review=action;actions=false;menu=false},modifier=Modifier.testTag("agent_action_"+action.name.lowercase()))
+                }
+                DropdownMenuItem(text={Text(t("Cargar archivo de núcleo…","Upload a core file…"))},leadingIcon={Icon(Icons.Default.UploadFile,null,Modifier.size(20.dp))},enabled=connected && state.phase=="ready" && rights!=null && agentActionFullRights(rights) && agentCoreMainDomain(nodeId,actor),onClick={coreUpload=true;actions=false;menu=false},modifier=Modifier.testTag("agent_action_upload_core_file"))
+            } else {
+
+                    DropdownMenuItem(text={Text(t("Acciones del agente…","Agent actions…"))},leadingIcon={Icon(Icons.Default.Settings,null,Modifier.size(20.dp))},trailingIcon={Icon(Icons.Default.ChevronRight,null,Modifier.size(20.dp))},enabled=state.phase=="ready" && connected,onClick={actions=true},modifier=Modifier.testTag("agent_console_actions"))
                     HorizontalDivider()
-                    DropdownMenuItem(text={Text(t("Filtrar salida local","Filter local output"))},onClick={searching=!searching;if(!searching) query="";menu=false})
-                    DropdownMenuItem(text={Text(t("Copiar salida visible","Copy visible output"))},enabled=visible.isNotEmpty(),onClick={
+                    DropdownMenuItem(text={Text(t("Filtrar salida local","Filter local output"))},leadingIcon={Icon(Icons.Default.FilterList,null,Modifier.size(20.dp))},onClick={searching=!searching;if(!searching) query="";menu=false})
+                    DropdownMenuItem(text={Text(t("Copiar salida visible","Copy visible output"))},leadingIcon={Icon(Icons.Default.ContentCopy,null,Modifier.size(20.dp))},enabled=visible.isNotEmpty(),onClick={
                         menu=false;copyStatus=if(runCatching {val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: error("Clipboard unavailable");clipboard.setPrimaryClip(ClipData.newPlainText("Agent console",visible))}.isSuccess) t("Salida copiada; puede contener datos sensibles.","Output copied; it may contain sensitive data.") else t("No se pudo copiar.","Copy failed.")
                     })
-                    DropdownMenuItem(text={Text(t("Limpiar salida local","Clear local output"))},onClick={clear=true;menu=false})
+                    DropdownMenuItem(text={Text(t("Limpiar salida local","Clear local output"))},leadingIcon={Icon(Icons.Default.DeleteSweep,null,Modifier.size(20.dp))},onClick={clear=true;menu=false})
                     HorizontalDivider()
-                    DropdownMenuItem(text={Text(t("Reconectar consola","Reconnect console"))},enabled=connected && state.phase=="closed",onClick={session.connect();menu=false})
-                    DropdownMenuItem(text={Text(t("Desconectar consola local","Disconnect local console"))},enabled=state.phase!="closed",onClick={session.disconnect();menu=false})
+                    DropdownMenuItem(text={Text(t("Reconectar consola","Reconnect console"))},leadingIcon={Icon(Icons.Default.Refresh,null,Modifier.size(20.dp))},enabled=connected && state.phase=="closed",onClick={session.connect();menu=false})
+                    DropdownMenuItem(text={Text(t("Desconectar consola local","Disconnect local console"))},leadingIcon={Icon(Icons.Default.LinkOff,null,Modifier.size(20.dp))},enabled=state.phase!="closed",onClick={session.disconnect();menu=false})
+                    }
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: agentVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
@@ -135,19 +156,14 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
             if(!follow) TextButton(onClick={query="";follow=true}) {Text(t("Ir al final y seguir salida","Go to end and follow output"))}
             if(copyStatus.isNotEmpty()) Text(copyStatus,style=MaterialTheme.typography.labelSmall)
             Text(t("Salida sin prueba de finalización. Búfer: 1000 entradas / 256000 caracteres; historial: 50 comandos, solo en memoria.","Output does not prove completion. Buffer: 1000 entries / 256000 characters; history: 50 commands, memory only."),style=MaterialTheme.typography.labelSmall)
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                Box {TextButton(onClick={history=true},enabled=state.history.isNotEmpty()) {Text(t("Historial","History"))};DropdownMenu(history,{history=false},modifier=Modifier.heightIn(max=260.dp)) {state.history.asReversed().forEach {command->DropdownMenuItem(text={Text(command,maxLines=2,overflow=TextOverflow.Ellipsis)},onClick={draft=command;history=false})}}}
+            Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                Box {TextButton(onClick={history=true},enabled=state.history.isNotEmpty(),modifier=Modifier.heightIn(min=48.dp).testTag("agent_console_history")) {Text(t("Historial","History"))};DropdownMenu(history,{history=false},modifier=Modifier.heightIn(max=260.dp)) {state.history.asReversed().forEach {command->DropdownMenuItem(text={Text(command,maxLines=2,overflow=TextOverflow.Ellipsis)},onClick={draft=command;history=false})}}}
                 OutlinedTextField(draft,{draft=it},singleLine=true,label={Text(t("Comando del agente","Agent command"))},keyboardOptions=KeyboardOptions(imeAction=ImeAction.Send),keyboardActions=KeyboardActions(onSend={submit()}),modifier=Modifier.weight(1f).testTag("agent_console_input"))
-                TextButton(enabled=canSend,onClick=submit,modifier=Modifier.testTag("agent_console_send")) {Text(t("Enviar","Send"))}
+                TextButton(enabled=canSend,onClick=submit,modifier=Modifier.heightIn(min=48.dp).testTag("agent_console_send")) {Text(t("Enviar","Send"))}
             }
             Text(t("Una línea, máximo 4096 caracteres. No se evalúa HTML/ANSI ni se guardan registros en disco. No introduzcas secretos.","One line, up to 4096 characters. HTML/ANSI is not evaluated and logs are not saved to disk. Do not enter secrets."),style=MaterialTheme.typography.labelSmall)
         }}
-        if(actions) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={actions=false},title={Text(t("Acciones del agente","Agent actions"))},text={Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-            Text(t("Actúan sobre el agente de este equipo, no sobre la salida local. Cada acción se revisa y se envía una sola vez.","These act on this device's agent, not on local output. Each action is reviewed and sent once."),style=MaterialTheme.typography.bodySmall)
-            AgentConsoleAction.values().forEach {action->TextButton(enabled=actionEnabled(action),onClick={review=action;actions=false},modifier=Modifier.testTag("agent_action_"+action.name.lowercase())) {Text(agentActionLabel(action,es))}}
-            DeviceAgentCoreUploadAction(source,nodeId,nodeName,connected && state.phase=="ready" && rights!=null && agentActionFullRights(rights) && agentCoreMainDomain(nodeId,actor),es)
-            Text(t("Las acciones pueden requerir derechos completos, administración del servidor o el dominio principal. Su disponibilidad final depende del servidor y del agente.","Actions may require full device rights, server administration or the main domain. Final availability depends on the server and agent."),style=MaterialTheme.typography.labelSmall)
-        }},confirmButton={TextButton(onClick={actions=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={actions=false}) {Text(t("Volver","Back"))}})
+        if(coreUpload) DeviceAgentCoreUploadDialog(source,nodeId,nodeName,es) {coreUpload=false}
         review?.let {action->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={review=null},title={Text(agentActionLabel(action,es))},text={Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
             Text(t("Dispositivo: ","Device: ")+nodeName);Text(nodeId,style=MaterialTheme.typography.labelSmall)
             Text(agentActionDetail(action,es))
