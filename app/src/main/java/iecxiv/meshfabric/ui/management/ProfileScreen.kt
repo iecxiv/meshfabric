@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -60,7 +61,8 @@ LaunchedEffect(section,agentIdentity) {closeDirectorySearch()}
 androidx.activity.compose.BackHandler(enabled=directorySearchOpen) {closeDirectorySearch()}
 
 var broadcast by remember { mutableStateOf(false) }
-val directoryListState=androidx.compose.foundation.lazy.rememberLazyListState()
+val usersListState=key(agentIdentity) {androidx.compose.foundation.lazy.rememberLazyListState()}
+val deviceGroupsListState=key(agentIdentity) {androidx.compose.foundation.lazy.rememberLazyListState()}
 androidx.activity.compose.BackHandler(enabled=broadcast && form==null && groupDetails==null) {broadcast=false}
 var ownAccountRequest by remember(source,state.id,source.serverUrl,source.authCookie,connected) {mutableStateOf<ProfileOwnAccountRequest?>(null)}
 val canOpenProfileDevice:(String)->Boolean={nodeId->profileReceivedDevice(state,profileFlattenReceivedDevices(source.groupedDevices.value),nodeId,session.broadcastServerLabel().isNotBlank())!=null}
@@ -76,6 +78,39 @@ LaunchedEffect(session,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecy
 if(connected && !source.isUserLogout) { session.start(); try { awaitCancellation() } finally { session.stop() } } else session.stop()
 } }
 LaunchedEffect(agentIdentity) { form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false;ownAccountRequest=null }
+val inlineUser=tab!=0 && form?.let {it.users && it.operation=="edit"}==true
+@Composable fun RenderProfileForm() {
+form?.let { selected->
+if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {origins=profilePushOrigin(origins,ProfileOrigin(user=selected));groupDetailTab=0;groupDetails=id;form=null}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onOpenUserGroup={gid->state.users.singleOrNull {it.optString("_id")==selected.id}?.let {u->if(gid in profileUserMembershipGroupIds(state,u).orEmpty() && profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}}},canOpenUserGroup={gid->profileReceivedUserGroup(state,gid)!=null},onManageOwnAccount={action->if(connected && !source.isUserLogout && state.ready && profileOwnAccount(state.id,selected.id) && action in setOf("password","mfa")) {form=null;groupDetails=null;userGroupDetails=null;deviceDetails=null;deviceAssignment=null;origins=emptyList();groupDetailTab=0;broadcast=false;section="account";ownAccountRequest=ProfileOwnAccountRequest(state.id,source.serverUrl,action)}},onDismiss=closeProfileDialog) else key(selected) {
+var name by remember { mutableStateOf(selected.name) }
+var description by remember { mutableStateOf(selected.description) }
+var confirmation by remember { mutableStateOf("") }
+var error by remember { mutableStateOf("") }
+val creating=selected.operation=="create"
+val deleting=selected.operation=="delete"
+val target=state.groups.firstOrNull { it.optString("_id")==selected.id }
+val allowed=state.canWrite && when { creating->ProfilePermissions.createGroup(state.site); target==null->false; deleting->ProfilePermissions.deleteGroup(state.site,state.rights(target)); else->ProfilePermissions.editGroup(state.site,state.rights(target)) }
+val valid=if(deleting) confirmation==selected.id else name.isNotBlank() && name.length<=256
+ManagementDialog(onDismissRequest={ form=null },modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear grupo","Create group") else t("Editar grupo","Edit group")) },text={ Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+if(!creating) { Text(selected.name); if(deleting) Text(selected.id) else ProfileDisclosure(t("Identificador","Identifier")) {Text(selected.id)} }
+if(deleting) {
+Text(t("Acción irreversible desde la app. Puede afectar al acceso a sus dispositivos.","Cannot be undone from the app. May affect access to its devices."))
+OutlinedTextField(confirmation,{ if(it.length<=1024) confirmation=it },label={ Text(t("Escribe el ID completo","Type the complete ID")) },singleLine=true)
+} else {
+OutlinedTextField(name,{ if(it.length<=256) name=it },label={ Text(t("Nombre","Name")) },singleLine=true)
+if(creating) Text(t("Grupo de dispositivos con agente.","Agent-based device group."))
+OutlinedTextField(description,{ if(it.length<=1024) description=it },label={ Text(t("Descripción","Description")) },maxLines=3)
+}
+if(error.isNotBlank()) Text(error,color=MaterialTheme.colorScheme.error)
+} },confirmButton={ TextButton(enabled=allowed && valid,onClick={
+val p=JSONObject().put("action",when { deleting->"deletemesh"; creating->"createmesh"; else->"editmesh" })
+if(!creating) p.put("meshid",selected.id)
+if(!deleting) { p.put("meshname",name.trim()).put("desc",description); if(creating) p.put("meshtype",2) }
+if(session.submit(p)) form=null else error=t("No se ha enviado. Comprueba conexión y permisos.","Not sent. Check connection and permissions.")
+}) { Text(if(deleting) t("Eliminar","Delete") else t("Enviar","Send")) } },dismissButton={ TextButton(onClick={ form=null }) { Text(t("Cancelar","Cancel")) } })
+} }
+}
+LaunchedEffect(inlineUser) {if(inlineUser) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}
 Column(modifier) {
 ProfileStableSectionHeader(header={ProfileRefreshHeader(tab,state,header={refresh->header {
 Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
@@ -94,6 +129,8 @@ placeholder={Text(if(tab==2) t("Buscar usuarios","Search users") else t("Buscar 
 modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRequester(directorySearchFocus).testTag("profile-directory-search-input"))
 }
 if(tab!=0) ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
+Box(Modifier.weight(1f).fillMaxWidth()) {
+Column(Modifier.fillMaxSize().then(if(inlineUser) Modifier.clearAndSetSemantics {} else Modifier)) {
 if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null}) else if(broadcast && section=="users") ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth()) {broadcast=false} else if(section=="userGroups") UserGroupsDirectoryPane(session,state,Modifier.weight(1f).fillMaxWidth(),query=groupSearch,onOpenUser={id->state.users.firstOrNull {it.optString("_id")==id && canAdministerUser(state,it)}?.let {u->form=ProfileForm(true,"edit",id,u.optString("name"),u.optString("email"))}},onOpenDeviceGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {groupDetails=id;origins=emptyList();groupDetailTab=0;form=null}}) else {
 val message=when(state.notice) {
 "ready"->""
@@ -113,7 +150,7 @@ else->t("Sin conexión o cargando.","Offline or loading.")
 val users=section=="users"
 val permitted=!users || ProfilePermissions.manageUsers(state.site)
 val rows=if(users) state.users.filter {user->groupSearch.isBlank() || listOf(profileReviewIdentity(user,state.users,es).label,user.optString("name"),user.optString("email")).any {it.contains(groupSearch,true)}} else state.groups.filter { deviceGroupMatches(groupSearch,it.optString("name"),it.optString("desc")) }
-LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=directoryListState,contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
+LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=if(users) usersListState else deviceGroupsListState,contentPadding=managementConnectionContentPadding,verticalArrangement=Arrangement.spacedBy(10.dp)) {
 item { Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
 if(message.isNotBlank()) Text(message,style=MaterialTheme.typography.bodySmall,color=if(state.notice in setOf("rejected","readFailed","unknown")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
 if(state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -147,36 +184,15 @@ if(!users || !profileOwnAccount(state.id,id)) TextButton(enabled=state.canWrite 
 }
 }
 }
-groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onReviewUserGroupAssignment={gid->profileAccessAssignmentPair(state,gid,id)?.let {pair->deviceAssignment=pair;session.refresh();session.loadUserGroupDirectory()}},onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
-form?.let { selected->
-if(selected.users) UserAdministrationDialog(session,state,selected,onOpenGroup={id->if(state.ready && state.groups.any {it.optString("_id")==id}) {origins=profilePushOrigin(origins,ProfileOrigin(user=selected));groupDetailTab=0;groupDetails=id;form=null}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onOpenUserGroup={gid->state.users.singleOrNull {it.optString("_id")==selected.id}?.let {u->if(gid in profileUserMembershipGroupIds(state,u).orEmpty() && profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}}},canOpenUserGroup={gid->profileReceivedUserGroup(state,gid)!=null},onManageOwnAccount={action->if(connected && !source.isUserLogout && state.ready && profileOwnAccount(state.id,selected.id) && action in setOf("password","mfa")) {form=null;groupDetails=null;userGroupDetails=null;deviceDetails=null;deviceAssignment=null;origins=emptyList();groupDetailTab=0;broadcast=false;section="account";ownAccountRequest=ProfileOwnAccountRequest(state.id,source.serverUrl,action)}},onDismiss=closeProfileDialog) else key(selected) {
-var name by remember { mutableStateOf(selected.name) }
-var description by remember { mutableStateOf(selected.description) }
-var confirmation by remember { mutableStateOf("") }
-var error by remember { mutableStateOf("") }
-val creating=selected.operation=="create"
-val deleting=selected.operation=="delete"
-val target=state.groups.firstOrNull { it.optString("_id")==selected.id }
-val allowed=state.canWrite && when { creating->ProfilePermissions.createGroup(state.site); target==null->false; deleting->ProfilePermissions.deleteGroup(state.site,state.rights(target)); else->ProfilePermissions.editGroup(state.site,state.rights(target)) }
-val valid=if(deleting) confirmation==selected.id else name.isNotBlank() && name.length<=256
-ManagementDialog(onDismissRequest={ form=null },modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={ Text(if(deleting) t("Confirmar eliminación","Confirm deletion") else if(creating) t("Crear grupo","Create group") else t("Editar grupo","Edit group")) },text={ Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-if(!creating) { Text(selected.name); if(deleting) Text(selected.id) else ProfileDisclosure(t("Identificador","Identifier")) {Text(selected.id)} }
-if(deleting) {
-Text(t("Acción irreversible desde la app. Puede afectar al acceso a sus dispositivos.","Cannot be undone from the app. May affect access to its devices."))
-OutlinedTextField(confirmation,{ if(it.length<=1024) confirmation=it },label={ Text(t("Escribe el ID completo","Type the complete ID")) },singleLine=true)
-} else {
-OutlinedTextField(name,{ if(it.length<=256) name=it },label={ Text(t("Nombre","Name")) },singleLine=true)
-if(creating) Text(t("Grupo de dispositivos con agente.","Agent-based device group."))
-OutlinedTextField(description,{ if(it.length<=1024) description=it },label={ Text(t("Descripción","Description")) },maxLines=3)
+if(inlineUser) Column(Modifier.fillMaxSize()) {
+    CompositionLocalProvider(LocalProfileUserInline provides true) {RenderProfileForm()}
 }
-if(error.isNotBlank()) Text(error,color=MaterialTheme.colorScheme.error)
-} },confirmButton={ TextButton(enabled=allowed && valid,onClick={
-val p=JSONObject().put("action",when { deleting->"deletemesh"; creating->"createmesh"; else->"editmesh" })
-if(!creating) p.put("meshid",selected.id)
-if(!deleting) { p.put("meshname",name.trim()).put("desc",description); if(creating) p.put("meshtype",2) }
-if(session.submit(p)) form=null else error=t("No se ha enviado. Comprueba conexión y permisos.","Not sent. Check connection and permissions.")
-}) { Text(if(deleting) t("Eliminar","Delete") else t("Enviar","Send")) } },dismissButton={ TextButton(onClick={ form=null }) { Text(t("Cancelar","Cancel")) } })
-} }
+}
+
+}
+groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->key(id) { DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onReviewUserGroupAssignment={gid->profileAccessAssignmentPair(state,gid,id)?.let {pair->deviceAssignment=pair;session.refresh();session.loadUserGroupDirectory()}},onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
+if(!inlineUser) RenderProfileForm()
+
 userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}
 deviceAssignment?.let {(gid,mid)->GroupMeshAssignmentReview(session,state,gid,mid) {deviceAssignment=null}}
 deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}
