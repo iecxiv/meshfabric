@@ -33,7 +33,7 @@ internal val LocalProfileUserInline=staticCompositionLocalOf {false}
         onDispose {if(!previouslySecure) window.clearFlags(flag)}
     }
     BackHandler(onBack=onDismissRequest)
-    Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.surface) {
+    Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground) {
         Column(Modifier.fillMaxSize().imePadding().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}
             Box(Modifier.weight(1f).fillMaxWidth()) {text()}

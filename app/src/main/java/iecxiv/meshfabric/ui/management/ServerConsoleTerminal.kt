@@ -332,7 +332,8 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
         }
         if(active && !loaded && !failed) LinearProgressIndicator(Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
-            TextButton(onClick={ showText=!showText },modifier=Modifier.weight(1f)) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+            TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+            Spacer(Modifier.weight(1f))
             ServerConsoleTextDownload(snapshot)
         }
         if(showText || failed) Surface(modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.medium,color= iecxiv.meshfabric.ui.theme.appCardBackground(
