@@ -62,6 +62,7 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
         }
     }
     LaunchedEffect(state.ready) {if(!state.ready) {broadcast=false;recipient=null}}
+    BackHandler(enabled=broadcast && section==NoticeSection.BROADCAST) {broadcast=false}
     BackHandler(enabled=section==NoticeSection.MESSAGES && searchState.open) {searchState=searchState.cleared()}
     Column(modifier) {
         header {if(section==NoticeSection.MESSAGES) NoticeSearchAction(searchState) {searchState=searchState.toggle()}}
@@ -70,9 +71,15 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
         }
         when(section) {
             NoticeSection.INBOX->NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())
-            NoticeSection.BROADCAST->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {
+            NoticeSection.BROADCAST->if(broadcast) {
+                Column(Modifier.weight(1f).fillMaxWidth()) {
+                    ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
+                    NoticeSubmissionStatus(state.notice,es)
+                    ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth()) {broadcast=false}
+                }
+            } else NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {
                 Text(t("Difusión a sesiones conectadas","Broadcast to connected sessions"),style=MaterialTheme.typography.titleMedium)
-                Text(t("El diálogo de revisión muestra el servidor, dominio y alcance efectivo. No es correo ni acceso temporal.","The review dialog shows the server, domain and effective scope. This is not email or temporary access."))
+                Text(t("La vista de revisión muestra el servidor, dominio y alcance efectivo. No es correo ni acceso temporal.","The review view shows the server, domain and effective scope. This is not email or temporary access."))
                 Text(t("Aceptar la solicitud no confirma recepción ni lectura. No se reenvía automáticamente.","Request acceptance does not confirm receipt or reading. No automatic resend."),style=MaterialTheme.typography.bodySmall)
                 NoticeSubmissionStatus(state.notice,es)
                 Button(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={broadcast=true}) {Text(t("Redactar Broadcast","Compose Broadcast"))}
@@ -106,7 +113,6 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
             }
         }
     }
-    if(broadcast && section==NoticeSection.BROADCAST) ProfileBroadcastDialog(session,state) {broadcast=false}
     recipient?.takeIf {section==NoticeSection.MESSAGES && !devices}?.let {id->key(id) {UserMessageDialog(session,state,id) {recipient=null}}}
 }
 
