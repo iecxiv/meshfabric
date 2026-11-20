@@ -28,11 +28,16 @@ jobs:
               p=root/name
               assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha
               original=p.read_text(); updated=original
+              undo=[]
               for old,new in changes:
-                  assert updated.count(old)==1,old
-                  updated=updated.replace(old,new,1)
+                  assert old and updated.count(old)==1,old
+                  position=updated.index(old)
+                  undo.append((position,old,new))
+                  updated=updated[:position]+new+updated[position+len(old):]
               restored=updated
-              for old,new in reversed(changes): restored=restored.replace(new,old,1)
+              for position,old,new in reversed(undo):
+                  assert restored[position:position+len(new)]==new
+                  restored=restored[:position]+old+restored[position+len(new):]
               assert restored==original
               p.write_text(updated+append)
           helper='''
