@@ -17,7 +17,11 @@ import androidx.compose.ui.window.Dialog
 import iecxiv.meshfabric.R
 
 @Composable internal fun OperationFormDialog(form:Boolean,title:String,onDismiss:()->Unit,confirm:String,
-    enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,expanded:Boolean=false,content:@Composable ()->Unit) {
+    enabled:Boolean=true,dangerous:Boolean=false,onConfirm:()->Unit,expanded:Boolean=false,inline:Boolean=false,content:@Composable ()->Unit) {
+    if(inline && form && !dangerous) {
+        ProfileUserDetailSurface(inline=true,onDismissRequest=onDismiss,title={Text(title)},text={Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {content()}},confirmButton={Button(enabled=enabled,onClick=onConfirm) {Text(confirm)}},dismissButton={TextButton(onClick=onDismiss) {Text(stringResource(R.string.cancel))}})
+        return
+    }
     if(!form && dangerous) {
         FabricDialog(title=title,onDismiss=onDismiss,confirm=confirm,enabled=enabled,
             dangerous=dangerous,onConfirm=onConfirm,content=content)

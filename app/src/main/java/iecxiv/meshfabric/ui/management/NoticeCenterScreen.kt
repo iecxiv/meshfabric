@@ -27,17 +27,17 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
 
 @Composable internal fun NoticeCenterScreen(source:MeshCentralClient,inbox:NoticeInbox,
     actionsReady:Boolean,nodes:List<MeshNode>,modifier:Modifier=Modifier,
-    onDeviceMessage:(MeshNode)->Unit,header:@Composable (@Composable ()->Unit)->Unit) {
+    onDeviceMessage:(MeshNode)->Unit,deviceComposeOpen:Boolean=false,deviceComposer:@Composable ()->Unit={},onCloseDeviceComposer:()->Unit={},header:@Composable (@Composable ()->Unit)->Unit) {
     val actor by source.userInfo.collectAsState()
     val connected by source.connectionState.collectAsState()
     key(source,source.serverUrl,source.authCookie,source.ignoreSsl,actor?.id,connected) {
-        NoticeCenterContent(source,inbox,actionsReady,nodes,modifier,onDeviceMessage,header)
+        NoticeCenterContent(source,inbox,actionsReady,nodes,modifier,onDeviceMessage,deviceComposeOpen,deviceComposer,onCloseDeviceComposer,header)
     }
 }
 
 @Composable private fun NoticeCenterContent(source:MeshCentralClient,inbox:NoticeInbox,
     actionsReady:Boolean,nodes:List<MeshNode>,modifier:Modifier,
-    onDeviceMessage:(MeshNode)->Unit,header:@Composable (@Composable ()->Unit)->Unit) {
+    onDeviceMessage:(MeshNode)->Unit,deviceComposeOpen:Boolean,deviceComposer:@Composable ()->Unit,onCloseDeviceComposer:()->Unit,header:@Composable (@Composable ()->Unit)->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var section by remember {mutableStateOf(NoticeSection.INBOX)}
@@ -45,6 +45,8 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
     var searchState by remember {mutableStateOf(NoticeSearchState())}
     val search=searchState.query
     var devices by remember {mutableStateOf(false)}
+    val userGridState=androidx.compose.foundation.lazy.grid.rememberLazyGridState()
+    val deviceGridState=androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     val recipientGroups by source.groupedDevices.collectAsState()
     val groupNames=recipientGroups.flatMap { (group,members)->members.map {it.id to group.name} }.toMap()
     val session=remember(source) {ProfileSession(source)}
@@ -65,7 +67,7 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
     Column(modifier) {
         header {if(section==NoticeSection.MESSAGES) NoticeSearchAction(searchState) {searchState=searchState.toggle()}}
         NoticeCenterTabs(section) {
-            recipient=null;searchState=searchState.cleared();section=it
+            onCloseDeviceComposer();recipient=null;searchState=searchState.cleared();section=it
         }
         when(section) {
             NoticeSection.INBOX->NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())
@@ -75,34 +77,30 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
                 Box(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {NoticeSubmissionStatus(state.notice,es)}
             }
             NoticeSection.MESSAGES->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected=!devices,onClick={devices=false;recipient=null;searchState=searchState.cleared()},label={Text(t("Usuarios","Users"))})
-                    FilterChip(selected=devices,onClick={devices=true;recipient=null;searchState=searchState.cleared()},label={Text(t("Dispositivos","Devices"))})
-                }
-                Text(if(devices) t("Notificación en un dispositivo con agente conectado. El servidor valida los permisos.","Notification on a device with a connected agent. The server validates permissions.") else t("Notificación individual a un usuario; no es chat. No hay confirmación de entrega ni lectura.","Individual user notification; not chat. No delivery or read confirmation."),style=MaterialTheme.typography.bodySmall)
-                NoticeSearchField(searchState,{searchState=searchState.edit(it)})
-                NoticeSubmissionStatus(state.notice,es)
-                LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    if(devices) {
-                        val matches=nodes.filter {it.conn and 1!=0 && noticeDeviceRecipientLabel(it.name,groupNames[it.id].orEmpty(),es).contains(search,true)}.distinctBy {it.id}
-                        if(matches.isEmpty()) item {Text(t("No hay dispositivos con agente conectado que coincidan.","No matching devices with a connected agent."))}
-                        items(matches,key={it.id}) {node->ManagementCard {
-                            NoticeRecipientName(noticeDeviceRecipientLabel(node.name,groupNames[node.id].orEmpty(),es))
-                            TextButton(enabled=actionsReady && !source.isUserLogout,onClick={onDeviceMessage(node)}) {Text(t("Redactar notificación","Compose notification"))}
-                        }}
-                    } else {
-                        val matches=state.users.filter {it.optString("_id")!=state.id && canAdministerUser(state,it) && noticeUserRecipientLabel(it.optString("name"),es).contains(search,true)}
-                        if(matches.isEmpty()) item {Text(t("No hay usuarios disponibles que coincidan con tus permisos y búsqueda.","No available users matching your permissions and search."))}
-                        items(matches,key={it.optString("_id")}) {user->ManagementCard {
-                            NoticeRecipientName(noticeUserRecipientLabel(user.optString("name"),es))
-                            TextButton(enabled=state.canWrite,onClick={recipient=user.optString("_id")}) {Text(t("Redactar mensaje","Compose message"))}
-                        }}
+                val selectedRecipient=recipient
+                if(deviceComposeOpen) deviceComposer()
+                else if(selectedRecipient!=null && !devices) key(selectedRecipient) {
+                    CompositionLocalProvider(LocalNoticeComposeInline provides true) {UserMessageDialog(session,state,selectedRecipient) {recipient=null}}
+                } else {
+                    Text(t("Mensaje individual a usuario o dispositivo","Individual message to a user or device"),style=MaterialTheme.typography.titleMedium)
+                    Text(t("Elige un usuario o dispositivo para enviarle un mensaje.","Choose a user or device to send a message."),style=MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected=!devices,onClick={devices=false;recipient=null;searchState=searchState.cleared()},label={Text(t("Usuarios","Users"))})
+                        FilterChip(selected=devices,onClick={devices=true;recipient=null;searchState=searchState.cleared()},label={Text(t("Dispositivos","Devices"))})
+                    }
+                    Text(if(devices) t("Notificación a un agente conectado; el servidor valida los permisos.","Notification to a connected agent; the server validates permissions.") else t("Notificación individual; no es chat ni hay confirmación de lectura.","Individual notification; not chat and no read confirmation."),style=MaterialTheme.typography.bodySmall)
+                    NoticeSearchField(searchState,{searchState=searchState.edit(it)})
+                    NoticeSubmissionStatus(state.notice,es)
+                    val choices=if(devices) nodes.filter {it.conn and 1!=0 && noticeDeviceRecipientLabel(it.name,groupNames[it.id].orEmpty(),es).contains(search,true)}.distinctBy {it.id}.map {NoticeNavigationChoice(it.id,noticeDeviceRecipientLabel(it.name,groupNames[it.id].orEmpty(),es),true)}
+                        else state.users.filter {it.optString("_id")!=state.id && canAdministerUser(state,it) && noticeUserRecipientLabel(it.optString("name"),es).contains(search,true)}.map {NoticeNavigationChoice(it.optString("_id"),noticeUserRecipientLabel(it.optString("name"),es),false)}
+                    if(choices.isEmpty()) Text(t("No hay destinatarios disponibles que coincidan.","No matching recipients available."),style=MaterialTheme.typography.bodySmall)
+                    NoticeNavigationGrid(choices,if(devices) deviceGridState else userGridState,if(devices) actionsReady && !source.isUserLogout else state.canWrite,Modifier.weight(1f).fillMaxWidth()) {choice->
+                        if(choice.device) nodes.singleOrNull {it.id==choice.id && it.conn and 1!=0}?.let(onDeviceMessage) else recipient=choice.id
                     }
                 }
             }
         }
     }
-    recipient?.takeIf {section==NoticeSection.MESSAGES && !devices}?.let {id->key(id) {UserMessageDialog(session,state,id) {recipient=null}}}
 }
 
 @Composable private fun NoticeManagementBody(state:ProfileState,onReconnect:()->Unit,modifier:Modifier,content:@Composable ColumnScope.()->Unit) {

@@ -64,7 +64,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                 queryingVersion=true
                 try {
                     val ready=session.state.first {it.phase=="ready" || it.phase=="closed"}
-                    if(ready.phase=="ready") reportedVersion=readAgentConsoleVersion(source,nodeId,agentVersion)
+                    if(ready.phase=="ready") reportedVersion=readAgentCoreInventoryVersion(source,nodeId)
                 } finally {queryingVersion=false}
             }
         }
@@ -113,6 +113,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
             shape=MaterialTheme.shapes.medium,containerColor=MaterialTheme.colorScheme.surfaceVariant,
             tonalElevation=2.dp,border=androidx.compose.foundation.BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant)) {
             if(actions) {
+                DropdownMenuItem(text={Text(t("Volver","Back"))},leadingIcon={Icon(Icons.AutoMirrored.Filled.ArrowBack,null)},onClick={actions=false},modifier=Modifier.testTag("agent_console_actions_back"))
                 AgentConsoleAction.values().forEach {action->
                     val icon=when(action) {
                         AgentConsoleAction.DEFAULT_CORE->Icons.Default.CloudUpload
@@ -141,7 +142,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                     }
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-            Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: agentVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
+            Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
             Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("agent_console_status_row"),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(when(state.phase) {
                     "connecting","checking"->t("Verificando canal, agente y permiso de consola…","Verifying channel, agent and console permission…")
