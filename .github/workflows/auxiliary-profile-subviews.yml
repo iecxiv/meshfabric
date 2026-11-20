@@ -1,0 +1,174 @@
+name: Validate agent and linked inventory subviews
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/auxiliary-profile-subviews.yml']
+permissions:
+  contents: write
+concurrency:
+  group: auxiliary-profile-subviews-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Check embedded Python syntax
+        shell: python
+        run: |
+          import ast,textwrap
+          from pathlib import Path
+          lines=Path('.github/workflows/auxiliary-profile-subviews.yml').read_text().splitlines();checked=0
+          for i,line in enumerate(lines):
+              if line!='        run: |': continue
+              body=[]
+              for following in lines[i+1:]:
+                  if following.strip() and not following.startswith('          '): break
+                  body.append(following)
+              ast.parse(textwrap.dedent('\n'.join(body))+'\n');checked+=1
+          assert checked==3,checked
+      - name: Prepare scoped auxiliary subviews
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='211d4948c864a34c9bcb551dac68cc57adfd20ca','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui');changed=set()
+          def edit(name,old,new,count=1):
+              p=root/name;t=p.read_text();assert t.count(old)==count,(name,old,t.count(old));p.write_text(t.replace(old,new,count));changed.add(str(p))
+          profile='management/ProfileScreen.kt'
+          edit(profile,'AgentGroupDialogsHost(agentIdentity,render={target,close->AgentInviteLinkDialog(source,target.mesh,false,enrollment=target.enrollment,onDismiss=close)}) {','AgentGroupSubviewHost(agentIdentity) {')
+          edit(profile,'val tab=profileSectionKeys.indexOf(section).coerceAtLeast(0)','val tab=profileSectionKeys.indexOf(section).coerceAtLeast(0)\nval agentTarget=LocalAgentGroupSubviewTarget.current\nval closeAgentSubview=LocalAgentGroupSubviewClose.current')
+          edit(profile,'LaunchedEffect(section,agentIdentity) {closeDirectorySearch()}','LaunchedEffect(section,agentIdentity) {closeDirectorySearch();closeAgentSubview()}')
+          edit(profile,'val inlineLinked=profileLinkedGroupSubview(tab,userGroupDetails,deviceAssignment)','val inlineLinked=profileLinkedGroupSubview(tab,userGroupDetails,deviceAssignment)\nval inlineAux=profileAuxiliarySubview(tab,agentTarget!=null,deviceDetails!=null)')
+          device='deviceDetails?.let {id->ProfileDeviceDetailsOverlay(source,session,state,profileFlattenReceivedDevices(profileDeviceGroups),id) {deviceDetails=null}}'
+          edit(profile,device,'if(!inlineAux) '+device)
+          focus='LaunchedEffect(inlineUser,inlineGroup,inlineLinked) {if(inlineUser || inlineGroup || inlineLinked) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}'
+          render='@Composable fun RenderAuxiliarySubviews() {\n'+device+'\nagentTarget?.let {target->AgentInviteLinkDialog(source,target.mesh,false,enrollment=target.enrollment,onDismiss=closeAgentSubview)}\n}\n'
+          edit(profile,focus,render+'LaunchedEffect(inlineUser,inlineGroup,inlineLinked,inlineAux) {if(inlineUser || inlineGroup || inlineLinked || inlineAux) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}')
+          edit(profile,'then(if(inlineUser || inlineGroup || inlineLinked) Modifier.clearAndSetSemantics','then(if(inlineUser || inlineGroup || inlineLinked || inlineAux) Modifier.clearAndSetSemantics')
+          edit(profile,'.blockCoveredNavigation(inlineLinked)','.blockCoveredNavigation(inlineLinked || inlineAux)',2)
+          linked='if(inlineLinked) Column(Modifier.fillMaxSize()) {CompositionLocalProvider(LocalProfileUserInline provides true,LocalUserGroupActionsInline provides true) {RenderLinkedGroups()}}'
+          edit(profile,linked,'if(inlineLinked) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineAux)) {CompositionLocalProvider(LocalProfileUserInline provides true,LocalUserGroupActionsInline provides true) {RenderLinkedGroups()}}\nif(inlineAux) Column(Modifier.fillMaxSize()) {CompositionLocalProvider(LocalProfileUserInline provides true) {RenderAuxiliarySubviews()}}')
+          edit('management/AgentInviteLinks.kt','ManagementDialog(onDismissRequest={invalidate();onDismiss()},','UserActionSurface(onDismissRequest={invalidate();onDismiss()},')
+          edit('management/ProfileDeviceNavigation.kt','CompositionLocalProvider(LocalDeviceDetailsClient provides source)','CompositionLocalProvider(LocalDeviceDetailsClient provides source,iecxiv.meshfabric.ui.devices.LocalDeviceDetailsInline provides LocalProfileUserInline.current)')
+          edit('management/ProfileDeviceNavigation.kt','ManagementDialog(onDismissRequest=','UserActionSurface(onDismissRequest=')
+          inventory='devices/DeviceDetailsDialog.kt'
+          edit(inventory,'import androidx.compose.material.icons.filled.*','import androidx.compose.material.icons.filled.*\nimport androidx.compose.material.icons.automirrored.filled.ArrowBack')
+          edit(inventory,'internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {','internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {\n    val inline=LocalDeviceDetailsInline.current')
+          edit(inventory,'Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {','DeviceDetailsFrame(inline=inline,onDismiss=onDismiss) {')
+          old='iecxiv.meshfabric.ui.components.AppDialogSurface(shape = iecxiv.meshfabric.ui.components.AppDialogAppearance.shape, color = iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),\n            tonalElevation = iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation, modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp)\n                .widthIn(max = 600.dp).fillMaxWidth().heightIn(max = (configuration.screenHeightDp * 0.88f).dp)) {'
+          edit(inventory,old,'DeviceDetailsContentSurface(inline=inline,modifier=if(inline) Modifier.fillMaxSize() else Modifier.padding(horizontal=16.dp,vertical=24.dp).widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp)) {')
+          icon='                        Icon(Icons.Default.Computer, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)'
+          edit(inventory,icon,'                        if(inline) IconButton(onClick=onDismiss) {Icon(Icons.AutoMirrored.Filled.ArrowBack,if(es) "Volver" else "Back")}\n'+icon)
+          close='IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.device_details_close)) }'
+          edit(inventory,close,'if(!inline) '+close)
+          edit(inventory,'LazyColumn(Modifier.weight(1f, fill = false),','LazyColumn(Modifier.weight(1f, fill = inline),')
+          edit(inventory,'TextButton(onClick = onDismiss) { Text(stringResource(R.string.device_details_close)) }','TextButton(onClick = onDismiss) { Text(if(inline) {if(es) "Volver" else "Back"} else stringResource(R.string.device_details_close)) }')
+          p=root/'management/AgentGroupSubviewHost.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import androidx.compose.runtime.*
+          internal val LocalAgentGroupSubviewTarget=staticCompositionLocalOf<AgentGroupDialog?> {null}
+          internal val LocalAgentGroupSubviewClose=staticCompositionLocalOf<()->Unit> { {} }
+          internal fun profileAuxiliarySubview(tab:Int,agent:Boolean,device:Boolean)=tab in 1..3 && (agent || device)
+          @Composable internal fun AgentGroupSubviewHost(identity:Any,content:@Composable ()->Unit) {
+              var target by remember(identity) {mutableStateOf<AgentGroupDialog?>(null)}
+              CompositionLocalProvider(
+                  LocalAgentGroupDialogOpener provides {value->target=value},
+                  LocalAgentGroupSubviewTarget provides target,
+                  LocalAgentGroupSubviewClose provides {target=null}
+              ) {content()}
+          }
+          ''');changed.add(str(p))
+          p=root/'devices/DeviceDetailsSubview.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.devices
+          import androidx.activity.compose.BackHandler
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Surface
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.window.Dialog
+          import androidx.compose.ui.window.DialogProperties
+          internal val LocalDeviceDetailsInline=staticCompositionLocalOf {false}
+          @Composable internal fun DeviceDetailsFrame(inline:Boolean,onDismiss:()->Unit,content:@Composable ()->Unit) {
+              if(inline) {
+                  BackHandler(onBack=onDismiss)
+                  Box(Modifier.fillMaxSize().imePadding()) {content()}
+              } else Dialog(onDismissRequest=onDismiss,properties=DialogProperties(usePlatformDefaultWidth=false),content=content)
+          }
+          @Composable internal fun DeviceDetailsContentSurface(inline:Boolean,modifier:Modifier,content:@Composable ()->Unit) {
+              if(inline) Surface(modifier=modifier,color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground,content=content)
+              else iecxiv.meshfabric.ui.components.AppDialogSurface(
+                  shape=iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
+                  color=iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
+                  tonalElevation=iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
+                  modifier=modifier,content=content)
+          }
+          ''');changed.add(str(p))
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/management/ProfileAuxiliarySubviewTest.kt');assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class ProfileAuxiliarySubviewTest {
+              @Test fun bothAuxiliaryRoutesCoverEveryDirectoryTab() {
+                  for(tab in 1..3) {
+                      assertTrue(profileAuxiliarySubview(tab,true,false))
+                      assertTrue(profileAuxiliarySubview(tab,false,true))
+                      assertTrue(profileAuxiliarySubview(tab,true,true))
+                      assertFalse(profileAuxiliarySubview(tab,false,false))
+                  }
+              }
+              @Test fun accountAndInvalidTabsDoNotOpenDirectorySubviews() {
+                  for(tab in listOf(-1,0,4)) assertFalse(profileAuxiliarySubview(tab,true,true))
+              }
+          }
+          ''');changed.add(str(p))
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines());assert actual==changed
+          Path(os.environ['RUNNER_TEMP'],'auxiliary-subview-paths.json').write_text(json.dumps(sorted(changed)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: auxiliary-subview-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/auxiliary-subview-paths.json
+          if-no-files-found: ignore
+      - name: Apply validated changes to dev and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          names={'management/ProfileScreen.kt','management/AgentInviteLinks.kt','management/ProfileDeviceNavigation.kt','management/AgentGroupSubviewHost.kt','devices/DeviceDetailsDialog.kt','devices/DeviceDetailsSubview.kt'}
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+name for name in names}|{'app/src/test/java/iecxiv/meshfabric/ui/management/ProfileAuxiliarySubviewTest.kt'}
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'auxiliary-subview-paths.json').read_text());assert set(paths)==expected
+          workflow='.github/workflows/auxiliary-profile-subviews.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(management): integrate agent and linked inventory views'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
