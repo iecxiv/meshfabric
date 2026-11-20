@@ -1,0 +1,217 @@
+name: Validate unified subview back headers
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/unified-subview-headers.yml']
+permissions:
+  contents: write
+concurrency:
+  group: unified-subview-headers-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Validate all embedded Python syntax
+        shell: python
+        run: |
+          import ast,textwrap
+          from pathlib import Path
+          lines=Path('.github/workflows/unified-subview-headers.yml').read_text().splitlines();checked=0
+          for i,line in enumerate(lines):
+              if line!='        run: |': continue
+              body=[]
+              for following in lines[i+1:]:
+                  if following.strip() and not following.startswith('          '): break
+                  body.append(following)
+              ast.parse(textwrap.dedent('\n'.join(body))+'\n');checked+=1
+          assert checked==3,checked
+      - name: Unify presentation without changing navigation callbacks or operations
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,os,json
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='925e8cde56f45a2b1da36712c8e6ce515df8a657','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui');changed=set()
+          def edit(name,old,new):
+              p=root/name;t=p.read_text();assert t.count(old)==1,(name,old,t.count(old));p.write_text(t.replace(old,new,1));changed.add(str(p))
+          heading='Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}'
+          edit('management/ProfileUserDetailSurface.kt',heading,'iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title,backTag="user-action-back")')
+          edit('management/AccountOptionSurface.kt','ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}','iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title)')
+          edit('management/ServerReadSurface.kt',heading,'iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title)')
+          old='''    val es=LocalConfiguration.current.locales[0].language=="es"
+              ProfileUserDetailSurface(inline=inline,onDismissRequest=onDismissRequest,modifier=modifier,properties=properties,
+                  title={
+                      if(inline) Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                          IconButton(onClick=onDismissRequest,modifier=Modifier.testTag("user-action-back")) {
+                              Icon(Icons.AutoMirrored.Filled.ArrowBack,if(es) "Volver" else "Back")
+                          }
+                          Spacer(Modifier.width(4.dp))
+                          Box(Modifier.weight(1f)) {title()}
+                      } else title()
+                  },text=text,confirmButton=confirmButton,dismissButton=dismissButton)'''
+          edit('management/UserActionSurface.kt',old,'    ProfileUserDetailSurface(inline=inline,onDismissRequest=onDismissRequest,modifier=modifier,properties=properties,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)')
+          p=root/'management/UserActionSurface.kt';t=p.read_text()
+          for line in ['import androidx.compose.foundation.layout.*','import androidx.compose.material.icons.Icons','import androidx.compose.material.icons.automirrored.filled.ArrowBack','import androidx.compose.material3.*','import androidx.compose.ui.Alignment','import androidx.compose.ui.platform.LocalConfiguration','import androidx.compose.ui.platform.testTag','import androidx.compose.ui.unit.dp']:
+              assert t.count(line+'\n')==1;t=t.replace(line+'\n','',1)
+          p.write_text(t)
+          edit('management/ProfileBroadcastDialog.kt','ProfileBroadcastInlineLayout(modifier=modifier,flushBottom=embedded,title=','ProfileBroadcastInlineLayout(modifier=modifier,flushBottom=embedded,onBack=if(embedded) null else onDismiss,title=')
+          edit('management/ProfileBroadcastDialog.kt','ProfileBroadcastInlineLayout(modifier:Modifier,flushBottom:Boolean=false,title:','ProfileBroadcastInlineLayout(modifier:Modifier,flushBottom:Boolean=false,onBack:(()->Unit)?=null,title:')
+          edit('management/ProfileBroadcastDialog.kt','ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}','if(onBack!=null) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onBack,title=title) else ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}')
+          p=root/'devices/DeviceDetailsDialog.kt';t=p.read_text()
+          start='                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {\n                        if(inline) IconButton'
+          end='                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {'
+          assert t.count(start)==1 and t.count(end)==1
+          a=t.index(start);b=t.index(end,a);header=t[a:b]
+          marker='                        Column(Modifier.weight(1f)) {\n';assert header.count(marker)==1
+          x=header.index(marker)+len(marker)
+          y=header.index('                        }\n                        Box {',x)
+          title=header[x:y];assert title.count('fontWeight = FontWeight.Bold')==1
+          title=title.replace('fontWeight = FontWeight.Bold','fontWeight = if(inline) FontWeight.Medium else FontWeight.Bold',1)
+          x=header.index('                        Box {',y)
+          y=header.index('                        if(!inline) IconButton',x)
+          actions=header[x:y]
+          replacement='                    DeviceInventoryHeader(inline=inline,onBack=onDismiss,title={\n                        Column {\n'+title+'                        }\n                    },actions={\n'+actions+'                    })\n'
+          t=t[:a]+replacement+t[b:]
+          old='Column(Modifier.padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp))'
+          assert t.count(old)==1
+          t=t.replace(old,'Column(Modifier.padding(start=if(inline) 16.dp else 20.dp,end=if(inline) 16.dp else 12.dp,top=if(inline) 0.dp else 12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp))',1)
+          t=t.replace('import androidx.compose.material.icons.automirrored.filled.ArrowBack\n','',1)
+          p.write_text(t);changed.add(str(p))
+          p=root/'devices/DeviceDetailsSubview.kt'
+          t=p.read_text();anchor='import androidx.compose.material3.MaterialTheme';assert t.count(anchor)==1
+          t=t.replace(anchor,'import androidx.compose.material3.*\nimport androidx.compose.material.icons.Icons\nimport androidx.compose.material.icons.filled.Computer\nimport androidx.compose.material.icons.filled.Close\nimport androidx.compose.ui.Alignment\nimport androidx.compose.ui.unit.dp\nimport androidx.compose.ui.res.stringResource\nimport iecxiv.meshfabric.R',1)
+          t+='''
+          @Composable internal fun DeviceInventoryHeader(inline:Boolean,onBack:()->Unit,title:@Composable ()->Unit,actions:@Composable RowScope.()->Unit) {
+              if(inline) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onBack,title=title,actions=actions)
+              else Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                  Icon(Icons.Default.Computer,null,Modifier.size(22.dp),tint=MaterialTheme.colorScheme.primary)
+                  Box(Modifier.weight(1f)) {title()}
+                  actions()
+                  IconButton(onClick=onBack) {Icon(Icons.Default.Close,stringResource(R.string.device_details_close))}
+              }
+          }
+          '''
+          p.write_text(t);changed.add(str(p))
+          p=root/'components/SubviewHeader.kt';assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.components
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.automirrored.filled.ArrowBack
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.semantics.heading
+          import androidx.compose.ui.semantics.semantics
+          import androidx.compose.ui.unit.dp
+          @Composable internal fun SubviewHeader(
+              onBack:()->Unit,
+              title:@Composable ()->Unit,
+              modifier:Modifier=Modifier,
+              backTag:String="subview-back",
+              actions:@Composable RowScope.()->Unit={}
+          ) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              Row(modifier.fillMaxWidth().heightIn(min=48.dp).testTag("subview-header"),verticalAlignment=Alignment.CenterVertically) {
+                  IconButton(onClick=onBack,modifier=Modifier.size(48.dp).testTag(backTag)) {
+                      Icon(Icons.AutoMirrored.Filled.ArrowBack,if(es) "Volver" else "Back",Modifier.size(24.dp))
+                  }
+                  Spacer(Modifier.width(4.dp))
+                  Box(Modifier.weight(1f).semantics {heading()}) {
+                      ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}
+                  }
+                  actions()
+              }
+          }
+          ''');changed.add(str(p))
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/components/SubviewHeaderTest.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text('''package iecxiv.meshfabric.ui.components
+          import androidx.compose.material3.*
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.compose.ui.window.DialogProperties
+          import androidx.test.ext.junit.runners.AndroidJUnit4
+          import iecxiv.meshfabric.ui.management.AccountOptionSurface
+          import iecxiv.meshfabric.ui.management.UserActionSurface
+          import org.junit.Assert.assertEquals
+          import org.junit.Rule
+          import org.junit.Test
+          import org.junit.runner.RunWith
+          @RunWith(AndroidJUnit4::class)
+          class SubviewHeaderTest {
+              @get:Rule val rule=createComposeRule()
+              @Test fun headerHasOneBackButtonAndRetainsActions() {
+                  var backs=0
+                  rule.setContent {MaterialTheme {SubviewHeader(onBack={backs++},title={Text("Details")},actions={Text("Options")})}}
+                  rule.onAllNodesWithTag("subview-back").assertCountEquals(1)
+                  rule.onNodeWithText("Details").assertIsDisplayed()
+                  rule.onNodeWithText("Options").assertIsDisplayed()
+                  rule.onNodeWithTag("subview-back").performClick()
+                  rule.runOnIdle {assertEquals(1,backs)}
+              }
+              @Test fun userWrapperDoesNotDuplicateTheBackButton() {
+                  rule.setContent {MaterialTheme {UserActionSurface(onDismissRequest={},inline=true,title={Text("User")},text={},confirmButton={})}}
+                  rule.onAllNodesWithTag("user-action-back").assertCountEquals(1)
+                  rule.onAllNodesWithTag("subview-header").assertCountEquals(1)
+              }
+              @Test fun accountOptionUsesTheSharedHeader() {
+                  rule.setContent {MaterialTheme {AccountOptionSurface(inline=true,onDismissRequest={},properties=DialogProperties(),title={Text("Account")},text={},confirmButton={})}}
+                  rule.onAllNodesWithTag("subview-back").assertCountEquals(1)
+                  rule.onNodeWithText("Account").assertIsDisplayed()
+              }
+          }
+          ''');changed.add(str(p))
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines());assert actual==changed
+          Path(os.environ['RUNNER_TEMP'],'subview-header-paths.json').write_text(json.dumps(sorted(changed)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests execute unit tests and lint
+        shell: bash
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace 2>&1 | tee "$RUNNER_TEMP/subview-header-build.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: subview-header-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/subview-header-paths.json
+            ${{ runner.temp }}/subview-header-build.log
+          if-no-files-found: ignore
+      - name: Apply only validated header changes to dev and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          names={'management/ProfileUserDetailSurface.kt','management/UserActionSurface.kt','management/AccountOptionSurface.kt','management/ServerReadSurface.kt','management/ProfileBroadcastDialog.kt','devices/DeviceDetailsDialog.kt','devices/DeviceDetailsSubview.kt','components/SubviewHeader.kt'}
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+name for name in names}|{'app/src/androidTest/java/iecxiv/meshfabric/ui/components/SubviewHeaderTest.kt'}
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'subview-header-paths.json').read_text());assert set(paths)==expected
+          workflow='.github/workflows/unified-subview-headers.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui: unify back headers across integrated subviews'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
