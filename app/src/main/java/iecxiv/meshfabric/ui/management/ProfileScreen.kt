@@ -1,6 +1,7 @@
 package iecxiv.meshfabric.ui.management
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -84,8 +85,8 @@ Icon(if(directorySearchOpen) Icons.Default.Close else Icons.Default.Search,if(di
 }}) {performProfileHeaderRefresh(tab,session)}},tabs={
 ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { ownAccountRequest=null;section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false }
 })
-if(tab in 1..3 && directorySearchOpen) {
-LaunchedEffect(Unit) {withFrameNanos {};directorySearchFocus.requestFocus();directoryKeyboard?.show()}
+AnimatedVisibility(visible=tab in 1..3 && directorySearchOpen) {
+LaunchedEffect(directorySearchOpen) {if(directorySearchOpen) {withFrameNanos {};directorySearchFocus.requestFocus();directoryKeyboard?.show()}}
 OutlinedTextField(groupSearch,{groupSearch=it.take(256)},singleLine=true,
 placeholder={Text(if(tab==2) t("Buscar usuarios","Search users") else t("Buscar grupos","Search groups"))},
 modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRequester(directorySearchFocus).testTag("profile-directory-search-input"))
