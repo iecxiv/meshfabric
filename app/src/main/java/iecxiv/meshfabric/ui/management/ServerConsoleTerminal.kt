@@ -114,7 +114,7 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
                             val ime=view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                             ime?.restartInput(view)
                             view.post {
-                                if(inputFocusAllowed() && view.hasFocus()) ime?.showSoftInput(view,InputMethodManager.SHOW_IMPLICIT)
+                                if(inputFocusAllowed() && view.hasFocus()) ime?.showSoftInput(view,0)
                             }
                         }
                     }

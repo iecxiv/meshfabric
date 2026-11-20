@@ -18,6 +18,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -140,14 +142,14 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: agentVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
-            Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("agent_console_status_row"),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(when(state.phase) {
                     "connecting","checking"->t("Verificando canal, agente y permiso de consola…","Verifying channel, agent and console permission…")
                     "checking_send"->t("Reverificando antes de enviar…","Rechecking before sending…")
                     "ready"->t("Canal verificado","Channel verified")
                     else->t("Consola desconectada","Console disconnected")
                 },style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f).testTag("agent_console_status"))
-                if(state.phase=="closed") TextButton(enabled=connected,onClick={session.connect()},modifier=Modifier.testTag("agent_console_reconnect")) {Text(t("Reconectar","Reconnect"))}
+                TextButton(enabled=connected && state.phase=="closed",onClick={if(state.phase=="closed") session.connect()},modifier=if(state.phase=="closed") Modifier.testTag("agent_console_reconnect") else Modifier.alpha(0f).clearAndSetSemantics {}) {Text(t("Reconectar","Reconnect"))}
             }
             if(state.phase=="closed" && state.code.isNotBlank()) {
                 Text(t("Motivo: ","Reason: ")+agentConsoleReasonText(state.code,es),style=MaterialTheme.typography.labelSmall)
