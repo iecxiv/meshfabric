@@ -1,0 +1,171 @@
+name: Validate integrated server navigation
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/server-inline-navigation.yml']
+permissions:
+  contents: write
+concurrency:
+  group: server-inline-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Integrate existing server viewers without changing transport or confirmations
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          def apply(name,sha,changes):
+              p=root/name
+              assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()==sha,name
+              original=p.read_text();updated=original;undo=[]
+              for old,new in changes:
+                  assert old and updated.count(old)==1,(name,old)
+                  pos=updated.index(old);undo.append((pos,old,new))
+                  updated=updated[:pos]+new+updated[pos+len(old):]
+              restored=updated
+              for pos,old,new in reversed(undo):
+                  assert restored[pos:pos+len(new)]==new
+                  restored=restored[:pos]+old+restored[pos+len(new):]
+              assert restored==original
+              p.write_text(updated)
+          apply('MyServerScreen.kt','a96f684661ed1d9304c5ef6a94fd896c271e1b51',[
+              ('    var confirmConfig by remember(readIdentity) { mutableStateOf(false) }',
+               '''    var confirmConfig by remember(readIdentity) { mutableStateOf(false) }
+              val generalScroll=rememberScrollState()
+              val historyScroll=rememberScrollState()
+              val consoleScroll=rememberScrollState()
+              val traceScroll=rememberScrollState()
+              val closeResult:()->Unit={resultDialog.value=null;reader?.dismiss()}
+              androidx.activity.compose.BackHandler(enabled=tab==0 && resultDialog.value!=null && !confirmConfig,onBack=closeResult)'''),
+              ('        ServerSectionTabs(tab) { tab=it }',
+               '        ServerSectionTabs(tab) { if(it!=tab) {closeResult();tab=it} }'),
+              ('        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {',
+               '''        val selectedResult=resultDialog.value?.takeIf {tab==0}
+                  if(selectedResult!=null) {
+                      Column(Modifier.weight(1f).fillMaxWidth()) {
+                          key(readIdentity,selectedResult.action) {
+                              CompositionLocalProvider(LocalServerReadInline provides true) {
+                                  ServerReadResultDialog(selectedResult.raw,selectedResult.action,closeResult)
+                              }
+                          }
+                      }
+                  } else Column(Modifier.weight(1f).verticalScroll(when(tab) {0->generalScroll;1->historyScroll;2->consoleScroll;else->traceScroll}).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {'''),
+              ('    key(readIdentity) { resultDialog.value?.let { result->ServerReadResultDialog(result.raw,result.action) {resultDialog.value=null;reader?.dismiss()} } }\n','')
+          ])
+          p=root/'ServerGeneralPresentation.kt'
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='fa2ad3e6d9863e622bff17a314f1fd6da79dba4b'
+          original=p.read_text()
+          boundary='@Composable internal fun ServerReadResultDialog('
+          assert original.count(boundary)==1
+          prefix,body=original.split(boundary,1)
+          old='ManagementDialog(onDismissRequest=onClose,title='
+          assert body.count(old)==2
+          updated=body.replace(old,'ServerReadSurface(onDismissRequest=onClose,title=')
+          oldBox='Box(Modifier.fillMaxWidth().heightIn(max=360.dp).verticalScroll(rememberScrollState()))'
+          newBox='Box(Modifier.fillMaxWidth().heightIn(max=if(LocalServerReadInline.current) LocalConfiguration.current.screenHeightDp.dp else 360.dp).verticalScroll(rememberScrollState()))'
+          assert updated.count(oldBox)==1
+          updated=updated.replace(oldBox,newBox,1)
+          assert updated.replace(newBox,oldBox,1).replace('ServerReadSurface(onDismissRequest=onClose,title=',old)==body
+          p.write_text(prefix+boundary+updated)
+          apply('ServerVersionDialog.kt','cc691940a09694a1db222b274bd66238a0f75656',[
+              ('iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onClose,title=',
+               'ServerReadSurface(appAlert=true,onDismissRequest=onClose,title='),
+              ('Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp))',
+               'Column(Modifier.heightIn(max=if(LocalServerReadInline.current) LocalConfiguration.current.screenHeightDp.dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(10.dp))')
+          ])
+          p=root/'ServerReadSurface.kt'
+          assert not p.exists()
+          p.write_text('''package iecxiv.meshfabric.ui.management
+          
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.unit.dp
+          
+          internal val LocalServerReadInline=staticCompositionLocalOf {false}
+          
+          @Composable internal fun ServerReadSurface(appAlert:Boolean=false,onDismissRequest:()->Unit,title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit) {
+              if(!LocalServerReadInline.current) {
+                  if(appAlert) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton)
+                  else ManagementDialog(onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton)
+                  return
+              }
+              val context=LocalContext.current
+              val window=remember(context) {
+                  var owner:android.content.Context=context
+                  while(owner is android.content.ContextWrapper && owner !is android.app.Activity) owner=owner.baseContext
+                  requireNotNull((owner as? android.app.Activity)?.window)
+              }
+              DisposableEffect(window) {
+                  val flag=android.view.WindowManager.LayoutParams.FLAG_SECURE
+                  val previouslySecure=window.attributes.flags and flag!=0
+                  window.addFlags(flag)
+                  onDispose {if(!previouslySecure) window.clearFlags(flag)}
+              }
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              Column(Modifier.fillMaxSize().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                  Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                      TextButton(onClick=onDismissRequest,modifier=Modifier.heightIn(min=48.dp)) {Text(if(es) "Volver" else "Back")}
+                      Box(Modifier.weight(1f)) {title()}
+                  }
+                  Box(Modifier.weight(1f).fillMaxWidth()) {text()}
+              }
+          }
+          ''')
+          expected={str(root/name) for name in ['MyServerScreen.kt','ServerGeneralPresentation.kt','ServerVersionDialog.kt','ServerReadSurface.kt']}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          untracked=set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          assert changed|untracked==expected
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: server-inline-navigation-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated navigation and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          workflow='.github/workflows/server-inline-navigation.yml'
+          Path(workflow).unlink()
+          root='app/src/main/java/iecxiv/meshfabric/ui/management/'
+          paths=[root+name for name in ['MyServerScreen.kt','ServerGeneralPresentation.kt','ServerVersionDialog.kt','ServerReadSurface.kt']]+[workflow]
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(server): integrate read views and retain per-tab scroll positions'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
