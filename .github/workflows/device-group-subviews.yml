@@ -1,0 +1,134 @@
+name: Validate device group and linked group subviews
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-group-subviews.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-group-subviews-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Validate all Python blocks before mutation
+        shell: python
+        run: |
+          import ast,textwrap
+          from pathlib import Path
+          lines=Path('.github/workflows/device-group-subviews.yml').read_text().splitlines();checked=0
+          for i,line in enumerate(lines):
+              if line!='        run: |': continue
+              body=[]
+              for following in lines[i+1:]:
+                  if following.strip() and not following.startswith('          '): break
+                  body.append(following)
+              ast.parse(textwrap.dedent('\n'.join(body))+'\n');checked+=1
+          assert checked==3,checked
+      - name: Prepare scoped group subviews without changing server operations
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='255185ebfc348cd86c7e157f1cef39760caa7521','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management');changed=set()
+          def edit(name,old,new):
+              p=root/name;t=p.read_text();assert t.count(old)==1,(name,old,t.count(old));p.write_text(t.replace(old,new,1));changed.add(str(p))
+          policy='internal fun profileFormUsesSubview(tab:Int,form:ProfileForm?)=tab in 1..3 && form!=null && (form.users || form.operation=="create")'
+          edit('UserActionSurface.kt',policy,'internal fun profileFormUsesSubview(tab:Int,form:ProfileForm?)=tab in 1..3 && form!=null && (form.users || form.operation in setOf("create","edit","delete"))\ninternal fun profileLinkedGroupSubview(tab:Int,group:String?,assignment:Pair<String,String>?)=tab in 1..3 && (group!=null || assignment!=null)')
+          edit('ProfileScreen.kt','ProfileUserDetailSurface(inline=LocalProfileUserInline.current && creating,','UserActionSurface(inline=LocalProfileUserInline.current,')
+          edit('DeviceGroupAdvancedEditor.kt','ManagementDialog(onDismissRequest=','UserActionSurface(inline=LocalDeviceGroupInline.current,onDismissRequest=')
+          edit('CompactProfileGroups.kt','ProfileUserDetailSurface(inline=LocalDeviceGroupInline.current,','UserActionSurface(inline=LocalDeviceGroupInline.current,')
+          edit('CompactProfileGroups.kt','var query by remember(id) { mutableStateOf("") }','var query by rememberSaveable(id) { mutableStateOf("") }')
+          edit('ReceivedUserGroupDialog.kt','ManagementDialog(onDismissRequest=','UserActionSurface(onDismissRequest=')
+          edit('GroupMeshAssignmentReview.kt','ProfileUserDetailSurface(inline=LocalUserGroupActionsInline.current,','UserActionSurface(inline=LocalUserGroupActionsInline.current || LocalProfileUserInline.current,')
+          anchor='val inlineGroup=tab!=0 && groupDetails!=null && form==null && userGroupDetails==null'
+          edit('ProfileScreen.kt',anchor,'val inlineLinked=profileLinkedGroupSubview(tab,userGroupDetails,deviceAssignment)\n'+anchor)
+          linked='userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}\ndeviceAssignment?.let {(gid,mid)->GroupMeshAssignmentReview(session,state,gid,mid) {deviceAssignment=null}}'
+          edit('ProfileScreen.kt',linked,'')
+          focus='LaunchedEffect(inlineUser,inlineGroup) {if(inlineUser || inlineGroup) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}'
+          edit('ProfileScreen.kt',focus,'@Composable fun RenderLinkedGroups() {\n'+linked+'\n}\nLaunchedEffect(inlineUser,inlineGroup,inlineLinked) {if(inlineUser || inlineGroup || inlineLinked) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}')
+          edit('ProfileScreen.kt','then(if(inlineUser || inlineGroup) Modifier.clearAndSetSemantics','then(if(inlineUser || inlineGroup || inlineLinked) Modifier.clearAndSetSemantics')
+          edit('ProfileScreen.kt','if(inlineUser) Column(Modifier.fillMaxSize()) {','if(inlineUser) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineLinked)) {')
+          group='if(inlineGroup) Column(Modifier.fillMaxSize()) {CompositionLocalProvider(LocalDeviceGroupInline provides true) {RenderDeviceGroup()}}'
+          edit('ProfileScreen.kt',group,'if(inlineGroup) Column(Modifier.fillMaxSize().blockCoveredNavigation(inlineLinked)) {CompositionLocalProvider(LocalDeviceGroupInline provides true) {RenderDeviceGroup()}}\nif(inlineLinked) Column(Modifier.fillMaxSize()) {CompositionLocalProvider(LocalProfileUserInline provides true,LocalUserGroupActionsInline provides true) {RenderLinkedGroups()}}')
+          edit('ProfileScreen.kt','if(!inlineUser) RenderProfileForm()','if(!inlineUser) RenderProfileForm()\nif(!inlineLinked) RenderLinkedGroups()')
+          test=Path('app/src/test/java/iecxiv/meshfabric/ui/management/UserActionSubviewTest.kt');text=test.read_text()
+          assert text.count('deviceGroupEditingRemainsForItsOwnMigration')==1
+          text=text.replace('deviceGroupEditingRemainsForItsOwnMigration','deviceGroupFormOperationsAreIntegrated',1)
+          for operation in ['edit','delete']:
+              old='assertFalse(profileFormUsesSubview(1,ProfileForm(false,"'+operation+'")))'
+              assert text.count(old)==1;text=text.replace(old,old.replace('assertFalse','assertTrue'),1)
+          test.write_text(text);changed.add(str(test))
+          test=Path('app/src/test/java/iecxiv/meshfabric/ui/management/LinkedGroupSubviewTest.kt');assert not test.exists()
+          test.write_text('''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class LinkedGroupSubviewTest {
+              @Test fun groupAndAssignmentOpenInsideEveryDirectoryTab() {
+                  for(tab in 1..3) {
+                      assertTrue(profileLinkedGroupSubview(tab,"ugrp/domain/a",null))
+                      assertTrue(profileLinkedGroupSubview(tab,null,"ugrp/domain/a" to "mesh/domain/b"))
+                  }
+              }
+              @Test fun noDestinationAndAccountDoNotCoverDirectory() {
+                  assertFalse(profileLinkedGroupSubview(2,null,null))
+                  for(tab in listOf(-1,0,4)) assertFalse(profileLinkedGroupSubview(tab,"ugrp/domain/a",null))
+              }
+              @Test fun remainingDestinationKeepsDirectoryCovered() {
+                  assertTrue(profileLinkedGroupSubview(1,null,"ugrp/domain/a" to "mesh/domain/b"))
+                  assertFalse(profileLinkedGroupSubview(1,null,null))
+              }
+          }
+          ''');changed.add(str(test))
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines());assert actual==changed
+          Path(os.environ['RUNNER_TEMP'],'device-group-subview-paths.json').write_text(json.dumps(sorted(changed)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests execute unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-group-subview-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/device-group-subview-paths.json
+          if-no-files-found: ignore
+      - name: Apply validated changes to dev and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          names={'ProfileScreen.kt','UserActionSurface.kt','CompactProfileGroups.kt','DeviceGroupAdvancedEditor.kt','ReceivedUserGroupDialog.kt','GroupMeshAssignmentReview.kt'}
+          tests={'UserActionSubviewTest.kt','LinkedGroupSubviewTest.kt'}
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/management/'+name for name in names}|{'app/src/test/java/iecxiv/meshfabric/ui/management/'+name for name in tests}
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'device-group-subview-paths.json').read_text());assert set(paths)==expected
+          workflow='.github/workflows/device-group-subviews.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(groups): integrate device-group forms and linked group views'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
