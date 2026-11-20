@@ -1,0 +1,110 @@
+name: Validate account and management layout fixes
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/account-management-layout.yml']
+permissions:
+  contents: write
+concurrency:
+  group: account-management-layout-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Apply four scoped visual corrections
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          assert git('rev-parse','HEAD^')=='01d7b71a2cbbf970d9656e0cd0c688adbac76625','Base changed; re-review required'
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui')
+          changed=set()
+          def edit(name,old,new):
+              p=base/name;text=p.read_text()
+              assert old and text.count(old)==1,(name,old,text.count(old))
+              updated=text.replace(old,new,1)
+              assert updated.replace(new,old,1)==text
+              p.write_text(updated);changed.add(str(p))
+          edit('management/ServerConsoleTerminal.kt','''            TextButton(onClick={ showText=!showText },modifier=Modifier.weight(1f)) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+                      ServerConsoleTextDownload(snapshot)''','''            TextButton(onClick={ showText=!showText }) { Text(if(showText) label("Ocultar texto","Hide text") else label("Ver texto recibido","View received text")) }
+                      Spacer(Modifier.weight(1f))
+                      ServerConsoleTextDownload(snapshot)''')
+          edit('management/ProfileUserDetailSurface.kt','Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.surface)','Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground)')
+          edit('management/ProfileScreen.kt','''if(tab==0) NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null}) else if''','''if(tab==0) CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalWideAccountDialogs provides true) {NativeAccountPane(source,state.id,Modifier.weight(1f).fillMaxWidth(),pendingAction=ownAccountRequest,onActionConsumed={ownAccountRequest=null})} else if''')
+          edit('management/ProfileScreen.kt','OutlinedTextField(name,{ if(it.length<=256) name=it },label={ Text(t("Nombre","Name")) },singleLine=true)','OutlinedTextField(name,{ if(it.length<=256) name=it },label={ Text(t("Nombre","Name")) },singleLine=true,modifier=Modifier.fillMaxWidth())')
+          edit('management/ProfileScreen.kt','OutlinedTextField(description,{ if(it.length<=1024) description=it },label={ Text(t("Descripción","Description")) },maxLines=3)','OutlinedTextField(description,{ if(it.length<=1024) description=it },label={ Text(t("Descripción","Description")) },maxLines=3,modifier=Modifier.fillMaxWidth())')
+          edit('components/AppDialogAppearance.kt','import androidx.compose.foundation.layout.ColumnScope','import androidx.compose.foundation.layout.ColumnScope\nimport androidx.compose.foundation.layout.widthIn\nimport androidx.compose.foundation.layout.fillMaxWidth')
+          edit('components/AppDialogAppearance.kt','internal object AppDialogAppearance {','internal val LocalWideAccountDialogs=staticCompositionLocalOf {false}\ninternal object AppDialogAppearance {\n    val wideMaxWidth=640.dp\n    const val wideWidthFraction=0.94f')
+          edit('components/AppDialogAppearance.kt','''    CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+                  AlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,
+                      modifier=modifier.border(AppDialogAppearance.border(),shape),dismissButton=dismissButton,icon=icon,''','''    val wide=LocalWideAccountDialogs.current
+              val dialogModifier=if(wide) Modifier.widthIn(max=AppDialogAppearance.wideMaxWidth).fillMaxWidth(AppDialogAppearance.wideWidthFraction).then(modifier) else modifier
+              val dialogProperties=if(wide) DialogProperties(
+                  dismissOnBackPress=properties.dismissOnBackPress,
+                  dismissOnClickOutside=properties.dismissOnClickOutside,
+                  securePolicy=properties.securePolicy,
+                  usePlatformDefaultWidth=false,
+                  decorFitsSystemWindows=properties.decorFitsSystemWindows,
+                  windowTitle=properties.windowTitle
+              ) else properties
+              CompositionLocalProvider(LocalAbsoluteTonalElevation provides 0.dp) {
+                  AlertDialog(onDismissRequest=onDismissRequest,confirmButton=confirmButton,
+                      modifier=dialogModifier.border(AppDialogAppearance.border(),shape),dismissButton=dismissButton,icon=icon,''')
+          edit('components/AppDialogAppearance.kt','titleContentColor=titleContentColor,textContentColor=textContentColor,tonalElevation=tonalElevation,properties=properties)','titleContentColor=titleContentColor,textContentColor=textContentColor,tonalElevation=tonalElevation,properties=dialogProperties)')
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          assert actual==changed
+          group=(base/'management/ProfileScreen.kt').read_text()
+          assert 'Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f)' in group
+          account=(base/'components/AppDialogAppearance.kt').read_text()
+          assert 'securePolicy=properties.securePolicy' in account
+          assert 'dismissOnBackPress=properties.dismissOnBackPress' in account
+          assert 'dismissOnClickOutside=properties.dismissOnClickOutside' in account
+          assert 'decorFitsSystemWindows=properties.decorFitsSystemWindows' in account
+          assert 'windowTitle=properties.windowTitle' in account
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: account-management-layout-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated visual fixes and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          workflow='.github/workflows/account-management-layout.yml'
+          Path(workflow).unlink()
+          root='app/src/main/java/iecxiv/meshfabric/ui/'
+          paths=[root+n for n in ['management/ServerConsoleTerminal.kt','management/ProfileUserDetailSurface.kt','management/ProfileScreen.kt','components/AppDialogAppearance.kt']]+[workflow]
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(ui): match account dialog widths and management layout'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
