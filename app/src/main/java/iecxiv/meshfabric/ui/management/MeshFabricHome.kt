@@ -236,6 +236,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val snackbar=remember { SnackbarHostState() }
     val uiScope=rememberCoroutineScope()
     var page by rememberSaveable { mutableIntStateOf(0) }
+    var openActivity by rememberSaveable { mutableStateOf(false) }
     var returnPage by rememberSaveable { mutableIntStateOf(0) }
     var profileReturnPage by rememberSaveable { mutableIntStateOf(0) }
     var noticeReturnPage by rememberSaveable { mutableIntStateOf(0) }
@@ -281,7 +282,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                     }
                 })
             } else LogScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
-                actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings)
+                actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings,openActivity=openActivity,onActivityOpened={openActivity=false})
         }
     }
     ActionFeedbackDialogs(management.feedback)
@@ -309,7 +310,7 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                             snackbar.currentSnackbarData?.dismiss()
                             val result=snackbar.showSnackbar(message=managementText("${op.title}: solicitud enviada; ejecución sin confirmar.","${op.title}: request sent; execution unconfirmed."),
                                 actionLabel=managementText("Ver actividad","View activity"),withDismissAction=true,duration=SnackbarDuration.Long)
-                            if(result==SnackbarResult.ActionPerformed) page=1
+                            if(result==SnackbarResult.ActionPerformed) {openActivity=true;page=1}
                         }
                     } else error=managementText("No se ha podido enviar la solicitud. Revisa la conexión; no se reintentará automáticamente.","Could not send the request. Check the connection; it will not be retried automatically.")
                 }

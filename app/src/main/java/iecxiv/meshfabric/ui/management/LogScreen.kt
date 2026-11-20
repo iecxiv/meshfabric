@@ -26,9 +26,10 @@ import java.util.Date
     val holder=rememberSaveableStateHolder()
     holder.SaveableStateProvider(selected) {content(selected)}
 }
-@Composable internal fun LogScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit) {
+@Composable internal fun LogScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit,openActivity:Boolean=false,onActivityOpened:()->Unit={}) {
     val actor by viewModel.userInfo.collectAsState()
-    var tab by rememberSaveable {mutableIntStateOf(1)}
+    var tab by rememberSaveable {mutableIntStateOf(if(openActivity) 0 else 1)}
+    LaunchedEffect(openActivity) {if(openActivity) {tab=0;onActivityOpened()}}
     key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,viewModel.meshClient.ignoreSsl,viewModel.meshClient.isUserLogout,actor?.id,actor?.siteadmin) {
         LogSectionContent(tab) {selected->
             if(selected==0) MeshFabricActivityScreen(viewModel,journal,feedback,actionsReady,actionsStatus,onReconnect,onOpenSettings,header={RegistroSectionTabs(tab) {tab=it}})
