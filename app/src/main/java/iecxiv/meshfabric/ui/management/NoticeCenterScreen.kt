@@ -41,7 +41,6 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var section by remember {mutableStateOf(NoticeSection.INBOX)}
-    var broadcast by remember {mutableStateOf(false)}
     var recipient by remember {mutableStateOf<String?>(null)}
     var searchState by remember {mutableStateOf(NoticeSearchState())}
     val search=searchState.query
@@ -61,29 +60,19 @@ internal enum class NoticeSection { INBOX, BROADCAST, MESSAGES }
             } else session.stop()
         }
     }
-    LaunchedEffect(state.ready) {if(!state.ready) {broadcast=false;recipient=null}}
-    BackHandler(enabled=broadcast && section==NoticeSection.BROADCAST) {broadcast=false}
+    LaunchedEffect(state.ready) {if(!state.ready) recipient=null}
     BackHandler(enabled=section==NoticeSection.MESSAGES && searchState.open) {searchState=searchState.cleared()}
     Column(modifier) {
         header {if(section==NoticeSection.MESSAGES) NoticeSearchAction(searchState) {searchState=searchState.toggle()}}
         NoticeCenterTabs(section) {
-            broadcast=false;recipient=null;searchState=searchState.cleared();section=it
+            recipient=null;searchState=searchState.cleared();section=it
         }
         when(section) {
             NoticeSection.INBOX->NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())
-            NoticeSection.BROADCAST->if(broadcast) {
-                Column(Modifier.weight(1f).fillMaxWidth()) {
-                    ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
-                    NoticeSubmissionStatus(state.notice,es)
-                    ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth()) {broadcast=false}
-                }
-            } else NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {
-                Text(t("Difusión a sesiones conectadas","Broadcast to connected sessions"),style=MaterialTheme.typography.titleMedium)
-                Text(t("La vista de revisión muestra el servidor, dominio y alcance efectivo. No es correo ni acceso temporal.","The review view shows the server, domain and effective scope. This is not email or temporary access."))
-                Text(t("Aceptar la solicitud no confirma recepción ni lectura. No se reenvía automáticamente.","Request acceptance does not confirm receipt or reading. No automatic resend."),style=MaterialTheme.typography.bodySmall)
-                NoticeSubmissionStatus(state.notice,es)
-                Button(enabled=state.canWrite && profileBroadcastRoleAllowed(state.site),onClick={broadcast=true}) {Text(t("Redactar Broadcast","Compose Broadcast"))}
-                if(state.ready && !profileBroadcastRoleAllowed(state.site)) Text(t("Sin permiso para Broadcast.","No permission to broadcast."))
+            NoticeSection.BROADCAST->Column(Modifier.weight(1f).fillMaxWidth()) {
+                ProfileManagementConnectionStatus(state,Modifier.padding(horizontal=16.dp),session::start)
+                ProfileBroadcastPane(session,state,Modifier.weight(1f).fillMaxWidth(),embedded=true) {}
+                Box(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {NoticeSubmissionStatus(state.notice,es)}
             }
             NoticeSection.MESSAGES->NoticeManagementBody(state,session::start,Modifier.weight(1f).fillMaxWidth()) {
                 Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {

@@ -388,11 +388,12 @@ var dateLocale by remember(prefKey) { mutableStateOf(prefs.getString("${prefKey}
 var alerts by remember(prefKey) { mutableStateOf(prefs.getBoolean("${prefKey}_alerts",false)) }
 val options=webNoticeOptions(state.webState?.let(::webNoticeMask) ?: 0L)
 var mode by remember(wire) { mutableStateOf<Int?>(null) }
+var accountOptionParents by remember(wire) {mutableStateOf<List<Int>>(emptyList())}
 DisposableEffect(wire) { onDispose { wire.dispose() } }
 LaunchedEffect(wire,lifecycle,connected) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
 if(connected) { wire.start(); try { awaitCancellation() } finally { wire.leave() } } else wire.pause()
 } }
-LaunchedEffect(state.ready) { if(!state.ready) mode=null }
+LaunchedEffect(state.ready) { if(!state.ready) {mode=null;accountOptionParents=emptyList()} }
 val labels=listOf(t("Administrar la aplicación de autenticación","Manage authenticator app"),t("Administrar claves de seguridad","Manage security keys"),t("Administrar códigos de respaldo","Manage backup codes"),t("Ver inicios de sesión anteriores","View previous logins"),t("Habilitar notificaciones en la app","Enable in-app notifications"),t("Opciones de hora e idioma","Time and language options"),t("Opciones de notificación","Notification options"),t("Cambiar contraseña","Change password"),t("Eliminar cuenta","Delete account"),t("Crear token de inicio de sesión","Create login token"))+listOf(t("Gestionar MFA","Manage MFA"))
 val status=when(state.status) {
 "ready","received","offline","connecting"->""
@@ -413,41 +414,21 @@ val status=when(state.status) {
 else->t("Cuenta desconectada o conectando.","Account offline or connecting.")
 }
 fun openAction(index:Int) {
+if(mode!=null && mode!=index) accountOptionParents=(accountOptionParents+requireNotNull(mode)).takeLast(8)
 wire.clearResult(); mode=index
 when(index) { 0->wire.request("otpauth-request"); 1->wire.request("otp-hkey-get"); 2->wire.request("otpauth-getpasswords"); 3->wire.request("previousLogins"); 6->wire.refreshWebState(); 9->wire.request("loginTokens") }
 }
 ProfileOwnAccountLaunch(pendingAction,actor,source.serverUrl,state.ready,state.busy,onOpen={openAction(it)},onConsumed=onActionConsumed)
 val icons=listOf(Icons.Default.Security,Icons.Default.VpnKey,Icons.Default.Description,Icons.Default.History,Icons.Default.Notifications,Icons.Default.Language,Icons.Default.Settings,Icons.Default.Lock,Icons.Default.Delete,Icons.Default.Key)
-Column(modifier) {
-ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",modifier=Modifier.padding(horizontal=16.dp),onReconnect=wire::start)
-Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https","notRevoked") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-AccountNoticeBanner(state.notice,options,alerts,es,dateLocale,hours24)
-if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-Text(t("Detalles de la cuenta","Account details"),style=MaterialTheme.typography.titleMedium)
-ManagementCard {
-ManagementInfoRow(t("Nombre de usuario","Username"),state.user?.optString("name").orEmpty())
-HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-ManagementInfoRow(t("Correo electrónico","Email"),state.user?.optString("email").orEmpty())
-HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-ManagementInfoRow(t("ID de cuenta","Account ID"),actor)
+val accountMainScroll=rememberScrollState()
+fun closeAccountOption() {
+    if(!state.busy) {
+        wire.clearResult()
+        mode=accountOptionParents.lastOrNull()
+        accountOptionParents=accountOptionParents.dropLast(1)
+    }
 }
-Text(t("Seguridad de la cuenta","Account security"),style=MaterialTheme.typography.titleMedium)
-AccountActionsCard {
-(0..2).forEach { index->
-CompactAccountActionRow(labels[index],icons[index],state.ready && !state.busy,onClick={ openAction(index) })
-if(index<2) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-}
-}
-Text(t("Acciones","Actions"),style=MaterialTheme.typography.titleMedium)
-AccountActionsCard {
-(3..9).forEach { index->
-CompactAccountActionRow(labels[index],icons[index],state.ready && !state.busy,dangerous=index==8,onClick={ openAction(index) })
-if(index<9) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-}
-}
-}
-}
+@Composable fun RenderAccountOption() {
 mode?.let { selected->key(selected) {
 var first by remember { mutableStateOf("") }
 var second by remember { mutableStateOf("") }
@@ -469,8 +450,8 @@ val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardM
 val clip=ClipData.newPlainText("MeshFabric",value).apply { description.extras=PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE",true) } }
 feedback=if(runCatching { checkNotNull(clipboard).setPrimaryClip(clip) }.isSuccess) t("Copiado.","Copied.") else t("No se pudo copiar.","Could not copy.")
 }
-if(selected==3) OwnPreviousLoginsDialog(state.user?.optString("name").orEmpty(),actor,reply?.optJSONArray("events"),state.busy,state.status in setOf("incompatible","rejected","unknown","malformed","timeout"),es,onRefresh={run("previousLogins")},onDismiss={wire.clearResult();mode=null},error=feedback) else ManagementDialog(onDismissRequest={ if(!state.busy) { wire.clearResult(); mode=null } },properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(labels[selected]) },text={
-Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+if(selected==3) OwnPreviousLoginsDialog(state.user?.optString("name").orEmpty(),actor,reply?.optJSONArray("events"),state.busy,state.status in setOf("incompatible","rejected","unknown","malformed","timeout"),es,onRefresh={run("previousLogins")},onDismiss={wire.clearResult();mode=null},error=feedback) else AccountOptionSurface(inline=accountInlineOption(selected),onDismissRequest=::closeAccountOption,properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),title={ Text(labels[selected]) },text={
+Column(Modifier.fillMaxWidth().heightIn(max=if(accountInlineOption(selected)) LocalConfiguration.current.screenHeightDp.dp else 440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
 if(status.isNotBlank()) Text(status)
 if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
 when(selected) {
@@ -635,8 +616,41 @@ action("Actualizar lista","Refresh list") { third=""; confirmation=false; run("l
 }
 if(feedback.isNotBlank()) Text(feedback)
 }
-},confirmButton={ TextButton(enabled=!state.busy,onClick={ wire.clearResult(); mode=null }) { Text(t("Cerrar","Close")) } })
+},confirmButton={ TextButton(enabled=!state.busy,onClick=::closeAccountOption) { Text(t("Cerrar","Close")) } })
 } }
+}
+Column(modifier) {
+ManagementConnectionStatus(ready=state.ready,connecting=state.status=="connecting",reconnectEnabled=state.status!="deleteUnknown",modifier=Modifier.padding(horizontal=16.dp),onReconnect=wire::start)
+if(mode?.let(::accountInlineOption)==true) Box(Modifier.weight(1f).fillMaxWidth()) {RenderAccountOption()} else Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(accountMainScroll).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+if(status.isNotBlank()) Text(status,style=MaterialTheme.typography.bodySmall,color=if(state.status in setOf("unknown","deleteUnknown","rejected","https","notRevoked") || state.status.startsWith("password:")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+AccountNoticeBanner(state.notice,options,alerts,es,dateLocale,hours24)
+if(state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+Text(t("Detalles de la cuenta","Account details"),style=MaterialTheme.typography.titleMedium)
+ManagementCard {
+ManagementInfoRow(t("Nombre de usuario","Username"),state.user?.optString("name").orEmpty())
+HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+ManagementInfoRow(t("Correo electrónico","Email"),state.user?.optString("email").orEmpty())
+HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+ManagementInfoRow(t("ID de cuenta","Account ID"),actor)
+}
+Text(t("Seguridad de la cuenta","Account security"),style=MaterialTheme.typography.titleMedium)
+AccountActionsCard {
+(0..2).forEach { index->
+CompactAccountActionRow(labels[index],icons[index],state.ready && !state.busy,onClick={ openAction(index) })
+if(index<2) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+}
+}
+Text(t("Acciones","Actions"),style=MaterialTheme.typography.titleMedium)
+AccountActionsCard {
+(3..9).forEach { index->
+CompactAccountActionRow(labels[index],icons[index],state.ready && !state.busy,dangerous=index==8,onClick={ openAction(index) })
+if(index<9) HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+}
+}
+}
+}
+if(mode==8) RenderAccountOption()
+
 }
 
 internal fun fidoPhaseStatus(phase:FidoRegistrationSession.Phase):String = when(phase) {
