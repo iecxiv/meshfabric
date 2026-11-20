@@ -237,11 +237,11 @@ androidx.compose.ui.unit.Dp(0f)
     var font by remember(raw,action) { mutableIntStateOf(12) }
     val title=stringResource(when(action) { "serverconfig"->R.string.my_server_config; "servererrors"->R.string.my_server_errors; "serverversion"->R.string.my_server_version; else->R.string.my_server_result })
     if(result.noErrorLog) {
-        ManagementDialog(onDismissRequest=onClose,title={ if(action=="serverconfig" || action=="servererrors") ServerGeneralActionTitle(title) else Text(title,style=MaterialTheme.typography.headlineSmall) },text={ Text(label("El servidor no tiene registro de errores.","The server has no error log.")) },
+        ServerReadSurface(onDismissRequest=onClose,title={ if(action=="serverconfig" || action=="servererrors") ServerGeneralActionTitle(title) else Text(title,style=MaterialTheme.typography.headlineSmall) },text={ Text(label("El servidor no tiene registro de errores.","The server has no error log.")) },
             confirmButton={ TextButton(onClick=onClose) { Text(stringResource(R.string.my_server_close)) } })
         return
     }
-    ManagementDialog(onDismissRequest=onClose,title={ if(action=="serverconfig" || action=="servererrors") ServerGeneralActionTitle(title) else Text(title,style=MaterialTheme.typography.headlineSmall) },text={
+    ServerReadSurface(onDismissRequest=onClose,title={ if(action=="serverconfig" || action=="servererrors") ServerGeneralActionTitle(title) else Text(title,style=MaterialTheme.typography.headlineSmall) },text={
         Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(result.missing) Text(label("Respuesta inesperada: falta el contenido solicitado. Se muestra la respuesta recibida.","Unexpected response: requested content missing. Showing the received response."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
             if(result.invalidJson) Text(label("El contenido recibido no es una configuración JSON válida.","Received content is not a valid JSON configuration."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
@@ -253,7 +253,7 @@ androidx.compose.ui.unit.Dp(0f)
             }
             val content=if(action=="servererrors" && !result.missing && result.text.isBlank()) label("No hay errores registrados.","No errors recorded.") else result.text
             SelectionContainer {
-                Box(Modifier.fillMaxWidth().heightIn(max=360.dp).verticalScroll(rememberScrollState())) {
+                Box(Modifier.fillMaxWidth().heightIn(max=if(LocalServerReadInline.current) LocalConfiguration.current.screenHeightDp.dp else 360.dp).verticalScroll(rememberScrollState())) {
                     Text(content,if(wrap) Modifier.fillMaxWidth() else Modifier.horizontalScroll(rememberScrollState()),fontFamily=FontFamily.Monospace,
                         style=MaterialTheme.typography.bodySmall.copy(fontSize=font.sp,lineHeight=(font+5).sp))
                 }

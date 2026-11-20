@@ -199,6 +199,12 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     var retry by remember { mutableIntStateOf(0) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var confirmConfig by remember(readIdentity) { mutableStateOf(false) }
+    val generalScroll=rememberScrollState()
+    val historyScroll=rememberScrollState()
+    val consoleScroll=rememberScrollState()
+    val traceScroll=rememberScrollState()
+    val closeResult:()->Unit={resultDialog.value=null;reader?.dismiss()}
+    androidx.activity.compose.BackHandler(enabled=tab==0 && resultDialog.value!=null && !confirmConfig,onBack=closeResult)
     LaunchedEffect(reader,lifecycle,retry) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
         try { reader?.connect(); awaitCancellation() } finally { reader?.close() }
     } }
@@ -211,9 +217,18 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     }
     Column(modifier) {
         ServerStatisticsHeader(tab,state.ready,state.pending.isNotEmpty(),header) {refreshHistory(state.hours)}
-        ServerSectionTabs(tab) { tab=it }
+        ServerSectionTabs(tab) { if(it!=tab) {closeResult();tab=it} }
         ManagementConnectionStatus(ready=state.ready,connecting=!state.ready && !state.failed,modifier=Modifier.padding(horizontal=16.dp),onReconnect={retry++})
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        val selectedResult=resultDialog.value?.takeIf {tab==0}
+        if(selectedResult!=null) {
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                key(readIdentity,selectedResult.action) {
+                    CompositionLocalProvider(LocalServerReadInline provides true) {
+                        ServerReadResultDialog(selectedResult.raw,selectedResult.action,closeResult)
+                    }
+                }
+            }
+        } else Column(Modifier.weight(1f).verticalScroll(when(tab) {0->generalScroll;1->historyScroll;2->consoleScroll;else->traceScroll}).padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             when(tab) {
                 0->{
                     ServerGeneralActions {
@@ -233,7 +248,6 @@ private class ServerReader(private val source:MeshCentralClient,initialHours:Int
     }
     if(confirmConfig) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ confirmConfig=false },title={ ServerGeneralActionTitle(stringResource(R.string.my_server_config)) },text={ Text(stringResource(R.string.my_server_sensitive)) },
         confirmButton={ TextButton(onClick={ confirmConfig=false; reader?.request("serverconfig") }) { Text(stringResource(R.string.my_server_view)) } },dismissButton={ TextButton(onClick={ confirmConfig=false }) { Text(stringResource(R.string.my_server_cancel)) } })
-    key(readIdentity) { resultDialog.value?.let { result->ServerReadResultDialog(result.raw,result.action) {resultDialog.value=null;reader?.dismiss()} } }
 }
 
 @Composable private fun HistoryPanel(raw:String,hours:Int,ready:Boolean,busy:Boolean,onLoad:(Int)->Unit) {
