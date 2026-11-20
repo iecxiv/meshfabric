@@ -297,7 +297,8 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
         var error by remember { mutableStateOf("") }
         val available=nodes.any { it.id==operationNode && (!op.requiresAgent || it.conn and 1 != 0) }
         val confirmLabel=if(op.directSend) managementText("Enviar","Send") else if(singleConfirmation) op.title.substringBefore(" · ") else if(review) managementText("Confirmar envío","Confirm send") else managementText("Revisar","Review")
-        OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,onConfirm={
+        val expandedMessage=op.fields.map {it.first}.toSet()==setOf("title","msg")
+        OperationFormDialog(op.fields.isNotEmpty(),op.title,{ operation=null },confirmLabel,enabled=state.ready && available,dangerous=op.dangerous,expanded=expandedMessage,onConfirm={
             runCatching {
                 if(op.fields.any { it.first=="shell" }) require(interpreters.any { it.key==values["shell"] }) { managementText("Elige un intérprete válido para este equipo","Choose a valid interpreter for this device") }
                 op.build(values)
@@ -335,9 +336,9 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 } else OutlinedTextField(value=values[key].orEmpty(),
                     onValueChange={ values=values+(key to it); error="" },
                     label={ Text(label) },textStyle=MaterialTheme.typography.bodyLarge,
-                    singleLine=key=="url" || key=="title",minLines=1,
-                    maxLines=if(key=="url" || key=="title") 1 else 3,
-                    modifier=Modifier.fillMaxWidth().heightIn(min=52.dp,max=90.dp))
+                    singleLine=key=="url" || key=="title",minLines=if(expandedMessage && key=="msg") 6 else 1,
+                    maxLines=if(key=="url" || key=="title") 1 else if(expandedMessage && key=="msg") 12 else 3,
+                    modifier=Modifier.fillMaxWidth().then(if(expandedMessage && key=="msg") Modifier else Modifier.heightIn(min=52.dp,max=90.dp)))
             }
             if(error.isNotBlank()) Text(error,color=MaterialTheme.colorScheme.error)
         }
