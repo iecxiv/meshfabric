@@ -1,4 +1,4 @@
-name: Validate quiet agent loading and local inbox description
+name: Validate quiet loading local inbox and flush bottom content
 on:
   push:
     branches: [dev]
@@ -18,135 +18,88 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - name: Validate all embedded Python syntax
+      - name: Recover previous candidate repair whitespace and add bottom layout fixes
         shell: python
         run: |
-          import ast,textwrap
+          import ast,os,subprocess,textwrap
           from pathlib import Path
-          lines=Path('.github/workflows/quiet-loading-local-inbox.yml').read_text().splitlines();checked=0
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          workflow='.github/workflows/quiet-loading-local-inbox.yml'
+          source=git('show','5fb293205cfa2e255ce6d7fdabd80b9e2aa6dec6:'+workflow)
+          lines=source.splitlines();blocks=[]
           for i,line in enumerate(lines):
               if line!='        run: |': continue
               body=[]
               for following in lines[i+1:]:
                   if following.strip() and not following.startswith('          '): break
                   body.append(following)
-              ast.parse(textwrap.dedent('\n'.join(body))+'\n');checked+=1
-          assert checked==3,checked
-      - name: Prepare presentation changes without altering operations
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
-          assert git('rev-parse','HEAD^')=='aaf9420b6313594133f9a098cde1fd733d6c93d9','Base advanced; review required'
-          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management');changed=set()
-          def edit(name,old,new):
-              p=root/name;t=p.read_text();assert t.count(old)==1,(name,old,t.count(old));p.write_text(t.replace(old,new,1));changed.add(str(p))
-          edit('NoticeCenterScreen.kt','NoticeSection.INBOX->NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())','NoticeSection.INBOX->Column(Modifier.weight(1f).fillMaxWidth()) {\n                NoticeLocalChannelRow(Modifier.padding(horizontal=16.dp))\n                NoticeInboxScreen(inbox,actionsReady,Modifier.weight(1f).fillMaxWidth())\n            }')
-          edit('NoticeInbox.kt','Text(noticeChannelLabel(es,connected),style=MaterialTheme.typography.bodySmall,color=if(connected) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)','if(!connected) Text(noticeChannelLabel(es,false),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)')
-          enabled='val enabled=connected && foreground && binding.matches(source) && s.id==binding.actor && group!=null'
-          edit('AgentInviteLinks.kt',enabled,enabled+'\n        val contextDiagnostic=agentContextDiagnostic(connected,foreground,s.ready,s.loading || s.busy || busy,s.detailsBusy,s.readError,s.id==binding.actor,group!=null)')
-          old='if(!enabled) Text(t("Esperando un grupo de agentes y permisos válidos. No se adivina el grupo del dispositivo.","Waiting for a valid agent group and permissions. The device group is not guessed."),style=MaterialTheme.typography.bodySmall)'
-          new='if(!enabled && foreground && contextDiagnostic==null) Text(if(enrollment) t("Cargando instaladores…","Loading installers…") else t("Cargando datos…","Loading data…"),style=MaterialTheme.typography.bodySmall)\n                if(contextDiagnostic!=null) {Text(agentContextMessage(contextDiagnostic,es),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error);AgentDiagnosticDetails(contextDiagnostic,es)}'
-          edit('AgentInviteLinks.kt',old,new)
-          raw='if(!enabled) Text("INVITE_CONTEXT_"+when { !connected->"DISCONNECTED"; !foreground->"BACKGROUND"; !s.ready->"NOT_READY"; s.loading->"LOADING"; s.readError->"READ_FAILED"; s.detailsBusy->"DETAILS_LOADING"; s.id!=binding.actor->"ACTOR_MISMATCH"; else->"GROUP_OR_RIGHTS" },style=MaterialTheme.typography.bodySmall)'
-          edit('AgentInviteLinks.kt',raw,'')
-          edit('AgentInviteLinks.kt','if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)','if(notice.isNotBlank()) AgentOperationNotice(notice,es)')
-          edit('AgentEnrollment.kt','if(download.second.isNotBlank()) Text(download.second,style=MaterialTheme.typography.bodySmall)','if(download.second.isNotBlank()) AgentOperationNotice(download.second,es)')
-          edit('AgentEnrollment.kt','if(notice.isNotBlank()) Text(notice,style=MaterialTheme.typography.bodySmall)','if(notice.isNotBlank()) AgentOperationNotice(notice,es)')
-          p=root/'TransientPresentation.kt';assert not p.exists()
+              blocks.append(textwrap.dedent('\n'.join(body))+'\n')
+          assert len(blocks)==3
+          old="assert git('rev-parse','HEAD^')=='aaf9420b6313594133f9a098cde1fd733d6c93d9','Base advanced; review required'"
+          guard="base='aaf9420b6313594133f9a098cde1fd733d6c93d9'\nsubprocess.run(['git','merge-base','--is-ancestor',base,'HEAD'],check=True)\nassert set(git('diff','--name-only',base,'HEAD').splitlines()) <= {'.github/workflows/quiet-loading-local-inbox.yml'},'Functional base changed; review required'"
+          assert blocks[1].count(old)==1;blocks[1]=blocks[1].replace(old,guard,1)
+          old="edit('AgentInviteLinks.kt',raw,'')"
+          new="edit('AgentInviteLinks.kt','                '+raw+'\\n','')"
+          assert blocks[1].count(old)==1;blocks[1]=blocks[1].replace(old,new,1)
+          for i,body in enumerate(blocks): ast.parse(body,filename='historical-'+str(i)+'.py')
+          exec(compile(blocks[1],'quiet-loading-prepare.py','exec'))
+          ui=Path('app/src/main/java/iecxiv/meshfabric/ui')
+          def patch(name,old,new):
+              p=ui/name;t=p.read_text();assert t.count(old)==1,(name,old,t.count(old));p.write_text(t.replace(old,new,1));changed.add(str(p))
+          patch('components/MeshFabricAppBar.kt','Scaffold(topBar={ Column {','Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),topBar={ Column {')
+          patch('components/MeshFabricAppBar.kt','.consumeWindowInsets(padding).padding(horizontal=12.dp,vertical=8.dp)','.consumeWindowInsets(padding).padding(iecxiv.meshfabric.ui.management.registrationBottomFlushPadding)')
+          patch('management/LogScreen.kt','Scaffold(topBar={ServerEventsSearchHeader','Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),topBar={ServerEventsSearchHeader')
+          patch('management/LogScreen.kt','showDeviceLabel:Boolean=true)','showDeviceLabel:Boolean=true,flushBottom:Boolean=false)')
+          patch('management/LogScreen.kt','inventory=inventory)','inventory=inventory,flushBottom=true)')
+          patch('management/LogScreen.kt','Column(modifier.padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=','Column(modifier.padding(if(flushBottom) registrationBottomFlushPadding else PaddingValues(horizontal=12.dp,vertical=8.dp)),verticalArrangement=')
+          patch('management/NoticeInbox.kt','Column(modifier.padding(16.dp),verticalArrangement=','Column(modifier.padding(noticeInboxBottomFlushPadding),verticalArrangement=')
+          patch('management/NoticeInbox.kt','LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {','LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=16.dp)) {')
+          patch('management/ProfileBroadcastDialog.kt','ProfileBroadcastInlineLayout(modifier=modifier,title=','ProfileBroadcastInlineLayout(modifier=modifier,flushBottom=embedded,title=')
+          patch('management/ProfileBroadcastDialog.kt','ProfileBroadcastInlineLayout(modifier:Modifier,title:','ProfileBroadcastInlineLayout(modifier:Modifier,flushBottom:Boolean=false,title:')
+          patch('management/ProfileBroadcastDialog.kt','Column(modifier.imePadding().padding(managementConnectionContentPadding),','Column(modifier.imePadding().padding(if(flushBottom) managementBottomFlushPadding else managementConnectionContentPadding),')
+          old='Column(Modifier.weight(1f).fillMaxWidth().padding(if(padded) managementConnectionContentPadding else PaddingValues(0.dp)),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)'
+          new='CompositionLocalProvider(LocalNoticeComposeInline provides true) {\n            Column(Modifier.weight(1f).fillMaxWidth().padding(if(padded) managementBottomFlushPadding else PaddingValues(0.dp)),verticalArrangement=Arrangement.spacedBy(10.dp),content=content)\n        }'
+          patch('management/NoticeCenterScreen.kt',old,new)
+          patch('management/ProfileUserDetailSurface.kt','.imePadding().padding(managementConnectionContentPadding)','.imePadding().padding(if(LocalNoticeComposeInline.current) managementBottomFlushPadding else managementConnectionContentPadding)')
+          p=ui/'management/ManagementConnectionSpacing.kt'
+          p.write_text(p.read_text()+'\ninternal val managementBottomFlushPadding=PaddingValues(start=16.dp,top=0.dp,end=16.dp,bottom=0.dp)\ninternal val registrationBottomFlushPadding=PaddingValues(start=12.dp,top=8.dp,end=12.dp,bottom=0.dp)\ninternal val noticeInboxBottomFlushPadding=PaddingValues(start=16.dp,top=16.dp,end=16.dp,bottom=0.dp)\n');changed.add(str(p))
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/management/BottomContentSpacingTest.kt');assert not p.exists()
           p.write_text('''package iecxiv.meshfabric.ui.management
-          import android.content.ClipData
-          import android.content.ClipboardManager
-          import android.content.Context
-          import androidx.compose.foundation.layout.*
-          import androidx.compose.foundation.text.selection.SelectionContainer
-          import androidx.compose.material3.*
-          import androidx.compose.runtime.*
-          import androidx.compose.ui.Modifier
-          import androidx.compose.ui.platform.LocalConfiguration
-          import androidx.compose.ui.platform.LocalContext
-          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.LayoutDirection
           import androidx.compose.ui.unit.dp
-          internal fun noticeLocalChannelLabel(es:Boolean)=if(es) "Canal local para avisos recibidos desde servidor." else "Local channel for notices received from the server."
-          @Composable internal fun NoticeLocalChannelRow(modifier:Modifier=Modifier) {
-              val es=LocalConfiguration.current.locales[0].language=="es"
-              Box(modifier.fillMaxWidth().padding(vertical=8.dp).testTag("notice-local-channel-row")) {
-                  Text(noticeLocalChannelLabel(es),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-              }
-          }
-          internal fun agentContextDiagnostic(connected:Boolean,foreground:Boolean,ready:Boolean,loading:Boolean,detailsBusy:Boolean,readError:Boolean,actorMatches:Boolean,eligible:Boolean):String?=when {
-              !foreground->null
-              !connected->"INVITE_CONTEXT_DISCONNECTED"
-              readError->"INVITE_CONTEXT_READ_FAILED"
-              ready && !actorMatches->"INVITE_CONTEXT_ACTOR_MISMATCH"
-              !ready || loading || detailsBusy->null
-              !eligible->"INVITE_CONTEXT_GROUP_OR_RIGHTS"
-              else->null
-          }
-          internal fun agentContextMessage(code:String,es:Boolean)=when(code) {
-              "INVITE_CONTEXT_DISCONNECTED"->if(es) "Sin conexión. Reconecta para continuar." else "Disconnected. Reconnect to continue."
-              "INVITE_CONTEXT_READ_FAILED"->if(es) "No se han podido cargar los datos. Actualiza o vuelve a abrir la vista." else "Could not load the data. Refresh or reopen this view."
-              "INVITE_CONTEXT_ACTOR_MISMATCH"->if(es) "La cuenta ha cambiado. Cierra y vuelve a abrir la vista." else "The account has changed. Close and reopen this view."
-              else->if(es) "El grupo no está disponible o faltan permisos para esta acción." else "The group is unavailable or permissions are insufficient for this action."
-          }
-          internal fun agentNoticeParts(value:String):Pair<String,String> {
-              val match=Regex("\\\\s+\\\\[([A-Z][A-Z0-9_]{0,79})\\\\]\\\\s*$").find(value) ?: return value to ""
-              return value.substring(0,match.range.first).trimEnd() to match.groupValues[1]
-          }
-          @Composable internal fun AgentDiagnosticDetails(code:String,es:Boolean) {
-              if(!code.matches(Regex("[A-Z][A-Z0-9_]{0,79}"))) return
-              var expanded by remember(code) {mutableStateOf(false)}
-              var copyFailed by remember(code) {mutableStateOf(false)}
-              val context=LocalContext.current
-              TextButton(onClick={expanded=!expanded},modifier=Modifier.testTag("agent-diagnostics-toggle")) {
-                  Text(if(expanded) {if(es) "Ocultar diagnóstico" else "Hide diagnostics"} else {if(es) "Detalles de diagnóstico" else "Diagnostic details"})
-              }
-              if(expanded) ManagementCard {
-                  SelectionContainer {Text(code,style=MaterialTheme.typography.bodySmall,modifier=Modifier.testTag("agent-diagnostic-code"))}
-                  TextButton(onClick={copyFailed=runCatching {
-                      val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: error("Clipboard unavailable")
-                      clipboard.setPrimaryClip(ClipData.newPlainText(if(es) "Diagnóstico" else "Diagnostics",code))
-                  }.isFailure}) {Text(if(es) "Copiar diagnóstico" else "Copy diagnostics")}
-                  if(copyFailed) Text(if(es) "No se ha podido copiar." else "Could not copy.",color=MaterialTheme.colorScheme.error)
-              }
-          }
-          @Composable internal fun AgentOperationNotice(value:String,es:Boolean) {
-              val parts=agentNoticeParts(value)
-              if(parts.first.isNotBlank()) Text(parts.first,style=MaterialTheme.typography.bodySmall)
-              if(parts.second.isNotBlank()) AgentDiagnosticDetails(parts.second,es)
-          }
-          ''');changed.add(str(p))
-          p=Path('app/src/test/java/iecxiv/meshfabric/ui/management/TransientPresentationTest.kt');assert not p.exists()
-          p.write_text('''package iecxiv.meshfabric.ui.management
           import org.junit.Assert.*
           import org.junit.Test
-          class TransientPresentationTest {
-              @Test fun localInboxDescriptionMatchesRequestedText() {
-                  assertEquals("Canal local para avisos recibidos desde servidor.",noticeLocalChannelLabel(true))
+          class BottomContentSpacingTest {
+              @Test fun targetContainersHaveNoFixedBottomGap() {
+                  assertEquals(0.dp,managementBottomFlushPadding.calculateBottomPadding())
+                  assertEquals(0.dp,registrationBottomFlushPadding.calculateBottomPadding())
+                  assertEquals(0.dp,noticeInboxBottomFlushPadding.calculateBottomPadding())
               }
-              @Test fun normalLoadingDoesNotProduceDiagnostics() {
-                  assertNull(agentContextDiagnostic(true,true,false,false,false,false,false,false))
-                  assertNull(agentContextDiagnostic(true,true,true,true,false,false,true,false))
-                  assertNull(agentContextDiagnostic(true,true,true,false,true,false,true,false))
-                  assertNull(agentContextDiagnostic(true,true,true,false,false,false,true,true))
-                  assertNull(agentContextDiagnostic(true,false,false,false,false,false,false,false))
+              @Test fun topAndSideMarginsRemainUnchanged() {
+                  assertEquals(8.dp,registrationBottomFlushPadding.calculateTopPadding())
+                  assertEquals(12.dp,registrationBottomFlushPadding.calculateLeftPadding(LayoutDirection.Ltr))
+                  assertEquals(16.dp,noticeInboxBottomFlushPadding.calculateTopPadding())
+                  assertEquals(16.dp,noticeInboxBottomFlushPadding.calculateRightPadding(LayoutDirection.Ltr))
+                  assertEquals(0.dp,managementBottomFlushPadding.calculateTopPadding())
               }
-              @Test fun failuresRemainDiagnosable() {
-                  assertEquals("INVITE_CONTEXT_DISCONNECTED",agentContextDiagnostic(false,true,false,false,false,false,false,false))
-                  assertEquals("INVITE_CONTEXT_READ_FAILED",agentContextDiagnostic(true,true,false,false,false,true,true,false))
-                  assertEquals("INVITE_CONTEXT_ACTOR_MISMATCH",agentContextDiagnostic(true,true,true,false,false,false,false,true))
-                  assertEquals("INVITE_CONTEXT_GROUP_OR_RIGHTS",agentContextDiagnostic(true,true,true,false,false,false,true,false))
-              }
-              @Test fun onlyTrailingTechnicalCodesAreSeparated() {
-                  assertEquals("Download failed." to "SAVE_IO",agentNoticeParts("Download failed. [SAVE_IO]"))
-                  assertEquals("Enlace generado." to "",agentNoticeParts("Enlace generado."))
-                  assertEquals("Text [not a code]" to "",agentNoticeParts("Text [not a code]"))
+              @Test fun otherManagementViewsKeepTheirOriginalPadding() {
+                  assertEquals(16.dp,managementConnectionContentPadding.calculateBottomPadding())
               }
           }
           ''');changed.add(str(p))
+          extra=['app/src/main/java/iecxiv/meshfabric/ui/'+name for name in ['components/MeshFabricAppBar.kt','management/LogScreen.kt','management/ProfileBroadcastDialog.kt','management/ProfileUserDetailSurface.kt','management/ManagementConnectionSpacing.kt']]+[str(p)]
+          marker="workflow='.github/workflows/quiet-loading-local-inbox.yml';Path(workflow).unlink();paths.append(workflow)"
+          assert blocks[2].count(marker)==1
+          publish=blocks[2].replace(marker,'paths += '+repr(extra)+'\n'+marker,1)
+          publish=publish.replace('ui: clarify local inbox and hide transient agent diagnostics','ui: clarify inbox quiet agent loading and align bottom content')
+          ast.parse(publish)
+          temp=Path(os.environ['RUNNER_TEMP'])
+          (temp/'quiet-loading-publish.py').write_text(publish)
+          (temp/'quiet-loading-paths.txt').write_text('\n'.join(sorted(changed))+'\n')
           actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines());assert actual==changed
-      - run: git diff --check
+          assert 'height(4.dp)' in (ui/'components/BottomViewLoading.kt').read_text()
+      - name: Validate whitespace without suppressing checks
+        run: git diff --check
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -164,25 +117,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: quiet-loading-reports-${{ github.run_id }}
+          name: quiet-loading-layout-reports-${{ github.run_id }}
           path: |
             app/build/reports/
             app/build/test-results/
             ${{ runner.temp }}/quiet-loading-build.log
+            ${{ runner.temp }}/quiet-loading-publish.py
+            ${{ runner.temp }}/quiet-loading-paths.txt
           if-no-files-found: ignore
       - name: Apply only validated changes to dev and retire workflow
-        shell: python
-        run: |
-          from pathlib import Path
-          import subprocess
-          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
-          subprocess.run(['git','fetch','origin','dev'],check=True)
-          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
-          names=['NoticeCenterScreen.kt','NoticeInbox.kt','AgentInviteLinks.kt','AgentEnrollment.kt','TransientPresentation.kt']
-          paths=['app/src/main/java/iecxiv/meshfabric/ui/management/'+name for name in names]+['app/src/test/java/iecxiv/meshfabric/ui/management/TransientPresentationTest.kt']
-          workflow='.github/workflows/quiet-loading-local-inbox.yml';Path(workflow).unlink();paths.append(workflow)
-          subprocess.run(['git','add','--',*paths],check=True)
-          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
-          subprocess.run(['git','diff','--cached','--check'],check=True)
-          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui: clarify local inbox and hide transient agent diagnostics'],check=True)
-          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
+        run: python "$RUNNER_TEMP/quiet-loading-publish.py"
