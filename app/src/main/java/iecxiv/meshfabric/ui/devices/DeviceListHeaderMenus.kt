@@ -90,6 +90,11 @@ private fun filterLabel(f:DeviceListFilter,es:Boolean)=when(f) {
                         modifier=Modifier.testTag("devices_header_show_disconnected").semantics {selected=showDisconnected},onClick={onShowDisconnected(!showDisconnected);close()})
                     HorizontalDivider()
                     DropdownMenuItem(text={Text(if(es) "Nombre de sistema operativo" else "Show OS name")},trailingIcon={Checkbox(checked=menu.osName,onCheckedChange=null)},onClick={menu.onOsName();close()})
+                    HorizontalDivider()
+                    DropdownMenuItem(text={Text(if(es) "Restablecer filtros" else "Reset filters")},
+                        leadingIcon={Icon(Icons.Default.FilterAltOff,null,Modifier.size(20.dp))},
+                        modifier=Modifier.testTag("devices_header_reset_filters"),
+                        onClick={menu.onFilter(DeviceListFilter.ALL);onShowIps(false);onShowDisconnected(false);close()})
                 }
             }
         }
