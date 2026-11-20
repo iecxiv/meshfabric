@@ -12,7 +12,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -113,14 +112,13 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
     DeviceDetailsFrame(inline=inline,onDismiss=onDismiss) {
         DeviceDetailsContentSurface(inline=inline,modifier=if(inline) Modifier.fillMaxSize() else Modifier.padding(horizontal=16.dp,vertical=24.dp).widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp)) {
             Column {
-                Column(Modifier.padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if(inline) IconButton(onClick=onDismiss) {Icon(Icons.AutoMirrored.Filled.ArrowBack,if(es) "Volver" else "Back")}
-                        Icon(Icons.Default.Computer, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                        Column(Modifier.weight(1f)) {
-                            Text(node.name.ifBlank { stringResource(R.string.unknown_device) }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Column(Modifier.padding(start=if(inline) 16.dp else 20.dp,end=if(inline) 16.dp else 12.dp,top=if(inline) 0.dp else 12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    DeviceInventoryHeader(inline=inline,onBack=onDismiss,title={
+                        Column {
+                            Text(node.name.ifBlank { stringResource(R.string.unknown_device) }, style = MaterialTheme.typography.titleMedium, fontWeight = if(inline) FontWeight.Medium else FontWeight.Bold)
                             Text(stringResource(R.string.device_details_title), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                    },actions={
                         Box {
                             IconButton(onClick = { menu = true }) {
                                 Icon(Icons.Default.MoreVert, if (es) "Opciones de visualización" else "Display options")
@@ -138,8 +136,7 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                                     onClick = { technical = !technical; menu = false })
                             }
                         }
-                        if(!inline) IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, stringResource(R.string.device_details_close)) }
-                    }
+                    })
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Surface(shape = RoundedCornerShape(6.dp), color = if (node.isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
                             Text(stringResource(if (node.isOnline) R.string.device_details_online else R.string.device_details_offline),

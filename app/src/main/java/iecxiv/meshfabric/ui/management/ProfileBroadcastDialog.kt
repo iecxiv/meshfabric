@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
     val scopeAllowed=scope!=null && profileBroadcastScopeAllowed(s,scope,server)
     val packet=scope?.let {profileBroadcastPacket(it,message,approved)}
     val canSend=!submitted && packet!=null && profileBroadcastAllowed(s,packet,server)
-    ProfileBroadcastInlineLayout(modifier=modifier,flushBottom=embedded,title={Text(if(review) t("Revisar difusión","Review Broadcast") else t("Difusión a sesiones conectadas","Broadcast to connected sessions"))},text={
+    ProfileBroadcastInlineLayout(modifier=modifier,flushBottom=embedded,onBack=if(embedded) null else onDismiss,title={Text(if(review) t("Revisar difusión","Review Broadcast") else t("Difusión a sesiones conectadas","Broadcast to connected sessions"))},text={
         Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(t("Sesiones conectadas del dominio actual","Connected sessions in the current domain"),style=MaterialTheme.typography.titleSmall)
             Text(scope?.optString("server").orEmpty(),style=MaterialTheme.typography.bodySmall)
@@ -44,7 +44,7 @@ import androidx.compose.ui.unit.dp
     },confirmButton={Button(enabled=if(review) canSend else !submitted && scopeAllowed && profileBroadcastMessageValid(message),onClick={if(!review) {review=true;approved=false} else if(packet!=null && session.submit(packet)) {if(embedded) {submitted=true;approved=false} else onDismiss()} else feedback=t("No se ha enviado. Comprueba la conexión, el alcance y los permisos.","Not sent. Check the connection, scope and rights.")}) {Text(if(review) t("Enviar difusión","Send Broadcast") else t("Revisar","Review"))}},dismissButton={Row {if(review && !submitted) TextButton(onClick={review=false;approved=false}) {Text(t("Volver","Back"))};if(embedded) TextButton(enabled=!s.busy,onClick={message="";review=false;approved=false;feedback="";submitted=false}) {Text(if(submitted) t("Nueva difusión","New Broadcast") else t("Limpiar","Clear"))} else TextButton(onClick=onDismiss){Text(t("Cancelar","Cancel"))}}})
 }
 
-@Composable private fun ProfileBroadcastInlineLayout(modifier:Modifier,flushBottom:Boolean=false,title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {
+@Composable private fun ProfileBroadcastInlineLayout(modifier:Modifier,flushBottom:Boolean=false,onBack:(()->Unit)?=null,title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {
     val context=androidx.compose.ui.platform.LocalContext.current
     val window=remember(context) {
         var owner:android.content.Context=context
@@ -58,7 +58,7 @@ import androidx.compose.ui.unit.dp
         onDispose {if(!previouslySecure) window.clearFlags(flag)}
     }
     Column(modifier.imePadding().padding(if(flushBottom) managementBottomFlushPadding else managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}
+        if(onBack!=null) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onBack,title=title) else ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {text()}
         androidx.compose.foundation.layout.FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End,verticalArrangement=Arrangement.spacedBy(4.dp)) {
             dismissButton()

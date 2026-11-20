@@ -35,7 +35,7 @@ internal val LocalProfileUserInline=staticCompositionLocalOf {false}
     BackHandler(onBack=onDismissRequest)
     Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground) {
         Column(Modifier.fillMaxSize().imePadding().padding(if(LocalNoticeComposeInline.current) managementBottomFlushPadding else managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}
+            iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title,backTag="user-action-back")
             Box(Modifier.weight(1f).fillMaxWidth()) {text()}
             FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.End),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 dismissButton()

@@ -30,7 +30,7 @@ internal val LocalServerReadInline=staticCompositionLocalOf {false}
         onDispose {if(!previouslySecure) window.clearFlags(flag)}
     }
     Column(Modifier.fillMaxSize().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.fillMaxWidth()) {ProvideTextStyle(MaterialTheme.typography.titleMedium) {title()}}
+        iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title)
         Box(Modifier.weight(1f).fillMaxWidth()) {text()}
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {confirmButton()}
     }
