@@ -28,7 +28,7 @@ import java.util.Date
 }
 @Composable internal fun LogScreen(viewModel:DeviceListViewModel,journal:ActivityJournal,feedback:RemoteActionFeedback,actionsReady:Boolean,actionsStatus:String,onReconnect:()->Unit,onOpenSettings:()->Unit) {
     val actor by viewModel.userInfo.collectAsState()
-    var tab by rememberSaveable {mutableIntStateOf(0)}
+    var tab by rememberSaveable {mutableIntStateOf(1)}
     key(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,viewModel.meshClient.ignoreSsl,viewModel.meshClient.isUserLogout,actor?.id,actor?.siteadmin) {
         LogSectionContent(tab) {selected->
             if(selected==0) MeshFabricActivityScreen(viewModel,journal,feedback,actionsReady,actionsStatus,onReconnect,onOpenSettings,header={RegistroSectionTabs(tab) {tab=it}})
