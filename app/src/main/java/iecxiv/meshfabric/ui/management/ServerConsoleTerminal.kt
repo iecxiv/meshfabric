@@ -102,15 +102,24 @@ private class ServerConsoleRenderer(context:Context,private val canSend:()->Bool
             if(!destroyed && !broken && value!="true") fail("input-state")
         }
     }
+    private fun inputFocusAllowed() = !destroyed && !broken && ready && view.isAttachedToWindow && view.hasWindowFocus() && canSend()
     fun focusInput() {
-        if(destroyed || broken || !ready || !view.isAttachedToWindow || !canSend()) return
-        view.requestFocus()
-        view.evaluateJavascript("window.serverConsoleFocus && window.serverConsoleFocus()") { value->
-            if(value=="true") view.post {
-                if(!destroyed && !broken && ready && view.isAttachedToWindow && canSend()) {
-                    (view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)?.showSoftInput(view,0)
+        if(!inputFocusAllowed() || !view.requestFocusFromTouch()) return
+        view.evaluateJavascript("window.serverConsoleSetInputEnabled && window.serverConsoleSetInputEnabled(true) && window.serverConsoleFocus && window.serverConsoleFocus()") { value->
+            if(value!="true" || !inputFocusAllowed()) return@evaluateJavascript
+            view.postDelayed({
+                if(inputFocusAllowed() && view.hasFocus()) {
+                    view.evaluateJavascript("window.serverConsoleFocus && window.serverConsoleFocus()") { focused->
+                        if(focused=="true" && inputFocusAllowed() && view.hasFocus()) {
+                            val ime=view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                            ime?.restartInput(view)
+                            view.post {
+                                if(inputFocusAllowed() && view.hasFocus()) ime?.showSoftInput(view,InputMethodManager.SHOW_IMPLICIT)
+                            }
+                        }
+                    }
                 }
-            }
+            },100L)
         }
     }
     fun paste(text:String) {
