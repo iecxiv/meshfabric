@@ -1,0 +1,84 @@
+name: Validate appearance selector alignment
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/appearance-selector-alignment.yml']
+permissions:
+  contents: write
+concurrency:
+  group: appearance-selector-alignment-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Match closed selector to existing menu color and balance icon slots
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/theme/AutomaticAppearance.kt')
+          assert subprocess.check_output(['git','hash-object',str(p)],text=True).strip()=='fefb412af4c13399e6abce357bb09ef9deaa9048'
+          original=p.read_text()
+          old='''                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                  Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp),tint=androidx.compose.ui.graphics.Color(0xFF2196F3)) }
+                                  Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2,color=androidx.compose.ui.graphics.Color(0xFF2196F3))
+                                  Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp))
+                              }'''
+          new='''                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                  Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(icons[selected],contentDescription=null,modifier=Modifier.size(20.dp),tint=MaterialTheme.colorScheme.primary) }
+                                  Text(labels[selected],modifier=Modifier.weight(1f),maxLines=2,textAlign=androidx.compose.ui.text.style.TextAlign.Center,color=MaterialTheme.colorScheme.primary)
+                                  Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) { Icon(Icons.Default.ArrowDropDown,contentDescription=null,modifier=Modifier.size(20.dp)) }
+                              }'''
+          assert original.count(old)==1
+          updated=original.replace(old,new,1)
+          assert updated.replace(new,old,1)==original
+          boundary='                DropdownMenu(expanded=expanded,onDismissRequest={expanded=false},'
+          assert original.count(boundary)==1
+          assert original.split(boundary,1)[1]==updated.split(boundary,1)[1]
+          p.write_text(updated)
+          assert subprocess.check_output(['git','diff','--name-only'],text=True).strip()==str(p)
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Compile app and UI tests run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: appearance-selector-alignment-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated selector and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          workflow='.github/workflows/appearance-selector-alignment.yml'
+          Path(workflow).unlink()
+          paths=['app/src/main/java/iecxiv/meshfabric/ui/theme/AutomaticAppearance.kt',workflow]
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(appearance): match menu blue and center closed selector label'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
