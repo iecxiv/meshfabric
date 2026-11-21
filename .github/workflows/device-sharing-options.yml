@@ -1,0 +1,245 @@
+name: Validate sharing access validity and consent
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-sharing-options.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-sharing-options-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare guarded protocol and regression tests
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='b31a08858ca3a83585f3d6c13f7efc5fbe657c09','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/devices');changed=[]
+          def replace(s,old,new):
+              assert s.count(old)==1,(old,s.count(old))
+              return s.replace(old,new,1)
+          def save(p,s): p.write_text(s);changed.append(str(p))
+          p=root/'DeviceGeneralShareCreator.kt'
+          assert git('hash-object',str(p))=='61c72afee7a6909885fbe994b252306f8147058b'
+          s=p.read_text()
+          s=replace(s,'internal data class GeneralShareCreateDraft(val guest:String,val mesh:String,val start:Long,val end:Long)\n','')
+          s=replace(s,'GeneralShareCreateDraft(guest,mesh,now,now+minutes*60L)','GeneralShareCreateDraft(guest,mesh,now,now+minutes*60L,durationMinutes=minutes)')
+          a=s.index('internal fun generalShareCreatePacket(');b=s.index('internal fun generalShareCreatedUrl(',a)
+          s=s[:a]+'internal fun generalShareCreatePacket(node:String,request:String,d:GeneralShareCreateDraft,meta:GeneralMeta,now:Long)=generalShareOptionsPacket(node,request,d,meta,now)\n'+s[b:]
+          a=s.index('    if(row.owner!=actor');b=s.index('\n}\ninternal data class GeneralShareCreateState',a)
+          s=s[:a]+'    return row.owner==actor && row.guest==d.guest && generalShareOptionsMatch(d,row)'+s[b:]
+          s=replace(s,'else if(active && now()>=draft.end)','else if(active && !generalShareLinkUnexpired(draft,now()))')
+          s=replace(s,'&& now()<draft.end','&& generalShareLinkUnexpired(draft,now())')
+          save(p,s)
+          p=root/'DeviceGeneralSharesReader.kt'
+          assert git('hash-object',str(p))=='eb81b0004bf0a5320399422d7949d36b0f842257'
+          s=p.read_text()
+          s=replace(s,'val start:Long?,val expires:Long?)','val start:Long?,val expires:Long?,val consent:Long?=null,val duration:Long?=null,val recurring:Long?=null)')
+          s=replace(s,'number(row,"expireTime",253402300799999L))','number(row,"expireTime",253402300799999L),number(row,"consent",0xffffffffL),number(row,"duration",Int.MAX_VALUE.toLong()),number(row,"recurring",Int.MAX_VALUE.toLong()))')
+          save(p,s)
+          options='''package iecxiv.meshfabric.ui.devices
+          import com.google.gson.JsonObject
+          internal enum class ShareAccess(val protocols:Int,val viewOnly:Boolean=false) {
+              DESKTOP(2),VIEW_ONLY(2,true),TERMINAL(1),FILES(4),DESKTOP_FILES(6),TERMINAL_FILES(5),ALL(7)
+          }
+          internal enum class ShareValidity(val recurring:Int=0) {NOW,RANGE,DAILY(1),WEEKLY(2)}
+          internal enum class ShareConsent {NOTIFY,PROMPT,NONE}
+          internal val SHARE_EXPIRY_MINUTES=listOf(0,1,5,10,15,30,45,60,120,240,480,720,960,1440,2880,5760)
+          internal val SHARE_DURATION_MINUTES=SHARE_EXPIRY_MINUTES.filter {it in 1..720}
+          internal data class GeneralShareCreateDraft(
+              val guest:String,val mesh:String,val start:Long,val end:Long,
+              val access:ShareAccess=ShareAccess.VIEW_ONLY,val validity:ShareValidity=ShareValidity.RANGE,
+              val consent:Int=9,val durationMinutes:Int?=15,val reviewedAt:Long=start
+          )
+          internal fun generalShareConsent(access:ShareAccess,consent:ShareConsent):Int {
+              val p=access.protocols
+              val notify=(if(p and 2!=0) 1 else 0) or (if(p and 1!=0) 2 else 0) or (if(p and 4!=0) 4 else 0)
+              return when(consent) {ShareConsent.NONE->0;ShareConsent.NOTIFY->notify;ShareConsent.PROMPT->notify or (notify shl 3)}
+          }
+          internal fun generalShareOptionsDraft(guest:String,mesh:String,access:ShareAccess,validity:ShareValidity,minutes:Int,start:Long,end:Long,consent:ShareConsent,now:Long):GeneralShareCreateDraft {
+              val s=if(validity==ShareValidity.NOW) now else start
+              val e=when(validity) {ShareValidity.NOW->if(minutes==0) 0L else s+minutes*60L;ShareValidity.RANGE->end;else->0L}
+              return GeneralShareCreateDraft(guest.trim(),mesh,s,e,access,validity,generalShareConsent(access,consent),if(validity==ShareValidity.RANGE) null else minutes,now).also {generalShareValidateOptions(it,now)}
+          }
+          internal fun generalShareValidateOptions(d:GeneralShareCreateDraft,now:Long) {
+              require(generalShareGuestValid(d.guest) && d.mesh.isNotBlank())
+              require(now in 1L..253402297199L && d.reviewedAt in 1L..now && now-d.reviewedAt<=120L)
+              require(d.start in 1L..253402297199L && d.start>=d.reviewedAt-60L)
+              require(d.consent in ShareConsent.entries.map {generalShareConsent(d.access,it)})
+              when(d.validity) {
+                  ShareValidity.NOW->{
+                      require(d.durationMinutes in SHARE_EXPIRY_MINUTES && d.start==d.reviewedAt)
+                      require(d.end==if(d.durationMinutes==0) 0L else d.start+requireNotNull(d.durationMinutes)*60L)
+                  }
+                  ShareValidity.RANGE->{
+                      require(d.end>d.start)
+                      d.durationMinutes?.let {require(it in listOf(15,30,60) && d.end-d.start==it*60L)}
+                  }
+                  else->require(d.durationMinutes in SHARE_DURATION_MINUTES && d.end==0L)
+              }
+              require(d.end==0L || d.end in (now+1)..253402297199L)
+          }
+          internal fun generalShareAccessAllowed(rights:Long,access:ShareAccess):Boolean {
+              if(!generalSharesAllowed(rights)) return false
+              if(rights and 0xffffffffL==0xffffffffL) return true
+              if(rights and 4352L!=0L) return false
+              val p=access.protocols
+              return !(p and 2!=0 && rights and 65536L!=0L || p and 1!=0 && rights and 512L!=0L || p and 4!=0 && rights and 1024L!=0L)
+          }
+          internal fun generalShareOptionsPacket(node:String,request:String,d:GeneralShareCreateDraft,meta:GeneralMeta,now:Long):JsonObject {
+              generalShareValidateOptions(d,now)
+              require(d.mesh==meta.mesh && generalShareAccessAllowed(meta.rights,d.access))
+              return generalSharesRequest(node,request).apply {
+                  addProperty("action","createDeviceShareLink");addProperty("guestname",d.guest)
+                  addProperty("p",d.access.protocols);addProperty("viewOnly",d.access.viewOnly);addProperty("consent",d.consent)
+                  when {
+                      d.validity.recurring>0->{addProperty("start",d.start);addProperty("expire",requireNotNull(d.durationMinutes));addProperty("recurring",d.validity.recurring)}
+                      d.end==0L->addProperty("expire",0)
+                      else->{addProperty("start",d.start);addProperty("end",d.end)}
+                  }
+              }
+          }
+          internal fun generalShareOptionsMatch(d:GeneralShareCreateDraft,row:GeneralShare):Boolean {
+              if(row.protocols!=d.access.protocols.toLong() || (row.viewOnly==true)!=d.access.viewOnly || row.consent!=d.consent.toLong()) return false
+              return when {
+                  d.validity.recurring>0->row.start==d.start*1000L && (row.expires ?: 0L)==0L && row.duration==d.durationMinutes?.toLong() && row.recurring==d.validity.recurring.toLong()
+                  d.end==0L->(row.start ?: 0L)==0L && (row.expires ?: 0L)==0L && (row.duration ?: 0L)==0L && (row.recurring ?: 0L)==0L
+                  else->row.start==d.start*1000L && row.expires==d.end*1000L && (row.duration ?: 0L)==0L && (row.recurring ?: 0L)==0L
+              }
+          }
+          internal fun generalShareLinkUnexpired(d:GeneralShareCreateDraft,now:Long)=d.end==0L || now<d.end
+          '''
+          tests='''package iecxiv.meshfabric.ui.devices
+          import com.google.gson.JsonArray
+          import com.google.gson.JsonObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceSharingOptionsTest {
+              private val now=1800000000L
+              private val meta=GeneralMeta("Device",emptyList(),524296L,"Linux","mesh//a")
+              private fun draft(a:ShareAccess=ShareAccess.VIEW_ONLY,v:ShareValidity=ShareValidity.NOW,m:Int=15,c:ShareConsent=ShareConsent.PROMPT)=generalShareOptionsDraft("Guest",meta.mesh,a,v,m,now+300,now+600,c,now)
+              private fun packet(d:GeneralShareCreateDraft)=generalShareCreatePacket("node//a","write",d,meta,now)
+              private fun row(d:GeneralShareCreateDraft)=GeneralShare("new",d.guest,"user//admin",d.access.protocols.toLong(),d.access.viewOnly,
+                  if(d.end==0L && d.validity==ShareValidity.NOW) null else d.start*1000L,if(d.end==0L) null else d.end*1000L,
+                  d.consent.toLong(),if(d.validity.recurring>0) d.durationMinutes?.toLong() else null,if(d.validity.recurring>0) d.validity.recurring.toLong() else null)
+              @Test fun allTypesAndConsentModesUseCorrectProtocolAndFlags() {
+                  assertEquals(listOf(2,2,1,4,6,5,7),ShareAccess.entries.map {it.protocols})
+                  for(a in ShareAccess.entries) for(c in ShareConsent.entries) {
+                      val d=draft(a=a,c=c);val p=packet(d);assertEquals(a.protocols,p.get("p").asInt);assertEquals(a.viewOnly,p.get("viewOnly").asBoolean)
+                      val notify=listOf(1,1,2,4,5,6,7)[a.ordinal]
+                      assertEquals(when(c) {ShareConsent.NONE->0;ShareConsent.NOTIFY->notify;ShareConsent.PROMPT->notify or (notify shl 3)},p.get("consent").asInt)
+                      assertTrue(generalShareOptionsMatch(d,row(d)));assertFalse(generalShareOptionsMatch(d,row(d).copy(consent=123)))
+                  }
+              }
+              @Test fun allStartingNowExpirationsIncludingUnlimited() {
+                  assertEquals(listOf(0,1,5,10,15,30,45,60,120,240,480,720,960,1440,2880,5760),SHARE_EXPIRY_MINUTES)
+                  for(m in SHARE_EXPIRY_MINUTES) {
+                      val d=draft(m=m);val p=packet(d)
+                      if(m==0) {assertEquals(0,p.get("expire").asInt);assertFalse(p.has("start"));assertFalse(p.has("end"))}
+                      else {assertEquals(now,p.get("start").asLong);assertEquals(now+m*60L,p.get("end").asLong);assertFalse(p.has("expire"))}
+                      assertTrue(generalShareOptionsMatch(d,row(d)))
+                  }
+              }
+              @Test fun explicitRangeIsNotConfusedWithRecurringDuration() {
+                  val d=draft(v=ShareValidity.RANGE,m=0);val p=packet(d)
+                  assertEquals(now+300,p.get("start").asLong);assertEquals(now+600,p.get("end").asLong);assertFalse(p.has("expire"));assertFalse(p.has("recurring"))
+                  assertTrue(generalShareOptionsMatch(d,row(d)))
+              }
+              @Test fun allRecurringDurationsUseMinutesAndStartSeconds() {
+                  assertEquals(listOf(1,5,10,15,30,45,60,120,240,480,720),SHARE_DURATION_MINUTES)
+                  for(v in listOf(ShareValidity.DAILY,ShareValidity.WEEKLY)) for(m in SHARE_DURATION_MINUTES) {
+                      val d=draft(v=v,m=m);val p=packet(d)
+                      assertEquals(v.recurring,p.get("recurring").asInt);assertEquals(m,p.get("expire").asInt);assertEquals(d.start,p.get("start").asLong);assertFalse(p.has("end"))
+                      assertTrue(generalShareOptionsMatch(d,row(d)));assertFalse(generalShareOptionsMatch(d,row(d).copy(duration=m+1L)));assertFalse(generalShareOptionsMatch(d,row(d).copy(recurring=3)))
+                  }
+              }
+              @Test fun rejectsInvalidDurationsReversedDatesExpiredAndStaleDrafts() {
+                  for(m in listOf(-1,2,61,5761)) assertTrue(runCatching {draft(m=m)}.isFailure)
+                  for(m in listOf(0,960,1440)) assertTrue(runCatching {draft(v=ShareValidity.DAILY,m=m)}.isFailure)
+                  assertTrue(runCatching {generalShareOptionsDraft("Guest",meta.mesh,ShareAccess.DESKTOP,ShareValidity.RANGE,0,now+600,now+300,ShareConsent.NOTIFY,now)}.isFailure)
+                  assertTrue(runCatching {generalShareCreatePacket("node//a","w",draft(),meta,now+121)}.isFailure)
+                  assertTrue(runCatching {generalShareCreatePacket("node//a","w",draft(m=1),meta,now+60)}.isFailure)
+                  assertTrue(runCatching {generalShareCreatePacket("node//a","w",draft(m=1),meta,now+1)}.isSuccess)
+              }
+              @Test fun permissionsAreCheckedPerProtocolWithAdminException() {
+                  for(a in ShareAccess.entries) {
+                      assertTrue(generalShareAccessAllowed(0xffffffffL,a));assertTrue(generalShareAccessAllowed(-1L,a));assertFalse(generalShareAccessAllowed(8L,a));assertFalse(generalShareAccessAllowed(meta.rights or 4096L,a))
+                      for((mask,bit) in listOf(1 to 512L,2 to 65536L,4 to 1024L)) if(a.protocols and mask!=0) assertFalse(generalShareAccessAllowed(meta.rights or bit,a))
+                  }
+                  assertTrue(runCatching {generalShareCreatePacket("node//a","w",draft(),meta.copy(mesh="mesh//other"),now)}.isFailure)
+              }
+              @Test fun readbackRejectsChangedScopeConsentTimeOrRecurrence() {
+                  val d=draft();val r=row(d)
+                  for(bad in listOf(r.copy(protocols=7),r.copy(viewOnly=false),r.copy(consent=null),r.copy(expires=d.end*1000+1),r.copy(recurring=1),r.copy(duration=1))) assertFalse(generalShareOptionsMatch(d,bad))
+                  val u=draft(m=0);assertFalse(generalShareOptionsMatch(u,row(u).copy(expires=now*1000)))
+              }
+              @Test fun parserRetainsScheduleAndRejectsFractionalMetadata() {
+                  val d=draft(v=ShareValidity.WEEKLY)
+                  val raw=JsonObject().apply {addProperty("publicid","new");addProperty("p",2);addProperty("viewOnly",true);addProperty("consent",d.consent);addProperty("startTime",d.start*1000);addProperty("duration",15);addProperty("recurring",2)}
+                  val p=JsonObject().apply {addProperty("action","deviceShares");addProperty("nodeid","node//a");addProperty("responseid","read");add("deviceShares",JsonArray().apply {add(raw)})}
+                  assertTrue(generalShareOptionsMatch(d,requireNotNull(generalSharesReply(p,"node//a","read")).single()))
+                  raw.addProperty("duration",1.5);assertTrue(runCatching {generalSharesReply(p,"node//a","read")}.isFailure)
+              }
+              @Test fun unlimitedAndRecurringLinksDoNotExpireAtEpochZero() {
+                  assertTrue(generalShareLinkUnexpired(draft(m=0),now+999999));assertTrue(generalShareLinkUnexpired(draft(v=ShareValidity.DAILY),now+999999));assertFalse(generalShareLinkUnexpired(draft(m=1),now+60))
+              }
+          }
+          '''
+          p=root/'DeviceSharingOptions.kt';assert not p.exists();save(p,options)
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceSharingOptionsTest.kt');assert not p.exists();save(p,tests)
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==set(changed)
+          Path(os.environ['RUNNER_TEMP'],'sharing-options-paths.json').write_text(json.dumps(changed))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused sharing regression tests
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneralShare*' --tests 'iecxiv.meshfabric.ui.devices.DeviceShareLinkCompatibilityTest' --tests 'iecxiv.meshfabric.ui.devices.DeviceSharingOptionsTest' --no-daemon --stacktrace
+      - name: Full validation before publishing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sharing-options-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/sharing-options-paths.json
+          if-no-files-found: ignore
+      - name: Publish validated protocol only and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'sharing-options-paths.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/'+p for p in ['DeviceGeneralShareCreator.kt','DeviceGeneralSharesReader.kt','DeviceSharingOptions.kt']}|{'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceSharingOptionsTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          workflow='.github/workflows/device-sharing-options.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','feat(sharing): support access types schedules and reviewed consent'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
