@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import okhttp3.*
 import java.util.UUID
 
-internal data class GeneralShare(val id:String,val guest:String,val owner:String,val protocols:Long?,val viewOnly:Boolean?,val start:Long?,val expires:Long?)
+internal data class GeneralShare(val id:String,val guest:String,val owner:String,val protocols:Long?,val viewOnly:Boolean?,val start:Long?,val expires:Long?,val consent:Long?=null,val duration:Long?=null,val recurring:Long?=null)
 internal fun generalSharesAllowed(rights:Long)=rights and 524296L==524296L
 internal fun generalSharesRequest(node:String,id:String):JsonObject {
     require(node.startsWith("node/") && node.split('/').size==3 && node.substringAfterLast('/').isNotBlank() && node.length<=4096 && node.none {it.isISOControl()})
@@ -37,7 +37,7 @@ internal fun generalSharesReply(p:JsonObject,node:String,request:String):List<Ge
         val itemNode=text(row,"nodeid",4096);require(itemNode.isBlank() || itemNode==node)
         val id=text(row,"publicid",1024);require(id.isNotBlank())
         val view=row.get("viewOnly")?.takeUnless {it.isJsonNull}?.let {require(it.isJsonPrimitive && it.asJsonPrimitive.isBoolean);it.asBoolean}
-        GeneralShare(id,text(row,"guestName",1024),text(row,"userid",4096),number(row,"p",Int.MAX_VALUE.toLong()),view,number(row,"startTime",253402300799999L),number(row,"expireTime",253402300799999L))
+        GeneralShare(id,text(row,"guestName",1024),text(row,"userid",4096),number(row,"p",Int.MAX_VALUE.toLong()),view,number(row,"startTime",253402300799999L),number(row,"expireTime",253402300799999L),number(row,"consent",0xffffffffL),number(row,"duration",Int.MAX_VALUE.toLong()),number(row,"recurring",Int.MAX_VALUE.toLong()))
     }.also {require(it.map {r->r.id}.distinct().size==it.size)}
 }
 internal data class GeneralSharesState(val phase:String="loading",val shares:List<GeneralShare> = emptyList(),val loadedAt:Long?=null,val code:String="")
