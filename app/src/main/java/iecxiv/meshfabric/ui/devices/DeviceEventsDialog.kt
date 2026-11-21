@@ -15,6 +15,7 @@ import iecxiv.meshfabric.ui.management.*
 import kotlinx.coroutines.awaitCancellation
 
 @Composable internal fun DeviceEventsDialog(node:MeshNode,onDismiss:()->Unit) {
+    val inline=LocalDeviceEventsSubviewInline.current
     val source=LocalDeviceDetailsClient.current
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun text(a:String,b:String)=if(es) a else b
@@ -45,7 +46,7 @@ import kotlinx.coroutines.awaitCancellation
         DisposableEffect(reader) {onDispose {reader.close()}}
         val inventory=remember(groups,enabled) {if(enabled) serverEventInventory(groups) else ServerEventInventory()}
         val visible=if(state.selection==selection && enabled) state else ServerEventsSnapshot(if(enabled) ServerEventsPhase.LOADING else ServerEventsPhase.INVALIDATED,selection=selection)
-        DeviceGeneralFrame(node,onDismiss,
+        DeviceGeneralFrame(node,onDismiss,inline=inline,
             body={
                 OutlinedTextField(query,{query=it},singleLine=true,label={Text(text("Buscar eventos","Search events"))},modifier=Modifier.fillMaxWidth().testTag("device_events_search"))
                 ServerEventsPanel(visible,query,{query=it},enabled,{reader.load(selection)},Modifier.weight(1f).fillMaxWidth(),
@@ -55,7 +56,7 @@ import kotlinx.coroutines.awaitCancellation
             },
             footer={
                 TextButton(onClick={reader.load(selection)},enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("device_events_refresh")) {Text(text("Actualizar","Refresh"))}
-                TextButton(onClick=onDismiss) {Text(text("Cerrar","Close"))}
+                TextButton(onClick=onDismiss) {Text(if(inline) text("Volver","Back") else text("Cerrar","Close"))}
             },
             subtitle=text("Eventos","Events"),tagPrefix="device_events",scrollBody=false)
     }

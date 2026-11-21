@@ -46,8 +46,10 @@ internal val LocalDeviceDetailsClient = staticCompositionLocalOf<MeshCentralClie
 
 @Composable
 internal fun DeviceDetailsButton(node: MeshNode) {
+    val openDetails=LocalDeviceDetailsSubviewOpen.current
+    val embedded=LocalDeviceDetailsInline.current
     var visible by rememberSaveable(node.id) { mutableStateOf(false) }
-    IconButton(onClick = { visible = true }, modifier = Modifier.offset(x = (-6).dp)) {
+    IconButton(onClick = { if(openDetails!=null && !embedded) openDetails(node) else visible=true }, modifier = Modifier.offset(x = (-6).dp)) {
         Icon(Icons.Default.Info, stringResource(R.string.device_details_open, node.name), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (visible) DeviceDetailsDialog(node) { visible = false }

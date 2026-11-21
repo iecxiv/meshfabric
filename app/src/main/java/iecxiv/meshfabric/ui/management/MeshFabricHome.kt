@@ -318,7 +318,9 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     val bottomLoading=remember(page) {iecxiv.meshfabric.ui.components.BottomLoadingState()}
     CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading,
         iecxiv.meshfabric.ui.devices.LocalDeviceGeneralOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=0},
-        iecxiv.meshfabric.ui.devices.LocalDeviceSharingOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=1}) {
+        iecxiv.meshfabric.ui.devices.LocalDeviceSharingOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=1},
+        iecxiv.meshfabric.ui.devices.LocalDeviceEventsSubviewOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=3},
+        iecxiv.meshfabric.ui.devices.LocalDeviceDetailsSubviewOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=4}) {
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
         bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
             if(next in 0..4 && next!=page) {
@@ -368,7 +370,9 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                         when(generalStep) {
                             0->iecxiv.meshfabric.ui.devices.DeviceGeneralDialog(target,inline=true,onDismiss={generalNode=null})
                             1->iecxiv.meshfabric.ui.devices.DeviceSharingListScreen(target,onBack={generalStep=0},onCreate={rights->sharingRights=rights;generalStep=2})
-                            else->iecxiv.meshfabric.ui.devices.DeviceSharingCreateScreen(target,sharingRights,onBack={generalStep=1},onCreated={})
+                            2->iecxiv.meshfabric.ui.devices.DeviceSharingCreateScreen(target,sharingRights,onBack={generalStep=1},onCreated={})
+                            3->iecxiv.meshfabric.ui.devices.DeviceReadSubview(target,events=true,onDismiss={generalNode=null})
+                            else->iecxiv.meshfabric.ui.devices.DeviceReadSubview(target,events=false,onDismiss={generalNode=null})
                         }
                     }
                 }
