@@ -1,0 +1,97 @@
+name: Repair sharing subview identity observation
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-sharing-navigation-repair.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-sharing-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare original integration and observe identity reactively
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast,subprocess,textwrap
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='1cf306f38d6cd6abc98c40a53d72157127fb9f22','Base advanced; review required'
+          workflow=Path('.github/workflows/device-sharing-navigation.yml')
+          assert git('hash-object',str(workflow))=='45bab88f5e5dea57b6fcf8f7494c7c877aee737e'
+          blocks=[];lines=workflow.read_text().splitlines()
+          for i,line in enumerate(lines):
+              if line!='        run: |': continue
+              body=[]
+              for following in lines[i+1:]:
+                  if following.strip() and not following.startswith('          '): break
+                  body.append(following)
+              source=textwrap.dedent('\n'.join(body))+'\n'
+              ast.parse(source);blocks.append(source)
+          assert len(blocks)==2
+          old="assert git('rev-parse','HEAD^')=='ac9a6de021f000e22801b79265952531440bbca1'"
+          new="assert git('rev-parse','HEAD^')=='1cf306f38d6cd6abc98c40a53d72157127fb9f22'"
+          assert blocks[0].count(old)==1
+          exec(compile(blocks[0].replace(old,new,1),'<guarded-sharing-integration>','exec'),{})
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralShareCreateAction.kt')
+          text=p.read_text()
+          old='    val source=LocalDeviceDetailsClient.current\n'
+          new=old+'    val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()\n'
+          assert text.count(old)==1;text=text.replace(old,new,1)
+          old='key(source,source?.serverUrl,source?.authCookie,source?.userInfo?.value?.id,node.id) {'
+          new='key(source,source?.serverUrl,source?.authCookie,actor,node.id) {'
+          assert text.count(old)==1;text=text.replace(old,new,1)
+          assert 'source?.userInfo?.value' not in text
+          p.write_text(text)
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused sharing and navigation regressions
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneralShare*' --tests 'iecxiv.meshfabric.ui.devices.DeviceShareLinkCompatibilityTest' --tests 'iecxiv.meshfabric.ui.devices.DeviceSharing*Test' --tests 'iecxiv.meshfabric.ui.devices.NavigationCompletionTest' --no-daemon --stacktrace
+      - name: Full validation including lint before activating sharing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sharing-navigation-repair-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/sharing-navigation-paths.json
+          if-no-files-found: ignore
+      - name: Publish only validated integration and retire both workflows
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'sharing-navigation-paths.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+p for p in ['devices/DeviceGeneralDialog.kt','devices/DeviceOtherOptions.kt','devices/DeviceGeneralFrame.kt','devices/DeviceGeneralSharesReader.kt','devices/DeviceGeneralShareCreateAction.kt','devices/DeviceGeneralSharesAction.kt','devices/DeviceSharingForm.kt','management/MeshFabricHome.kt']}|{'app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceSharingSubviewTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          for name in ['device-sharing-navigation.yml','device-sharing-navigation-repair.yml']:
+              p=Path('.github/workflows')/name;p.unlink();paths.append(str(p))
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(sharing): activate integrated subviews with observed user identity'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
