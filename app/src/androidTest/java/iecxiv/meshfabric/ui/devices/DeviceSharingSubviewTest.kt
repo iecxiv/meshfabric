@@ -34,4 +34,36 @@ class DeviceSharingSubviewTest {
         rule.runOnIdle {assertEquals(0,f.value.expiry)}
         rule.onNode(isDialog()).assertDoesNotExist()
     }
+    @Test fun generalInlineFrameHasSharedBackAndNoDialog() {
+        var backs=0
+        rule.setContent {MaterialTheme {DeviceGeneralFrame(MeshNode(id="node//test",name="Device"),{backs++},body={Text("Body")},footer={Text("Footer")},inline=true)}}
+        rule.onNode(isDialog()).assertDoesNotExist()
+        rule.onNodeWithTag("device_general_close").performClick()
+        rule.runOnIdle {assertEquals(1,backs)}
+    }
+    @Test fun offlineSharingListUsesSubviewAndDisablesCreation() {
+        var backs=0
+        rule.setContent {MaterialTheme {DeviceSharingListScreen(MeshNode(id="node//test",name="Device"),onBack={backs++},onCreate={error("Offline creation")})}}
+        rule.onNode(isDialog()).assertDoesNotExist()
+        rule.onNodeWithTag("general_share_create").performScrollTo().assertIsNotEnabled()
+        rule.onNodeWithTag("device_shares_close").performClick()
+        rule.runOnIdle {assertEquals(1,backs)}
+    }
+    @Test fun reviewBackAndDiscardDoNotOpenDialogsOrSendRequests() {
+        var backs=0
+        rule.setContent {MaterialTheme {DeviceSharingCreateScreen(MeshNode(id="node//test",name="Device",meshid="mesh//a"),0xffffffffL,onBack={backs++},onCreated={error("No create expected")})}}
+        rule.onNodeWithTag("share_guest").performScrollTo().performTextInput("Guest")
+        rule.onNodeWithTag("general_share_create_confirm").performClick()
+        rule.onNodeWithTag("share_guest").assertDoesNotExist()
+        rule.onNodeWithTag("general_share_create_confirm").assertIsNotEnabled()
+        rule.onNodeWithTag("device_share_create_close").performClick()
+        rule.onNodeWithTag("share_guest").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("device_share_create_close").performClick()
+        rule.onNode(isDialog()).assertDoesNotExist()
+        rule.onAllNodesWithTag("subview-header").assertCountEquals(1)
+        rule.onNodeWithTag("user-action-back").performClick()
+        rule.onNodeWithTag("share_guest").performScrollTo().assertIsDisplayed()
+        rule.runOnIdle {assertEquals(0,backs)}
+    }
+
 }

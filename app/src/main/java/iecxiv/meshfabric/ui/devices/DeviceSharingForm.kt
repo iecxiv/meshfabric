@@ -65,6 +65,7 @@ internal fun shareMinutesLabel(m:Int,es:Boolean):String=when {
     Text(t("Invitado: ","Guest: ")+d.guest);Text(shareAccessLabel(d.access,es));Text(shareValidityLabel(d.validity,es));Text(shareConsentLabel(consent,es))
     Text(t("Inicio: ","Start: ")+date(d.start)+" · "+zone.id)
     if(d.end>0) Text(t("Final: ","End: ")+date(d.end)) else if(d.validity.recurring>0) Text(shareMinutesLabel(requireNotNull(d.durationMinutes),es)) else Text(t("Sin vencimiento. Revoca el acceso cuando deje de ser necesario.","No expiry. Revoke access when no longer needed."))
+    Text(t("El enlace es una credencial: quien lo posea podrá usar el acceso permitido.","The link is a credential: anyone holding it can use its permitted access."),style=MaterialTheme.typography.bodySmall)
     Text(t("Horario fijado al revisar; vuelve a revisar si pasan dos minutos o vence el acceso. El enlace no se envía ni copia automáticamente.","Times fixed at review; review again after two minutes or when access expires. The link is not sent or copied automatically."),style=MaterialTheme.typography.bodySmall)
 }
 internal val LocalDeviceGeneralOpen=staticCompositionLocalOf<((iecxiv.meshfabric.data.model.MeshNode)->Unit)?> {null}

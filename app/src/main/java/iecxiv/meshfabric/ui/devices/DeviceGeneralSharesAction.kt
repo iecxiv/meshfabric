@@ -15,7 +15,7 @@ import java.util.Date
 import java.util.Locale
 
 private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || value==0L) {if(es) "No informado" else "Not reported"} else DateFormat.getDateTimeInstance(DateFormat.MEDIUM,DateFormat.SHORT,if(es) Locale.forLanguageTag("es") else Locale.ENGLISH).format(Date(value))
-@Composable internal fun DeviceGeneralSharesAction(node:MeshNode) {
+@Composable internal fun DeviceSharingListScreen(node:MeshNode,onBack:()->Unit,onCreate:(Long)->Unit) {
     val source=LocalDeviceDetailsClient.current
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val connected=source?.connectionState?.collectAsState()?.value==true
@@ -23,9 +23,7 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
-        var opened by remember {mutableStateOf(false)}
-        DeviceGeneralActionButton(label=t("Compartir","Share"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_shares"))
-        if(opened) {
+        key("sharing-list") {
             var retry by remember {mutableIntStateOf(0)}
             var review by remember {mutableStateOf<GeneralShare?>(null)}
             var revoker by remember {mutableStateOf<DeviceGeneralShareRevoker?>(null)}
@@ -49,10 +47,10 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
                 onDispose {owner.lifecycle.removeObserver(observer);writer.close()}
             }}
             LaunchedEffect(result?.phase) {if(result?.phase=="absent" && !refreshed) {refreshed=true;retry++}}
-            val close:()->Unit={if(busy) discard=true else opened=false}
-            DeviceGeneralFrame(node,close,body={
-                Text(t("Consulta de accesos compartidos y creación de enlaces temporales de escritorio solo consulta. Puedes revisar y solicitar la revocación de un acceso propio por apertura. Las credenciales de accesos existentes no se muestran ni copian.","Inspect sharing entries and create temporary view-only desktop links. You may review and request revocation of one own entry per opening. Existing entry credentials are not displayed or copied."),style=MaterialTheme.typography.bodySmall)
-                DeviceGeneralShareCreateAction(node,enabled=connected && state.phase=="ready" && revoker==null && review==null,onCreated={retry++})
+            val close:()->Unit={if(busy) discard=true else onBack()}
+            if(review==null && !discard) DeviceGeneralFrame(node,close,inline=true,body={
+                Text(t("Consulta y creación de accesos compartidos de escritorio, terminal y archivos. Puedes revisar y solicitar la revocación de un acceso propio por apertura. Las credenciales de accesos existentes no se muestran ni copian.","Inspect and create desktop, terminal and file sharing entries. You may review and request revocation of one own entry per opening. Existing entry credentials are not displayed or copied."),style=MaterialTheme.typography.bodySmall)
+                DeviceGeneralActionButton(t("Crear enlace","Create link"),enabled=connected && state.phase=="ready" && revoker==null && ShareAccess.entries.any {generalShareAccessAllowed(state.rights,it)},onClick={onCreate(state.rights)},modifier=Modifier.testTag("general_share_create"))
                 Text(t("Es una instantánea, no una lista de sesiones activas. No requiere agente conectado. La ausencia tras releer no demuestra que se hayan cerrado sesiones ya establecidas. No hay reenvíos automáticos.","This is a snapshot, not a list of active sessions. No online agent is required. Absence on readback does not establish that existing sessions were closed. No automatic resends."),style=MaterialTheme.typography.bodySmall)
                 result?.let {r->Text(when(r.phase) {
                     "checking"->t("Reverificando identidad, permisos y el acceso revisado; aún no se ha enviado la revocación.","Rechecking identity, permissions and reviewed entry; revocation has not been sent yet.")
@@ -77,6 +75,9 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
                             Text(t("Escritorio solo consulta: ","View-only desktop: ")+when(share.viewOnly) {true->t("Sí","Yes");false->t("No","No");null->t("No informado","Not reported")})
                             Text(t("Inicio informado: ","Reported start: ")+generalSharesDate(share.start,es))
                             Text(t("Vencimiento informado: ","Reported expiry: ")+generalSharesDate(share.expires,es))
+                            share.duration?.let {Text(t("Duración: ","Duration: ")+"$it min")}
+                            if(share.recurring in listOf(1L,2L)) Text(shareValidityLabel(if(share.recurring==1L) ShareValidity.DAILY else ShareValidity.WEEKLY,es))
+                            Text(t("Consentimiento informado: ","Reported consent: ")+(share.consent?.let {generalConsentLabel(it,es)} ?: t("No informado","Not reported")))
                             if(share.owner==actor && actor.isNotBlank()) TextButton(enabled=connected && revoker==null && review==null,onClick={review=share},modifier=Modifier.testTag("general_share_revoke_review")) {Text(t("Revisar revocación","Review revocation"))}
                         }
                     }
@@ -88,17 +89,20 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
                 }
             },footer={
                 TextButton(enabled=state.phase!="loading" && !busy && review==null,onClick={retry++},modifier=Modifier.testTag("general_shares_reload")) {Text(t("Recargar","Reload"))}
-                TextButton(onClick=close) {Text(t("Cerrar","Close"))}
+                TextButton(onClick=close) {Text(t("Volver","Back"))}
             },subtitle=t("Compartir","Share"),tagPrefix="device_shares")
-            review?.let {share->iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={review=null},title={Text(t("Revocar acceso propio","Revoke own sharing entry"))},text={Column {
+            review?.let {share->iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest={review=null},title={Text(t("Revocar acceso propio","Revoke own sharing entry"))},text={Column {
                 Text(t("Dispositivo: ","Device: ")+node.name);Text(node.id)
                 Text(t("Invitado: ","Guest: ")+share.guest);Text(t("Propietario: ","Owner: ")+share.owner)
                 Text(t("Huella: ","Fingerprint: ")+generalShareFingerprint(share.id))
                 Text(t("Máscara de protocolos: ","Protocol mask: ")+(share.protocols?.toString() ?: t("No informado","Not reported")))
                 Text(t("Vencimiento: ","Expiry: ")+generalSharesDate(share.expires,es))
-                Text(t("Se enviará una sola solicitud para este acceso tras comprobar que no ha cambiado. No se puede deshacer desde este diálogo.","One request will be sent for this entry after checking it has not changed. This cannot be undone from this dialog."))
+                share.duration?.let {Text(t("Duración: ","Duration: ")+"$it min")}
+                if(share.recurring in listOf(1L,2L)) Text(shareValidityLabel(if(share.recurring==1L) ShareValidity.DAILY else ShareValidity.WEEKLY,es))
+                Text(t("Consentimiento: ","Consent: ")+(share.consent?.let {generalConsentLabel(it,es)} ?: t("No informado","Not reported")))
+                Text(t("Se enviará una sola solicitud para este acceso tras comprobar que no ha cambiado. No se puede deshacer desde esta vista.","One request will be sent for this entry after checking it has not changed. This cannot be undone from this view."))
             }},confirmButton={TextButton(enabled=connected && revoker==null,onClick={revoker=DeviceGeneralShareRevoker(source,node.id,share);review=null},modifier=Modifier.testTag("general_share_revoke_confirm")) {Text(t("Revocar una vez","Revoke once"))}},dismissButton={TextButton(onClick={review=null}) {Text(t("Cancelar","Cancel"))}})}
-            if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Compartir","Close Share"))},text={Text(t("Se cerrará el seguimiento local. Cerrar no revierte una revocación que ya se haya enviado y su resultado puede quedar sin confirmar.","Local monitoring will close. Closing does not undo an already sent revocation and its outcome may remain unconfirmed."))},confirmButton={TextButton(onClick={revoker?.close();opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            if(discard) iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest={discard=false},title={Text(t("Cerrar Compartir","Close Share"))},text={Text(t("Se cerrará el seguimiento local. Cerrar no revierte una revocación que ya se haya enviado y su resultado puede quedar sin confirmar.","Local monitoring will close. Closing does not undo an already sent revocation and its outcome may remain unconfirmed."))},confirmButton={TextButton(onClick={revoker?.close();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
         }
     }
 }

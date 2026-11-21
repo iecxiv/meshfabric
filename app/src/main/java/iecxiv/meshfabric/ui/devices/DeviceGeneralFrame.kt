@@ -34,21 +34,18 @@ internal val LocalDeviceGeneralClose=staticCompositionLocalOf<(() -> Unit)?> {nu
     subtitle:String="General",
     tagPrefix:String="device_general",
     scrollBody:Boolean=true,
-    onMinimize:(()->Unit)?=null
+    onMinimize:(()->Unit)?=null,
+    inline:Boolean=false
 ) {
     val configuration=LocalConfiguration.current
-    Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        iecxiv.meshfabric.ui.components.AppDialogSurface(
-            shape=iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
-            color=iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
-            tonalElevation=iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
-            modifier=Modifier.padding(horizontal=16.dp,vertical=24.dp)
-                .widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp)
-                .testTag("${tagPrefix}_surface")
-        ) {
+    DeviceDetailsFrame(inline=inline,onDismiss=onClose) {
+        DeviceDetailsContentSurface(inline=inline,modifier=if(inline) Modifier.fillMaxSize().testTag("${tagPrefix}_surface") else Modifier.padding(horizontal=16.dp,vertical=24.dp).widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp).testTag("${tagPrefix}_surface")) {
             Column {
-                Column(Modifier.padding(start=20.dp,end=12.dp,top=12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(start=if(inline) 16.dp else 20.dp,end=if(inline) 16.dp else 12.dp,top=if(inline) 0.dp else 12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    if(inline) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onClose,title={Column {
+                        Text(node.name.ifBlank {stringResource(R.string.unknown_device)})
+                        Text(subtitle,style=MaterialTheme.typography.labelSmall,modifier=Modifier.testTag("${tagPrefix}_subtitle"))
+                    }},backTag="${tagPrefix}_close") else Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.Computer,null,Modifier.size(22.dp),tint=MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
                             Text(node.name.ifBlank { stringResource(R.string.unknown_device) },style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)

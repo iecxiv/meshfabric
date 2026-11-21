@@ -18,9 +18,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun DeviceGeneralDialog(node:MeshNode,onDismiss:()->Unit) {
+@Composable internal fun DeviceGeneralDialog(node:MeshNode,inline:Boolean=false,onDismiss:()->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun text(a:String,b:String)=if(es) a else b
+    val openSharing=LocalDeviceSharingOpen.current
     val source=LocalDeviceDetailsClient.current
     val scope=rememberCoroutineScope()
     val owner=LocalLifecycleOwner.current
@@ -60,7 +61,7 @@ import iecxiv.meshfabric.data.model.MeshNode
         ""->""
         else->text("Conexión o respuesta no disponible. El borrador local se conserva.","Connection or response unavailable. The local draft is preserved.")
     }
-    DeviceGeneralFrame(node.copy(osdesc=meta?.os ?: node.osdesc),close,
+    DeviceGeneralFrame(node.copy(osdesc=meta?.os ?: node.osdesc),close,inline=inline,
         body={
             if(meta==null) Text(text("Nombre: ","Name: ")+node.name)
             if(meta!=null) {
@@ -81,8 +82,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 DeviceGeneralRunAction(node)
                 DeviceGeneralMessageAction(node)
                 DeviceGeneralChatAction(node)
-                // Temporarily hidden for 1.3.9; restore when sharing implementation is complete.
-                // DeviceGeneralSharesAction(node)
+                DeviceGeneralActionButton(text("Compartir","Share"),enabled=openSharing!=null && !dirty && state.phase in setOf("ready","confirmed") && meta!=null && generalSharesAllowed(meta.rights),onClick={openSharing?.invoke(node)},modifier=Modifier.testTag("general_shares"))
             }
             DevicePowerSection(node.id)
             DeviceAuthorizationSection(node.id,meta?.mesh.orEmpty())

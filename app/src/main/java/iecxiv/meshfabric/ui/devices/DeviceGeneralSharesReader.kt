@@ -40,13 +40,13 @@ internal fun generalSharesReply(p:JsonObject,node:String,request:String):List<Ge
         GeneralShare(id,text(row,"guestName",1024),text(row,"userid",4096),number(row,"p",Int.MAX_VALUE.toLong()),view,number(row,"startTime",253402300799999L),number(row,"expireTime",253402300799999L),number(row,"consent",0xffffffffL),number(row,"duration",Int.MAX_VALUE.toLong()),number(row,"recurring",Int.MAX_VALUE.toLong()))
     }.also {require(it.map {r->r.id}.distinct().size==it.size)}
 }
-internal data class GeneralSharesState(val phase:String="loading",val shares:List<GeneralShare> = emptyList(),val loadedAt:Long?=null,val code:String="")
+internal data class GeneralSharesState(val phase:String="loading",val shares:List<GeneralShare> = emptyList(),val loadedAt:Long?=null,val code:String="",val rights:Long=0L)
 internal class DeviceGeneralSharesReader(private val source:MeshCentralClient?,private val node:String) {
     val state=MutableStateFlow(GeneralSharesState())
     private val jobs=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private val url=source?.serverUrl.orEmpty();private val cookie=source?.authCookie.orEmpty();private val tls=source?.ignoreSsl ?: false
     private val actor=source?.userInfo?.value?.id.orEmpty()
-    private var active=true;private var started=false;private var mode="user";private var tag="";private var readId="";private var socket:WebSocket?=null
+    private var verifiedRights=0L;private var active=true;private var started=false;private var mode="user";private var tag="";private var readId="";private var socket:WebSocket?=null
     private fun same()=source!=null && !source.isUserLogout && source.connectionState.value && actor.isNotBlank() && source.userInfo.value?.id==actor && source.serverUrl==url && source.authCookie==cookie && source.ignoreSsl==tls
     private fun packet(action:String)=JsonObject().apply {addProperty("action",action)}
     private fun send(p:JsonObject)=active && same() && p.get("action")?.asString in setOf("getsysinfo","deviceShares","pong") && socket?.send(p.toString())==true
@@ -89,12 +89,12 @@ internal class DeviceGeneralSharesReader(private val source:MeshCentralClient?,p
             "getsysinfo"->if(mode=="meta" && tag.isNotBlank() && p.get("tag")?.asString==tag && p.get("nodeid")?.asString==node) {
                 val meta=generalMeta(p,node,tag) ?: run {fail("unverified");return}
                 if(!generalSharesAllowed(meta.rights)) {fail("denied");return}
-                tag="";mode="shares";readId=UUID.randomUUID().toString()
+                verifiedRights=meta.rights;tag="";mode="shares";readId=UUID.randomUUID().toString()
                 if(!send(generalSharesRequest(node,readId))) fail("connection")
             }
             "deviceShares"->if(mode=="shares") {
                 val shares=generalSharesReply(p,node,readId) ?: return
-                mode="idle";readId="";state.value=GeneralSharesState("ready",shares,System.currentTimeMillis())
+                mode="idle";readId="";state.value=GeneralSharesState("ready",shares,System.currentTimeMillis(),rights=verifiedRights)
             }
         }
     }

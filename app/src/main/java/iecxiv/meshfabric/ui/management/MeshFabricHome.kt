@@ -13,6 +13,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -304,8 +307,18 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
     } }
     }
     LaunchedEffect(page) {if(page!=4 && noticeCompose) {operation=null;noticeCompose=false}}
+    val generalActor by viewModel.meshClient.userInfo.collectAsState()
+    val generalIdentity=listOf(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,viewModel.meshClient.ignoreSsl.toString(),generalActor?.id.orEmpty())
+    var generalNode by remember(viewModel.meshClient,generalIdentity) {mutableStateOf<MeshNode?>(null)}
+    var generalStep by remember(viewModel.meshClient,generalIdentity) {mutableIntStateOf(0)}
+    var sharingRights by remember(viewModel.meshClient,generalIdentity) {mutableLongStateOf(0L)}
+    val generalFocus=androidx.compose.ui.platform.LocalFocusManager.current
+    val generalKeyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(page) {generalNode=null;generalStep=0}
     val bottomLoading=remember(page) {iecxiv.meshfabric.ui.components.BottomLoadingState()}
-    CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading) {
+    CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading,
+        iecxiv.meshfabric.ui.devices.LocalDeviceGeneralOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=0},
+        iecxiv.meshfabric.ui.devices.LocalDeviceSharingOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=1}) {
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),snackbarHost={ SnackbarHost(snackbar) },
         bottomBar={ CompositionLocalProvider(LocalNoticeUnread provides unread) { CompactBottomNavigation(page) { next->
             if(next in 0..4 && next!=page) {
@@ -316,6 +329,9 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
             }
         } } }) { padding->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+            Box(Modifier.fillMaxSize().then(if(generalNode!=null) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                awaitPointerEventScope {while(true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach {it.consume()}}
+            } else Modifier)) {
             if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->
                 val cleanNodeId = node.id.removePrefix("node//").removePrefix("node/").trim()
                 val hasActiveSessions = iecxiv.meshfabric.ui.devices.hasDeviceConnectedSession(
@@ -345,6 +361,18 @@ private data class Operation(val title:String,val fields:List<Pair<String,String
                 })
             } else LogScreen(viewModel=viewModel,journal=management.activity,feedback=management.feedback,
                 actionsReady=state.ready,actionsStatus=state.status,onReconnect=management::connect,onOpenSettings=onOpenSettings,openActivity=openActivity,onActivityOpened={openActivity=false})
+            }
+            generalNode?.let {target->Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) {
+                Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top+WindowInsetsSides.Horizontal))) {
+                    CompositionLocalProvider(LocalDeviceDetailsClient provides viewModel.meshClient) {
+                        when(generalStep) {
+                            0->iecxiv.meshfabric.ui.devices.DeviceGeneralDialog(target,inline=true,onDismiss={generalNode=null})
+                            1->iecxiv.meshfabric.ui.devices.DeviceSharingListScreen(target,onBack={generalStep=0},onCreate={rights->sharingRights=rights;generalStep=2})
+                            else->iecxiv.meshfabric.ui.devices.DeviceSharingCreateScreen(target,sharingRights,onBack={generalStep=1},onCreated={})
+                        }
+                    }
+                }
+            }}
         }
     }
     }
