@@ -1,0 +1,273 @@
+name: Validate General action subviews
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-general-action-subviews.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-general-action-subviews-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare guarded General action subviews
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='90e57c655720beaaa2333098822a7112a4795f06','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui')
+          def replace(s,old,new,count=1):
+              assert s.count(old)==count,(old,s.count(old));return s.replace(old,new,count)
+          def edit(name,old,new):
+              p=root/name;p.write_text(replace(p.read_text(),old,new))
+          kinds={'DeviceGeneralActionsAction':'ACTIONS','DeviceGeneralNotesAction':'NOTES','DeviceManualEventAction':'EVENT','DeviceGeneralRunAction':'RUN','DeviceGeneralMessageAction':'MESSAGE'}
+          for function,kind in kinds.items():
+              p=root/'devices'/(function+'.kt');s=p.read_text()
+              s=replace(s,function+'(node:MeshNode)',function+'(node:MeshNode,embedded:Boolean=false,onBack:(()->Unit)?=null)')
+              s=replace(s,'    val source=LocalDeviceDetailsClient.current','    val openAction=LocalDeviceGeneralActionOpen.current\n    val source=LocalDeviceDetailsClient.current')
+              s=replace(s,'var opened by remember {mutableStateOf(false)}','var opened by remember {mutableStateOf(embedded)}')
+              s=replace(s,'        DeviceGeneralActionButton(','        if(!embedded) DeviceGeneralActionButton(')
+              s=replace(s,'{opened=true}','{if(openAction!=null) openAction(node,DeviceGeneralActionKind.'+kind+') else opened=true}')
+              assert 'opened=false' in s;s=s.replace('opened=false','exit()')
+              s=replace(s,'        if(opened) {','        fun exit() {if(embedded) onBack?.invoke() else opened=false}\n        if(opened) {')
+              if kind!='EVENT':
+                  s=s.replace('iecxiv.meshfabric.ui.components.AppAlertDialog(','DeviceGeneralActionSurface(embedded=embedded,')
+                  s=replace(s,'DeviceGeneralFrame(node,close,body={','DeviceGeneralFrame(node,close,inline=embedded,body={')
+              if kind=='ACTIONS': s=replace(s,'            DeviceGeneralFrame(node,close,inline=embedded,body={','            if(!embedded || !discard) DeviceGeneralFrame(node,close,inline=embedded,body={')
+              if kind=='NOTES': s=replace(s,'            DeviceGeneralFrame(node,close,inline=embedded,body={','            if(!embedded || (!review && !discard && !replace)) DeviceGeneralFrame(node,close,inline=embedded,body={')
+              if kind=='MESSAGE': s=replace(s,'            DeviceGeneralFrame(node,close,inline=embedded,body={','            if(!embedded || !discard) DeviceGeneralFrame(node,close,inline=embedded,body={')
+              if kind=='RUN':
+                  s=replace(s,'            DeviceGeneralFrame(node,close,inline=embedded,body={','            if(!embedded || (!discard && feedback.commands.none {it.id==feedback.commandWindow})) DeviceGeneralFrame(node,close,inline=embedded,body={')
+                  s=replace(s,'            ActionFeedbackDialogs(editor.feedback)','            if(embedded) {if(!discard && feedback.commands.any {it.id==feedback.commandWindow}) DeviceRunFeedbackSubview(node,editor.feedback)} else ActionFeedbackDialogs(editor.feedback)')
+              p.write_text(s)
+          edit('devices/DeviceGeneralActionsAction.kt','val close:()->Unit={if(state.phase in setOf("checking","sent")) discard=true else exit()}','val close:()->Unit={if(review!=null && !submitted && state.phase=="ready") review=null else if(state.phase in setOf("checking","sent")) discard=true else exit()}')
+          edit('devices/DeviceGeneralRunAction.kt','val close:()->Unit={if(command.isNotBlank() || submitted) discard=true else exit()}','val close:()->Unit={if(review!=null && !submitted) review=null else if(command.isNotBlank() || submitted) discard=true else exit()}')
+          edit('devices/DeviceGeneralMessageAction.kt','val close:()->Unit={if(body.isNotEmpty() || title!=defaultTitle || submitted) discard=true else exit()}','val close:()->Unit={if(review!=null && !submitted) review=null else if(body.isNotEmpty() || title!=defaultTitle || submitted) discard=true else exit()}')
+          edit('devices/DeviceGeneralNotesAction.kt','if(review) DeviceGeneralActionSurface','if(review && (!embedded || (!discard && !replace))) DeviceGeneralActionSurface')
+          edit('devices/DeviceGeneralNotesAction.kt','if(replace) DeviceGeneralActionSurface','if(replace && (!embedded || !discard)) DeviceGeneralActionSurface')
+          edit('devices/DeviceManualEventAction.kt','        var history by remember {mutableStateOf(false)}','        var history by remember {mutableStateOf(false)}\n        var discard by remember {mutableStateOf(false)}')
+          edit('devices/DeviceManualEventAction.kt','            val valid=runCatching {manualEventEncoded(text)}.isSuccess','            val close:()->Unit={if(review!=null && !submitted) review=null else if(text.isNotEmpty() || state.phase in setOf("checking","sent")) discard=true else exit()}\n            val valid=runCatching {manualEventEncoded(text)}.isSuccess')
+          edit('devices/DeviceManualEventAction.kt','            iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={exit()},title={Text(t("Registrar evento","Log event"))},','            if(!embedded || (!history && !discard)) DeviceManualEventSurface(node=node,embedded=embedded,onDismissRequest=close,')
+          edit('devices/DeviceManualEventAction.kt','Modifier.fillMaxWidth().heightIn(max=360.dp).verticalScroll(rememberScrollState())','Modifier.fillMaxWidth()')
+          edit('devices/DeviceManualEventAction.kt','                    Text(node.name,style=MaterialTheme.typography.titleSmall)\n','')
+          edit('devices/DeviceManualEventAction.kt','TextButton(onClick={exit()}) {Text(t("Cerrar","Close"))}','TextButton(onClick=close) {Text(t("Volver","Back"))}')
+          discard='''            if(discard) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={discard=false},title={Text(t("Cerrar Registrar evento","Close Log event"))},text={Text(t("Se perderá el borrador local. Cerrar no revierte un evento ya enviado ni confirma su registro.","The local draft will be lost. Closing does not undo an already sent event or confirm its recording."))},confirmButton={TextButton(onClick={editor.close();exit()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+          '''
+          edit('devices/DeviceManualEventAction.kt','        }\n        if(history) DeviceEventsDialog(node) {history=false}',discard+'        }\n        if(history && (!embedded || !discard)) {if(embedded) DeviceReadSubview(node,events=true,onDismiss={history=false}) else DeviceEventsDialog(node) {history=false}}')
+          edit('management/MeshFabricHome.kt','iecxiv.meshfabric.ui.devices.LocalDeviceDetailsSubviewOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=4})','iecxiv.meshfabric.ui.devices.LocalDeviceDetailsSubviewOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=4},\n        iecxiv.meshfabric.ui.devices.LocalDeviceGeneralActionOpen provides {node,action->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=iecxiv.meshfabric.ui.devices.deviceGeneralActionStep(action)})')
+          edit('management/MeshFabricHome.kt','                            0->iecxiv.meshfabric.ui.devices.DeviceGeneralDialog(target,inline=true,onDismiss={generalNode=null})','                            0,5,6,7,8,9->iecxiv.meshfabric.ui.devices.DeviceGeneralActionHost(target,iecxiv.meshfabric.ui.devices.deviceGeneralActionKind(generalStep),onDismiss={generalNode=null},onActionBack={generalStep=0})')
+          host='''package iecxiv.meshfabric.ui.devices
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.input.pointer.PointerEventPass
+          import androidx.compose.ui.input.pointer.pointerInput
+          import androidx.compose.ui.semantics.clearAndSetSemantics
+          import androidx.compose.ui.platform.LocalConfiguration
+          import iecxiv.meshfabric.data.model.MeshNode
+          internal enum class DeviceGeneralActionKind {ACTIONS,NOTES,EVENT,RUN,MESSAGE}
+          internal fun deviceGeneralActionStep(kind:DeviceGeneralActionKind)=5+kind.ordinal
+          internal fun deviceGeneralActionKind(step:Int)=DeviceGeneralActionKind.entries.getOrNull(step-5)
+          internal val LocalDeviceGeneralActionOpen=staticCompositionLocalOf<((MeshNode,DeviceGeneralActionKind)->Unit)?> {null}
+          @Composable internal fun DeviceGeneralActionLayers(open:Boolean,background:@Composable ()->Unit,content:@Composable ()->Unit) {
+              Box(Modifier.fillMaxSize()) {
+                  Box(Modifier.fillMaxSize().then(if(open) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+                      awaitPointerEventScope {while(true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach {it.consume()}}
+                  } else Modifier)) {background()}
+                  if(open) Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,content=content)
+              }
+          }
+          @Composable internal fun DeviceGeneralActionHost(node:MeshNode,action:DeviceGeneralActionKind?,onDismiss:()->Unit,onActionBack:()->Unit) {
+              DeviceGeneralActionLayers(action!=null,background={DeviceGeneralDialog(node,inline=true,onDismiss=onDismiss)},content={
+                  action?.let {when(it) {
+                      DeviceGeneralActionKind.ACTIONS->DeviceGeneralActionsAction(node,embedded=true,onBack=onActionBack)
+                      DeviceGeneralActionKind.NOTES->DeviceGeneralNotesAction(node,embedded=true,onBack=onActionBack)
+                      DeviceGeneralActionKind.EVENT->DeviceManualEventAction(node,embedded=true,onBack=onActionBack)
+                      DeviceGeneralActionKind.RUN->DeviceGeneralRunAction(node,embedded=true,onBack=onActionBack)
+                      DeviceGeneralActionKind.MESSAGE->DeviceGeneralMessageAction(node,embedded=true,onBack=onActionBack)
+                  }}
+              })
+          }
+          @Composable internal fun DeviceGeneralActionSurface(embedded:Boolean,onDismissRequest:()->Unit,title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit={}) {
+              if(embedded) iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)
+              else iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)
+          }
+          @Composable internal fun DeviceManualEventSurface(node:MeshNode,embedded:Boolean,onDismissRequest:()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              DeviceGeneralFrame(node,onDismissRequest,inline=embedded,body={text()},footer={confirmButton();dismissButton()},subtitle=if(es) "Registrar evento" else "Log event",tagPrefix="device_manual_event")
+          }
+          '''
+          output='''package iecxiv.meshfabric.ui.devices
+          import android.content.*
+          import android.os.PersistableBundle
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.text.selection.SelectionContainer
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.text.font.FontFamily
+          import androidx.compose.ui.text.style.TextOverflow
+          import androidx.compose.ui.unit.dp
+          import iecxiv.meshfabric.data.model.MeshNode
+          import iecxiv.meshfabric.ui.management.*
+          @Composable internal fun DeviceRunFeedbackSubview(node:MeshNode,controller:RemoteActionFeedback) {
+              val state by controller.state.collectAsState()
+              val command=state.commands.find {it.id==state.commandWindow} ?: return
+              val context=LocalContext.current
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              fun t(a:String,b:String)=if(es) a else b
+              var copyStatus by remember(command.id) {mutableStateOf("")}
+              DeviceGeneralFrame(node,controller::closeCommand,inline=true,subtitle=command.title,tagPrefix="device_run_output",body={
+                  SelectionContainer {Text(command.command,style=MaterialTheme.typography.bodySmall,fontFamily=FontFamily.Monospace,maxLines=3,overflow=TextOverflow.Ellipsis)}
+                  if(command.busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
+                  Text(command.message,color=if(command.phase==CommandPhase.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                  if(command.output.isNotEmpty()) OutlinedTextField(command.output,{},readOnly=true,label={Text(t("Salida","Output"))},modifier=Modifier.fillMaxWidth().heightIn(min=160.dp,max=260.dp),minLines=6,maxLines=12,textStyle=MaterialTheme.typography.bodySmall.copy(fontFamily=FontFamily.Monospace))
+                  if(copyStatus.isNotEmpty()) Text(copyStatus,style=MaterialTheme.typography.bodySmall)
+                  Text(t("Cerrar no detiene el comando remoto. Recibir salida no demuestra que el proceso haya terminado correctamente.","Closing does not stop the remote command. Receiving output does not prove successful completion."),style=MaterialTheme.typography.bodySmall)
+              },footer={
+                  TextButton(enabled=command.output.isNotEmpty(),onClick={
+                      copyStatus=if(runCatching {
+                          val clipboard=context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                          val clip=ClipData.newPlainText(t("Salida remota","Remote output"),command.output)
+                          clip.description.extras=PersistableBundle().apply {putBoolean("android.content.extra.IS_SENSITIVE",true)}
+                          clipboard.setPrimaryClip(clip)
+                      }.isSuccess) t("Salida copiada; puede contener datos sensibles.","Output copied; it may contain sensitive data.") else t("No se pudo copiar.","Copy failed.")
+                  }) {Text(t("Copiar salida","Copy output"))}
+                  TextButton(onClick=controller::closeCommand) {Text(t("Volver","Back"))}
+              })
+          }
+          '''
+          unit='''package iecxiv.meshfabric.ui.devices
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceGeneralActionRoutingTest {
+              @Test fun eachActionHasDistinctRootRouteAndRoundTrips() {
+                  assertEquals(listOf(5,6,7,8,9),DeviceGeneralActionKind.entries.map {deviceGeneralActionStep(it)})
+                  for(kind in DeviceGeneralActionKind.entries) assertEquals(kind,deviceGeneralActionKind(deviceGeneralActionStep(kind)))
+              }
+              @Test fun existingGeneralSharingAndReadRoutesAreNotActionRoutes() {for(step in listOf(-1,0,1,2,3,4,10)) assertNull(deviceGeneralActionKind(step))}
+          }
+          '''
+          ui='''package iecxiv.meshfabric.ui.devices
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import iecxiv.meshfabric.data.model.MeshNode
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class DeviceGeneralActionSubviewsTest {
+              @get:Rule val rule=createComposeRule()
+              @Test fun fiveActionsUseSingleSubviewHeaderAndReturnToGeneral() {
+                  val action=mutableStateOf<DeviceGeneralActionKind?>(null)
+                  val node=MeshNode(id="node//actions",name="Device",meshid="mesh//a",osdesc="Linux")
+                  rule.setContent {MaterialTheme {DeviceGeneralActionHost(node,action.value,onDismiss={},onActionBack={action.value=null})}}
+                  val tags=listOf("device_actions_close","device_notes_close","device_manual_event_close","device_run_close","device_message_close")
+                  for(kind in DeviceGeneralActionKind.entries) {
+                      rule.runOnIdle {action.value=kind}
+                      rule.onNode(isDialog()).assertDoesNotExist()
+                      rule.onAllNodesWithTag("subview-header").assertCountEquals(1)
+                      rule.onNodeWithTag(tags[kind.ordinal]).performClick()
+                      rule.runOnIdle {assertNull(action.value)}
+                  }
+              }
+              @Test fun layersKeepParentDraftWhileHidingItsSemantics() {
+                  val open=mutableStateOf(false)
+                  rule.setContent {MaterialTheme {
+                      var draft by remember {mutableStateOf("")}
+                      DeviceGeneralActionLayers(open.value,background={OutlinedTextField(draft,{draft=it},modifier=Modifier.testTag("parent_draft"))},content={Text("Action")})
+                  }}
+                  rule.onNodeWithTag("parent_draft").performTextInput("Preserved draft")
+                  rule.runOnIdle {open.value=true}
+                  rule.onNodeWithTag("parent_draft").assertDoesNotExist()
+                  rule.runOnIdle {open.value=false}
+                  rule.onNodeWithTag("parent_draft").assertTextContains("Preserved draft")
+              }
+              @Test fun actionConfirmationIsSubviewNotDialog() {
+                  var closed=0
+                  rule.setContent {MaterialTheme {DeviceGeneralActionSurface(true,{closed++},title={Text("Review")},text={Text("Details")},confirmButton={TextButton(onClick={}) {Text("Confirm")}})}}
+                  rule.onNode(isDialog()).assertDoesNotExist()
+                  rule.onAllNodesWithTag("subview-header").assertCountEquals(1)
+                  rule.onNodeWithTag("user-action-back").performClick()
+                  rule.runOnIdle {assertEquals(1,closed)}
+              }
+          }
+          '''
+          new={
+              'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralActionSubviews.kt':host,
+              'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceRunFeedbackSubview.kt':output,
+              'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceGeneralActionRoutingTest.kt':unit,
+              'app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceGeneralActionSubviewsTest.kt':ui
+          }
+          for name,content in new.items():
+              p=Path(name);assert not p.exists();p.write_text(content)
+          for function in kinds:
+              s=(root/'devices'/(function+'.kt')).read_text()
+              assert 'iecxiv.meshfabric.ui.components.AppAlertDialog(' not in s,function
+              assert 'if(!embedded) DeviceGeneralActionButton' in s,function
+              assert 'fun exit() {if(embedded) onBack?.invoke() else opened=false}' in s,function
+          expected=set(new)|{'app/src/main/java/iecxiv/meshfabric/ui/devices/'+name+'.kt' for name in kinds}|{'app/src/main/java/iecxiv/meshfabric/ui/management/MeshFabricHome.kt'}
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          assert actual==expected,(actual,expected)
+          Path(os.environ['RUNNER_TEMP'],'general-action-subview-paths.json').write_text(json.dumps(sorted(actual)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused General regression tests
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneral*Test' --no-daemon --stacktrace
+      - name: Full validation before publishing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-general-action-subview-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/general-action-subview-paths.json
+          if-no-files-found: ignore
+      - name: Publish only validated subviews and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'general-action-subview-paths.json').read_text())
+          names=['devices/DeviceGeneralActionsAction.kt','devices/DeviceGeneralNotesAction.kt','devices/DeviceManualEventAction.kt','devices/DeviceGeneralRunAction.kt','devices/DeviceGeneralMessageAction.kt','devices/DeviceGeneralActionSubviews.kt','devices/DeviceRunFeedbackSubview.kt','management/MeshFabricHome.kt']
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+p for p in names}|{'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceGeneralActionRoutingTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceGeneralActionSubviewsTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          workflow='.github/workflows/device-general-action-subviews.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(general): migrate device actions notes event run and message to subviews'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
