@@ -1,0 +1,166 @@
+name: Validate device subview layout and General resume
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-general-layout-resume.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-general-layout-resume-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare guarded layout and lifecycle fixes
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='6049840e74abfc20cc18a75811659da52a232b08','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui');paths=[]
+          def edit(name,old,new):
+              p=root/name;s=p.read_text();assert s.count(old)==1,(name,old,s.count(old));p.write_text(s.replace(old,new,1));paths.append(str(p))
+          edit('devices/DeviceAgentConsoleScreen.kt','            DeviceStatusDecoration(consoleNode,Modifier.fillMaxWidth().padding(horizontal=4.dp),"agent_console_device")','            DeviceStatusDecoration(consoleNode,Modifier.fillMaxWidth().padding(horizontal=4.dp),"agent_console_device")\n            HorizontalDivider(Modifier.testTag("agent_console_device_divider"),color=MaterialTheme.colorScheme.outlineVariant)')
+          edit('devices/DeviceEventsPresentation.kt','import androidx.compose.material.icons.filled.Close','import androidx.compose.material.icons.filled.Refresh\nimport androidx.compose.material.icons.filled.Close')
+          edit('devices/DeviceEventsPresentation.kt','{Text(text("Actualizar","Refresh"))}','{Icon(Icons.Default.Refresh,null,Modifier.size(18.dp).testTag("device_events_refresh_icon"));Spacer(Modifier.width(6.dp));Text(text("Actualizar","Refresh"))}')
+          edit('devices/DeviceGeneralFrame.kt','            Column {','            Column(if(inline) Modifier.fillMaxSize().imePadding() else Modifier) {')
+          edit('devices/DeviceGeneralFrame.kt','Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)','if(inline) Modifier.weight(1f).fillMaxWidth() else Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)')
+          edit('devices/DeviceGeneralFrame.kt','                    Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)','                    if(inline && scrollBody) iecxiv.meshfabric.ui.components.CenteredSubviewBody(bodyModifier,body)\n                    else Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)')
+          edit('devices/DeviceGeneralFrame.kt','Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,','Row(Modifier.fillMaxWidth().testTag("${tagPrefix}_footer").padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,')
+          edit('management/ProfileUserDetailSurface.kt','internal val LocalProfileUserInline=staticCompositionLocalOf {false}','internal val LocalProfileUserInline=staticCompositionLocalOf {false}\ninternal val LocalCenteredDeviceActionBody=staticCompositionLocalOf {false}')
+          edit('management/ProfileUserDetailSurface.kt','            Box(Modifier.weight(1f).fillMaxWidth()) {text()}','            if(LocalCenteredDeviceActionBody.current) iecxiv.meshfabric.ui.components.CenteredSubviewBody(Modifier.weight(1f).fillMaxWidth()) {text()}\n            else Box(Modifier.weight(1f).fillMaxWidth()) {text()}')
+          edit('devices/DeviceGeneralActionSubviews.kt','if(embedded) iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)','if(embedded) CompositionLocalProvider(iecxiv.meshfabric.ui.management.LocalCenteredDeviceActionBody provides true) {iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)}')
+          for name in ['devices/DeviceGeneralSharesAction.kt','devices/DeviceGeneralShareCreateAction.kt']:
+              p=root/name;s=p.read_text();old='iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,';assert old in s;p.write_text(s.replace(old,'DeviceGeneralActionSurface(embedded=true,'));paths.append(str(p))
+          edit('devices/DeviceGeneralDialog.kt','    val source=LocalDeviceDetailsClient.current','    val source=LocalDeviceDetailsClient.current\n    val connected=source?.connectionState?.collectAsState()?.value==true')
+          edit('devices/DeviceGeneralDialog.kt','    val meta=state.meta','    var suspended by remember(source,identity,node.id) {mutableStateOf(false)}\n    var interruptedWrite by remember(source,identity,node.id) {mutableStateOf(false)}\n    val meta=state.meta')
+          edit('devices/DeviceGeneralDialog.kt','        val observer=LifecycleEventObserver { _,event->if(event==Lifecycle.Event.ON_STOP) editor.close() }','''        val observer=LifecycleEventObserver { _,event->
+                      if(event==Lifecycle.Event.ON_STOP) {
+                          if(generalInterruptedWrite(editor.state.value.phase,editor.state.value.code)) interruptedWrite=true
+                          review=null;suspended=true;editor.close()
+                      } else if(event==Lifecycle.Event.ON_RESUME && generalResumeRead(suspended,source?.connectionState?.value==true,true)) {
+                          suspended=false;retry++
+                      }
+                  }''')
+          edit('devices/DeviceGeneralDialog.kt','        if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) editor.start() else editor.close()','        if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && source?.connectionState?.value==true) editor.start() else {suspended=true;editor.close()}')
+          edit('devices/DeviceGeneralDialog.kt','    val close:()->Unit={ if(dirty || state.phase=="saving") discard=true else onDismiss() }','''    LaunchedEffect(connected,owner) {
+                  if(generalResumeRead(suspended,connected,owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))) {suspended=false;retry++}
+              }
+              val close:()->Unit={ if(dirty || state.phase=="saving") discard=true else onDismiss() }''')
+          edit('devices/DeviceGeneralDialog.kt','            TextButton(onClick={ retry++ },enabled=state.phase!="saving")','            if(interruptedWrite) Text(text("Guardado interrumpido: resultado sin confirmar. No se reenviará. Comprueba los datos y recarga explícitamente antes de revisar otro guardado.","Save interrupted: outcome unconfirmed. It will not be resent. Check the data and explicitly reload before reviewing another save."),color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("general_interrupted_write"))\n            TextButton(onClick={ interruptedWrite=false;review=null;retry++ },enabled=state.phase!="saving")')
+          edit('devices/DeviceGeneralDialog.kt','TextButton(enabled=state.canEdit && dirty,onClick={','TextButton(enabled=state.canEdit && dirty && !interruptedWrite,onClick={')
+          edit('devices/DeviceGeneralDialog.kt','TextButton(enabled=state.canEdit,onClick={ review=null;editor.save(draft) })','TextButton(enabled=state.canEdit && !interruptedWrite,onClick={ review=null;editor.save(draft) })')
+          center='''package iecxiv.meshfabric.ui.components
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          @Composable internal fun CenteredSubviewBody(modifier:Modifier=Modifier,content:@Composable ColumnScope.()->Unit) {
+              BoxWithConstraints(modifier.testTag("centered_body_viewport")) {
+                  Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min=maxHeight).padding(horizontal=12.dp,vertical=8.dp),verticalArrangement=Arrangement.spacedBy(8.dp,Alignment.CenterVertically),content=content)
+              }
+          }
+          '''
+          policy='''package iecxiv.meshfabric.ui.devices
+          internal fun generalResumeRead(stopped:Boolean,connected:Boolean,resumed:Boolean)=stopped && connected && resumed
+          internal fun generalInterruptedWrite(phase:String,code:String)=phase=="saving" || code=="unconfirmed"
+          '''
+          unit='''package iecxiv.meshfabric.ui.devices
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceGeneralResumePolicyTest {
+              @Test fun resumeReadRequiresAllConditions() {for(stopped in listOf(false,true)) for(connected in listOf(false,true)) for(resumed in listOf(false,true)) assertEquals(stopped && connected && resumed,generalResumeRead(stopped,connected,resumed))}
+              @Test fun interruptedWritesRemainUncertain() {assertTrue(generalInterruptedWrite("saving",""));assertTrue(generalInterruptedWrite("error","unconfirmed"));assertFalse(generalInterruptedWrite("ready",""));assertFalse(generalInterruptedWrite("confirmed",""))}
+          }
+          '''
+          ui='''package iecxiv.meshfabric.ui.devices
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import iecxiv.meshfabric.data.model.MeshNode
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class DeviceCenteredSubviewLayoutTest {
+              @get:Rule val rule=createComposeRule()
+              @Test fun shortBodyIsCenteredAndFooterDoesNotMoveWithLongContent() {
+                  val long=mutableStateOf(false)
+                  rule.setContent {MaterialTheme {DeviceGeneralFrame(MeshNode(id="node//layout",name="Device"),{},inline=true,body={if(long.value) repeat(80) {Text("Line $it",Modifier.testTag("line_$it"))} else Text("Short",Modifier.testTag("short_body"))},footer={TextButton(onClick={}) {Text("Back")}})}}
+                  val viewport=rule.onNodeWithTag("centered_body_viewport").fetchSemanticsNode().boundsInRoot
+                  val body=rule.onNodeWithTag("short_body").fetchSemanticsNode().boundsInRoot
+                  assertEquals(viewport.center.y,body.center.y,2f)
+                  val footer=rule.onNodeWithTag("device_general_footer").fetchSemanticsNode().boundsInRoot
+                  rule.runOnIdle {long.value=true}
+                  assertEquals(footer.top,rule.onNodeWithTag("device_general_footer").fetchSemanticsNode().boundsInRoot.top,2f)
+                  rule.onNodeWithTag("line_79").performScrollTo().assertIsDisplayed()
+                  rule.onNodeWithTag("device_general_footer").assertIsDisplayed()
+              }
+          }
+          '''
+          new={'app/src/main/java/iecxiv/meshfabric/ui/components/CenteredSubviewBody.kt':center,'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralResumePolicy.kt':policy,'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceGeneralResumePolicyTest.kt':unit,'app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceCenteredSubviewLayoutTest.kt':ui}
+          for name,content in new.items():
+              p=Path(name);assert not p.exists();p.write_text(content);paths.append(name)
+          expected=set(paths)
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          assert actual==expected,(actual,expected)
+          Path(os.environ['RUNNER_TEMP'],'general-layout-resume-paths.json').write_text(json.dumps(sorted(expected)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused General regression tests
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneral*Test' --no-daemon --stacktrace
+      - name: Full validation before publishing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-general-layout-resume-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/general-layout-resume-paths.json
+          if-no-files-found: ignore
+      - name: Publish validated fixes and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'general-layout-resume-paths.json').read_text())
+          names=['devices/DeviceAgentConsoleScreen.kt','devices/DeviceEventsPresentation.kt','devices/DeviceGeneralFrame.kt','management/ProfileUserDetailSurface.kt','devices/DeviceGeneralActionSubviews.kt','devices/DeviceGeneralSharesAction.kt','devices/DeviceGeneralShareCreateAction.kt','devices/DeviceGeneralDialog.kt','components/CenteredSubviewBody.kt','devices/DeviceGeneralResumePolicy.kt']
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+p for p in names}|{'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceGeneralResumePolicyTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceCenteredSubviewLayoutTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          workflow='.github/workflows/device-general-layout-resume.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(devices): anchor subview footers center short bodies and recover General reads on resume'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
