@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.SecureFlagPolicy
 import com.google.gson.JsonObject
@@ -28,8 +29,9 @@ internal fun serverEventDetails(item:JsonObject):Map<String,String> {
 }
 @Composable internal fun ServerEventDetailsDialog(row:ServerEventRecord,onDismiss:()->Unit) {
     val missing=stringResource(R.string.log_detail_missing)
-    AlertDialog(onDismissRequest=onDismiss,modifier=Modifier.testTag("log-event-details"),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),
-        title={Text(stringResource(R.string.log_detail_title))},
+    androidx.compose.runtime.CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalWideAccountDialogs provides true) {
+    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onDismiss,modifier=Modifier.testTag("log-event-details"),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),
+        title={Text(stringResource(R.string.log_detail_title),modifier=Modifier.fillMaxWidth(),style=MaterialTheme.typography.titleMedium.copy(fontSize=18.sp,lineHeight=24.sp,fontWeight=androidx.compose.ui.text.font.FontWeight.Bold))},
         text={SelectionContainer {Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             ServerEventIcon(row.action)
             ManagementInfoRow(stringResource(R.string.log_detail_date),row.time?.let {DateFormat.getDateTimeInstance(DateFormat.FULL,DateFormat.LONG).format(Date(it))} ?: missing)
@@ -50,4 +52,5 @@ internal fun serverEventDetails(item:JsonObject):Map<String,String> {
             }
             row.details.filterKeys {it !in setOf("cmds","cmdType","runAsUser")}.forEach {(key,value)->ManagementInfoRow(key,value)}
         }}},confirmButton={TextButton(onClick=onDismiss,modifier=Modifier.testTag("log-event-details-close")) {Text(stringResource(R.string.log_detail_close))}})
+    }
 }

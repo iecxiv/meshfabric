@@ -47,6 +47,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
     val cleanNodeId=nodeId.removePrefix("node//").removePrefix("node/").trim()
     val agentVersion=groups.asSequence().flatMap {it.second.asSequence()}.singleOrNull {it.id.removePrefix("node//").removePrefix("node/").trim()==cleanNodeId}
         ?.agent?.ver?.takeIf {it>0}?.toString()
+    val consoleNode=remember(groups,cleanNodeId) {groups.asSequence().flatMap {it.second.asSequence()}.singleOrNull {it.id.removePrefix("node//").removePrefix("node/").trim()==cleanNodeId}}
     val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
@@ -142,6 +143,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                     }
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+            DeviceStatusDecoration(consoleNode,Modifier.fillMaxWidth().padding(horizontal=4.dp),"agent_console_device")
             Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
             Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("agent_console_status_row"),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(when(state.phase) {

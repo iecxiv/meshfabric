@@ -58,13 +58,7 @@ internal val LocalDeviceGeneralClose=staticCompositionLocalOf<(() -> Unit)?> {nu
                             Icon(Icons.Default.Close,stringResource(R.string.device_details_close))
                         }
                     }
-                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                        Surface(shape=RoundedCornerShape(6.dp),color=if(node.isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
-                            Text(stringResource(if(node.isOnline) R.string.device_details_online else R.string.device_details_offline),
-                                Modifier.padding(horizontal=8.dp,vertical=3.dp),style=MaterialTheme.typography.labelSmall)
-                        }
-                        if(!node.osdesc.isNullOrBlank()) Text(node.osdesc.orEmpty(),Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    DeviceStatusDecoration(node,Modifier.fillMaxWidth())
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 val bodyModifier=if(scrollBody) {
