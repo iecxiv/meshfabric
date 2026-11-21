@@ -184,7 +184,7 @@ class MeshCentralClient {
                     }
                 }
 
-                if (response.isSuccessful || responseCode == 302 || extractedCookie.isNotEmpty()) {
+                if (extractedCookie.isNotEmpty() && (response.isSuccessful || responseCode == 302)) {
                     authCookie = extractedCookie
                     onResult(AuthResult.Success(extractedCookie, _userInfo.value))
                 } else {

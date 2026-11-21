@@ -67,7 +67,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
     Scaffold(contentWindowInsets=WindowInsets(0,0,0,0),topBar={ Column {
         MeshFabricAppBar(viewModel,onOpenSettings,actions={ Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
             if(!actionsReady) IconButton(onClick=onReconnect,enabled=connected,modifier=Modifier.size(38.dp)) {
-                Icon(Icons.Default.Refresh,contentDescription="Reconectar actividad",modifier=Modifier.size(20.dp))
+                Icon(Icons.Default.Refresh,contentDescription=if(androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es") "Reconectar actividad" else "Reconnect activity",modifier=Modifier.size(20.dp))
             }
             IconButton(onClick={
                 if(showSearch) { search=""; focusManager.clearFocus(force=true); keyboard?.hide() }
@@ -80,7 +80,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
         AnimatedVisibility(showSearch) {
             LaunchedEffect(showSearch) { if(showSearch) { withFrameNanos { }; requester.requestFocus(); keyboard?.show() } }
             OutlinedTextField(value=search,onValueChange={ search=it },singleLine=true,
-                placeholder={ Text("Buscar en actividad…") },modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRequester(requester),
+                placeholder={ Text(if(androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es") "Buscar en actividad…" else "Search activity…") },modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).focusRequester(requester),
                 trailingIcon={ if(search.isNotEmpty()) IconButton(onClick={ search="" }) { Icon(Icons.Default.Close,contentDescription=stringResource(R.string.clear_search)) } })
         }
     } }) { padding->

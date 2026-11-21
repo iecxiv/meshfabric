@@ -19,7 +19,9 @@ class SessionManager(context: Context) {
     private val terminalHistoryRoot = File(context.noBackupFilesDir, "terminal_history")
     private val terminalLegacyRoot = File(context.filesDir, "terminal_buffers")
 
-    private val prefs: SharedPreferences = try {
+    private var secureStorage = true
+
+    private fun securePrefs(context: Context): SharedPreferences? = try {
         val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
 
         EncryptedSharedPreferences.create(
@@ -30,7 +32,15 @@ class SessionManager(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
-        context.getSharedPreferences("meshcentral_fallback_prefs", Context.MODE_PRIVATE)
+        null
+    }
+
+    private val prefs: SharedPreferences = securePrefs(context) ?: run {
+        runCatching { context.deleteSharedPreferences("meshcentral_encrypted_prefs") }
+        securePrefs(context) ?: run {
+            secureStorage = false
+            context.getSharedPreferences("meshcentral_fallback_prefs", Context.MODE_PRIVATE)
+        }
     }
 
     companion object {
@@ -155,6 +165,7 @@ class SessionManager(context: Context) {
     }
 
     fun saveSession(session: SessionData) {
+        if (!secureStorage) return
         prefs.edit()
             .putString(KEY_SERVER_URL, session.serverUrl)
             .putString(KEY_USERNAME, session.username)
@@ -171,6 +182,7 @@ class SessionManager(context: Context) {
     }
 
     fun getSession(): SessionData? {
+        if (!secureStorage) return null
         val isRemembered = prefs.getBoolean(KEY_IS_REMEMBERED, false)
         if (!isRemembered) return null
 
@@ -202,6 +214,7 @@ class SessionManager(context: Context) {
         val currentAppName = _appNameFlow.value
         val currentIconPath = _customIconPathFlow.value
         val currentTheme = _themeModeFlow.value
+        val keepHideSettingsIcon = _hideSettingsIconFlow.value
 
         prefs.edit().clear().apply()
         prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, keepTerminalBuffers)
@@ -216,6 +229,7 @@ class SessionManager(context: Context) {
             prefs.edit().putString(KEY_CUSTOM_ICON_PATH, currentIconPath).apply()
         }
         prefs.edit().putString(KEY_THEME_MODE, currentTheme.name).apply()
+        prefs.edit().putBoolean(KEY_HIDE_SETTINGS_ICON, keepHideSettingsIcon).apply()
     }
 
     fun saveDesktopSettings(settings: DesktopSettings) {
