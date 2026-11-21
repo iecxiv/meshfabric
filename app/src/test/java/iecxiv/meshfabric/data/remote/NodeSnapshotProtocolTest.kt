@@ -60,4 +60,25 @@ class NodeSnapshotProtocolTest {
         assertNull(decode("""[{"_id":"node//a","name":null}]"""))
         assertNull(decode("""[{"_id":8}]"""))
     }
+
+    @Test fun errorFieldAlwaysRejectsInventoryReplies() {
+        val requests=NodeSnapshotRequests()
+        val packets=listOf(requests.request(),com.google.gson.JsonObject().apply {addProperty("action","nodes")},com.google.gson.JsonObject().apply {addProperty("action","nodes");addProperty("responseid","external")})
+        for(value in listOf("\"denied\"","null","false","0","{}","[]")) for(packet in packets) {
+            packet.add("error",gson.fromJson(value,JsonElement::class.java))
+            assertEquals(NodeSnapshotRequests.Mode.IGNORE,requests.mode(packet))
+        }
+    }
+    @Test fun errorFieldOverridesSuccessfulResult() {
+        val requests=NodeSnapshotRequests();val packet=requests.request().apply {
+            addProperty("result","OK");addProperty("error","denied")
+        }
+        assertEquals(NodeSnapshotRequests.Mode.IGNORE,requests.mode(packet))
+    }
+    @Test fun errorRepliesDoNotAdvanceAcceptedSequence() {
+        val requests=NodeSnapshotRequests();val earlier=requests.request()
+        val failed=requests.request().apply {addProperty("error","denied")}
+        requests.accept(failed)
+        assertEquals(NodeSnapshotRequests.Mode.COMPLETE,requests.mode(earlier))
+    }
 }

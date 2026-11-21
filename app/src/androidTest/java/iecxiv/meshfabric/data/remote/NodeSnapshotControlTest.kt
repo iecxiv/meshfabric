@@ -60,4 +60,23 @@ class NodeSnapshotControlTest {
         reply(client,requests(client).request().apply {addProperty("result","error")},"{}")
         assertEquals(setOf("node//a","node//b"),nodes(client).keys)
     }
+
+    @Test fun errorFieldCannotClearExistingInventory() = withClient {client ->
+        val original=nodes(client)
+        for(value in listOf("\"denied\"","null","false","0","{}","[]")) {
+            val packet=requests(client).request().apply {add("error",gson.fromJson(value,JsonElement::class.java))}
+            reply(client,packet,"{}")
+            assertEquals(original,nodes(client))
+        }
+    }
+    @Test fun errorCannotPartiallyReplaceInventoryEvenWithSuccessfulResult() = withClient {client ->
+        val original=nodes(client)
+        val packet=requests(client).request().apply {addProperty("result","OK");addProperty("error","denied")}
+        val payload="""{"mesh//g":[{"_id":"node//b","name":"Changed","conn":0}]}"""
+        reply(client,packet,payload)
+        assertEquals(original,nodes(client))
+        reply(client,requests(client).request(),payload)
+        assertEquals(setOf("node//b"),nodes(client).keys)
+        assertEquals("Changed",nodes(client).getValue("node//b").name)
+    }
 }

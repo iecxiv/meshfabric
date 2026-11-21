@@ -16,6 +16,7 @@ internal class NodeSnapshotRequests {
     private fun text(packet:JsonObject,key:String):String? = packet.get(key)
         ?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString
     @Synchronized fun mode(packet:JsonObject):Mode {
+        if(packet.has("error")) return Mode.IGNORE
         val id=text(packet,"responseid") ?: return Mode.LEGACY
         if(!id.startsWith("mf-node-snapshot-")) return Mode.LEGACY
         if(text(packet,"action")!="nodes" || !id.startsWith(prefix)) return Mode.IGNORE
