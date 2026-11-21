@@ -31,9 +31,8 @@ internal fun serverEventDetails(item:JsonObject):Map<String,String> {
     val missing=stringResource(R.string.log_detail_missing)
     androidx.compose.runtime.CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalWideAccountDialogs provides true) {
     iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onDismiss,modifier=Modifier.testTag("log-event-details"),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn),
-        title={Text(stringResource(R.string.log_detail_title),modifier=Modifier.fillMaxWidth(),style=MaterialTheme.typography.titleMedium.copy(fontSize=18.sp,lineHeight=24.sp,fontWeight=androidx.compose.ui.text.font.FontWeight.Bold))},
+        title={Row(Modifier.fillMaxWidth().testTag("event_details_title"),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {Box(Modifier.size(24.dp).testTag("event_details_title_icon")) {ServerEventIcon(row.action)};Box(Modifier.weight(1f).testTag("event_details_title_text")) {iecxiv.meshfabric.ui.devices.DeviceBatchDialogTitle(stringResource(R.string.log_detail_title))}}},
         text={SelectionContainer {Column(Modifier.fillMaxWidth().heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            ServerEventIcon(row.action)
             ManagementInfoRow(stringResource(R.string.log_detail_date),row.time?.let {DateFormat.getDateTimeInstance(DateFormat.FULL,DateFormat.LONG).format(Date(it))} ?: missing)
             ManagementInfoRow(stringResource(R.string.log_detail_type),row.action.ifBlank {missing})
             ManagementInfoRow(stringResource(R.string.log_detail_actor),row.actor.ifBlank {missing})

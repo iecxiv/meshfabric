@@ -65,6 +65,10 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
         Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
     }
 }
+@Composable internal fun DeviceGroupDetailsTabs(tab:Int,onSelect:(Int)->Unit) {
+    val es=LocalConfiguration.current.locales[0].language=="es"
+    ManagementSectionTabs(listOf(if(es) "Resumen" else "Summary",if(es) "Dispositivos" else "Devices",if(es) "Accesos" else "Access"),tab) {onSelect(it)}
+}
 @Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onReviewUserGroupAssignment:((String)->Unit)?=null,onLoadDetails:()->Unit={session.loadGroupDetails()}) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
@@ -75,11 +79,11 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
     val group=s.groups.firstOrNull { it.optString("_id")==id }
     val live by session.state.collectAsState()
     GroupDetailsAutoLoad(session,id,session.connectionGeneration(),live.ready,live.loading,live.busy,live.readError,live.groups.count {it.optString("_id")==id}==1,onLoadDetails)
+    CompositionLocalProvider(LocalPinnedSubviewHeader provides {if(group!=null) DeviceGroupDetailsTabs(tab) {tab=it;onTabChanged(it)}}) {
     UserActionSurface(inline=LocalDeviceGroupInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(group?.optString("name")?.ifBlank { t("Grupo sin nombre","Unnamed group") } ?: t("Grupo no disponible","Group unavailable"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(s.busy || s.detailsBusy || s.loading) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(group==null) Text(t("El grupo ya no está disponible en los datos recibidos.","The group is no longer available in the received data.")) else {
-                ManagementSectionTabs(listOf(t("Resumen","Summary"),t("Dispositivos","Devices"),t("Accesos","Access")),tab) {tab=it;onTabChanged(it)}
                 when(tab) {
                     0->{
                         Text(group.optString("desc").ifBlank { t("Sin descripción","No description") },style=MaterialTheme.typography.bodyMedium)
@@ -121,4 +125,5 @@ if(presentation.usable && onReviewUserGroupAssignment!=null && profileAccessAssi
             if(s.readError) Text(t("Datos incompletos: no se habilitan modificaciones.","Incomplete data: changes remain disabled."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
         }
     },confirmButton={TextButton(enabled=s.ready && !s.busy && !s.detailsBusy,onClick={onLoadDetails()}){Text(t("Actualizar","Refresh"))}},dismissButton={TextButton(onClick=onDismiss){Text(if(returningToUser) t("Volver al usuario","Back to user") else t("Cerrar","Close"))}})
+    }
 }

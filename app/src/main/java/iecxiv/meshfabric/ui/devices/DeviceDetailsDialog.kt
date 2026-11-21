@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -147,11 +148,12 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                         if (!node.osdesc.isNullOrBlank()) Text(node.osdesc.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(if (es) "Toca para copiar · Mantén pulsado para copiar el original" else "Tap to copy · Hold to copy the original",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                HorizontalDivider(Modifier.testTag("device_details_header_divider"),color = MaterialTheme.colorScheme.outlineVariant)
                 LazyColumn(Modifier.weight(1f, fill = inline), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                    item(key = "copy_hint") {
+                        Text(if(es) "Toca para copiar · Mantén pulsado para copiar el original" else "Tap to copy · Hold to copy the original",Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp).testTag("device_details_copy_hint"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     item(key = "inventory_notice") {
                         Text(if (es) "Inventario guardado por MeshCentral; no es una lectura en tiempo real."
                             else "Inventory stored by MeshCentral; not a live reading.", Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
