@@ -1,0 +1,367 @@
+name: Validate audit security corrections
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/audit-security-corrections.yml']
+permissions:
+  contents: write
+concurrency:
+  group: audit-security-corrections-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare audit corrections
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='bb35139f85b9546af87d5f33b00f4e3b802c9680','Base advanced; review required'
+          SHAS={'app/src/main/java/iecxiv/meshfabric/ui/login/LoginViewModel.kt': '466fdbd52dca5916f310d074a78ddfb56d080caf', 'app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt': '745fe59ee6c90de8b9aec2d93391daa33bf0918e', 'app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt': 'f20dfe3e56f9b7d46e1b8ca6ff4ef333d9460d62', 'app/src/main/java/iecxiv/meshfabric/ui/components/MeshFabricAppBar.kt': '7d7174aadba2cf4239d9bae8d00d78adb4f41f8d', 'app/src/main/res/xml/backup_rules.xml': '4df925582478cf0d469c4cff9a4bb50859f3230a', 'app/src/main/res/xml/data_extraction_rules.xml': '9ee9997b0b4726e57c27b2f7b21462b604ff8a88'}
+          for path,expected in SHAS.items(): assert git('hash-object',path)==expected,path
+          def replace(path,old,new):
+              p=Path(path);s=p.read_text();assert s.count(old)==1,(path,old,s.count(old));p.write_text(s.replace(old,new,1))
+          replace('app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt','if (response.isSuccessful || responseCode == 302 || extractedCookie.isNotEmpty()) {','if (extractedCookie.isNotEmpty() && (response.isSuccessful || responseCode == 302)) {')
+          replace('app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt','    private val prefs: SharedPreferences = try {','    private var secureStorage = true\n\n    private fun securePrefs(context: Context): SharedPreferences? = try {')
+          replace('app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt','    } catch (e: Exception) {\n        context.getSharedPreferences("meshcentral_fallback_prefs", Context.MODE_PRIVATE)\n    }','    } catch (e: Exception) {\n        null\n    }\n\n    private val prefs: SharedPreferences = securePrefs(context) ?: run {\n        runCatching { context.deleteSharedPreferences("meshcentral_encrypted_prefs") }\n        securePrefs(context) ?: run {\n            secureStorage = false\n            context.getSharedPreferences("meshcentral_fallback_prefs", Context.MODE_PRIVATE)\n        }\n    }')
+          replace('app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt','    fun saveSession(session: SessionData) {\n','    fun saveSession(session: SessionData) {\n        if (!secureStorage) return\n')
+          replace('app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt','    fun getSession(): SessionData? {\n','    fun getSession(): SessionData? {\n        if (!secureStorage) return null\n')
+          replace('app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt','        val currentTheme = _themeModeFlow.value\n','        val currentTheme = _themeModeFlow.value\n        val keepHideSettingsIcon = _hideSettingsIconFlow.value\n')
+          replace('app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt','        prefs.edit().putString(KEY_THEME_MODE, currentTheme.name).apply()','        prefs.edit().putString(KEY_THEME_MODE, currentTheme.name).apply()\n        prefs.edit().putBoolean(KEY_HIDE_SETTINGS_ICON, keepHideSettingsIcon).apply()')
+          replace('app/src/main/java/iecxiv/meshfabric/ui/components/MeshFabricAppBar.kt','placeholder={ Text("Buscar en actividad…") }','placeholder={ Text(if(androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es") "Buscar en actividad…" else "Search activity…") }')
+          replace('app/src/main/java/iecxiv/meshfabric/ui/components/MeshFabricAppBar.kt','contentDescription="Reconectar actividad"','contentDescription=if(androidx.compose.ui.platform.LocalConfiguration.current.locales[0].language=="es") "Reconectar actividad" else "Reconnect activity"')
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/login/LoginViewModel.kt');p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(r'''package iecxiv.meshfabric.ui.login
+
+          import android.app.Application
+          import androidx.lifecycle.AndroidViewModel
+          import androidx.lifecycle.viewModelScope
+          import iecxiv.meshfabric.R
+          import iecxiv.meshfabric.data.local.SessionManager
+          import iecxiv.meshfabric.data.remote.AuthResult
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.StateFlow
+          import kotlinx.coroutines.flow.asStateFlow
+          import kotlinx.coroutines.flow.collect
+          import kotlinx.coroutines.flow.combine
+          import kotlinx.coroutines.flow.first
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.withTimeoutOrNull
+
+          class LoginViewModel(
+              application: Application,
+              val meshClient: MeshCentralClient,
+              val sessionManager: SessionManager
+          ) : AndroidViewModel(application) {
+
+              var serverUrl = MutableStateFlow("")
+              var username = MutableStateFlow("")
+              var password = MutableStateFlow("")
+              var otpToken = MutableStateFlow("")
+              var ignoreSsl = MutableStateFlow(false)
+              var rememberMe = MutableStateFlow(true)
+
+              internal val fidoLogin=FidoLoginFlow(viewModelScope,{ FidoLoginFlow.Config(serverUrl.value,username.value,ignoreSsl.value) })
+              internal fun startFidoLogin() {
+                  if(!isLoading.value && !_loginSuccess.value) {
+                      _errorMessage.value=null
+                      fidoLogin.start(password.value)
+                  }
+              }
+              private fun completeFidoLogin(result:iecxiv.meshfabric.data.remote.FidoLoginHttpTransport.PendingLogin) {
+                  FidoLoginCompletion.complete(result,rememberMe.value,
+                      persist={ sessionManager.saveSession(it) },
+                      forget={ sessionManager.forgetAuthentication() },
+                      connect={ meshClient.connectControlSocket(it.serverUrl,it.authCookie,false) },
+                      disconnect={ meshClient.disconnect() },
+                      success={
+                          password.value=""; otpToken.value=""
+                          _requires2FA.value=false; _errorMessage.value=null
+                          _loginSuccess.value=true
+                      })
+              }
+              override fun onCleared() { fidoLogin.close(); super.onCleared() }
+
+              private val _isLoading = MutableStateFlow(false)
+              val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+              private val _requires2FA = MutableStateFlow(false)
+              val requires2FA: StateFlow<Boolean> = _requires2FA.asStateFlow()
+
+              private val _errorMessage = MutableStateFlow<String?>(null)
+              val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
+              private val _loginSuccess = MutableStateFlow(false)
+              val loginSuccess: StateFlow<Boolean> = _loginSuccess.asStateFlow()
+
+              init {
+                  checkSavedSession()
+                  viewModelScope.launch {
+                      combine(serverUrl,username,ignoreSsl) { _,_,_ -> Unit }.collect {
+                          fidoLogin.configurationChanged()
+                      }
+                  }
+                  viewModelScope.launch {
+                      fidoLogin.state.collect { state ->
+                          if(state.phase==FidoLoginFlow.Phase.PENDING) {
+                              fidoLogin.verify(state.id,::completeFidoLogin)
+                          }
+                      }
+                  }
+              }
+
+              private fun checkSavedSession() {
+                  val session = sessionManager.getSession()
+                  if (session != null) {
+                      serverUrl.value = session.serverUrl
+                      username.value = session.username
+                      ignoreSsl.value = session.ignoreSsl
+                      rememberMe.value = true
+
+                      // Connect using saved auth cookie
+                      meshClient.connectControlSocket(
+                          rawServerUrl = session.serverUrl,
+                          cookie = session.authCookie,
+                          ignoreSslCert = session.ignoreSsl
+                      )
+                      _loginSuccess.value = true
+                  }
+              }
+
+              private suspend fun verifyControlSession(url: String, cookie: String, ssl: Boolean): Boolean {
+                  meshClient.connectControlSocket(
+                      rawServerUrl = url,
+                      cookie = cookie,
+                      ignoreSslCert = ssl
+                  )
+                  return withTimeoutOrNull(15_000L) {
+                      meshClient.userInfo.first { it?.id?.isNotBlank() == true }
+                  } != null
+              }
+
+              private fun verificationError(): String =
+                  if (getApplication<Application>().resources.configuration.locales[0].language == "es")
+                      "No se pudo verificar la sesión con el servidor. Comprueba las credenciales y vuelve a intentarlo."
+                  else "The session could not be verified with the server. Check your credentials and try again."
+
+              fun login() {
+                  fidoLogin.cancel()
+                  val url = serverUrl.value.trim()
+                  val user = username.value.trim()
+                  val pass = password.value
+                  val otp = otpToken.value.trim()
+                  val ssl = ignoreSsl.value
+
+                  if (url.isEmpty()) {
+                      _errorMessage.value = getApplication<Application>().getString(R.string.app_l10n_login_missing_url)
+                      return
+                  }
+                  if (user.isEmpty() || pass.isEmpty()) {
+                      _errorMessage.value = getApplication<Application>().getString(R.string.app_l10n_login_missing_credentials)
+                      return
+                  }
+
+                  _isLoading.value = true
+                  _errorMessage.value = null
+
+                  meshClient.login(
+                      rawServerUrl = url,
+                      username = user,
+                      pass = pass,
+                      otpToken = otp,
+                      ignoreSslCert = ssl
+                  ) { result ->
+                      viewModelScope.launch {
+                          when (result) {
+                              is AuthResult.Success -> {
+                                  val verified = result.authCookie.isNotBlank() &&
+                                      verifyControlSession(url, result.authCookie, ssl)
+                                  _isLoading.value = false
+                                  if (!verified) {
+                                      meshClient.disconnect()
+                                      _errorMessage.value = verificationError()
+                                      return@launch
+                                  }
+                                  _requires2FA.value = false
+
+                                  if (rememberMe.value) {
+                                      sessionManager.saveSession(
+                                          iecxiv.meshfabric.data.model.SessionData(
+                                              serverUrl = url,
+                                              username = user,
+                                              authCookie = result.authCookie,
+                                              ignoreSsl = ssl,
+                                              isRemembered = true
+                                          )
+                                      )
+                                  }
+                                  _loginSuccess.value = true
+                              }
+                              is AuthResult.Requires2FA -> {
+                                  _isLoading.value = false
+                                  _requires2FA.value = true
+                                  _errorMessage.value = result.message
+                              }
+                              is AuthResult.Error -> {
+                                  _isLoading.value = false
+                                  _errorMessage.value = result.message
+                              }
+                          }
+                      }
+                  }
+              }
+
+              fun clearError() {
+                  _errorMessage.value = null
+              }
+
+              fun logout() {
+                  fidoLogin.cancel()
+                  sessionManager.clearSession()
+                  meshClient.disconnect()
+                  _loginSuccess.value = false
+                  password.value = ""
+                  otpToken.value = ""
+                  _requires2FA.value = false
+              }
+          }
+          ''')
+          p=Path('app/src/main/res/xml/backup_rules.xml');p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(r'''<?xml version="1.0" encoding="utf-8"?>
+          <full-backup-content>
+              <exclude domain="sharedpref" path="meshcentral_encrypted_prefs.xml" />
+              <exclude domain="sharedpref" path="meshcentral_fallback_prefs.xml" />
+          </full-backup-content>
+          ''')
+          p=Path('app/src/main/res/xml/data_extraction_rules.xml');p.parent.mkdir(parents=True,exist_ok=True)
+          p.write_text(r'''<?xml version="1.0" encoding="utf-8"?>
+          <data-extraction-rules>
+              <cloud-backup>
+                  <exclude domain="sharedpref" path="meshcentral_encrypted_prefs.xml" />
+                  <exclude domain="sharedpref" path="meshcentral_fallback_prefs.xml" />
+              </cloud-backup>
+              <device-transfer>
+                  <exclude domain="sharedpref" path="meshcentral_encrypted_prefs.xml" />
+                  <exclude domain="sharedpref" path="meshcentral_fallback_prefs.xml" />
+              </device-transfer>
+          </data-extraction-rules>
+          ''')
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/data/local/SessionStorageSafetyTest.kt');p.parent.mkdir(parents=True,exist_ok=True)
+          assert not p.exists()
+          p.write_text(r'''package iecxiv.meshfabric.data.local
+          import android.content.Context
+          import androidx.test.platform.app.InstrumentationRegistry
+          import iecxiv.meshfabric.R
+          import iecxiv.meshfabric.data.model.SessionData
+          import org.junit.Assert.*
+          import org.junit.Test
+          import org.xmlpull.v1.XmlPullParser
+          class SessionStorageSafetyTest {
+              private val context: Context get() = InstrumentationRegistry.getInstrumentation().targetContext
+              private val protectedFiles = setOf("meshcentral_encrypted_prefs.xml", "meshcentral_fallback_prefs.xml")
+              private fun excludes(resource: Int): Map<String, Set<String>> {
+                  val parser = context.resources.getXml(resource)
+                  val result = mutableMapOf<String, MutableSet<String>>()
+                  var section = ""
+                  while (parser.eventType != XmlPullParser.END_DOCUMENT) {
+                      if (parser.eventType == XmlPullParser.START_TAG) when (parser.name) {
+                          "full-backup-content", "cloud-backup", "device-transfer" -> section = parser.name
+                          "exclude" -> if (parser.getAttributeValue(null, "domain") == "sharedpref")
+                              result.getOrPut(section) { mutableSetOf() }.add(parser.getAttributeValue(null, "path"))
+                      }
+                      parser.next()
+                  }
+                  return result
+              }
+              @Test fun backupRulesExcludeCredentialPreferences() {
+                  assertTrue(excludes(R.xml.backup_rules)["full-backup-content"].orEmpty().containsAll(protectedFiles))
+                  val extraction = excludes(R.xml.data_extraction_rules)
+                  assertTrue(extraction["cloud-backup"].orEmpty().containsAll(protectedFiles))
+                  assertTrue(extraction["device-transfer"].orEmpty().containsAll(protectedFiles))
+              }
+              @Test fun credentialsNeverReachUnencryptedFallbackPreferences() {
+                  val manager = SessionManager(context)
+                  manager.saveSession(SessionData("https://example.invalid", "user", "xid=secret-cookie", false, true))
+                  try {
+                      val keys = context.getSharedPreferences("meshcentral_fallback_prefs", Context.MODE_PRIVATE).all.keys
+                      assertTrue(keys.none { it in setOf("auth_cookie", "server_url", "username") })
+                  } finally { manager.clearSession() }
+              }
+              @Test fun clearSessionKeepsSettingsIconPreferenceConsistentAfterRestart() {
+                  val manager = SessionManager(context)
+                  val original = manager.hideSettingsIconFlow.value
+                  try {
+                      manager.saveHideSettingsIcon(true)
+                      manager.clearSession()
+                      assertTrue(manager.hideSettingsIconFlow.value)
+                      assertTrue(SessionManager(context).hideSettingsIconFlow.value)
+                  } finally { manager.saveHideSettingsIcon(original) }
+              }
+          }
+          ''')
+          allowed=['app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt', 'app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt', 'app/src/main/java/iecxiv/meshfabric/ui/components/MeshFabricAppBar.kt', 'app/src/main/java/iecxiv/meshfabric/ui/login/LoginViewModel.kt', 'app/src/main/res/xml/backup_rules.xml', 'app/src/main/res/xml/data_extraction_rules.xml', 'app/src/androidTest/java/iecxiv/meshfabric/data/local/SessionStorageSafetyTest.kt']
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          assert actual==set(allowed),(actual,set(allowed))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Build unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.data.local.SessionStorageSafetyTest,iecxiv.meshfabric.ui.management.DeviceGroupSearchTest,iecxiv.meshfabric.ui.management.FourVisualCorrectionsTest,iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: audit-security-corrections-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+      - name: Publish only after validation and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          allowed=['app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt', 'app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt', 'app/src/main/java/iecxiv/meshfabric/ui/components/MeshFabricAppBar.kt', 'app/src/main/java/iecxiv/meshfabric/ui/login/LoginViewModel.kt', 'app/src/main/res/xml/backup_rules.xml', 'app/src/main/res/xml/data_extraction_rules.xml', 'app/src/androidTest/java/iecxiv/meshfabric/data/local/SessionStorageSafetyTest.kt']
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==set(allowed)
+          workflow='.github/workflows/audit-security-corrections.yml'
+          Path(workflow).unlink();allowed.append(workflow)
+          subprocess.run(['git','add','--',*allowed],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(allowed)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(security): verify classic login session and protect stored credentials'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
