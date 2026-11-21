@@ -63,7 +63,6 @@ val directoryFocus=androidx.compose.ui.platform.LocalFocusManager.current
 val directoryKeyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
 val closeDirectorySearch:()->Unit={directorySearchOpen=false;groupSearch="";directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}
 LaunchedEffect(section,agentIdentity) {closeDirectorySearch();closeAgentSubview()}
-androidx.activity.compose.BackHandler(enabled=directorySearchOpen) {closeDirectorySearch()}
 
 var broadcast by remember { mutableStateOf(false) }
 val usersListState=key(agentIdentity) {androidx.compose.foundation.lazy.rememberLazyListState()}
@@ -87,6 +86,12 @@ val inlineUser=profileFormUsesSubview(tab,form)
 val inlineLinked=profileLinkedGroupSubview(tab,userGroupDetails,deviceAssignment)
 val inlineAux=profileAuxiliarySubview(tab,agentTarget!=null,deviceDetails!=null)
 val inlineGroup=tab!=0 && groupDetails!=null && form==null && userGroupDetails==null
+val groupSearchStates=rememberSaveable(agentIdentity,saver=DeviceGroupSearchMapSaver) {mutableMapOf<String,DeviceGroupSearchState>()}
+val groupDeviceSearch=groupDetails?.let {groupSearchStates.getOrPut(it) {DeviceGroupSearchState()}}
+val searchTarget=profileSearchTarget(tab,groupDetails!=null,groupDetailTab,inlineUser || inlineLinked || inlineAux,groupDeviceSearch?.advanced==true)
+val currentSearchOpen=if(searchTarget==ProfileSearchTarget.GROUP_DEVICES) groupDeviceSearch?.open==true else directorySearchOpen
+androidx.activity.compose.BackHandler(enabled=searchTarget==ProfileSearchTarget.DIRECTORY && directorySearchOpen) {closeDirectorySearch()}
+
 val groupDetailsHolder=key(agentIdentity) {androidx.compose.runtime.saveable.rememberSaveableStateHolder()}
 @Composable fun RenderProfileForm() {
 form?.let { selected->
@@ -120,7 +125,7 @@ if(session.submit(p)) form=null else error=t("No se ha enviado. Comprueba conexi
 } }
 }
 @Composable fun RenderDeviceGroup() {
-groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->groupDetailsHolder.SaveableStateProvider(id) { DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it},onReviewUserGroupAssignment={gid->profileAccessAssignmentPair(state,gid,id)?.let {pair->deviceAssignment=pair;session.refresh();session.loadUserGroupDirectory()}},onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } }
+groupDetails?.takeIf { form==null && userGroupDetails==null }?.let { id->groupDetailsHolder.SaveableStateProvider(id) { CompositionLocalProvider(LocalDeviceGroupSearch provides requireNotNull(groupDeviceSearch)) {DeviceGroupDetailsDialog(session,state,id,origins.lastOrNull()?.user!=null,onDismiss=closeProfileDialog,initialTab=groupDetailTab,onTabChanged={groupDetailTab=it;if(it!=1) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}},onReviewUserGroupAssignment={gid->profileAccessAssignmentPair(state,gid,id)?.let {pair->deviceAssignment=pair;session.refresh();session.loadUserGroupDirectory()}},onOpenUserGroup={gid->if(profileReceivedUserGroup(state,gid)!=null) {userGroupDetails=gid;session.loadUserGroupDirectory()}},onOpenUser={uid->profileAccessUserTarget(state,uid)?.let {u->origins=profilePushOrigin(origins,ProfileOrigin(groupId=id,groupTab=groupDetailTab));groupDetails=null;form=ProfileForm(true,"edit",uid,u.optString("name"),u.optString("email"))}},onOpenDevice=openProfileDevice,canOpenDevice=canOpenProfileDevice,onEdit={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"edit",id,g.optString("name"),description=g.optString("desc"))}},onDelete={state.groups.firstOrNull {it.optString("_id")==id}?.let {g->form=ProfileForm(false,"delete",id,g.optString("name"))}}) } } }
 }
 @Composable fun RenderLinkedGroups() {
 userGroupDetails?.let {gid->ReceivedUserGroupDialog(session,state,gid,dismissLabel=if(form?.users==true) t("Volver al usuario","Back to user") else t("Volver a Accesos","Back to Access")) {userGroupDetails=null}}
@@ -135,14 +140,18 @@ Column(modifier) {
 ProfileStableSectionHeader(header={ProfileRefreshHeader(tab,state,header={refresh->header {
 Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-6).dp)) {
 refresh()
-if(tab in 1..3) IconButton(onClick={if(directorySearchOpen) closeDirectorySearch() else directorySearchOpen=true},modifier=Modifier.size(38.dp).then(Modifier.testTag("profile-directory-search-toggle"))) {
-Icon(if(directorySearchOpen) Icons.Default.Close else Icons.Default.Search,if(directorySearchOpen) t("Cerrar búsqueda","Close search") else t("Buscar","Search"),Modifier.size(20.dp),tint=if(directorySearchOpen) androidx.compose.ui.graphics.Color(0xFF2196F3) else LocalContentColor.current)
+ProfileSearchAction(searchTarget,currentSearchOpen) {
+when(searchTarget) {
+ProfileSearchTarget.DIRECTORY->if(directorySearchOpen) closeDirectorySearch() else directorySearchOpen=true
+ProfileSearchTarget.GROUP_DEVICES->{requireNotNull(groupDeviceSearch).toggle();if(!groupDeviceSearch.open) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}
+ProfileSearchTarget.NONE->Unit
+}
 }
 }
 }}) {performProfileHeaderRefresh(tab,session)}},tabs={
 ManagementSectionTabs(listOf(t("Mi cuenta","My account"),t("Grupos de dispositivos","Device groups"),t("Usuarios","Users"),t("Grupos","Groups")),tab) { ownAccountRequest=null;section=profileSectionKeys.getOrNull(it) ?: "account"; form=null; groupDetails=null; userGroupDetails=null; deviceDetails=null; deviceAssignment=null; origins=emptyList();groupDetailTab=0; broadcast=false }
 })
-AnimatedVisibility(visible=tab in 1..3 && directorySearchOpen) {
+AnimatedVisibility(visible=searchTarget==ProfileSearchTarget.DIRECTORY && directorySearchOpen) {
 LaunchedEffect(directorySearchOpen) {if(directorySearchOpen) {withFrameNanos {};directorySearchFocus.requestFocus();directoryKeyboard?.show()}}
 OutlinedTextField(groupSearch,{groupSearch=it.take(256)},singleLine=true,
 placeholder={Text(if(tab==2) t("Buscar usuarios","Search users") else t("Buscar grupos","Search groups"))},

@@ -73,9 +73,9 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
-    var query by rememberSaveable(id) { mutableStateOf("") }
-    var advanced by remember(id) { mutableStateOf(false) }
-    if(advanced) { DeviceGroupAdvancedEditor(session,s,id) {advanced=false}; return }
+    val search=LocalDeviceGroupSearch.current ?: rememberSaveable(id,saver=DeviceGroupSearchState.Saver) {DeviceGroupSearchState(open=true)}
+    DisposableEffect(search) {onDispose {search.advanced=false}}
+    if(search.advanced) {DeviceGroupAdvancedEditor(session,s,id) {search.advanced=false};return}
     val group=s.groups.firstOrNull { it.optString("_id")==id }
     val live by session.state.collectAsState()
     GroupDetailsAutoLoad(session,id,session.connectionGeneration(),live.ready,live.loading,live.busy,live.readError,live.groups.count {it.optString("_id")==id}==1,onLoadDetails)
@@ -91,12 +91,12 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
                         AgentEnrollmentGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)
                         AgentInviteGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)
                         ProfileGroupActionButton(t("Editar nombre y descripción","Edit name and description"),Icons.Default.Edit,s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit)
-                        ProfileGroupActionButton(t("Ajustes avanzados","Advanced settings"),Icons.Default.Tune,s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true})
+                        ProfileGroupActionButton(t("Ajustes avanzados","Advanced settings"),Icons.Default.Tune,s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={search.advanced=true})
                         ProfileGroupActionButton(t("Eliminar grupo","Delete group"),Icons.Default.Delete,s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),dangerous=true,onClick=onDelete)
                     }
                     1->{
-                        OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar dispositivo","Search device"))},singleLine=true,modifier=Modifier.fillMaxWidth())
-                        val nodes=s.nodes?.filter { it.optString("meshid")==id && deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
+                        DeviceGroupSearchField(search,collapsible=LocalDeviceGroupSearch.current!=null)
+                        val nodes=deviceGroupSearchNodes(s.nodes,id,search.query)
                         if(nodes==null) Text(t("Listado de dispositivos no disponible. Usa Actualizar.","Device list unavailable. Use Refresh.")) else {
                             Text("${nodes.size} "+t("dispositivos visibles","visible devices"),style=MaterialTheme.typography.bodySmall)
                             for(node in nodes.take(100)) ListItem(leadingContent={Icon(Icons.Default.Computer,null)},trailingContent={if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}}) { Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis) }
