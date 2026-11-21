@@ -1,0 +1,91 @@
+name: Repair sharing consent verification
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-sharing-link-repair.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-sharing-link-compat-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare original guarded fix and require exact consent
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast,subprocess,textwrap
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='b7dc4cfb914c98ea911405b8f89d64db030345a3','Base advanced; review required'
+          workflow=Path('.github/workflows/device-sharing-link-compat.yml')
+          assert git('hash-object',str(workflow))=='c9772d87381b478227c7720e2f2777b1bd3d3104'
+          blocks=[];lines=workflow.read_text().splitlines()
+          for i,line in enumerate(lines):
+              if line!='        run: |': continue
+              body=[]
+              for following in lines[i+1:]:
+                  if following.strip() and not following.startswith('          '): break
+                  body.append(following)
+              source=textwrap.dedent('\n'.join(body))+'\n'
+              ast.parse(source);blocks.append(source)
+          assert len(blocks)==2
+          old="assert git('rev-parse','HEAD^')=='db921f3be62154a716918b5a05b42876a6f8f8ed'"
+          new="assert git('rev-parse','HEAD^')=='b7dc4cfb914c98ea911405b8f89d64db030345a3'"
+          assert blocks[0].count(old)==1
+          exec(compile(blocks[0].replace(old,new,1),'<guarded-sharing-preparation>','exec'),{})
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceGeneralShareCreator.kt')
+          text=p.read_text();old='return consent in 0L..0xffffffffL && consent and 9L==9L'
+          assert text.count(old)==1
+          p.write_text(text.replace(old,'return consent==9L',1))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Run unchanged sharing regression tests
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneralShare*' --tests 'iecxiv.meshfabric.ui.devices.DeviceShareLinkCompatibilityTest' --no-daemon --stacktrace
+      - name: Full validation before publishing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sharing-link-repair-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/sharing-paths.json
+          if-no-files-found: ignore
+      - name: Publish only validated changes and retire both workflows
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'sharing-paths.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/'+p for p in ['DeviceGeneralShareCreator.kt','DeviceGeneralShareRevoker.kt','DeviceShareLinkCompatibility.kt']}|{'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceShareLinkCompatibilityTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          for name in ['device-sharing-link-compat.yml','device-sharing-link-repair.yml']:
+              p=Path('.github/workflows')/name;p.unlink();paths.append(str(p))
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(sharing): verify server links and require exact reviewed consent'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
