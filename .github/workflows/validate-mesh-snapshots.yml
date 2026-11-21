@@ -1,0 +1,325 @@
+name: Validate tag-correlated complete mesh snapshots
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/validate-mesh-snapshots.yml']
+permissions:
+  contents: write
+concurrency:
+  group: mesh-snapshots-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare scoped mesh reconciliation
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, json, os, re, subprocess
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='2563b759723e0a9283290b2a95ad5f3b5c27d81a','Base advanced'
+          expected={'app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt':'1580b62e529ce610b5e1211ee5968511ac1f6934','.github/scripts/run-emulator-regressions.py':'30d7a5eff22062457ffc0a070e6aa3e4688bd7be'}
+          node='app/src/main/java/iecxiv/meshfabric/data/remote/NodeSnapshotProtocol.kt'
+          for path,sha in {**expected,node:'0c7318456984869189c903a6bc1d073f67f12679'}.items():
+              assert subprocess.check_output(['git','hash-object',path],text=True).strip()==sha,path
+          registry=Path(node).read_text().split('internal object CompleteNodeSnapshot {',1)[0]
+          assert 'if(packet.has("error")) return Mode.IGNORE' in registry
+          registry=registry.replace('NodeSnapshotRequests','MeshSnapshotRequests').replace('mf-node-snapshot-','mf-mesh-snapshot-').replace('"responseid"','"tag"').replace('"nodes"','"meshes"').replace('import iecxiv.meshfabric.data.model.MeshNode','import iecxiv.meshfabric.data.model.MeshGroup')
+          files={}
+          files['app/src/main/java/iecxiv/meshfabric/data/remote/MeshSnapshotProtocol.kt']=registry+r'''
+          internal object CompleteMeshSnapshot {
+              fun decode(payload:JsonElement?,gson:Gson):Map<String,MeshGroup>? {
+                  if(payload==null || (!payload.isJsonArray && !payload.isJsonObject)) return null
+                  return try {
+                      val result=linkedMapOf<String,MeshGroup>();val identities=mutableSetOf<String>()
+                      fun add(element:JsonElement,fallback:String="") {
+                          require(element.isJsonObject)
+                          val value=element.asJsonObject
+                          for(key in listOf("_id","name","desc")) if(value.has(key)) {
+                              val field=value.get(key);require(field.isJsonPrimitive && field.asJsonPrimitive.isString)
+                          }
+                          if(value.has("mtype")) {
+                              val field=value.get("mtype")
+                              require(field.isJsonPrimitive && field.asJsonPrimitive.isNumber && field.asString.toIntOrNull()?.let {it>=0}==true)
+                          }
+                          val parsed=gson.fromJson(value,MeshGroup::class.java);val id=parsed.id.ifBlank {fallback}
+                          require(id.isNotBlank())
+                          val identity=when {
+                              id.startsWith("mesh//") -> id.removePrefix("mesh//")
+                              id.startsWith("mesh/") -> id.removePrefix("mesh/")
+                              else -> id
+                          }
+                          require(identities.add(identity));result[id]=parsed.copy(id=id)
+                      }
+                      if(payload.isJsonArray) payload.asJsonArray.forEach {add(it)}
+                      else for((key,value) in payload.asJsonObject.entrySet()) {require(key.isNotBlank());add(value,key)}
+                      result
+                  } catch(_:Exception) {null}
+              }
+          }
+          '''
+          files['app/src/test/java/iecxiv/meshfabric/data/remote/MeshSnapshotProtocolTest.kt']=r'''package iecxiv.meshfabric.data.remote
+          import com.google.gson.Gson
+          import com.google.gson.JsonElement
+          import com.google.gson.JsonObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          class MeshSnapshotProtocolTest {
+              private val gson=Gson()
+              private fun decode(text:String)=CompleteMeshSnapshot.decode(gson.fromJson(text,JsonElement::class.java),gson)
+              @Test fun requestUsesTagInsteadOfResponseId() {
+                  val requests=MeshSnapshotRequests();val packet=requests.request()
+                  assertEquals("meshes",packet.get("action").asString);assertTrue(packet.has("tag"));assertFalse(packet.has("responseid"))
+                  assertEquals(MeshSnapshotRequests.Mode.COMPLETE,requests.mode(packet))
+              }
+              @Test fun missingAndForeignTagsRemainMergeOnly() {
+                  val requests=MeshSnapshotRequests()
+                  assertEquals(MeshSnapshotRequests.Mode.LEGACY,requests.mode(JsonObject()))
+                  assertEquals(MeshSnapshotRequests.Mode.LEGACY,requests.mode(requests.request().apply {addProperty("tag","external")}))
+              }
+              @Test fun errorsScopesAndWrongActionsAreIgnored() {
+                  val requests=MeshSnapshotRequests();val packet=requests.request()
+                  for(key in listOf("error","meshid","meshname","partial","more","skip","limit"))
+                      assertEquals(MeshSnapshotRequests.Mode.IGNORE,requests.mode(packet.deepCopy().apply {addProperty(key,"x")}))
+                  assertEquals(MeshSnapshotRequests.Mode.IGNORE,requests.mode(packet.deepCopy().apply {addProperty("action","nodes")}))
+                  assertEquals(MeshSnapshotRequests.Mode.IGNORE,requests.mode(packet.deepCopy().apply {addProperty("result","denied")}))
+              }
+              @Test fun staleAndPreviousConnectionRepliesAreIgnored() {
+                  val requests=MeshSnapshotRequests();val old=requests.request();val newer=requests.request();requests.accept(newer)
+                  assertEquals(MeshSnapshotRequests.Mode.IGNORE,requests.mode(old));requests.reset()
+                  assertEquals(MeshSnapshotRequests.Mode.IGNORE,requests.mode(newer))
+                  assertEquals(MeshSnapshotRequests.Mode.COMPLETE,requests.mode(requests.request()))
+              }
+              @Test fun nodeResponseIdCannotAuthorizeGroupReplacement() {
+                  val packet=NodeSnapshotRequests().request().apply {addProperty("action","meshes")}
+                  assertEquals(MeshSnapshotRequests.Mode.LEGACY,MeshSnapshotRequests().mode(packet))
+              }
+              @Test fun arraysAndMapsPreserveGroupMetadata() {
+                  assertEquals("G",requireNotNull(decode("""[{"_id":"mesh//g","name":"G"}]""")).values.single().name)
+                  assertEquals("mesh//g",requireNotNull(decode("""{"mesh//g":{"name":"G"}}""")).values.single().id)
+              }
+              @Test fun emptySnapshotsAreValidButMissingPayloadIsNot() {
+                  assertTrue(requireNotNull(decode("[]")).isEmpty());assertTrue(requireNotNull(decode("{}")).isEmpty());assertNull(decode("null"))
+              }
+              @Test fun malformedRowsRejectTheEntireSnapshot() {
+                  assertNull(decode("""[{"_id":"mesh//g"},null]"""));assertNull(decode("""[{"name":"Missing ID"}]"""))
+              }
+              @Test fun duplicateAliasesAreRejected() {assertNull(decode("""[{"_id":"mesh//g"},{"_id":"g"}]"""))}
+              @Test fun invalidFieldsAreRejected() {
+                  assertNull(decode("""[{"_id":"mesh//g","name":null}]"""));assertNull(decode("""[{"_id":"mesh//g","mtype":-1}]"""))
+                  assertNull(decode("""{"mesh//g":7}"""))
+              }
+          }
+          '''
+          files['app/src/androidTest/java/iecxiv/meshfabric/data/remote/MeshSnapshotControlTest.kt']=r'''package iecxiv.meshfabric.data.remote
+          import com.google.gson.Gson
+          import com.google.gson.JsonElement
+          import com.google.gson.JsonObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          class MeshSnapshotControlTest {
+              private val gson=Gson()
+              private fun ingest(client:MeshCentralClient,text:String) {
+                  val method=MeshCentralClient::class.java.getDeclaredMethod("handleControlMessage",String::class.java)
+                  method.isAccessible=true;method.invoke(client,text)
+              }
+              private fun field(client:MeshCentralClient,name:String):Any {
+                  val field=MeshCentralClient::class.java.getDeclaredField(name);field.isAccessible=true;return requireNotNull(field.get(client))
+              }
+              private fun requests(client:MeshCentralClient)=field(client,"meshSnapshots") as MeshSnapshotRequests
+              private fun groups(client:MeshCentralClient)=(field(client,"meshesMap") as Map<*,*>).keys.toSet()
+              private fun nodes(client:MeshCentralClient)=client.groupedDevices.value.flatMap {it.second}.associateBy {it.id}
+              private fun name(client:MeshCentralClient,id:String)=client.groupedDevices.value.first {it.first.id==id}.first.name
+              private fun reply(client:MeshCentralClient,packet:JsonObject,payload:String) {
+                  packet.add("meshes",gson.fromJson(payload,JsonElement::class.java));ingest(client,packet.toString())
+              }
+              private fun withClient(body:(MeshCentralClient)->Unit) {
+                  val client=MeshCentralClient()
+                  try {
+                      ingest(client,"""{"action":"meshes","meshes":[{"_id":"mesh//g","name":"G"},{"_id":"mesh//h","name":"H"}]}""")
+                      ingest(client,"""{"action":"nodes","nodes":{"mesh//g":[{"_id":"node//a","name":"A","conn":1}],"mesh//h":[{"_id":"node//b","name":"B","conn":0}]}}""")
+                      body(client)
+                  } finally {client.disconnect()}
+              }
+              @Test fun completeSnapshotDropsGroupsButNotDevices() = withClient {client ->
+                  val original=nodes(client);reply(client,requests(client).request(),"""[{"_id":"mesh//g","name":"Renamed"}]""")
+                  assertEquals(setOf("mesh//g"),groups(client));assertEquals(original,nodes(client));assertEquals("Renamed",name(client,"mesh//g"))
+              }
+              @Test fun partialReplyPreservesOtherGroups() = withClient {client ->
+                  ingest(client,"""{"action":"meshes","meshes":[{"_id":"mesh//g","name":"Renamed"}]}""")
+                  assertEquals(setOf("mesh//g","mesh//h"),groups(client));assertEquals("Renamed",name(client,"mesh//g"))
+              }
+              @Test fun completeEmptyGroupsDoNotDeleteDevices() = withClient {client ->
+                  val original=nodes(client);reply(client,requests(client).request(),"[]")
+                  assertTrue(groups(client).isEmpty());assertEquals(original,nodes(client))
+              }
+              @Test fun malformedGroupSnapshotLeavesAllGroupsUntouched() = withClient {client ->
+                  reply(client,requests(client).request(),"""[{"_id":"mesh//g","name":"Changed"},null]""")
+                  assertEquals(setOf("mesh//g","mesh//h"),groups(client));assertEquals("G",name(client,"mesh//g"))
+              }
+              @Test fun olderReplyCannotResurrectRemovedGroups() = withClient {client ->
+                  val old=requests(client).request();val newer=requests(client).request()
+                  reply(client,newer,"""[{"_id":"mesh//g","name":"G"}]""");reply(client,old,"""[{"_id":"mesh//h","name":"H"}]""")
+                  assertEquals(setOf("mesh//g"),groups(client))
+              }
+              @Test fun previousConnectionReplyIsIgnored() = withClient {client ->
+                  val old=requests(client).request();requests(client).reset();reply(client,old,"[]")
+                  assertEquals(setOf("mesh//g","mesh//h"),groups(client))
+              }
+              @Test fun errorAndScopedRepliesCannotClearGroups() = withClient {client ->
+                  for(key in listOf("error","meshid","partial")) reply(client,requests(client).request().apply {addProperty(key,"x")},"[]")
+                  assertEquals(setOf("mesh//g","mesh//h"),groups(client))
+              }
+              @Test fun nodesArrivingBeforeGroupsRemainVisible() = withClient {client ->
+                  val packet=(field(client,"nodeSnapshots") as NodeSnapshotRequests).request()
+                  packet.add("nodes",gson.fromJson("""{"mesh//j":[{"_id":"node//a","name":"A","conn":1}]}""",JsonElement::class.java))
+                  ingest(client,packet.toString());assertEquals(setOf("node//a"),nodes(client).keys)
+                  reply(client,requests(client).request(),"""[{"_id":"mesh//j","name":"J"}]""")
+                  assertEquals(setOf("node//a"),nodes(client).keys);assertEquals("J",name(client,"mesh//j"))
+              }
+              @Test fun meshEventsDoNotOverwriteCacheBeforeCompleteReplies() = withClient {client ->
+                  for(action in listOf("meshchange","createmesh","deletemesh")) {
+                      ingest(client,"""{"action":"event","event":{"action":"$action","meshid":"mesh//g"}}""")
+                      ingest(client,"""{"action":"$action","meshid":"mesh//g"}""")
+                  }
+                  assertEquals(setOf("mesh//g","mesh//h"),groups(client));assertEquals("G",name(client,"mesh//g"))
+              }
+          }
+          '''
+          p=Path('app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt');s=p.read_text()
+          old='    private val meshesMap = ConcurrentHashMap<String, MeshGroup>()';assert s.count(old)==1
+          s=s.replace(old,'    @Volatile private var meshesMap = ConcurrentHashMap<String, MeshGroup>()\n    private val meshSnapshots = MeshSnapshotRequests()',1)
+          old='            nodeSnapshots.reset()\n';assert s.count(old)==1
+          s=s.replace(old,old+'            meshSnapshots.reset()\n',1)
+          s,count=re.subn(r'\b(webSocket|socket)\?\.send\("""\{"action":"meshes"\}"""\)',r'sendMeshSnapshotRequest(\1)',s)
+          assert count>=3,count
+          anchor='    private fun handleControlMessage(text: String) {';assert s.count(anchor)==1
+          methods='''    private fun sendMeshSnapshotRequest(socket: WebSocket?) {
+                  controlGeneration.locked {
+                      if(socket==null || socket!==webSocket || isUserLogout) return@locked
+                      socket.send(meshSnapshots.request().toString())
+                  }
+              }
+              private fun applyCompleteMeshSnapshot(packet: JsonObject): Boolean {
+                  when(meshSnapshots.mode(packet)) {
+                      MeshSnapshotRequests.Mode.LEGACY -> return false
+                      MeshSnapshotRequests.Mode.IGNORE -> return true
+                      MeshSnapshotRequests.Mode.COMPLETE -> {
+                          val snapshot=CompleteMeshSnapshot.decode(packet.get("meshes"),gson) ?: run {
+                              iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient","Invalid complete mesh snapshot; groups preserved")
+                              return true
+                          }
+                          meshesMap=ConcurrentHashMap(snapshot)
+                          meshSnapshots.accept(packet)
+                          updateGroupedDevices()
+                          return true
+                      }
+                  }
+              }
+              private fun refreshGroupInventory() {
+                  launchControlWork { socket ->
+                      delay(100)
+                      sendMeshSnapshotRequest(socket)
+                      sendNodeSnapshotRequest(socket)
+                  }
+              }
+
+          '''
+          s=s.replace(anchor,methods+anchor,1)
+          old='                "meshes" -> {\n';assert s.count(old)==1
+          s=s.replace(old,old+'                    if (applyCompleteMeshSnapshot(json)) return\n',1)
+          old='                "event" -> {\n';assert s.count(old)==1
+          s=s.replace(old,'                "meshchange", "createmesh", "deletemesh" -> refreshGroupInventory()\n'+old,1)
+          old='                        if (nodeId.isNotEmpty() || eventAction.contains("node",ignoreCase=true)) {';assert s.count(old)==1
+          s=s.replace(old,'                        if (eventAction in setOf("meshchange","createmesh","deletemesh")) {\n                            refreshGroupInventory()\n                        } else if (nodeId.isNotEmpty() || eventAction.contains("node",ignoreCase=true)) {',1)
+          p.write_text(s)
+          p=Path('.github/scripts/run-emulator-regressions.py');s=p.read_text();assert s.count('classes=[')==1
+          p.write_text(s.replace('classes=[',"classes=['iecxiv.meshfabric.data.remote.MeshSnapshotControlTest',",1))
+          for path,content in files.items():
+              p=Path(path);assert not p.exists(),path;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
+          modified=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          added=set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          assert modified==set(expected) and added==set(files)
+          Path(os.environ['RUNNER_TEMP'],'mesh-snapshot-candidate.json').write_text(json.dumps({path:hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in modified|added}))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run full unit suite and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - name: Require ten new mesh tests and all fifteen node protocol tests to pass
+        shell: python
+        run: |
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          cases=[case for path in Path('app/build/test-results/testDebugUnitTest').glob('*.xml') for case in ET.parse(path).getroot().iter('testcase')]
+          for name,count in {'MeshSnapshotProtocolTest':10,'NodeSnapshotProtocolTest':15}.items():
+              selected=[case for case in cases if case.get('classname')=='iecxiv.meshfabric.data.remote.'+name]
+              assert len({case.get('name') for case in selected})==count,(name,count)
+              assert all(case.find(key) is None for case in selected for key in ('failure','error','skipped'))
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify all nine selected regression classes individually
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mesh-snapshot-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/resume-regressions/
+            ${{ runner.temp }}/mesh-snapshot-candidate.json
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish only tested candidates on unchanged dev and retire this workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast, hashlib, json, os, subprocess
+          root=Path(os.environ['RUNNER_TEMP']);summary=json.loads((root/'resume-regressions/summary.json').read_text())
+          tree=ast.parse(Path('.github/scripts/run-emulator-regressions.py').read_text())
+          classes=next(ast.literal_eval(node.value) for node in tree.body if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='classes' for target in node.targets))
+          assert len(classes)==9 and set(summary)==set(classes)
+          assert summary['iecxiv.meshfabric.data.remote.MeshSnapshotControlTest']['expected']==9
+          assert summary['iecxiv.meshfabric.data.remote.NodeSnapshotControlTest']['expected']==10
+          assert all(value['passed']>=value['expected']>0 for value in summary.values())
+          hashes=json.loads((root/'mesh-snapshot-candidate.json').read_text())
+          assert all(hashlib.sha256(Path(path).read_bytes()).hexdigest()==value for path,value in hashes.items())
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no publication'
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==set(hashes)
+          temporary='.github/workflows/validate-mesh-snapshots.yml'
+          Path(temporary).unlink();allowed=set(hashes)|{temporary}
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==allowed
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix: reconcile complete mesh snapshots using server tag correlation'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
