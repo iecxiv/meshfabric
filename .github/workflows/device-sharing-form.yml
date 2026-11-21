@@ -1,0 +1,204 @@
+name: Validate inline sharing form
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-sharing-form.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-sharing-form-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare inline form and regression tests
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='0fecbcb010cc5839e74b2256da3553c7cd5bda2c','Base advanced; review required'
+          form='''package iecxiv.meshfabric.ui.devices
+          import androidx.compose.foundation.clickable
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.dp
+          import java.time.*
+          import java.time.format.DateTimeFormatter
+          import java.time.format.ResolverStyle
+          internal val shareDateFormat:DateTimeFormatter=DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm").withResolverStyle(ResolverStyle.STRICT)
+          internal fun shareDateSeconds(text:String,zone:ZoneId):Long {
+              val date=LocalDateTime.parse(text,shareDateFormat);val offsets=zone.rules.getValidOffsets(date)
+              require(offsets.size==1);return date.toEpochSecond(offsets.single())
+          }
+          internal data class ShareForm(val guest:String="",val access:ShareAccess=ShareAccess.VIEW_ONLY,val validity:ShareValidity=ShareValidity.NOW,val expiry:Int=15,val duration:Int=15,val start:String="",val end:String="",val consent:ShareConsent=ShareConsent.PROMPT)
+          internal fun shareInitialForm(zone:ZoneId):ShareForm {
+              val start=LocalDateTime.now(zone).plusMinutes(5).withSecond(0).withNano(0)
+              return ShareForm(start=start.format(shareDateFormat),end=start.plusHours(1).format(shareDateFormat))
+          }
+          internal fun shareFormDraft(f:ShareForm,mesh:String,now:Long,zone:ZoneId)=generalShareOptionsDraft(f.guest,mesh,f.access,f.validity,
+              if(f.validity.recurring>0) f.duration else f.expiry,if(f.validity==ShareValidity.NOW) now else shareDateSeconds(f.start,zone),
+              if(f.validity==ShareValidity.RANGE) shareDateSeconds(f.end,zone) else 0L,f.consent,now)
+          internal fun shareAccessLabel(a:ShareAccess,es:Boolean)=if(es) listOf("Escritorio","Escritorio, solo vista","Terminal","Archivos","Escritorio + Archivos","Terminal + Archivos","Escritorio + Terminal + Archivos")[a.ordinal] else listOf("Desktop","Desktop, view only","Terminal","Files","Desktop + Files","Terminal + Files","Desktop + Terminal + Files")[a.ordinal]
+          internal fun shareValidityLabel(v:ShareValidity,es:Boolean)=if(es) listOf("Comenzando ahora","Intervalo de tiempo","Recurrente diariamente","Semanal recurrente")[v.ordinal] else listOf("Starting now","Time range","Recurring daily","Recurring weekly")[v.ordinal]
+          internal fun shareConsentLabel(c:ShareConsent,es:Boolean)=if(es) listOf("Solo notificar","Solicitar consentimiento","Sin consentimiento")[c.ordinal] else listOf("Notify only","Prompt for consent","No consent")[c.ordinal]
+          internal fun shareMinutesLabel(m:Int,es:Boolean):String=when {
+              m==0->if(es) "Ilimitado" else "Unlimited"
+              m<=60->if(es) "$m minuto"+(if(m==1) "" else "s") else "$m minute"+(if(m==1) "" else "s")
+              m<=1440->if(es) "${m/60} horas" else "${m/60} hours"
+              else->if(es) "${m/1440} días" else "${m/1440} days"
+          }
+          @Composable private fun <T> ShareChoice(label:String,value:T,values:List<T>,tag:String,labelOf:(T)->String,enabled:(T)->Boolean={true},onChange:(T)->Unit) {
+              var expanded by remember(label) {mutableStateOf(false)}
+              Text(label,style=MaterialTheme.typography.labelLarge)
+              OutlinedButton(onClick={expanded=!expanded},modifier=Modifier.fillMaxWidth().testTag(tag)) {Text(labelOf(value))}
+              if(expanded) values.forEach {option->
+                  val allowed=enabled(option)
+                  Row(Modifier.fillMaxWidth().testTag("${tag}_${values.indexOf(option)}").clickable(enabled=allowed) {onChange(option);expanded=false},verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                      RadioButton(selected=value==option,onClick=null,enabled=allowed)
+                      Text(labelOf(option),Modifier.padding(8.dp),color=if(allowed) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha=0.38f))
+                  }
+              }
+          }
+          @Composable internal fun DeviceSharingForm(f:ShareForm,rights:Long,zone:ZoneId,es:Boolean,onChange:(ShareForm)->Unit) {
+              fun t(a:String,b:String)=if(es) a else b
+              OutlinedTextField(f.guest,{onChange(f.copy(guest=it))},singleLine=true,label={Text(t("Nombre de invitado","Guest name"))},modifier=Modifier.fillMaxWidth().testTag("share_guest"))
+              ShareChoice(t("Tipo","Type"),f.access,ShareAccess.entries.toList(),"share_access",{shareAccessLabel(it,es)},{generalShareAccessAllowed(rights,it)}) {onChange(f.copy(access=it))}
+              ShareChoice(t("Validez","Validity"),f.validity,ShareValidity.entries.toList(),"share_validity",{shareValidityLabel(it,es)}) {onChange(f.copy(validity=it))}
+              if(f.validity!=ShareValidity.NOW) {
+                  Text(t("Zona horaria: ","Time zone: ")+zone.id,style=MaterialTheme.typography.bodySmall)
+                  OutlinedTextField(f.start,{onChange(f.copy(start=it))},singleLine=true,label={Text(t("Inicio · aaaa-MM-dd HH:mm","Start · yyyy-MM-dd HH:mm"))},modifier=Modifier.fillMaxWidth().testTag("share_start"))
+                  if(f.validity==ShareValidity.RANGE) OutlinedTextField(f.end,{onChange(f.copy(end=it))},singleLine=true,label={Text(t("Final · aaaa-MM-dd HH:mm","End · yyyy-MM-dd HH:mm"))},modifier=Modifier.fillMaxWidth().testTag("share_end"))
+                  else Text(t("El servidor calcula las ventanas recurrentes. La hora local puede cambiar al cambiar el horario de verano.","The server calculates recurring windows. Local time may change with daylight saving time."),style=MaterialTheme.typography.bodySmall)
+              }
+              if(f.validity==ShareValidity.NOW) ShareChoice(t("Tiempo de expiración","Expiry time"),f.expiry,SHARE_EXPIRY_MINUTES,"share_expiry",{shareMinutesLabel(it,es)}) {onChange(f.copy(expiry=it))}
+              if(f.validity.recurring>0) ShareChoice(t("Duración","Duration"),f.duration,SHARE_DURATION_MINUTES,"share_duration",{shareMinutesLabel(it,es)}) {onChange(f.copy(duration=it))}
+              ShareChoice(t("Consentimiento del usuario","User consent"),f.consent,ShareConsent.entries.toList(),"share_consent",{shareConsentLabel(it,es)}) {onChange(f.copy(consent=it))}
+              Text(t("La opción elegida no anula las políticas del servidor o del agente. El nombre del invitado es una etiqueta, no una autenticación.","Your choice does not override server or agent policies. The guest name is a label, not authentication."),style=MaterialTheme.typography.bodySmall)
+          }
+          @Composable internal fun DeviceSharingReview(d:GeneralShareCreateDraft,consent:ShareConsent,zone:ZoneId,es:Boolean) {
+              fun t(a:String,b:String)=if(es) a else b
+              fun date(s:Long)=Instant.ofEpochSecond(s).atZone(zone).format(shareDateFormat)
+              Text(t("Invitado: ","Guest: ")+d.guest);Text(shareAccessLabel(d.access,es));Text(shareValidityLabel(d.validity,es));Text(shareConsentLabel(consent,es))
+              Text(t("Inicio: ","Start: ")+date(d.start)+" · "+zone.id)
+              if(d.end>0) Text(t("Final: ","End: ")+date(d.end)) else if(d.validity.recurring>0) Text(shareMinutesLabel(requireNotNull(d.durationMinutes),es)) else Text(t("Sin vencimiento. Revoca el acceso cuando deje de ser necesario.","No expiry. Revoke access when no longer needed."))
+              Text(t("Horario fijado al revisar; vuelve a revisar si pasan dos minutos o vence el acceso. El enlace no se envía ni copia automáticamente.","Times fixed at review; review again after two minutes or when access expires. The link is not sent or copied automatically."),style=MaterialTheme.typography.bodySmall)
+          }
+          internal val LocalDeviceGeneralOpen=staticCompositionLocalOf<((iecxiv.meshfabric.data.model.MeshNode)->Unit)?> {null}
+          internal val LocalDeviceSharingOpen=staticCompositionLocalOf<((iecxiv.meshfabric.data.model.MeshNode)->Unit)?> {null}
+          '''
+          unit='''package iecxiv.meshfabric.ui.devices
+          import java.time.*
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceSharingFormTest {
+              @Test fun localTimeConvertsToUtcSeconds() {assertEquals(Instant.parse("2026-11-21T12:00:00Z").epochSecond,shareDateSeconds("2026-11-21 13:00",ZoneOffset.ofHours(1)))}
+              @Test fun invalidAndAmbiguousTimesAreRejected() {for(s in listOf("2026-02-30 10:00","2026-11-21 25:00","2026-11-21","2026-03-29 02:30","2026-10-25 02:30")) assertTrue(s,runCatching {shareDateSeconds(s,ZoneId.of("Europe/Madrid"))}.isFailure)}
+              @Test fun formBuildsUnlimitedAndRecurringDrafts() {
+                  val now=Instant.parse("2026-11-21T12:00:00Z").epochSecond
+                  val f=ShareForm(guest="Guest",expiry=0,start="2026-11-21 13:00",end="2026-11-21 14:00")
+                  assertEquals(0L,shareFormDraft(f,"mesh//a",now,ZoneOffset.UTC).end)
+                  val d=shareFormDraft(f.copy(validity=ShareValidity.WEEKLY,duration=720),"mesh//a",now,ZoneOffset.UTC)
+                  assertEquals(ShareValidity.WEEKLY,d.validity);assertEquals(720,d.durationMinutes)
+              }
+          }
+          '''
+          ui='''package iecxiv.meshfabric.ui.devices
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import iecxiv.meshfabric.data.model.MeshNode
+          import java.time.ZoneOffset
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class DeviceSharingSubviewTest {
+              @get:Rule val rule=createComposeRule()
+              @Test fun formSelectorsAndDatesStayInline() {
+                  val f=mutableStateOf(ShareForm())
+                  rule.setContent {MaterialTheme {Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {DeviceSharingForm(f.value,0xffffffffL,ZoneOffset.UTC,true) {f.value=it}}}}
+                  rule.onNodeWithTag("share_access").performScrollTo().performClick()
+                  rule.onNodeWithTag("share_access_5").performScrollTo().performClick()
+                  rule.runOnIdle {assertEquals(ShareAccess.TERMINAL_FILES,f.value.access)}
+                  rule.onNodeWithTag("share_validity").performScrollTo().performClick()
+                  rule.onNodeWithTag("share_validity_1").performScrollTo().performClick()
+                  rule.onNodeWithTag("share_start").performScrollTo().assertIsDisplayed()
+                  rule.onNodeWithTag("share_end").performScrollTo().assertIsDisplayed()
+                  rule.onNode(isDialog()).assertDoesNotExist()
+              }
+              @Test fun unlimitedIsSelectableWithoutDialog() {
+                  val f=mutableStateOf(ShareForm())
+                  rule.setContent {MaterialTheme {Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {DeviceSharingForm(f.value,0xffffffffL,ZoneOffset.UTC,true) {f.value=it}}}}
+                  rule.onNodeWithTag("share_expiry").performScrollTo().performClick()
+                  rule.onNodeWithTag("share_expiry_0").performScrollTo().performClick()
+                  rule.runOnIdle {assertEquals(0,f.value.expiry)}
+                  rule.onNode(isDialog()).assertDoesNotExist()
+              }
+          }
+          '''
+          files={
+              'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceSharingForm.kt':form,
+              'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceSharingFormTest.kt':unit,
+              'app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceSharingSubviewTest.kt':ui
+          }
+          assert 'Dialog(' not in form and 'AppAlertDialog' not in form
+          for name,content in files.items():
+              p=Path(name);assert not p.exists();p.write_text(content)
+          assert not git('diff','--name-only')
+          assert set(git('ls-files','--others','--exclude-standard').splitlines())==set(files)
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused form and sharing unit tests
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneralShare*' --tests 'iecxiv.meshfabric.ui.devices.DeviceShareLinkCompatibilityTest' --tests 'iecxiv.meshfabric.ui.devices.DeviceSharing*Test' --no-daemon --stacktrace
+      - name: Full validation before publishing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sharing-form-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: ignore
+      - name: Publish validated form without activating entry and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=['app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceSharingForm.kt','app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceSharingFormTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceSharingSubviewTest.kt']
+          assert not git('diff','--name-only')
+          assert set(git('ls-files','--others','--exclude-standard').splitlines())==set(paths)
+          workflow='.github/workflows/device-sharing-form.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(sharing): add inline access validity consent and review form'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
