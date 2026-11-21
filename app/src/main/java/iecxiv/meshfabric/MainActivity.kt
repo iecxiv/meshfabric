@@ -32,6 +32,8 @@ import iecxiv.meshfabric.ui.theme.MeshCentralTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+    private val remoteRuntime by lazy { androidx.lifecycle.ViewModelProvider(this)[RemoteSessionRuntime::class.java] }
+    private var runtimeReady = false
 
     internal lateinit var fidoClient: com.yubico.yubikit.fido.android.ui.FidoClient
         private set
@@ -39,7 +41,7 @@ class MainActivity : ComponentActivity() {
     internal var desktopMouseCapture: iecxiv.meshfabric.ui.desktop.DesktopMouseCapture? = null
 
     internal fun desktopPrimaryMouse(point: iecxiv.meshfabric.ui.desktop.DesktopWheelPoint?, phase: iecxiv.meshfabric.ui.desktop.DesktopPrimaryPhase): Boolean =
-        if (::desktopViewModel.isInitialized) desktopViewModel.desktopPrimaryMouse(point, phase) else false
+        if (runtimeReady) desktopViewModel.desktopPrimaryMouse(point, phase) else false
 
     private fun cancelDesktopPointerGesture(downTime: Long, eventTime: Long) {
         val cancel = android.view.MotionEvent.obtain(downTime, eventTime,
@@ -81,25 +83,24 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    private lateinit var sessionManager: SessionManager
-    private lateinit var meshClient: MeshCentralClient
-    private lateinit var desktopClient: DesktopRelayClient
-    private lateinit var terminalClient: TerminalRelayClient
-    private lateinit var fileClient: FileRelayClient
+    private val sessionManager get() = remoteRuntime.sessionManager
+    private val meshClient get() = remoteRuntime.meshClient
+    private val desktopClient get() = remoteRuntime.desktopClient
+    private val terminalClient get() = remoteRuntime.terminalClient
+    private val fileClient get() = remoteRuntime.fileClient
 
-    private lateinit var loginViewModel: LoginViewModel
-    private lateinit var deviceListViewModel: DeviceListViewModel
-    private lateinit var desktopViewModel: RemoteDesktopViewModel
-    private lateinit var terminalViewModel: TerminalViewModel
-    private lateinit var fileManagerViewModel: FileManagerViewModel
-    private lateinit var settingsViewModel: SettingsViewModel
+    private val loginViewModel get() = remoteRuntime.loginViewModel
+    private val deviceListViewModel get() = remoteRuntime.deviceListViewModel
+    private val desktopViewModel get() = remoteRuntime.desktopViewModel
+    private val terminalViewModel get() = remoteRuntime.terminalViewModel
+    private val fileManagerViewModel get() = remoteRuntime.fileManagerViewModel
+    private val settingsViewModel get() = remoteRuntime.settingsViewModel
     private var appInForeground = true
     private var closingSessions = false
     private val chatSessionsChanged: () -> Unit = { updateBackgroundSessionService() }
 
     private fun updateBackgroundSessionService() {
-        if (appInForeground || closingSessions || !::terminalClient.isInitialized ||
-            !::desktopClient.isInitialized || !::fileClient.isInitialized) return
+        if (appInForeground || closingSessions || !runtimeReady) return
         val chatCount = DeviceChatKeepAlive.activeCount()
         val totalActiveSessions = terminalClient.getSessionCount() + desktopClient.getSessionCount() +
             fileClient.getSessionCount() + chatCount
@@ -122,23 +123,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         installDesktopMouseWindowCallback()
 
-        sessionManager = SessionManager(applicationContext)
-        meshClient = MeshCentralClient()
-        desktopClient = DesktopRelayClient()
-        terminalClient = TerminalRelayClient()
-        terminalClient.configureHistory(applicationContext, meshClient, sessionManager)
-        fileClient = FileRelayClient()
-
-        loginViewModel = LoginViewModel(application, meshClient, sessionManager)
-        deviceListViewModel = DeviceListViewModel(meshClient, desktopClient, terminalClient, fileClient, sessionManager)
-        desktopViewModel = RemoteDesktopViewModel(meshClient, desktopClient, sessionManager)
-        terminalViewModel = TerminalViewModel(meshClient, terminalClient)
-        fileManagerViewModel = FileManagerViewModel(meshClient, fileClient)
-        settingsViewModel = SettingsViewModel(sessionManager)
+        remoteRuntime
+        runtimeReady = true
         DeviceChatKeepAlive.onChanged = chatSessionsChanged
-
-        val isSaveBuffersEnabled = sessionManager.isSaveTerminalBuffersEnabled()
-        terminalClient.initBuffersFromDisk(applicationContext, meshClient, isSaveBuffersEnabled)
 
         KeepAliveService.onTaskRemovedListener = {
             closingSessions = true
@@ -174,7 +161,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    val navController = rememberNavController()
+                    val navController = rememberSessionNavController(remoteRuntime)
                     MeshCentralNavGraph(
                         navController = navController,
                         loginViewModel = loginViewModel,

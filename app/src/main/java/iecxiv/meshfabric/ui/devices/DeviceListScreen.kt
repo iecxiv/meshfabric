@@ -265,9 +265,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
     var otherExpanded by androidx.compose.runtime.saveable.rememberSaveable(node.id) { mutableStateOf(false) }
     var statusBadgeHeight by remember(node.id) { mutableStateOf(0.dp) }
     val statusBadgeDensity=LocalDensity.current
-    Card(Modifier.fillMaxWidth().padding(vertical=4.dp).combinedClickable(
-        enabled = onStartSelection != null || selectionMode,
-        onClick = { onToggleSelection?.invoke() }, onLongClick = { onStartSelection?.invoke() }),
+    Card(Modifier.fillMaxWidth().padding(vertical=4.dp).testTag("device_card_${node.id}").combinedClickable(
+        onClick = { if (selectionMode) onToggleSelection?.invoke() else otherExpanded = !otherExpanded },
+        onLongClick = onStartSelection),
         border=androidx.compose.foundation.BorderStroke(if(selected && selectionMode) 2.dp else 1.dp,if(selected && selectionMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
         colors= iecxiv.meshfabric.ui.theme.appCardColors(
 CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface)
@@ -276,7 +276,7 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onToggleSelection?.invoke() })
-                Surface(Modifier.size(40.dp),shape=CircleShape,color=(if(node.isOnline) OnlineGreen else OfflineGray).copy(alpha=0.15f)) {
+                Surface(Modifier.size(40.dp).testTag("device_icon_${node.id}"),shape=CircleShape,color=(if(node.isOnline) OnlineGreen else OfflineGray).copy(alpha=0.15f)) {
                     Box(contentAlignment=Alignment.Center) {
                         Icon(when {
                             node.platform==DevicePlatform.WINDOWS->Icons.Default.DesktopWindows
@@ -288,7 +288,7 @@ CardDefaults.cardColors(containerColor=if(node.isOnline) MaterialTheme.colorSche
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment=Alignment.CenterVertically) {
-                        Text(deviceListDisplayName(node,showOsName).ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f,fill=false),
+                        Text(deviceListDisplayName(node,showOsName).ifEmpty { stringResource(R.string.unknown_device) },modifier=Modifier.weight(1f,fill=false).testTag("device_title_${node.id}"),
                             style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(iecxiv.meshfabric.ui.theme.LocalAppDarkTheme.current) Color.White else LocalContentColor.current)
                         Spacer(Modifier.width(8.dp))
                         Surface(modifier=Modifier.onSizeChanged { statusBadgeHeight=with(statusBadgeDensity) { it.height.toDp() } }.testTag("device_connection_badge_${node.id}"),shape=RoundedCornerShape(4.dp),color=if(node.isOnline) OnlineGreen else OfflineGray) {
