@@ -1,0 +1,129 @@
+name: Retry remote resume regressions individually
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/retry-resume-card.yml']
+permissions:
+  contents: write
+concurrency:
+  group: validate-resume-card-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Reproduce approved application changes without modifying their content
+        shell: python
+        run: |
+          from pathlib import Path
+          import os, subprocess, textwrap
+          previous=Path('.github/workflows/validate-resume-card.yml')
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='5b6f1ac3d8976b5ba1e4ea7943c9112fe327a941','Base advanced'
+          assert subprocess.check_output(['git','hash-object',str(previous)],text=True).strip()=='38790e5c8a694a7c93761d9de7393938785dd454','Previous workflow changed'
+          text=previous.read_text()
+          block=text.split('        run: |\n',1)[1].split('      - run: git diff --check\n',1)[0]
+          code=textwrap.dedent(block)
+          assert code.count('6a846f227f9521e5734fe4cf176501bb6da911ed')==1
+          code=code.replace('6a846f227f9521e5734fe4cf176501bb6da911ed','5b6f1ac3d8976b5ba1e4ea7943c9112fe327a941',1)
+          exec(compile(code,'approved-resume-card-preparation','exec'),{})
+          Path(os.environ['RUNNER_TEMP'],'run-resume-regressions.py').write_text(r'''from pathlib import Path
+          import json, os, re, shutil, subprocess
+          import xml.etree.ElementTree as ET
+          classes=['iecxiv.meshfabric.SessionResumeAndDeviceCardTest','iecxiv.meshfabric.data.local.SessionStorageSafetyTest','iecxiv.meshfabric.ui.management.DeviceGroupSearchTest','iecxiv.meshfabric.ui.management.FourVisualCorrectionsTest','iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest']
+          archive=Path(os.environ['RUNNER_TEMP'])/'resume-regressions'
+          archive.mkdir(exist_ok=True)
+          summary={}
+          for name in classes:
+              source=Path('app/src/androidTest/java')/(name.replace('.','/')+'.kt')
+              text=source.read_text()
+              expected=len(re.findall(r'@Test\b',text))
+              assert expected>0,('No test methods',name)
+              results=Path('app/build/outputs/androidTest-results')
+              if results.exists(): shutil.rmtree(results)
+              subprocess.run(['bash','./gradlew',':app:connectedDebugAndroidTest','-Pandroid.testInstrumentationRunnerArguments.class='+name,'--rerun-tasks','--no-daemon','--stacktrace'],check=True)
+              reports=sorted(results.rglob('*.xml'))
+              assert reports,('No XML',name)
+              destination=archive/name
+              destination.mkdir(exist_ok=True)
+              cases=[]
+              for index,path in enumerate(reports):
+                  shutil.copy2(path,destination/(str(index)+'.xml'))
+                  root=ET.parse(path).getroot()
+                  cases.extend(root.iter('testcase'))
+                  for suite in root.iter():
+                      if suite.tag in ('testsuite','testsuites'):
+                          assert all(int(suite.get(key,'0'))==0 for key in ('failures','errors','skipped')),(name,path,suite.attrib)
+              found={case.get('classname') for case in cases}
+              print(json.dumps({'requested':name,'found':sorted(str(value) for value in found),'reports':[str(path) for path in reports]}),flush=True)
+              assert found=={name},('Unexpected or missing classes',name,found)
+              names={case.get('name') for case in cases}
+              assert len(names)>=expected,('Missing methods',name,expected,names)
+              assert all(case.find(key) is None for case in cases for key in ('failure','error','skipped')),('Unsuccessful tests',name)
+              summary[name]={'expected':expected,'passed':len(names)}
+              (archive/'summary.json').write_text(json.dumps(summary,indent=2))
+          assert set(summary)==set(classes)
+          ''')
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run each test class separately and archive and verify its XML immediately
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 "$RUNNER_TEMP/run-resume-regressions.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resume-card-individual-reports-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/resume-regressions/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish only after complete coverage and retire both resume workflows
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, os, subprocess, textwrap
+          classes=['iecxiv.meshfabric.SessionResumeAndDeviceCardTest','iecxiv.meshfabric.data.local.SessionStorageSafetyTest','iecxiv.meshfabric.ui.management.DeviceGroupSearchTest','iecxiv.meshfabric.ui.management.FourVisualCorrectionsTest','iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest']
+          summary=json.loads((Path(os.environ['RUNNER_TEMP'])/'resume-regressions/summary.json').read_text())
+          assert set(summary)==set(classes)
+          assert all(value['passed']>=value['expected']>0 for value in summary.values())
+          previous=Path('.github/workflows/validate-resume-card.yml')
+          text=previous.read_text()
+          assert subprocess.check_output(['git','hash-object',str(previous)],text=True).strip()=='38790e5c8a694a7c93761d9de7393938785dd454'
+          code=textwrap.dedent(text.rsplit('        run: |\n',1)[1])
+          assert code.count('Path(temporary).unlink()')==1
+          code=code.replace('Path(temporary).unlink()',"Path(temporary).unlink(); Path('.github/workflows/retry-resume-card.yml').unlink()",1)
+          assert code.count('allowed=modified|added|{temporary}')==1
+          code=code.replace('allowed=modified|added|{temporary}',"allowed=modified|added|{temporary,'.github/workflows/retry-resume-card.yml'}",1)
+          exec(compile(code,'approved-resume-card-publication','exec'),{})
