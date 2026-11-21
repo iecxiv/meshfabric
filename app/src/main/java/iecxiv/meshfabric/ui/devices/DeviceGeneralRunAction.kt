@@ -14,7 +14,8 @@ import iecxiv.meshfabric.ui.management.ActionFeedbackDialogs
 import iecxiv.meshfabric.ui.management.commandInterpreters
 import iecxiv.meshfabric.ui.management.defaultInterpreterKey
 
-@Composable internal fun DeviceGeneralRunAction(node:MeshNode) {
+@Composable internal fun DeviceGeneralRunAction(node:MeshNode,embedded:Boolean=false,onBack:(()->Unit)?=null) {
+    val openAction=LocalDeviceGeneralActionOpen.current
     val source=LocalDeviceDetailsClient.current
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val connected=source?.connectionState?.collectAsState()?.value==true
@@ -23,8 +24,9 @@ import iecxiv.meshfabric.ui.management.defaultInterpreterKey
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
-        var opened by remember {mutableStateOf(false)}
-        DeviceGeneralActionButton(label=t("Ejecutar","Run"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_run"))
+        var opened by remember {mutableStateOf(embedded)}
+        if(!embedded) DeviceGeneralActionButton(label=t("Ejecutar","Run"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={if(openAction!=null) openAction(node,DeviceGeneralActionKind.RUN) else opened=true},modifier=Modifier.testTag("general_run"))
+        fun exit() {if(embedded) onBack?.invoke() else opened=false}
         if(opened) {
             var retry by remember {mutableIntStateOf(0)}
             var command by remember {mutableStateOf("")}
@@ -47,7 +49,7 @@ import iecxiv.meshfabric.ui.management.defaultInterpreterKey
             val allowed=state.phase=="ready" && meta!=null && generalRunAvailable(node.id,meta,inventory)
             val choices=meta?.let {commandInterpreters(it.os)}.orEmpty()
             val valid=generalRunTextValid(command) && choices.any {it.key==interpreter}
-            val close:()->Unit={if(command.isNotBlank() || submitted) discard=true else opened=false}
+            val close:()->Unit={if(review!=null && !submitted) review=null else if(command.isNotBlank() || submitted) discard=true else exit()}
             val status=when {
                 state.phase=="loading"->t("Verificando dispositivo, agente y permiso de ejecutar comandos…","Verifying device, agent and run-command permission…")
                 state.phase=="checking"->t("Reverificando antes del envío…","Rechecking before send…")
@@ -58,7 +60,7 @@ import iecxiv.meshfabric.ui.management.defaultInterpreterKey
                 state.phase=="error"->t("Conexión o verificación no disponible. No se confirma ejecución.","Connection or verification unavailable. Execution is not confirmed.")
                 else->""
             }
-            DeviceGeneralFrame(node,close,body={
+            if(!embedded || (!discard && feedback.commands.none {it.id==feedback.commandWindow})) DeviceGeneralFrame(node,close,inline=embedded,body={
                 Text(t("El comando se envía solo a este equipo, en el contexto del servicio del agente, no como una terminal interactiva. Puede modificar o eliminar datos. No introduzcas contraseñas ni tokens.","The command is sent only to this device in the agent service context, not as an interactive terminal. It can modify or delete data. Do not enter passwords or tokens."),style=MaterialTheme.typography.bodySmall)
                 if(review==null && !submitted) {
                     if(meta!=null) {
@@ -90,8 +92,8 @@ import iecxiv.meshfabric.ui.management.defaultInterpreterKey
                 if(review!=null && !submitted) TextButton(onClick={review=null}) {Text(t("Volver","Back"))}
                 TextButton(onClick=close) {Text(t("Cerrar","Close"))}
             },subtitle=t("Ejecutar","Run"),tagPrefix="device_run")
-            ActionFeedbackDialogs(editor.feedback)
-            if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Ejecutar","Close Run"))},text={Text(t("Se perderá el borrador y se cerrará el seguimiento local de salida. Un comando ya enviado no se detiene ni se revierte.","The local draft and output monitoring will close. An already sent command is not stopped or undone."))},confirmButton={TextButton(onClick={opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            if(embedded) {if(!discard && feedback.commands.any {it.id==feedback.commandWindow}) DeviceRunFeedbackSubview(node,editor.feedback)} else ActionFeedbackDialogs(editor.feedback)
+            if(discard) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={discard=false},title={Text(t("Cerrar Ejecutar","Close Run"))},text={Text(t("Se perderá el borrador y se cerrará el seguimiento local de salida. Un comando ya enviado no se detiene ni se revierte.","The local draft and output monitoring will close. An already sent command is not stopped or undone."))},confirmButton={TextButton(onClick={exit()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
         }
     }
 }

@@ -11,7 +11,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 
-@Composable internal fun DeviceGeneralMessageAction(node:MeshNode) {
+@Composable internal fun DeviceGeneralMessageAction(node:MeshNode,embedded:Boolean=false,onBack:(()->Unit)?=null) {
+    val openAction=LocalDeviceGeneralActionOpen.current
     val source=LocalDeviceDetailsClient.current
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val connected=source?.connectionState?.collectAsState()?.value==true
@@ -20,8 +21,9 @@ import iecxiv.meshfabric.data.model.MeshNode
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
-        var opened by remember {mutableStateOf(false)}
-        DeviceGeneralActionButton(label=t("Mensaje","Message"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_message"))
+        var opened by remember {mutableStateOf(embedded)}
+        if(!embedded) DeviceGeneralActionButton(label=t("Mensaje","Message"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={if(openAction!=null) openAction(node,DeviceGeneralActionKind.MESSAGE) else opened=true},modifier=Modifier.testTag("general_message"))
+        fun exit() {if(embedded) onBack?.invoke() else opened=false}
         if(opened) {
             val defaultTitle=remember {t("Mensaje remoto","Remote message")}
             var title by remember {mutableStateOf(defaultTitle)}
@@ -42,7 +44,7 @@ import iecxiv.meshfabric.data.model.MeshNode
             val meta=state.meta
             val allowed=state.phase=="ready" && meta!=null && generalMessageAvailable(node.id,meta,inventory)
             val valid=generalMessageTextValid(title,body)
-            val close:()->Unit={if(body.isNotEmpty() || title!=defaultTitle || submitted) discard=true else opened=false}
+            val close:()->Unit={if(review!=null && !submitted) review=null else if(body.isNotEmpty() || title!=defaultTitle || submitted) discard=true else exit()}
             val status=when {
                 state.phase=="loading"->t("Verificando agente, dispositivo y permisos…","Verifying agent, device and permissions…")
                 state.phase=="checking"->t("Reverificando antes del envío…","Rechecking before send…")
@@ -55,7 +57,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 state.phase=="error"->t("Conexión o verificación no disponible. No se confirma entrega.","Connection or verification unavailable. Delivery is not confirmed.")
                 else->""
             }
-            DeviceGeneralFrame(node,close,body={
+            if(!embedded || !discard) DeviceGeneralFrame(node,close,inline=embedded,body={
                 Text(t("Mensaje al dispositivo seleccionado mediante el agente. No abre un chat y no utiliza avisos toast ni push móvil. Requiere soporte del agente y de la sesión gráfica remota.","Message to the selected device through its agent. Does not open chat or use toast notifications or mobile push. Requires agent and remote graphical-session support."),style=MaterialTheme.typography.bodySmall)
                 if(review==null && !submitted) {
                     OutlinedTextField(title,{title=it},enabled=allowed,singleLine=true,label={Text(t("Título","Title"))},modifier=Modifier.fillMaxWidth().testTag("general_message_title"))
@@ -74,7 +76,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(review!=null && !submitted) TextButton(onClick={review=null}) {Text(t("Volver","Back"))}
                 TextButton(onClick=close) {Text(t("Cerrar","Close"))}
             },subtitle=t("Mensaje","Message"),tagPrefix="device_message")
-            if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Mensaje","Close Message"))},text={Text(t("Se perderá el borrador local. Un mensaje ya enviado no se retira ni se revierte.","The local draft will be lost. An already sent message is not retracted or undone."))},confirmButton={TextButton(onClick={opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            if(discard) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={discard=false},title={Text(t("Cerrar Mensaje","Close Message"))},text={Text(t("Se perderá el borrador local. Un mensaje ya enviado no se retira ni se revierte.","The local draft will be lost. An already sent message is not retracted or undone."))},confirmButton={TextButton(onClick={exit()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
         }
     }
 }

@@ -14,7 +14,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun DeviceGeneralActionsAction(node:MeshNode) {
+@Composable internal fun DeviceGeneralActionsAction(node:MeshNode,embedded:Boolean=false,onBack:(()->Unit)?=null) {
+    val openAction=LocalDeviceGeneralActionOpen.current
     val source=LocalDeviceDetailsClient.current
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val connected=source?.connectionState?.collectAsState()?.value==true
@@ -24,8 +25,9 @@ import iecxiv.meshfabric.data.model.MeshNode
     fun t(a:String,b:String)=if(es) a else b
     fun label(action:GeneralDeviceAction)=when(action) {GeneralDeviceAction.WAKE->t("Despertar (WoL)","Wake up (WoL)");GeneralDeviceAction.RESTART->t("Reiniciar","Restart");GeneralDeviceAction.SHUTDOWN->t("Apagar","Shut down");GeneralDeviceAction.SLEEP->t("Suspender","Sleep");GeneralDeviceAction.UNINSTALL_AGENT->t("Desinstalar agente","Uninstall agent")}
     key(source,identity,actor,node.id) {
-        var opened by remember {mutableStateOf(false)}
-        DeviceGeneralActionButton(t("Acciones","Actions"),connected && actor.isNotBlank() && source?.isUserLogout==false,{opened=true},Modifier.testTag("general_actions"))
+        var opened by remember {mutableStateOf(embedded)}
+        if(!embedded) DeviceGeneralActionButton(t("Acciones","Actions"),connected && actor.isNotBlank() && source?.isUserLogout==false,{if(openAction!=null) openAction(node,DeviceGeneralActionKind.ACTIONS) else opened=true},Modifier.testTag("general_actions"))
+        fun exit() {if(embedded) onBack?.invoke() else opened=false}
         if(opened) {
             val editor=remember {DeviceGeneralActionsEditor(source,node.id)}
             val state by editor.state.collectAsState()
@@ -39,9 +41,9 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) editor.start() else editor.close()
                 onDispose {owner.lifecycle.removeObserver(observer);editor.close()}
             }
-            val close:()->Unit={if(state.phase in setOf("checking","sent")) discard=true else opened=false}
+            val close:()->Unit={if(review!=null && !submitted && state.phase=="ready") review=null else if(state.phase in setOf("checking","sent")) discard=true else exit()}
             val meta=state.meta
-            DeviceGeneralFrame(node,close,body={
+            if(!embedded || !discard) DeviceGeneralFrame(node,close,inline=embedded,body={
                 Text(t("Acciones sobre este único dispositivo. Reiniciar, apagar o suspender pueden interrumpir sesiones y provocar pérdida de trabajo no guardado. Desinstalar el agente puede dejar el equipo sin acceso remoto. No modifican el borrador de General.","Actions for this device only. Restarting, shutting down or sleeping may interrupt sessions and lose unsaved work. Uninstalling the agent may leave the device without remote access. The General draft is not modified."),style=MaterialTheme.typography.bodySmall)
                 Text(t("Despertar requiere permiso WoL. Reiniciar, apagar y suspender requieren control remoto, permiso de reinicio/apagado y agente conectado. Desinstalar requiere el permiso específico de desinstalación y agente conectado. La disponibilidad efectiva depende del equipo.","Wake requires WoL permission. Restart, shut down and sleep require remote-control and reset/power-off permissions and an online agent. Uninstall requires the specific uninstall permission and an online agent. Actual availability depends on the device."),style=MaterialTheme.typography.bodySmall)
                 if(review==null && !submitted && meta!=null && state.phase=="ready") {
@@ -75,7 +77,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(review!=null && !submitted && state.phase=="ready") TextButton(onClick={review=null}) {Text(t("Volver","Back"))}
                 TextButton(onClick=close) {Text(t("Cerrar","Close"))}
             },subtitle=t("Acciones","Actions"),tagPrefix="device_actions")
-            if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Acciones","Close Actions"))},text={Text(t("Se cerrará el seguimiento. Una acción ya enviada puede ejecutarse y no se revierte al cerrar.","Monitoring will close. An already sent action may execute and closing does not undo it."))},confirmButton={TextButton(onClick={editor.close();opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            if(discard) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={discard=false},title={Text(t("Cerrar Acciones","Close Actions"))},text={Text(t("Se cerrará el seguimiento. Una acción ya enviada puede ejecutarse y no se revierte al cerrar.","Monitoring will close. An already sent action may execute and closing does not undo it."))},confirmButton={TextButton(onClick={editor.close();exit()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
         }
     }
 }
