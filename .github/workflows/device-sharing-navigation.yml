@@ -1,0 +1,167 @@
+name: Validate integrated sharing subviews
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-sharing-navigation.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-sharing-navigation-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare guarded subview integration
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='ac9a6de021f000e22801b79265952531440bbca1','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui')
+          def e(name,old,new,count=1):
+              p=root/name;s=p.read_text();assert s.count(old)==count,(name,old,s.count(old));p.write_text(s.replace(old,new,count))
+          def cut(name,start,end,new):
+              p=root/name;s=p.read_text();assert s.count(start)==1 and s.count(end)==1,(name,start,end)
+              a=s.index(start);b=s.index(end,a);p.write_text(s[:a]+new+s[b:])
+          G='devices/DeviceGeneralDialog.kt';O='devices/DeviceOtherOptions.kt';F='devices/DeviceGeneralFrame.kt';H='management/MeshFabricHome.kt';R='devices/DeviceGeneralSharesReader.kt';C='devices/DeviceGeneralShareCreateAction.kt';L='devices/DeviceGeneralSharesAction.kt';V='devices/DeviceSharingForm.kt'
+          e(G,'DeviceGeneralDialog(node:MeshNode,onDismiss:()->Unit)','DeviceGeneralDialog(node:MeshNode,inline:Boolean=false,onDismiss:()->Unit)')
+          e(G,'    val source=LocalDeviceDetailsClient.current','    val openSharing=LocalDeviceSharingOpen.current\n    val source=LocalDeviceDetailsClient.current')
+          e(G,'DeviceGeneralFrame(node.copy(osdesc=meta?.os ?: node.osdesc),close,','DeviceGeneralFrame(node.copy(osdesc=meta?.os ?: node.osdesc),close,inline=inline,')
+          e(G,'                // Temporarily hidden for 1.3.9; restore when sharing implementation is complete.\n                // DeviceGeneralSharesAction(node)','                DeviceGeneralActionButton(text("Compartir","Share"),enabled=openSharing!=null && !dirty && state.phase in setOf("ready","confirmed") && meta!=null && generalSharesAllowed(meta.rights),onClick={openSharing?.invoke(node)},modifier=Modifier.testTag("general_shares"))')
+          e(O,'    val openConsole=LocalDeviceAgentConsoleOpen.current','    val openConsole=LocalDeviceAgentConsoleOpen.current\n    val openGeneral=LocalDeviceGeneralOpen.current')
+          e(O,'{ general=true }','{ if(openGeneral!=null) openGeneral(node) else general=true }')
+          e(F,'onMinimize:(()->Unit)?=null','onMinimize:(()->Unit)?=null,\n    inline:Boolean=false')
+          cut(F,'    Dialog(onDismissRequest=onClose','            Column {','    DeviceDetailsFrame(inline=inline,onDismiss=onClose) {\n        DeviceDetailsContentSurface(inline=inline,modifier=if(inline) Modifier.fillMaxSize().testTag("${tagPrefix}_surface") else Modifier.padding(horizontal=16.dp,vertical=24.dp).widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp).testTag("${tagPrefix}_surface")) {\n')
+          e(F,'                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {','                    if(inline) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onClose,title={Column {\n                        Text(node.name.ifBlank {stringResource(R.string.unknown_device)})\n                        Text(subtitle,style=MaterialTheme.typography.labelSmall,modifier=Modifier.testTag("${tagPrefix}_subtitle"))\n                    }},backTag="${tagPrefix}_close") else Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {')
+          e(F,'Column(Modifier.padding(start=20.dp,end=12.dp,top=12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp))','Column(Modifier.padding(start=if(inline) 16.dp else 20.dp,end=if(inline) 16.dp else 12.dp,top=if(inline) 0.dp else 12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp))')
+          e(H,'import androidx.compose.ui.Modifier','import androidx.compose.ui.Modifier\nimport androidx.compose.ui.semantics.clearAndSetSemantics\nimport androidx.compose.ui.input.pointer.pointerInput\nimport androidx.compose.ui.input.pointer.PointerEventPass')
+          e(H,'    val bottomLoading=remember(page)','    val generalActor by viewModel.meshClient.userInfo.collectAsState()\n    val generalIdentity=listOf(viewModel.meshClient.serverUrl,viewModel.meshClient.authCookie,viewModel.meshClient.ignoreSsl.toString(),generalActor?.id.orEmpty())\n    var generalNode by remember(viewModel.meshClient,generalIdentity) {mutableStateOf<MeshNode?>(null)}\n    var generalStep by remember(viewModel.meshClient,generalIdentity) {mutableIntStateOf(0)}\n    var sharingRights by remember(viewModel.meshClient,generalIdentity) {mutableLongStateOf(0L)}\n    val generalFocus=androidx.compose.ui.platform.LocalFocusManager.current\n    val generalKeyboard=androidx.compose.ui.platform.LocalSoftwareKeyboardController.current\n    LaunchedEffect(page) {generalNode=null;generalStep=0}\n    val bottomLoading=remember(page)')
+          e(H,'CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading)','CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalBottomLoadingState provides bottomLoading,\n        iecxiv.meshfabric.ui.devices.LocalDeviceGeneralOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=0},\n        iecxiv.meshfabric.ui.devices.LocalDeviceSharingOpen provides {node->generalFocus.clearFocus(force=true);generalKeyboard?.hide();generalNode=node;generalStep=1})')
+          e(H,'            if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->','            Box(Modifier.fillMaxSize().then(if(generalNode!=null) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {\n                awaitPointerEventScope {while(true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach {it.consume()}}\n            } else Modifier)) {\n            if(page==0) CompositionLocalProvider(LocalDeviceActionMenu provides { node->')
+          e(H,'onActivityOpened={openActivity=false})\n        }','onActivityOpened={openActivity=false})\n            }\n            generalNode?.let {target->Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background) {\n                Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top+WindowInsetsSides.Horizontal))) {\n                    CompositionLocalProvider(LocalDeviceDetailsClient provides viewModel.meshClient) {\n                        when(generalStep) {\n                            0->iecxiv.meshfabric.ui.devices.DeviceGeneralDialog(target,inline=true,onDismiss={generalNode=null})\n                            1->iecxiv.meshfabric.ui.devices.DeviceSharingListScreen(target,onBack={generalStep=0},onCreate={rights->sharingRights=rights;generalStep=2})\n                            else->iecxiv.meshfabric.ui.devices.DeviceSharingCreateScreen(target,sharingRights,onBack={generalStep=1},onCreated={})\n                        }\n                    }\n                }\n            }}\n        }')
+          e(R,'val code:String="")','val code:String="",val rights:Long=0L)')
+          e(R,'private var active=true;private var started=false;','private var verifiedRights=0L;private var active=true;private var started=false;')
+          e(R,'tag="";mode="shares";','verifiedRights=meta.rights;tag="";mode="shares";')
+          e(R,'GeneralSharesState("ready",shares,System.currentTimeMillis())','GeneralSharesState("ready",shares,System.currentTimeMillis(),rights=verifiedRights)')
+          e(C,'DeviceGeneralShareCreateAction(node:MeshNode,enabled:Boolean,onCreated:()->Unit)','DeviceSharingCreateScreen(node:MeshNode,rights:Long,onBack:()->Unit,onCreated:()->Unit)')
+          cut(C,'    var opened by remember','        var review by remember','    key(source,source?.serverUrl,source?.authCookie,source?.userInfo?.value?.id,node.id) {\n        val zone=remember {java.time.ZoneId.systemDefault()}\n        val initial=remember {shareInitialForm(zone)}\n        var form by remember {mutableStateOf(initial)}\n        val guest=form.guest\n        var formError by remember {mutableStateOf(false)}\n')
+          e(C,'val close:()->Unit={if(busy || writer==null && (guest.isNotEmpty() || review!=null)) discard=true else opened=false}','val close:()->Unit={if(writer==null && review!=null) review=null else if(busy || writer==null && form!=initial) discard=true else onBack()}')
+          e(C,'opened=false','onBack()')
+          e(C,'        DeviceGeneralFrame(node,close,body={','        if(!discard) DeviceGeneralFrame(node,close,inline=true,body={')
+          cut(C,'            Text(t("Enlace de acceso por posesión:','            state?.let {s->','            if(writer==null && review==null) DeviceSharingForm(form,rights,zone,es) {form=it;formError=false}\n            review?.let {DeviceSharingReview(it,form.consent,zone,es)}\n            if(formError) Text(t("Revisa nombre, permisos y fechas (aaaa-MM-dd HH:mm). No se admiten horas pasadas, invertidas, ambiguas o inexistentes. Si la revisión caducó, revisa de nuevo.","Check name, permissions and dates (yyyy-MM-dd HH:mm). Past, reversed, ambiguous or nonexistent times are not accepted. If the review expired, review again."),color=MaterialTheme.colorScheme.error)\n')
+          e(C,'    val context=LocalContext.current','    val context=LocalContext.current\n    val connected=source?.connectionState?.collectAsState()?.value==true && source?.isUserLogout==false')
+          e(C,'enabled=generalShareGuestValid(guest)','enabled=(review==null || connected) && generalShareGuestValid(guest.trim()) && generalShareAccessAllowed(rights,form.access)')
+          e(C,'if(review==null) review=generalShareCreateDraft(guest,node.meshid,minutes,System.currentTimeMillis()/1000L)\n                else writer=DeviceGeneralShareCreator(source,node.id,requireNotNull(review))','if(review==null) runCatching {shareFormDraft(form,node.meshid,System.currentTimeMillis()/1000L,zone)}.onSuccess {review=it;formError=false}.onFailure {formError=true}\n                else runCatching {requireNotNull(review).also {generalShareValidateOptions(it,System.currentTimeMillis()/1000L)}}.onSuccess {writer=DeviceGeneralShareCreator(source,node.id,it);formError=false}.onFailure {review=null;formError=true}')
+          e(C,'"Crear enlace temporal","Create temporary link"','"Crear enlace","Create link"')
+          e(C,'"Acceso temporal","Temporary access"','"Acceso compartido","Shared access"')
+          e(C,'TextButton(onClick=close) {Text(t("Cerrar","Close"))}','TextButton(onClick=close) {Text(t("Volver","Back"))}')
+          e(C,'iecxiv.meshfabric.ui.components.AppAlertDialog(','iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,')
+          e(L,'DeviceGeneralSharesAction(node:MeshNode)','DeviceSharingListScreen(node:MeshNode,onBack:()->Unit,onCreate:(Long)->Unit)')
+          cut(L,'        var opened by remember','            var retry by remember','        key("sharing-list") {\n')
+          e(L,'opened=false','onBack()',2)
+          e(L,'            DeviceGeneralFrame(node,close,body={','            if(review==null && !discard) DeviceGeneralFrame(node,close,inline=true,body={')
+          e(L,'Consulta de accesos compartidos y creación de enlaces temporales de escritorio solo consulta.','Consulta y creación de accesos compartidos de escritorio, terminal y archivos.')
+          e(L,'Inspect sharing entries and create temporary view-only desktop links.','Inspect and create desktop, terminal and file sharing entries.')
+          e(L,'                DeviceGeneralShareCreateAction(node,enabled=connected && state.phase=="ready" && revoker==null && review==null,onCreated={retry++})','                DeviceGeneralActionButton(t("Crear enlace","Create link"),enabled=connected && state.phase=="ready" && revoker==null && ShareAccess.entries.any {generalShareAccessAllowed(state.rights,it)},onClick={onCreate(state.rights)},modifier=Modifier.testTag("general_share_create"))')
+          e(L,'                            if(share.owner==actor && actor.isNotBlank())','                            share.duration?.let {Text(t("Duración: ","Duration: ")+"$it min")}\n                            if(share.recurring in listOf(1L,2L)) Text(shareValidityLabel(if(share.recurring==1L) ShareValidity.DAILY else ShareValidity.WEEKLY,es))\n                            Text(t("Consentimiento informado: ","Reported consent: ")+(share.consent?.let {generalConsentLabel(it,es)} ?: t("No informado","Not reported")))\n                            if(share.owner==actor && actor.isNotBlank())')
+          e(L,'                Text(t("Vencimiento: ","Expiry: ")+generalSharesDate(share.expires,es))','                Text(t("Vencimiento: ","Expiry: ")+generalSharesDate(share.expires,es))\n                share.duration?.let {Text(t("Duración: ","Duration: ")+"$it min")}\n                if(share.recurring in listOf(1L,2L)) Text(shareValidityLabel(if(share.recurring==1L) ShareValidity.DAILY else ShareValidity.WEEKLY,es))\n                Text(t("Consentimiento: ","Consent: ")+(share.consent?.let {generalConsentLabel(it,es)} ?: t("No informado","Not reported")))')
+          e(L,'desde este diálogo.','desde esta vista.')
+          e(L,'from this dialog.','from this view.')
+          e(L,'TextButton(onClick=close) {Text(t("Cerrar","Close"))}','TextButton(onClick=close) {Text(t("Volver","Back"))}')
+          e(L,'iecxiv.meshfabric.ui.components.AppAlertDialog(','iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,',2)
+          e(V,'    Text(t("Horario fijado al revisar;','    Text(t("El enlace es una credencial: quien lo posea podrá usar el acceso permitido.","The link is a credential: anyone holding it can use its permitted access."),style=MaterialTheme.typography.bodySmall)\n    Text(t("Horario fijado al revisar;')
+          extra='''
+              @Test fun generalInlineFrameHasSharedBackAndNoDialog() {
+                  var backs=0
+                  rule.setContent {MaterialTheme {DeviceGeneralFrame(MeshNode(id="node//test",name="Device"),{backs++},body={Text("Body")},footer={Text("Footer")},inline=true)}}
+                  rule.onNode(isDialog()).assertDoesNotExist()
+                  rule.onNodeWithTag("device_general_close").performClick()
+                  rule.runOnIdle {assertEquals(1,backs)}
+              }
+              @Test fun offlineSharingListUsesSubviewAndDisablesCreation() {
+                  var backs=0
+                  rule.setContent {MaterialTheme {DeviceSharingListScreen(MeshNode(id="node//test",name="Device"),onBack={backs++},onCreate={error("Offline creation")})}}
+                  rule.onNode(isDialog()).assertDoesNotExist()
+                  rule.onNodeWithTag("general_share_create").performScrollTo().assertIsNotEnabled()
+                  rule.onNodeWithTag("device_shares_close").performClick()
+                  rule.runOnIdle {assertEquals(1,backs)}
+              }
+              @Test fun reviewBackAndDiscardDoNotOpenDialogsOrSendRequests() {
+                  var backs=0
+                  rule.setContent {MaterialTheme {DeviceSharingCreateScreen(MeshNode(id="node//test",name="Device",meshid="mesh//a"),0xffffffffL,onBack={backs++},onCreated={error("No create expected")})}}
+                  rule.onNodeWithTag("share_guest").performScrollTo().performTextInput("Guest")
+                  rule.onNodeWithTag("general_share_create_confirm").performClick()
+                  rule.onNodeWithTag("share_guest").assertDoesNotExist()
+                  rule.onNodeWithTag("general_share_create_confirm").assertIsNotEnabled()
+                  rule.onNodeWithTag("device_share_create_close").performClick()
+                  rule.onNodeWithTag("share_guest").performScrollTo().assertIsDisplayed()
+                  rule.onNodeWithTag("device_share_create_close").performClick()
+                  rule.onNode(isDialog()).assertDoesNotExist()
+                  rule.onAllNodesWithTag("subview-header").assertCountEquals(1)
+                  rule.onNodeWithTag("user-action-back").performClick()
+                  rule.onNodeWithTag("share_guest").performScrollTo().assertIsDisplayed()
+                  rule.runOnIdle {assertEquals(0,backs)}
+              }
+          '''
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceSharingSubviewTest.kt')
+          s=p.read_text();assert 'fun generalInlineFrameHasSharedBackAndNoDialog' not in s
+          last=s.rfind('\n}');assert last>=0;p.write_text(s[:last]+extra+s[last:])
+          for name in [C,L,V]:
+              text=(root/name).read_text();assert 'AppAlertDialog(' not in text and 'Dialog(' not in text,name
+          assert 'DeviceGeneralShareCreateAction(' not in (root/L).read_text()
+          assert '// DeviceGeneralSharesAction(node)' not in (root/G).read_text()
+          paths=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+p for p in [G,O,F,R,C,L,V,H]}|{'app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceSharingSubviewTest.kt'}
+          assert paths==expected,(paths,expected)
+          Path(os.environ['RUNNER_TEMP'],'sharing-navigation-paths.json').write_text(json.dumps(sorted(paths)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused sharing and navigation regressions
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneralShare*' --tests 'iecxiv.meshfabric.ui.devices.DeviceShareLinkCompatibilityTest' --tests 'iecxiv.meshfabric.ui.devices.DeviceSharing*Test' --tests 'iecxiv.meshfabric.ui.devices.NavigationCompletionTest' --no-daemon --stacktrace
+      - name: Full validation before activating sharing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sharing-navigation-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/sharing-navigation-paths.json
+          if-no-files-found: ignore
+      - name: Publish validated subviews and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'sharing-navigation-paths.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+p for p in ['devices/DeviceGeneralDialog.kt','devices/DeviceOtherOptions.kt','devices/DeviceGeneralFrame.kt','devices/DeviceGeneralSharesReader.kt','devices/DeviceGeneralShareCreateAction.kt','devices/DeviceGeneralSharesAction.kt','devices/DeviceSharingForm.kt','management/MeshFabricHome.kt']}|{'app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DeviceSharingSubviewTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          workflow='.github/workflows/device-sharing-navigation.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui(sharing): integrate General sharing creation and revocation as subviews'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
