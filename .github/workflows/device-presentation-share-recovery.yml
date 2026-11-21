@@ -1,0 +1,174 @@
+name: Validate device status share recovery and event details
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-presentation-share-recovery.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-presentation-share-recovery-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare guarded presentation and share recovery fixes
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='81d4f94220605c4a7f8e8e30030425fb9cb592ab','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui')
+          def edit(name,old,new):
+              p=root/name;s=p.read_text();assert s.count(old)==1,(name,old,s.count(old));p.write_text(s.replace(old,new,1))
+          edit('devices/DeviceAgentConsoleScreen.kt','    val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)','    val consoleNode=remember(groups,cleanNodeId) {groups.asSequence().flatMap {it.second.asSequence()}.singleOrNull {it.id.removePrefix("node//").removePrefix("node/").trim()==cleanNodeId}}\n    val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)')
+          edit('devices/DeviceAgentConsoleScreen.kt','            Text(t("Versión del agente: ","Agent version: ")','            DeviceStatusDecoration(consoleNode,Modifier.fillMaxWidth().padding(horizontal=4.dp),"agent_console_device")\n            Text(t("Versión del agente: ","Agent version: ")')
+          p=root/'devices/DeviceGeneralFrame.kt';s=p.read_text()
+          a=s.index('                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {')
+          b=s.index('                }\n                HorizontalDivider',a)
+          s=s[:a]+'                    DeviceStatusDecoration(node,Modifier.fillMaxWidth())\n'+s[b:];p.write_text(s)
+          edit('devices/DeviceGeneralSharesAction.kt','enabled=connected && state.phase=="ready" && revoker==null && ShareAccess.entries.any {generalShareAccessAllowed(state.rights,it)}','enabled=generalSharingCreationEnabled(connected,state.phase=="ready",state.rights,result?.phase,refreshed,review!=null)')
+          edit('management/ServerEventDetails.kt','import androidx.compose.ui.unit.dp','import androidx.compose.ui.unit.dp\nimport androidx.compose.ui.unit.sp')
+          edit('management/ServerEventDetails.kt','    AlertDialog(onDismissRequest=onDismiss,','    androidx.compose.runtime.CompositionLocalProvider(iecxiv.meshfabric.ui.components.LocalWideAccountDialogs provides true) {\n    iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onDismiss,')
+          edit('management/ServerEventDetails.kt','title={Text(stringResource(R.string.log_detail_title))}','title={Text(stringResource(R.string.log_detail_title),modifier=Modifier.fillMaxWidth(),style=MaterialTheme.typography.titleMedium.copy(fontSize=18.sp,lineHeight=24.sp,fontWeight=androidx.compose.ui.text.font.FontWeight.Bold))}')
+          p=root/'management/ServerEventDetails.kt';s=p.read_text();last=s.rfind('\n}');assert last>=0
+          s=s[:last]+'\n    }'+s[last:];assert 'securePolicy=SecureFlagPolicy.SecureOn' in s;p.write_text(s)
+          widget='''package iecxiv.meshfabric.ui.devices
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.res.stringResource
+          import androidx.compose.ui.unit.dp
+          import iecxiv.meshfabric.R
+          import iecxiv.meshfabric.data.model.MeshNode
+          @Composable internal fun DeviceStatusDecoration(node:MeshNode?,modifier:Modifier=Modifier,tagPrefix:String="device_status") {
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              Row(modifier,verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                  Surface(shape=RoundedCornerShape(6.dp),color=if(node?.isOnline==true) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
+                      Text(if(node==null) {if(es) "Estado no informado" else "Status not reported"} else stringResource(if(node.isOnline) R.string.device_details_online else R.string.device_details_offline),
+                          Modifier.padding(horizontal=8.dp,vertical=3.dp).testTag("${tagPrefix}_badge"),style=MaterialTheme.typography.labelSmall)
+                  }
+                  if(!node?.osdesc.isNullOrBlank()) Text(node?.osdesc.orEmpty(),Modifier.weight(1f).testTag("${tagPrefix}_os"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+              }
+          }
+          '''
+          policy='''package iecxiv.meshfabric.ui.devices
+          internal fun generalSharingCreationEnabled(connected:Boolean,ready:Boolean,rights:Long,revocationPhase:String?,reloaded:Boolean,reviewOpen:Boolean):Boolean=
+              connected && ready && !reviewOpen && (revocationPhase==null || revocationPhase=="absent" && reloaded) && ShareAccess.entries.any {generalShareAccessAllowed(rights,it)}
+          '''
+          unit='''package iecxiv.meshfabric.ui.devices
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceSharingCreationAvailabilityTest {
+              private fun enabled(connected:Boolean=true,ready:Boolean=true,rights:Long=524296L,phase:String?=null,reloaded:Boolean=false,review:Boolean=false)=generalSharingCreationEnabled(connected,ready,rights,phase,reloaded,review)
+              @Test fun initialVerifiedListAllowsCreation() {assertTrue(enabled())}
+              @Test fun confirmedRevocationRequiresNewReadBeforeCreation() {assertFalse(enabled(phase="absent"));assertFalse(enabled(phase="absent",reloaded=true,ready=false));assertTrue(enabled(phase="absent",reloaded=true))}
+              @Test fun pendingOrUnconfirmedRevocationCannotUnlockCreation() {for(phase in listOf("checking","verifying","error")) assertFalse(enabled(phase=phase,reloaded=true))}
+              @Test fun connectionPermissionsAndReviewAreStillRequired() {assertFalse(enabled(connected=false,phase="absent",reloaded=true));assertFalse(enabled(rights=8L,phase="absent",reloaded=true));assertFalse(enabled(review=true,phase="absent",reloaded=true))}
+          }
+          '''
+          ui='''package iecxiv.meshfabric.ui.devices
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import androidx.compose.ui.platform.testTag
+          import iecxiv.meshfabric.data.model.MeshNode
+          import iecxiv.meshfabric.ui.management.ServerEventDetailsDialog
+          import iecxiv.meshfabric.ui.management.ServerEventRecord
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class DevicePresentationFixesTest {
+              @get:Rule val rule=createComposeRule()
+              @Test fun decorationShowsDeviceStateAndOperatingSystem() {
+                  rule.setContent {MaterialTheme {DeviceStatusDecoration(MeshNode(id="node//a",name="Device",conn=1,osdesc="Linux"),Modifier.fillMaxWidth(),"console")}}
+                  rule.onNodeWithTag("console_badge").assertIsDisplayed()
+                  rule.onNodeWithTag("console_os").assertTextEquals("Linux")
+              }
+              @Test fun missingInventoryIsNotPresentedAsDisconnectedDevice() {
+                  rule.setContent {MaterialTheme {DeviceStatusDecoration(null,Modifier.fillMaxWidth(),"console")}}
+                  rule.onNodeWithTag("console_badge").assert(hasText("Status not reported") or hasText("Estado no informado"))
+                  rule.onNodeWithTag("console_os").assertDoesNotExist()
+              }
+              @Test fun eventDetailsUsesWiderDialog() {
+                  val wide=mutableStateOf(false)
+                  val event=ServerEventRecord("manual","Event","user","node//a","Device",1800000000000L)
+                  rule.setContent {MaterialTheme {if(wide.value) ServerEventDetailsDialog(event) {} else AlertDialog(onDismissRequest={},title={Text("Details")},text={Text("Event")},confirmButton={},modifier=Modifier.testTag("reference_dialog"))}}
+                  val narrow=rule.onNodeWithTag("reference_dialog").fetchSemanticsNode().boundsInRoot.width
+                  rule.runOnIdle {wide.value=true}
+                  val actual=rule.onNodeWithTag("log-event-details").fetchSemanticsNode().boundsInRoot.width
+                  assertTrue("Event details should be wider",actual>narrow+1f)
+                  rule.onNodeWithTag("log-event-details-close").assertIsDisplayed()
+              }
+          }
+          '''
+          new={
+              'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceStatusDecoration.kt':widget,
+              'app/src/main/java/iecxiv/meshfabric/ui/devices/DeviceSharingCreationAvailability.kt':policy,
+              'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceSharingCreationAvailabilityTest.kt':unit,
+              'app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DevicePresentationFixesTest.kt':ui
+          }
+          for name,content in new.items():
+              p=Path(name);assert not p.exists();p.write_text(content)
+          expected=set(new)|{'app/src/main/java/iecxiv/meshfabric/ui/'+p for p in ['devices/DeviceAgentConsoleScreen.kt','devices/DeviceGeneralFrame.kt','devices/DeviceGeneralSharesAction.kt','management/ServerEventDetails.kt']}
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          assert actual==expected,(actual,expected)
+          Path(os.environ['RUNNER_TEMP'],'device-presentation-fix-paths.json').write_text(json.dumps(sorted(actual)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused share creation regression tests
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceSharingCreationAvailabilityTest' --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneralShare*' --tests 'iecxiv.meshfabric.ui.devices.DeviceShareLinkCompatibilityTest' --no-daemon --stacktrace
+      - name: Full validation before publishing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-presentation-share-recovery-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/device-presentation-fix-paths.json
+          if-no-files-found: ignore
+      - name: Publish only validated fixes and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'device-presentation-fix-paths.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/'+p for p in ['devices/DeviceAgentConsoleScreen.kt','devices/DeviceGeneralFrame.kt','devices/DeviceGeneralSharesAction.kt','devices/DeviceStatusDecoration.kt','devices/DeviceSharingCreationAvailability.kt','management/ServerEventDetails.kt']}|{'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceSharingCreationAvailabilityTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/devices/DevicePresentationFixesTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          workflow='.github/workflows/device-presentation-share-recovery.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(devices): unify console status recover share creation and widen event details'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
