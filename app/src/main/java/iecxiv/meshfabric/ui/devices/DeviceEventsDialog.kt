@@ -5,7 +5,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -17,8 +16,6 @@ import kotlinx.coroutines.awaitCancellation
 @Composable internal fun DeviceEventsDialog(node:MeshNode,onDismiss:()->Unit) {
     val inline=LocalDeviceEventsSubviewInline.current
     val source=LocalDeviceDetailsClient.current
-    val es=LocalConfiguration.current.locales[0].language=="es"
-    fun text(a:String,b:String)=if(es) a else b
     val actor=source?.userInfo?.collectAsState()?.value
     val connected=source?.connectionState?.collectAsState()?.value==true
     val groups=source?.groupedDevices?.collectAsState()?.value.orEmpty()
@@ -35,6 +32,7 @@ import kotlinx.coroutines.awaitCancellation
         var selectedType by rememberSaveable {mutableStateOf(ServerEventType.ALL.name)}
         var selectedLimit by rememberSaveable {mutableIntStateOf(60)}
         var query by rememberSaveable {mutableStateOf("")}
+        var showSearch by rememberSaveable {mutableStateOf(false)}
         val selection=ServerEventsQuery(ServerEventType.entries.firstOrNull {it.name==selectedType} ?: ServerEventType.ALL,selectedLimit.takeUnless {it==0},nodeId=node.id)
         val state by reader.state.collectAsState()
         val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -46,18 +44,8 @@ import kotlinx.coroutines.awaitCancellation
         DisposableEffect(reader) {onDispose {reader.close()}}
         val inventory=remember(groups,enabled) {if(enabled) serverEventInventory(groups) else ServerEventInventory()}
         val visible=if(state.selection==selection && enabled) state else ServerEventsSnapshot(if(enabled) ServerEventsPhase.LOADING else ServerEventsPhase.INVALIDATED,selection=selection)
-        DeviceGeneralFrame(node,onDismiss,inline=inline,
-            body={
-                OutlinedTextField(query,{query=it},singleLine=true,label={Text(text("Buscar eventos","Search events"))},modifier=Modifier.fillMaxWidth().testTag("device_events_search"))
-                ServerEventsPanel(visible,query,{query=it},enabled,{reader.load(selection)},Modifier.weight(1f).fillMaxWidth(),
-                    selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},inventory=inventory,
-                    scopeLabel=text("Eventos de este dispositivo: ","Events for this device: ")+node.name,
-                    showDeviceLabel=false)
-            },
-            footer={
-                TextButton(onClick={reader.load(selection)},enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("device_events_refresh")) {Text(text("Actualizar","Refresh"))}
-                TextButton(onClick=onDismiss) {Text(if(inline) text("Volver","Back") else text("Cerrar","Close"))}
-            },
-            subtitle=text("Eventos","Events"),tagPrefix="device_events",scrollBody=false)
+        DeviceEventsContent(node=node,inline=inline,query=query,onQuery={query=it},searchOpen=showSearch,onSearchOpen={showSearch=it},
+            state=visible,enabled=enabled,selection=selection,onSelection={selectedType=it.type.name;selectedLimit=it.limit ?: 0},
+            inventory=inventory,onRefresh={reader.load(selection)},onDismiss=onDismiss)
     }
 }

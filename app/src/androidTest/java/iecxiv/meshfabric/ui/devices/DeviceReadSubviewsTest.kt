@@ -16,7 +16,9 @@ class DeviceReadSubviewsTest {
         var backs=0
         rule.setContent {MaterialTheme {DeviceReadSubview(node,events=true,onDismiss={backs++})}}
         rule.onNode(isDialog()).assertDoesNotExist()
-        rule.onNodeWithTag("device_events_search").assertIsDisplayed()
+        rule.onNodeWithTag("log-events-search").assertDoesNotExist()
+        rule.onNodeWithTag("log-events-search-toggle").performClick()
+        rule.onNodeWithTag("log-events-search").assertIsDisplayed()
         rule.onNodeWithTag("device_events_refresh").assertIsNotEnabled()
         rule.onAllNodesWithTag("subview-header").assertCountEquals(1)
         rule.onNodeWithTag("device_events_close").performClick()
