@@ -1,0 +1,119 @@
+name: Finish permanent audit CI with individual regressions
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/finish-audit-ci.yml']
+permissions:
+  contents: write
+concurrency:
+  group: audit-ci-regressions-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare only permanent CI configuration and reuse the validated runner
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast, re, subprocess, textwrap
+          base='ffb2272ae092ecd378ae1ca4aa23c0ae41423c1f'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()==base,'Base advanced'
+          old=Path('.github/workflows/audit-ci-regressions.yml')
+          assert subprocess.check_output(['git','hash-object',str(old)],text=True).strip()=='592f1f67473c2617a09cccd482130aba6b91bb56','Audit workflow changed'
+          block=old.read_text().split('        run: |\n',1)[1].split('      - run: git diff --check\n',1)[0]
+          code=textwrap.dedent(block)
+          assert code.count('73270d42e4a8c4ce66a8ba970564a91a7a10c3fd')==1
+          exec(compile(code.replace('73270d42e4a8c4ce66a8ba970564a91a7a10c3fd',base,1),'audit-ci-preparation','exec'),{})
+          historical=subprocess.check_output(['git','show','45ef111f66138ed7a800bc91d385e9976e791089:.github/workflows/retry-resume-card.yml'],text=True)
+          assert subprocess.check_output(['git','rev-parse','45ef111f66138ed7a800bc91d385e9976e791089:.github/workflows/retry-resume-card.yml'],text=True).strip()=='8a3c243e52a03ff6f59a26f49ed4bcfd9363b0e1'
+          block=historical.split('        run: |\n',1)[1].split('      - run: git diff --check\n',1)[0]
+          tree=ast.parse(textwrap.dedent(block))
+          calls=[node for node in ast.walk(tree) if isinstance(node,ast.Call) and isinstance(node.func,ast.Attribute) and node.func.attr=='write_text']
+          assert len(calls)==1
+          runner=ast.literal_eval(calls[0].args[0]);ast.parse(runner)
+          script=Path('.github/scripts/run-emulator-regressions.py');assert not script.exists()
+          script.parent.mkdir(parents=True,exist_ok=True);script.write_text(runner)
+          p=Path('.github/workflows/android-ci.yml');s=p.read_text()
+          s,n=re.subn(r'(?m)^          script: bash ./gradlew :app:connectedDebugAndroidTest .*$', '          script: python3 .github/scripts/run-emulator-regressions.py',s);assert n==1,n
+          a=s.index('      - name: Verify all selected test classes executed successfully\n')
+          b=s.index('      - uses: actions/upload-artifact@v4',a)
+          s=s[:a]+s[b:]
+          oldpath='          path: |\n            app/build/outputs/androidTest-results/'
+          assert s.count(oldpath)==1
+          expression='$'+'{{ runner.temp }}'
+          s=s.replace(oldpath,'          path: |\n            '+expression+'/resume-regressions/\n            app/build/outputs/androidTest-results/',1)
+          assert s.count('    timeout-minutes: 45')==1
+          s=s.replace('    timeout-minutes: 45','    timeout-minutes: 60',1)
+          p.write_text(s)
+          assert subprocess.check_output(['git','diff','--name-only'],text=True).splitlines()==[str(p)]
+          assert subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines()==[str(script)]
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and test sources and run unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run and verify each regression class using the permanent script
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: permanent-ci-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/resume-regressions/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish validated permanent CI only on unchanged dev and retire CI preparation workflows
+        shell: python
+        run: |
+          from pathlib import Path
+          import json, os, subprocess
+          expected={'iecxiv.meshfabric.SessionResumeAndDeviceCardTest','iecxiv.meshfabric.data.local.SessionStorageSafetyTest','iecxiv.meshfabric.ui.management.DeviceGroupSearchTest','iecxiv.meshfabric.ui.management.FourVisualCorrectionsTest','iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest'}
+          summary=json.loads((Path(os.environ['RUNNER_TEMP'])/'resume-regressions/summary.json').read_text())
+          assert set(summary)==expected
+          assert all(value['passed']>=value['expected']>0 for value in summary.values())
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no publication'
+          ci='.github/workflows/android-ci.yml';script='.github/scripts/run-emulator-regressions.py'
+          assert git('diff','--name-only')==ci
+          assert git('ls-files','--others','--exclude-standard')==script
+          retire={'.github/workflows/audit-ci-regressions.yml','.github/workflows/finish-audit-ci.yml'}
+          for path in retire: Path(path).unlink()
+          allowed={ci,script}|retire
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==allowed
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ci: align existing SDK tooling and permanently verify individual emulator regressions'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
