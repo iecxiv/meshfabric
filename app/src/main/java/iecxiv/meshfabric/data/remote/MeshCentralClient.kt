@@ -79,7 +79,8 @@ class MeshCentralClient {
     val userInfo: StateFlow<UserInfo?> = _userInfo.asStateFlow()
 
     private val meshesMap = ConcurrentHashMap<String, MeshGroup>()
-    private val nodesMap = ConcurrentHashMap<String, MeshNode>()
+    @Volatile private var nodesMap = ConcurrentHashMap<String, MeshNode>()
+    private val nodeSnapshots = NodeSnapshotRequests()
 
     private val nodeNetworkInfo = DeviceNetworkInfoCache()
     val networkAddresses = nodeNetworkInfo.addresses
@@ -218,6 +219,7 @@ class MeshCentralClient {
             if(webSocket!=null && controlIdentity==identity && (controlConnecting || _connectionState.value)) return
             val epoch=controlGeneration.advance()
             nodeNetworkInfo.connectionChanged()
+            nodeSnapshots.reset()
             cancelControlWork()
             controlTimeout?.cancel()
             controlTimeout=null
@@ -322,7 +324,7 @@ class MeshCentralClient {
     fun requestServerData() {
         webSocket?.send("""{"action":"userinfo"}""")
         webSocket?.send("""{"action":"meshes"}""")
-        webSocket?.send("""{"action":"nodes"}""")
+        sendNodeSnapshotRequest(webSocket)
         webSocket?.send("""{"action":"authcookie"}""")
     }
 
@@ -387,6 +389,34 @@ class MeshCentralClient {
             onNodeConnectedListener?.invoke(existing.id)
     }
 
+    private fun sendNodeSnapshotRequest(socket: WebSocket?) {
+        controlGeneration.locked {
+            if (socket==null || socket!==webSocket || isUserLogout) return@locked
+            socket.send(nodeSnapshots.request().toString())
+        }
+    }
+
+    private fun applyCompleteNodeSnapshot(packet: JsonObject): Boolean {
+        when(nodeSnapshots.mode(packet)) {
+            NodeSnapshotRequests.Mode.LEGACY -> return false
+            NodeSnapshotRequests.Mode.IGNORE -> return true
+            NodeSnapshotRequests.Mode.COMPLETE -> {
+                val snapshot=CompleteNodeSnapshot.decode(packet.get("nodes"),gson) ?: run {
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient","Invalid complete node snapshot; inventory preserved")
+                    return true
+                }
+                nodesMap=ConcurrentHashMap(snapshot)
+                nodeSnapshots.accept(packet)
+                updateGroupedDevices()
+                if(meshesMap.isEmpty()) launchControlWork { socket ->
+                    delay(300)
+                    socket?.send("""{"action":"meshes"}""")
+                }
+                return true
+            }
+        }
+    }
+
     private fun handleControlMessage(text: String) {
         try {
             val json = gson.fromJson(text, JsonObject::class.java) ?: return
@@ -449,6 +479,7 @@ class MeshCentralClient {
                     }
                 }
                 "nodes" -> {
+                    if (applyCompleteNodeSnapshot(json)) return
                     val nodesElem = json.get("nodes")
                     if (nodesElem != null) {
                         if (nodesElem.isJsonObject) {
@@ -501,7 +532,7 @@ class MeshCentralClient {
                     applyNodeConnectivityEvent(json)
                     launchControlWork { webSocket ->
                         delay(100)
-                        webSocket?.send("""{"action":"nodes"}""")
+                        sendNodeSnapshotRequest(webSocket)
                     }
                 }
                 "event" -> {
@@ -514,7 +545,7 @@ class MeshCentralClient {
                             applyNodeConnectivityEvent(eventObj)
                             launchControlWork { webSocket ->
                                 delay(100)
-                                webSocket?.send("""{"action":"nodes"}""")
+                                sendNodeSnapshotRequest(webSocket)
                             }
                         }
                     }
@@ -605,7 +636,7 @@ class MeshCentralClient {
             while (true) {
                 delay(10000)
                 if (_connectionState.value && webSocket != null) {
-                    webSocket?.send("""{"action":"nodes"}""")
+                    sendNodeSnapshotRequest(webSocket)
                     webSocket?.send("""{"action":"meshes"}""")
                 }
             }
