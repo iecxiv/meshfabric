@@ -37,13 +37,75 @@ internal class RemoteSessionRuntime(application: Application) : AndroidViewModel
     var navigationState: Bundle? = null
         private set
     fun rememberNavigation(state: Bundle?) { if (state != null) navigationState = Bundle(state) }
-    override fun onCleared() {
-        terminalClient.saveAllBuffersAndClose(getApplication(), sessionManager.isSaveTerminalBuffersEnabled())
-        children.clear()
+    private var appInForeground = true
+    private var closingSessions = false
+    private val networkCallback = OwnedSessionCallback(
+        { MeshFabricApp.onNetworkChangedListener }, { MeshFabricApp.onNetworkChangedListener = it }
+    ) {
+        if (!closingSessions) {
+            meshClient.onNetworkChanged()
+            terminalClient.onNetworkChanged()
+            desktopClient.onNetworkChanged()
+            fileClient.onNetworkChanged()
+            updateBackgroundSessionService()
+        }
+    }
+    private val taskCallback = OwnedSessionCallback(
+        { iecxiv.meshfabric.service.KeepAliveService.onTaskRemovedListener },
+        { iecxiv.meshfabric.service.KeepAliveService.onTaskRemovedListener = it }
+    ) { onTaskRemoved() }
+    private val chatCallback = OwnedSessionCallback(
+        { iecxiv.meshfabric.ui.devices.DeviceChatKeepAlive.onChanged },
+        { iecxiv.meshfabric.ui.devices.DeviceChatKeepAlive.onChanged = it }
+    ) { updateBackgroundSessionService() }
+    private fun onTaskRemoved() { closeSessions(chatCallback.ownsSlot) }
+    fun onForeground() {
+        appInForeground = true
+        if (!closingSessions && taskCallback.ownsSlot)
+            iecxiv.meshfabric.service.KeepAliveService.stopService(getApplication())
+    }
+    fun onBackground() {
+        appInForeground = false
+        if (!closingSessions) {
+            terminalClient.checkpointHistory()
+            updateBackgroundSessionService()
+        }
+    }
+    fun resumeControlConnection() {
+        if (closingSessions || !networkCallback.ownsSlot) return
+        val session = sessionManager.getSession()
+        if (session != null && session.serverUrl.isNotBlank() && session.authCookie.isNotBlank() && !meshClient.connectionState.value) {
+            meshClient.connectControlSocket(rawServerUrl=session.serverUrl, cookie=session.authCookie, ignoreSslCert=session.ignoreSsl)
+        }
+    }
+    private fun updateBackgroundSessionService() {
+        if (appInForeground || closingSessions || !taskCallback.ownsSlot) return
+        val chatCount = iecxiv.meshfabric.ui.devices.DeviceChatKeepAlive.activeCount()
+        val total = terminalClient.getSessionCount() + desktopClient.getSessionCount() + fileClient.getSessionCount() + chatCount
+        val connected = terminalClient.hasActiveSessions() || desktopClient.hasActiveSessions() || fileClient.hasActiveSessions() || chatCount > 0
+        val disconnected = terminalClient.hasDisconnectedWithBuffer() || desktopClient.hasDisconnectedWithBuffer() || fileClient.hasDisconnectedWithBuffer()
+        if (total > 0) iecxiv.meshfabric.service.KeepAliveService.startService(getApplication(), connected, disconnected, desktopClient.hasActiveSessions() && chatCount == 0)
+        else iecxiv.meshfabric.service.KeepAliveService.stopService(getApplication())
+    }
+    private fun closeSessions(closeChats: Boolean) {
+        if (closingSessions) return
+        closingSessions = true
+        if (closeChats) iecxiv.meshfabric.ui.devices.DeviceChatKeepAlive.closeAll()
+        terminalViewModel.cancelPendingReconnections()
         meshClient.disconnect()
+        terminalClient.saveAllBuffersAndClose(getApplication(), sessionManager.isSaveTerminalBuffersEnabled())
         desktopClient.disconnectAll()
         fileClient.disconnectAll()
-        navigationState = null
-        super.onCleared()
+    }
+    override fun onCleared() {
+        val ownsService = taskCallback.ownsSlot
+        val ownsChats = chatCallback.ownsSlot
+        networkCallback.release(); taskCallback.release(); chatCallback.release()
+        try { closeSessions(ownsChats) } finally {
+            children.clear()
+            navigationState = null
+            if (ownsService) iecxiv.meshfabric.service.KeepAliveService.stopService(getApplication())
+            super.onCleared()
+        }
     }
 }

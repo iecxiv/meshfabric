@@ -95,27 +95,6 @@ class MainActivity : ComponentActivity() {
     private val terminalViewModel get() = remoteRuntime.terminalViewModel
     private val fileManagerViewModel get() = remoteRuntime.fileManagerViewModel
     private val settingsViewModel get() = remoteRuntime.settingsViewModel
-    private var appInForeground = true
-    private var closingSessions = false
-    private val chatSessionsChanged: () -> Unit = { updateBackgroundSessionService() }
-
-    private fun updateBackgroundSessionService() {
-        if (appInForeground || closingSessions || !runtimeReady) return
-        val chatCount = DeviceChatKeepAlive.activeCount()
-        val totalActiveSessions = terminalClient.getSessionCount() + desktopClient.getSessionCount() +
-            fileClient.getSessionCount() + chatCount
-        val hasActiveConnected = terminalClient.hasActiveSessions() || desktopClient.hasActiveSessions() ||
-            fileClient.hasActiveSessions() || chatCount > 0
-        val hasDisconnectedSessions = terminalClient.hasDisconnectedWithBuffer() ||
-            desktopClient.hasDisconnectedWithBuffer() || fileClient.hasDisconnectedWithBuffer()
-        if (totalActiveSessions > 0) {
-            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions,
-                desktopClient.hasActiveSessions() && chatCount == 0)
-        } else {
-            KeepAliveService.stopService(applicationContext)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fidoClient = com.yubico.yubikit.fido.android.ui.FidoClient(this)
@@ -125,27 +104,6 @@ class MainActivity : ComponentActivity() {
 
         remoteRuntime
         runtimeReady = true
-        DeviceChatKeepAlive.onChanged = chatSessionsChanged
-
-        KeepAliveService.onTaskRemovedListener = {
-            closingSessions = true
-            DeviceChatKeepAlive.closeAll()
-            terminalViewModel.cancelPendingReconnections()
-            val isSaveBuffersEnabledOnExit = sessionManager.isSaveTerminalBuffersEnabled()
-            meshClient.disconnect()
-            terminalClient.saveAllBuffersAndClose(applicationContext, isSaveBuffersEnabledOnExit)
-            desktopClient.disconnectAll()
-            fileClient.disconnectAll()
-        }
-
-        MeshFabricApp.onNetworkChangedListener = {
-            meshClient.onNetworkChanged()
-            terminalClient.onNetworkChanged()
-            desktopClient.onNetworkChanged()
-            fileClient.onNetworkChanged()
-            updateBackgroundSessionService()
-        }
-
         setContent {
             val themeMode by sessionManager.themeModeFlow.collectAsState()
             val appName by sessionManager.appNameFlow.collectAsState()
@@ -201,36 +159,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        appInForeground = true
         iecxiv.meshfabric.ui.management.NoticeVisibility.visible = true
-        KeepAliveService.stopService(applicationContext)
+        remoteRuntime.onForeground()
     }
 
     override fun onResume() {
         super.onResume()
-        val session = sessionManager.getSession()
-        if (session != null && session.serverUrl.isNotBlank() && session.authCookie.isNotBlank()) {
-            if (!meshClient.connectionState.value) {
-                meshClient.connectControlSocket(
-                    rawServerUrl = session.serverUrl,
-                    cookie = session.authCookie,
-                    ignoreSslCert = session.ignoreSsl
-                )
-            }
-        }
+        remoteRuntime.resumeControlConnection()
     }
 
     override fun onStop() {
         desktopMouseCapture?.reset()
-        appInForeground = false
         iecxiv.meshfabric.ui.management.NoticeVisibility.visible = false
         super.onStop()
-        terminalClient.checkpointHistory()
-        updateBackgroundSessionService()
+        remoteRuntime.onBackground()
     }
 
     override fun onDestroy() {
-        if (DeviceChatKeepAlive.onChanged === chatSessionsChanged) DeviceChatKeepAlive.onChanged = null
         desktopWindowKeys?.let { callback ->
             if (window.callback === callback) window.callback = callback.original
         }
