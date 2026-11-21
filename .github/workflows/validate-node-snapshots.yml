@@ -1,0 +1,361 @@
+name: Validate correlated complete node inventory snapshots
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/validate-node-snapshots.yml']
+permissions:
+  contents: write
+concurrency:
+  group: node-snapshots-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare scoped node snapshot reconciliation
+        shell: python
+        run: |
+          from pathlib import Path
+          import hashlib, json, os, subprocess
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='bc6f4399b6e517e039c47502cddbe30e88fc1f7c','Base advanced'
+          expected={'app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt':'172afa2d9da633dcae3320b2615961de54043ab9','.github/scripts/run-emulator-regressions.py':'809878e85a9111e17ac176613a8daa9d078b6617'}
+          for path,sha in expected.items():
+              assert subprocess.check_output(['git','hash-object',path],text=True).strip()==sha,path
+          p=Path('app/src/main/java/iecxiv/meshfabric/data/remote/MeshCentralClient.kt');s=p.read_text()
+          old='    private val nodesMap = ConcurrentHashMap<String, MeshNode>()'
+          assert s.count(old)==1
+          s=s.replace(old,'    @Volatile private var nodesMap = ConcurrentHashMap<String, MeshNode>()\n    private val nodeSnapshots = NodeSnapshotRequests()',1)
+          a=s.index('    fun connectControlSocket(');b=s.index('    fun requestServerData()',a)
+          fragment=s[a:b];old='            nodeNetworkInfo.connectionChanged()\n'
+          assert fragment.count(old)==1
+          s=s[:a]+fragment.replace(old,old+'            nodeSnapshots.reset()\n',1)+s[b:]
+          old='webSocket?.send("""{"action":"nodes"}""")'
+          assert s.count(old)>=3
+          s=s.replace(old,'sendNodeSnapshotRequest(webSocket)')
+          anchor='    private fun handleControlMessage(text: String) {'
+          assert s.count(anchor)==1
+          methods='''    private fun sendNodeSnapshotRequest(socket: WebSocket?) {
+                  controlGeneration.locked {
+                      if (socket==null || socket!==webSocket || isUserLogout) return@locked
+                      socket.send(nodeSnapshots.request().toString())
+                  }
+              }
+
+              private fun applyCompleteNodeSnapshot(packet: JsonObject): Boolean {
+                  when(nodeSnapshots.mode(packet)) {
+                      NodeSnapshotRequests.Mode.LEGACY -> return false
+                      NodeSnapshotRequests.Mode.IGNORE -> return true
+                      NodeSnapshotRequests.Mode.COMPLETE -> {
+                          val snapshot=CompleteNodeSnapshot.decode(packet.get("nodes"),gson) ?: run {
+                              iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient","Invalid complete node snapshot; inventory preserved")
+                              return true
+                          }
+                          nodesMap=ConcurrentHashMap(snapshot)
+                          nodeSnapshots.accept(packet)
+                          updateGroupedDevices()
+                          if(meshesMap.isEmpty()) launchControlWork { socket ->
+                              delay(300)
+                              socket?.send("""{"action":"meshes"}""")
+                          }
+                          return true
+                      }
+                  }
+              }
+
+          '''
+          s=s.replace(anchor,methods+anchor,1)
+          old='                "nodes" -> {\n'
+          assert s.count(old)==1
+          s=s.replace(old,old+'                    if (applyCompleteNodeSnapshot(json)) return\n',1)
+          p.write_text(s)
+          p=Path('.github/scripts/run-emulator-regressions.py');s=p.read_text()
+          assert s.count('classes=[')==1
+          s=s.replace('classes=[',"classes=['iecxiv.meshfabric.data.remote.NodeSnapshotControlTest',",1);p.write_text(s)
+          files={}
+          files['app/src/main/java/iecxiv/meshfabric/data/remote/NodeSnapshotProtocol.kt']=r'''package iecxiv.meshfabric.data.remote
+          import com.google.gson.Gson
+          import com.google.gson.JsonElement
+          import com.google.gson.JsonObject
+          import iecxiv.meshfabric.data.model.MeshNode
+          import java.util.UUID
+          internal class NodeSnapshotRequests {
+              enum class Mode { LEGACY, COMPLETE, IGNORE }
+              private var prefix="mf-node-snapshot-${UUID.randomUUID()}-"
+              private var issued=0L
+              private var accepted=0L
+              @Synchronized fun request(): JsonObject = JsonObject().apply {
+                  addProperty("action","nodes"); addProperty("responseid",prefix+(++issued))
+              }
+              @Synchronized fun reset() {prefix="mf-node-snapshot-${UUID.randomUUID()}-";issued=0L;accepted=0L}
+              private fun text(packet:JsonObject,key:String):String? = packet.get(key)
+                  ?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString
+              @Synchronized fun mode(packet:JsonObject):Mode {
+                  val id=text(packet,"responseid") ?: return Mode.LEGACY
+                  if(!id.startsWith("mf-node-snapshot-")) return Mode.LEGACY
+                  if(text(packet,"action")!="nodes" || !id.startsWith(prefix)) return Mode.IGNORE
+                  val sequence=id.removePrefix(prefix).toLongOrNull() ?: return Mode.IGNORE
+                  if(sequence<=accepted || sequence>issued || sequence<=0L) return Mode.IGNORE
+                  if(listOf("meshid","meshname","nodeid","partial","more","skip","limit").any {packet.has(it)}) return Mode.IGNORE
+                  if(packet.has("result") && !text(packet,"result").orEmpty().equals("OK",ignoreCase=true)) return Mode.IGNORE
+                  return Mode.COMPLETE
+              }
+              @Synchronized fun accept(packet:JsonObject) {
+                  if(mode(packet)==Mode.COMPLETE) accepted=requireNotNull(text(packet,"responseid")).removePrefix(prefix).toLong()
+              }
+          }
+          internal object CompleteNodeSnapshot {
+              fun decode(payload:JsonElement?,gson:Gson):Map<String,MeshNode>? {
+                  if(payload==null || (!payload.isJsonObject && !payload.isJsonArray)) return null
+                  return try {
+                      val result=linkedMapOf<String,MeshNode>();val identities=mutableSetOf<String>()
+                      fun add(element:JsonElement,fallbackId:String="",fallbackMesh:String="") {
+                          require(element.isJsonObject)
+                          val value=element.asJsonObject
+                          for(key in listOf("_id","name","meshid")) if(value.has(key)) {
+                              val field=value.get(key)
+                              require(field.isJsonPrimitive && field.asJsonPrimitive.isString)
+                          }
+                          if(value.has("conn")) {
+                              val field=value.get("conn")
+                              require(field.isJsonPrimitive && field.asJsonPrimitive.isNumber)
+                              require(field.asString.toIntOrNull()?.let {it>=0}==true)
+                          }
+                          val parsed=gson.fromJson(value,MeshNode::class.java)
+                          val id=parsed.id.ifBlank {fallbackId}
+                          require(id.isNotBlank())
+                          val identity=when {
+                              id.startsWith("node//") -> id.removePrefix("node//")
+                              id.startsWith("node/") -> id.removePrefix("node/")
+                              else -> id
+                          }
+                          require(identities.add(identity))
+                          result[id]=parsed.copy(id=id,meshid=parsed.meshid.ifBlank {fallbackMesh})
+                      }
+                      if(payload.isJsonArray) payload.asJsonArray.forEach {add(it)}
+                      else for((key,value) in payload.asJsonObject.entrySet()) {
+                          require(key.isNotBlank())
+                          if(value.isJsonArray) value.asJsonArray.forEach {add(it,fallbackMesh=key)}
+                          else add(value,fallbackId=key)
+                      }
+                      result
+                  } catch(_:Exception) {null}
+              }
+          }
+          '''
+          files['app/src/test/java/iecxiv/meshfabric/data/remote/NodeSnapshotProtocolTest.kt']=r'''package iecxiv.meshfabric.data.remote
+          import com.google.gson.Gson
+          import com.google.gson.JsonElement
+          import org.junit.Assert.*
+          import org.junit.Test
+          class NodeSnapshotProtocolTest {
+              private val gson=Gson()
+              private fun decode(text:String)=CompleteNodeSnapshot.decode(gson.fromJson(text,JsonElement::class.java),gson)
+              @Test fun onlyIssuedRequestsCanAuthorizeReplacement() {
+                  val requests=NodeSnapshotRequests();val packet=requests.request()
+                  assertEquals(NodeSnapshotRequests.Mode.COMPLETE,requests.mode(packet))
+                  val foreign=packet.deepCopy().apply {addProperty("responseid","external")}
+                  assertEquals(NodeSnapshotRequests.Mode.LEGACY,requests.mode(foreign))
+              }
+              @Test fun uncorrelatedResponsesRemainNonDestructive() {
+                  assertEquals(NodeSnapshotRequests.Mode.LEGACY,NodeSnapshotRequests().mode(com.google.gson.JsonObject()))
+              }
+              @Test fun scopedAndErrorResponsesCannotAuthorizeReplacement() {
+                  val requests=NodeSnapshotRequests();val packet=requests.request()
+                  for(key in listOf("meshid","meshname","nodeid","partial","more","skip","limit")) {
+                      assertEquals(NodeSnapshotRequests.Mode.IGNORE,requests.mode(packet.deepCopy().apply {addProperty(key,"x")}))
+                  }
+                  assertEquals(NodeSnapshotRequests.Mode.IGNORE,requests.mode(packet.deepCopy().apply {addProperty("result","error")}))
+              }
+              @Test fun acceptedNewerReplyInvalidatesOlderReplies() {
+                  val requests=NodeSnapshotRequests();val first=requests.request();val second=requests.request()
+                  requests.accept(second)
+                  assertEquals(NodeSnapshotRequests.Mode.IGNORE,requests.mode(first))
+                  assertEquals(NodeSnapshotRequests.Mode.IGNORE,requests.mode(second))
+              }
+              @Test fun resetInvalidatesPreviousConnectionRequests() {
+                  val requests=NodeSnapshotRequests();val old=requests.request();requests.reset()
+                  assertEquals(NodeSnapshotRequests.Mode.IGNORE,requests.mode(old))
+                  assertEquals(NodeSnapshotRequests.Mode.COMPLETE,requests.mode(requests.request()))
+              }
+              @Test fun emptyObjectsAndArraysAreValidCompleteSnapshots() {
+                  assertTrue(requireNotNull(decode("{}")).isEmpty());assertTrue(requireNotNull(decode("[]")).isEmpty())
+                  assertNull(decode("null"));assertNull(decode("1"))
+              }
+              @Test fun groupedSnapshotsInheritMeshId() {
+                  val node=requireNotNull(decode("""{"mesh//g":[{"_id":"node//a","name":"A"}]}""")).values.single()
+                  assertEquals("node//a",node.id);assertEquals("mesh//g",node.meshid)
+              }
+              @Test fun flatMapsInheritNodeId() {
+                  assertEquals("node//a",requireNotNull(decode("""{"node//a":{"name":"A"}}""")).values.single().id)
+              }
+              @Test fun arraysRetainExplicitOfflineMask() {
+                  assertEquals(0,requireNotNull(decode("""[{"_id":"node//a","conn":0}]""")).values.single().conn)
+              }
+              @Test fun malformedRowsRejectTheWholeSnapshot() {
+                  assertNull(decode("""[{"_id":"node//a"},7]"""))
+                  assertNull(decode("""[{"name":"Missing ID"}]"""))
+                  assertNull(decode("""{"mesh//g":[null]}"""))
+              }
+              @Test fun duplicateNodeAliasesAreRejected() {
+                  assertNull(decode("""[{"_id":"node//a"},{"_id":"a"}]"""))
+              }
+              @Test fun invalidCriticalFieldsCannotAuthorizeDeletion() {
+                  assertNull(decode("""[{"_id":"node//a","conn":-1}]"""))
+                  assertNull(decode("""[{"_id":"node//a","name":null}]"""))
+                  assertNull(decode("""[{"_id":8}]"""))
+              }
+          }
+          '''
+          files['app/src/androidTest/java/iecxiv/meshfabric/data/remote/NodeSnapshotControlTest.kt']=r'''package iecxiv.meshfabric.data.remote
+          import com.google.gson.Gson
+          import com.google.gson.JsonElement
+          import com.google.gson.JsonObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          class NodeSnapshotControlTest {
+              private val gson=Gson()
+              private fun ingest(client:MeshCentralClient,text:String) {
+                  val method=MeshCentralClient::class.java.getDeclaredMethod("handleControlMessage",String::class.java)
+                  method.isAccessible=true;method.invoke(client,text)
+              }
+              private fun requests(client:MeshCentralClient):NodeSnapshotRequests {
+                  val field=MeshCentralClient::class.java.getDeclaredField("nodeSnapshots");field.isAccessible=true
+                  return field.get(client) as NodeSnapshotRequests
+              }
+              private fun reply(client:MeshCentralClient,packet:JsonObject,payload:String) {
+                  packet.add("nodes",gson.fromJson(payload,JsonElement::class.java));ingest(client,packet.toString())
+              }
+              private fun nodes(client:MeshCentralClient)=client.groupedDevices.value.flatMap {it.second}.associateBy {it.id}
+              private fun withClient(body:(MeshCentralClient)->Unit) {
+                  val client=MeshCentralClient()
+                  try {
+                      ingest(client,"""{"action":"meshes","meshes":[{"_id":"mesh//g","name":"Group"}]}""")
+                      ingest(client,"""{"action":"nodes","nodes":{"mesh//g":[{"_id":"node//a","name":"A","conn":1},{"_id":"node//b","name":"B","conn":1}]}}""")
+                      body(client)
+                  } finally {client.disconnect()}
+              }
+              @Test fun completeSnapshotRemovesObsoleteDevices() = withClient {client ->
+                  reply(client,requests(client).request(),"""{"mesh//g":[{"_id":"node//b","name":"B","conn":0}]}""")
+                  assertEquals(setOf("node//b"),nodes(client).keys);assertEquals(0,nodes(client).getValue("node//b").conn)
+              }
+              @Test fun uncorrelatedFilteredReplyDoesNotRemoveOtherDevices() = withClient {client ->
+                  ingest(client,"""{"action":"nodes","responseid":"external-filter","nodes":{"mesh//g":[{"_id":"node//b","name":"Updated","conn":0}]}}""")
+                  assertEquals(setOf("node//a","node//b"),nodes(client).keys)
+              }
+              @Test fun completeEmptySnapshotClearsDevices() = withClient {client ->
+                  reply(client,requests(client).request(),"{}");assertTrue(nodes(client).isEmpty())
+              }
+              @Test fun malformedCompleteSnapshotLeavesAllDevicesUntouched() = withClient {client ->
+                  reply(client,requests(client).request(),"""[{"_id":"node//b","name":"Changed"},null]""")
+                  assertEquals(setOf("node//a","node//b"),nodes(client).keys);assertEquals("B",nodes(client).getValue("node//b").name)
+              }
+              @Test fun olderReplyCannotResurrectRemovedDevices() = withClient {client ->
+                  val old=requests(client).request();val newer=requests(client).request()
+                  reply(client,newer,"""{"mesh//g":[{"_id":"node//b","name":"B"}]}""")
+                  reply(client,old,"""{"mesh//g":[{"_id":"node//a","name":"A"}]}""")
+                  assertEquals(setOf("node//b"),nodes(client).keys)
+              }
+              @Test fun previousConnectionReplyIsIgnored() = withClient {client ->
+                  val old=requests(client).request();requests(client).reset();reply(client,old,"{}")
+                  assertEquals(setOf("node//a","node//b"),nodes(client).keys)
+              }
+              @Test fun completeSnapshotUpdatesNameGroupAndConnection() = withClient {client ->
+                  reply(client,requests(client).request(),"""{"mesh//h":[{"_id":"node//b","name":"Renamed","conn":0}]}""")
+                  val node=nodes(client).values.single();assertEquals("Renamed",node.name);assertEquals("mesh//h",node.meshid);assertEquals(0,node.conn)
+              }
+              @Test fun correlatedButScopedOrErrorReplyCannotClearDevices() = withClient {client ->
+                  reply(client,requests(client).request().apply {addProperty("meshid","mesh//g")},"{}")
+                  reply(client,requests(client).request().apply {addProperty("result","error")},"{}")
+                  assertEquals(setOf("node//a","node//b"),nodes(client).keys)
+              }
+          }
+          '''
+          for path,content in files.items():
+              p=Path(path);assert not p.exists(),path
+              p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
+          modified=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())
+          added=set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          assert modified==set(expected) and added==set(files)
+          Path(os.environ['RUNNER_TEMP'],'node-snapshot-candidate.json').write_text(json.dumps({path:hashlib.sha256(Path(path).read_bytes()).hexdigest() for path in modified|added}))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build app and tests and run full unit suite and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - name: Require twelve new unit tests to execute and pass
+        shell: python
+        run: |
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          cases=[case for path in Path('app/build/test-results/testDebugUnitTest').glob('*.xml') for case in ET.parse(path).getroot().iter('testcase') if case.get('classname')=='iecxiv.meshfabric.data.remote.NodeSnapshotProtocolTest']
+          assert len({case.get('name') for case in cases})==12,'Missing new unit tests'
+          assert all(case.find(key) is None for case in cases for key in ('failure','error','skipped'))
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify new snapshot tests and all previous selected regressions individually
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: node-snapshot-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/resume-regressions/
+            ${{ runner.temp }}/node-snapshot-candidate.json
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish only tested candidates on unchanged dev and retire this workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast, hashlib, json, os, subprocess
+          root=Path(os.environ['RUNNER_TEMP'])
+          summary=json.loads((root/'resume-regressions/summary.json').read_text())
+          tree=ast.parse(Path('.github/scripts/run-emulator-regressions.py').read_text())
+          classes=next(ast.literal_eval(node.value) for node in tree.body if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='classes' for target in node.targets))
+          assert len(classes)==8 and set(summary)==set(classes)
+          assert summary['iecxiv.meshfabric.data.remote.NodeSnapshotControlTest']['expected']==8
+          assert all(value['passed']>=value['expected']>0 for value in summary.values())
+          hashes=json.loads((root/'node-snapshot-candidate.json').read_text())
+          assert all(hashlib.sha256(Path(path).read_bytes()).hexdigest()==value for path,value in hashes.items()),'Candidate changed after preparation'
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no publication'
+          changed=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          assert changed==set(hashes)
+          temporary='.github/workflows/validate-node-snapshots.yml'
+          Path(temporary).unlink()
+          allowed=set(hashes)|{temporary}
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==allowed
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix: reconcile only correlated complete node inventory snapshots'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
