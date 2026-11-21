@@ -1,0 +1,146 @@
+name: Validate sharing link compatibility
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/device-sharing-link-compat.yml']
+permissions:
+  contents: write
+concurrency:
+  group: device-sharing-link-compat-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare guarded link compatibility changes
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='db921f3be62154a716918b5a05b42876a6f8f8ed','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/devices');changed=[]
+          def replace(s,old,new):
+              assert s.count(old)==1,(old,s.count(old))
+              return s.replace(old,new,1)
+          def save(p,s): p.write_text(s);changed.append(str(p))
+          p=root/'DeviceGeneralShareCreator.kt'
+          assert git('hash-object',str(p))=='24395d2fc176659beadd5a4deddcc3abfc13ca31'
+          s=p.read_text();a=s.index('internal fun generalShareCreatedUrl(');b=s.index('internal fun generalShareCreateReply(',a)
+          s=s[:a]+'internal fun generalShareCreatedUrl(server:String,id:String,url:String)=generalShareCompatibleUrl(server,id,url)\n'+s[b:]
+          s=replace(s,'val id=requireNotNull(p.get("publicid"));','val id=p.get("publicid") ?: com.google.gson.JsonPrimitive("");')
+          s=replace(s,'id:String,before:Set<String>):Boolean','id:String,before:Set<String>,allowNodeOnly:Boolean=false):Boolean')
+          s=replace(s,'generalShareRevokeList(p,node,request) ?: return false','generalShareRevokeList(p,node,request,allowNodeOnly) ?: return false')
+          s=replace(s,'generalShareRevokeList(p,node,readId) ?: return','generalShareRevokeList(p,node,readId,true) ?: return')
+          s=replace(s,'require(link.id !in before);','require(link.id.isEmpty() || link.id !in before);')
+          s=replace(s,'if(mode=="confirm" && generalShareCreateVerified(p,node,readId,actor,draft,requireNotNull(created).id,before)) {','if(mode=="confirm") {\n                val verified=generalShareResolveCreated(p,node,readId,actor,draft,requireNotNull(created),before,url) ?: return\n                created=verified')
+          save(p,s)
+          p=root/'DeviceGeneralShareRevoker.kt'
+          assert git('hash-object',str(p))=='9063798039f490fc97918aa697a0cc1f96c7ddf9'
+          s=p.read_text()
+          s=replace(s,'request:String):List<GeneralShare>? {','request:String,allowNodeOnly:Boolean=false):List<GeneralShare>? {')
+          s=replace(s,'if(request.isBlank() || p.get("responseid")?.asString!=request) return null','if(request.isBlank()) return null\n    val rid=p.get("responseid")?.asString.orEmpty()\n    if(rid!=request && !(allowNodeOnly && rid.isBlank() && p.get("nodeid")?.asString==node)) return null')
+          s=replace(s,'generalShareRevokeList(p,node,readId) ?: return','generalShareRevokeList(p,node,readId,true) ?: return')
+          save(p,s)
+          compat='''package iecxiv.meshfabric.ui.devices
+          import com.google.gson.JsonObject
+          import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+          internal fun generalShareCompatibleUrl(server:String,id:String,url:String):String {
+              require(id.length<=1024 && id.none {it.isISOControl()} && url.isNotBlank() && url.length<=16384 && url.none {it.isISOControl()})
+              val base=requireNotNull(server.toHttpUrlOrNull())
+              require(base.scheme=="https" && base.username.isEmpty() && base.password.isEmpty() && base.query==null && base.fragment==null)
+              val link=requireNotNull(base.newBuilder().encodedPath(base.encodedPath.trimEnd('/')+"/").build().resolve(url))
+              require(link.scheme=="https" && base.host==link.host && base.port==link.port && link.username.isEmpty() && link.password.isEmpty() && link.fragment==null)
+              require(link.encodedPath==base.encodedPath.trimEnd('/')+"/sharing")
+              if(link.queryParameterNames==setOf("c")) require(link.queryParameterValues("c").size==1 && !link.queryParameter("c").isNullOrBlank())
+              else require(link.queryParameterNames==setOf("id") && id.isNotBlank() && link.queryParameterValues("id").size==1 && link.queryParameter("id")==id)
+              return link.toString()
+          }
+          internal fun generalShareResolveCreated(p:JsonObject,node:String,request:String,actor:String,d:GeneralShareCreateDraft,reply:GeneralShareCreatedLink,before:Set<String>,server:String):GeneralShareCreatedLink? {
+              val rows=generalShareRevokeList(p,node,request,true) ?: return null
+              val candidates=rows.filter {it.id !in before && (reply.id.isEmpty() || it.id==reply.id)}.filter {row->
+                  val raw=p.getAsJsonArray("deviceShares").single {it.asJsonObject.get("publicid").asString==row.id}.asJsonObject
+                  val url=raw.get("url")?.takeIf {it.isJsonPrimitive && it.asJsonPrimitive.isString}?.asString ?: return@filter false
+                  runCatching {generalShareCompatibleUrl(server,row.id,url)==reply.url && generalShareCreateVerified(p,node,request,actor,d,row.id,before,true)}.getOrDefault(false)
+              }
+              return candidates.singleOrNull()?.let {GeneralShareCreatedLink(it.id,reply.url)}
+          }
+          '''
+          tests='''package iecxiv.meshfabric.ui.devices
+          import com.google.gson.JsonArray
+          import com.google.gson.JsonObject
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceShareLinkCompatibilityTest {
+              private val node="node//a";private val actor="user//admin";private val server="https://server.test/site"
+              private val draft=generalShareCreateDraft("Guest","mesh//a",15,1800000000L)
+              private fun reply()=JsonObject().apply {addProperty("action","createDeviceShareLink");addProperty("responseid","write");addProperty("nodeid",node);addProperty("url","/site/sharing?c=credential")}
+              private fun rows()=JsonObject().apply {
+                  addProperty("action","deviceShares");addProperty("nodeid",node)
+                  add("deviceShares",JsonArray().apply {add(JsonObject().apply {
+                      addProperty("publicid","new");addProperty("userid",actor);addProperty("guestName",draft.guest);addProperty("p",2);addProperty("viewOnly",true);addProperty("consent",9)
+                      addProperty("startTime",draft.start*1000);addProperty("expireTime",draft.end*1000);addProperty("url","/site/sharing?c=credential")
+                  })})
+              }
+              private fun resolve(p:JsonObject=rows(),before:Set<String> = emptySet())=generalShareResolveCreated(p,node,"read",actor,draft,requireNotNull(generalShareCreateReply(reply(),node,"write",server)),before,server)
+              @Test fun acceptsCookieUrlAndOptionalPublicIdButRequiresReadback() {val r=requireNotNull(generalShareCreateReply(reply(),node,"write",server));assertEquals("",r.id);assertEquals("$server/sharing?c=credential",r.url);assertEquals("new",requireNotNull(resolve()).id)}
+              @Test fun rejectsForeignInsecureOrCredentialSmugglingUrls() {for(url in listOf("https://other.test/site/sharing?c=x","//other.test/site/sharing?c=x","http://server.test/site/sharing?c=x","$server/sharing?c=x&c=y","$server/sharing?c=x&auth=secret","$server/sharing?c=","$server/other?c=x")) assertTrue(runCatching {generalShareCreatedUrl(server,"",url)}.isFailure)}
+              @Test fun keepsExactCreateReplyCorrelation() {assertNull(generalShareCreateReply(reply(),node,"other",server));assertNull(generalShareCreateReply(reply().apply {addProperty("nodeid","node//other")},node,"write",server))}
+              @Test fun cannotRevealExistingOrChangedEntry() {assertNull(resolve(before=setOf("new")));for(key in listOf("userid","guestName","url")) {val p=rows();p.getAsJsonArray("deviceShares")[0].asJsonObject.addProperty(key,"wrong");assertNull(resolve(p))};for(key in listOf("p","consent","expireTime")) {val p=rows();p.getAsJsonArray("deviceShares")[0].asJsonObject.addProperty(key,123);assertNull(resolve(p))}}
+              @Test fun rejectsAmbiguousReadbackAndWrongCorrelation() {val p=rows();p.getAsJsonArray("deviceShares").add(p.getAsJsonArray("deviceShares")[0].deepCopy().asJsonObject.apply {addProperty("publicid","second")});assertNull(resolve(p));assertNull(resolve(rows().apply {addProperty("nodeid","node//other")}));assertNull(resolve(rows().apply {addProperty("responseid","other")}))}
+              @Test fun nodeOnlyFallbackRequiresExplicitOptIn() {assertNull(generalShareRevokeList(rows(),node,"read"));assertNotNull(generalShareRevokeList(rows(),node,"read",true))}
+          }
+          '''
+          p=root/'DeviceShareLinkCompatibility.kt';assert not p.exists();save(p,compat)
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceShareLinkCompatibilityTest.kt');assert not p.exists();save(p,tests)
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==set(changed)
+          Path(os.environ['RUNNER_TEMP'],'sharing-paths.json').write_text(json.dumps(changed))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Focused sharing regression tests
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'iecxiv.meshfabric.ui.devices.DeviceGeneralShare*' --tests 'iecxiv.meshfabric.ui.devices.DeviceShareLinkCompatibilityTest' --no-daemon --stacktrace
+      - name: Full unit suite compile UI tests and lint before publishing
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-sharing-link-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            ${{ runner.temp }}/sharing-paths.json
+          if-no-files-found: ignore
+      - name: Publish validated compatibility fix and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import json,os,subprocess
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          paths=json.loads(Path(os.environ['RUNNER_TEMP'],'sharing-paths.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/devices/'+p for p in ['DeviceGeneralShareCreator.kt','DeviceGeneralShareRevoker.kt','DeviceShareLinkCompatibility.kt']}|{'app/src/test/java/iecxiv/meshfabric/ui/devices/DeviceShareLinkCompatibilityTest.kt'}
+          assert set(paths)==expected
+          workflow='.github/workflows/device-sharing-link-compat.yml'
+          Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(sharing): accept server link format and verify creation by readback'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
