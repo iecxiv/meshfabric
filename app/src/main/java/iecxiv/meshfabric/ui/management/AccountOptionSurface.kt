@@ -25,7 +25,7 @@ internal fun accountInlineOption(mode:Int)=mode in 0..10 && mode!=8
     BackHandler(onBack=onDismissRequest)
     Column(Modifier.fillMaxSize().imePadding().padding(managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title)
-        Box(Modifier.weight(1f).fillMaxWidth()) {text()}
+        iecxiv.meshfabric.ui.components.SubviewBodyViewport(Modifier.weight(1f).fillMaxWidth()) {text()}
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.End) {confirmButton()}
     }
 }
