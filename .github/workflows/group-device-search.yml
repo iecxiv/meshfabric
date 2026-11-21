@@ -1,0 +1,223 @@
+name: Validate scoped group device search
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/group-device-search.yml']
+permissions:
+  contents: write
+concurrency:
+  group: group-device-search-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare scoped search correction
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          assert git('rev-parse','HEAD^')=='d00a9fa2af88bd21213af479cb6070f3fa9b64ad','Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui/management')
+          def edit(name,old,new):
+              p=root/name;s=p.read_text();assert s.count(old)==1,(name,old,s.count(old));p.write_text(s.replace(old,new,1))
+          edit('ProfileScreen.kt','androidx.activity.compose.BackHandler(enabled=directorySearchOpen) {closeDirectorySearch()}\n','')
+          edit('ProfileScreen.kt','val inlineGroup=tab!=0 && groupDetails!=null && form==null && userGroupDetails==null','val inlineGroup=tab!=0 && groupDetails!=null && form==null && userGroupDetails==null\nval groupSearchStates=rememberSaveable(agentIdentity,saver=DeviceGroupSearchMapSaver) {mutableMapOf<String,DeviceGroupSearchState>()}\nval groupDeviceSearch=groupDetails?.let {groupSearchStates.getOrPut(it) {DeviceGroupSearchState()}}\nval searchTarget=profileSearchTarget(tab,groupDetails!=null,groupDetailTab,inlineUser || inlineLinked || inlineAux,groupDeviceSearch?.advanced==true)\nval currentSearchOpen=if(searchTarget==ProfileSearchTarget.GROUP_DEVICES) groupDeviceSearch?.open==true else directorySearchOpen\nandroidx.activity.compose.BackHandler(enabled=searchTarget==ProfileSearchTarget.DIRECTORY && directorySearchOpen) {closeDirectorySearch()}\n')
+          edit('ProfileScreen.kt','groupDetailsHolder.SaveableStateProvider(id) { DeviceGroupDetailsDialog(','groupDetailsHolder.SaveableStateProvider(id) { CompositionLocalProvider(LocalDeviceGroupSearch provides requireNotNull(groupDeviceSearch)) {DeviceGroupDetailsDialog(')
+          edit('ProfileScreen.kt','}}) } }\n}\n@Composable fun RenderLinkedGroups()','}}) } } }\n}\n@Composable fun RenderLinkedGroups()')
+          edit('ProfileScreen.kt','onTabChanged={groupDetailTab=it}','onTabChanged={groupDetailTab=it;if(it!=1) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}')
+          edit('ProfileScreen.kt','if(tab in 1..3) IconButton(onClick={if(directorySearchOpen) closeDirectorySearch() else directorySearchOpen=true},modifier=Modifier.size(38.dp).then(Modifier.testTag("profile-directory-search-toggle"))) {\nIcon(if(directorySearchOpen) Icons.Default.Close else Icons.Default.Search,if(directorySearchOpen) t("Cerrar búsqueda","Close search") else t("Buscar","Search"),Modifier.size(20.dp),tint=if(directorySearchOpen) androidx.compose.ui.graphics.Color(0xFF2196F3) else LocalContentColor.current)\n}','ProfileSearchAction(searchTarget,currentSearchOpen) {\nwhen(searchTarget) {\nProfileSearchTarget.DIRECTORY->if(directorySearchOpen) closeDirectorySearch() else directorySearchOpen=true\nProfileSearchTarget.GROUP_DEVICES->{requireNotNull(groupDeviceSearch).toggle();if(!groupDeviceSearch.open) {directoryFocus.clearFocus(force=true);directoryKeyboard?.hide()}}\nProfileSearchTarget.NONE->Unit\n}\n}')
+          edit('ProfileScreen.kt','AnimatedVisibility(visible=tab in 1..3 && directorySearchOpen)','AnimatedVisibility(visible=searchTarget==ProfileSearchTarget.DIRECTORY && directorySearchOpen)')
+          edit('CompactProfileGroups.kt','    var query by rememberSaveable(id) { mutableStateOf("") }\n    var advanced by remember(id) { mutableStateOf(false) }\n    if(advanced) { DeviceGroupAdvancedEditor(session,s,id) {advanced=false}; return }','    val search=LocalDeviceGroupSearch.current ?: rememberSaveable(id,saver=DeviceGroupSearchState.Saver) {DeviceGroupSearchState(open=true)}\n    DisposableEffect(search) {onDispose {search.advanced=false}}\n    if(search.advanced) {DeviceGroupAdvancedEditor(session,s,id) {search.advanced=false};return}')
+          edit('CompactProfileGroups.kt','onClick={advanced=true}','onClick={search.advanced=true}')
+          edit('CompactProfileGroups.kt','                        OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar dispositivo","Search device"))},singleLine=true,modifier=Modifier.fillMaxWidth())\n                        val nodes=s.nodes?.filter { it.optString("meshid")==id && deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }','                        DeviceGroupSearchField(search,collapsible=LocalDeviceGroupSearch.current!=null)\n                        val nodes=deviceGroupSearchNodes(s.nodes,id,search.query)')
+          p=Path('app/src/main/java/iecxiv/meshfabric/ui/management/DeviceGroupSearch.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True);p.write_text(r'''package iecxiv.meshfabric.ui.management
+          import androidx.activity.compose.BackHandler
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.text.*
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Close
+          import androidx.compose.material.icons.filled.Search
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.runtime.saveable.listSaver
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.focus.FocusRequester
+          import androidx.compose.ui.focus.focusRequester
+          import androidx.compose.ui.platform.*
+          import androidx.compose.ui.unit.dp
+          import org.json.JSONObject
+          internal enum class ProfileSearchTarget {NONE,DIRECTORY,GROUP_DEVICES}
+          internal fun profileSearchTarget(tab:Int,group:Boolean,groupTab:Int,covered:Boolean,advanced:Boolean)=when {
+              tab !in 1..3->ProfileSearchTarget.NONE
+              group && !covered && !advanced && groupTab==1->ProfileSearchTarget.GROUP_DEVICES
+              group || covered->ProfileSearchTarget.NONE
+              else->ProfileSearchTarget.DIRECTORY
+          }
+          internal class DeviceGroupSearchState(query:String="",open:Boolean=false) {
+              var query by mutableStateOf(query)
+              var open by mutableStateOf(open)
+              var advanced by mutableStateOf(false)
+              fun close() {open=false;query=""}
+              fun toggle() {if(open) close() else open=true}
+              companion object {
+                  val Saver=listSaver<DeviceGroupSearchState,String>(save={listOf(it.query,it.open.toString())},restore={DeviceGroupSearchState(it[0],it[1].toBoolean())})
+              }
+          }
+          internal val DeviceGroupSearchMapSaver=listSaver<MutableMap<String,DeviceGroupSearchState>,String>(
+              save={map->map.flatMap {(id,state)->listOf(id,state.query,state.open.toString())}},
+              restore={rows->rows.chunked(3).associate {it[0] to DeviceGroupSearchState(it[1],it[2].toBoolean())}.toMutableMap()})
+          internal val LocalDeviceGroupSearch=staticCompositionLocalOf<DeviceGroupSearchState?> {null}
+          internal fun deviceGroupSearchNodes(nodes:List<JSONObject>?,id:String,query:String)=nodes?.filter {it.optString("meshid")==id && deviceGroupMatches(query,it.optString("name"),it.optString("desc"))}
+          @Composable internal fun ProfileSearchAction(target:ProfileSearchTarget,open:Boolean,onToggle:()->Unit) {
+              if(target==ProfileSearchTarget.NONE) return
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              IconButton(onClick=onToggle,modifier=Modifier.size(38.dp).testTag("profile-directory-search-toggle")) {
+                  Icon(if(open) Icons.Default.Close else Icons.Default.Search,if(open) {if(es) "Cerrar búsqueda" else "Close search"} else {if(es) "Buscar" else "Search"},Modifier.size(20.dp),tint=if(open) androidx.compose.ui.graphics.Color(0xFF2196F3) else LocalContentColor.current)
+              }
+          }
+          @Composable internal fun DeviceGroupSearchField(state:DeviceGroupSearchState,collapsible:Boolean=true) {
+              if(!state.open) return
+              val es=LocalConfiguration.current.locales[0].language=="es"
+              val focus=remember {FocusRequester()};val manager=LocalFocusManager.current;val keyboard=LocalSoftwareKeyboardController.current
+              BackHandler(enabled=collapsible) {state.close();manager.clearFocus(force=true);keyboard?.hide()}
+              LaunchedEffect(state,collapsible) {if(collapsible) {withFrameNanos {};focus.requestFocus();keyboard?.show()}}
+              OutlinedTextField(state.query,{state.query=it.take(256)},label={Text(if(es) "Buscar dispositivo" else "Search device")},singleLine=true,modifier=Modifier.fillMaxWidth().focusRequester(focus).testTag("device-group-search-input"))
+          }
+          ''')
+          p=Path('app/src/test/java/iecxiv/meshfabric/ui/management/DeviceGroupSearchStateTest.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True);p.write_text(r'''package iecxiv.meshfabric.ui.management
+          import org.junit.Assert.*
+          import org.junit.Test
+          class DeviceGroupSearchStateTest {
+              @Test fun directoriesKeepTheirOwnSearchRoute() {
+                  for(tab in 1..3) assertEquals(ProfileSearchTarget.DIRECTORY,profileSearchTarget(tab,false,0,false,false))
+                  assertEquals(ProfileSearchTarget.NONE,profileSearchTarget(0,false,1,false,false))
+              }
+              @Test fun onlyUncoveredDeviceTabCanSearchInsideGroup() {
+                  for(tab in 0..2) assertEquals(if(tab==1) ProfileSearchTarget.GROUP_DEVICES else ProfileSearchTarget.NONE,profileSearchTarget(1,true,tab,false,false))
+                  assertEquals(ProfileSearchTarget.NONE,profileSearchTarget(1,true,1,true,false))
+                  assertEquals(ProfileSearchTarget.NONE,profileSearchTarget(1,true,1,false,true))
+                  assertEquals(ProfileSearchTarget.NONE,profileSearchTarget(2,false,0,true,false))
+              }
+              @Test fun closingInternalSearchClearsOnlyThatGroup() {
+                  val a=DeviceGroupSearchState("alpha",true);val b=DeviceGroupSearchState("beta",true)
+                  a.toggle();assertFalse(a.open);assertEquals("",a.query)
+                  assertTrue(b.open);assertEquals("beta",b.query)
+                  a.toggle();assertTrue(a.open)
+              }
+          }
+          ''')
+          p=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupSearchTest.kt');assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True);p.write_text(r'''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import org.json.JSONObject
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          class DeviceGroupSearchTest {
+              @get:Rule val rule=createComposeRule()
+              @Test fun magnifierChangesScopeAndPreservesDirectoryFilter() {
+                  val group=mutableStateOf(false);val tab=mutableIntStateOf(0)
+                  val search=DeviceGroupSearchState();val outer=mutableStateOf("outer-filter")
+                  val nodes=listOf(JSONObject().put("_id","a").put("meshid","one").put("name","Alpha"),JSONObject().put("_id","b").put("meshid","two").put("name","Alpha other group"),JSONObject().put("_id","c").put("meshid","one").put("name","Beta"))
+                  rule.setContent {MaterialTheme {Column {
+                      val target=profileSearchTarget(1,group.value,tab.intValue,false,search.advanced)
+                      ProfileSearchAction(target,if(target==ProfileSearchTarget.GROUP_DEVICES) search.open else true) {if(target==ProfileSearchTarget.GROUP_DEVICES) search.toggle()}
+                      if(target==ProfileSearchTarget.DIRECTORY) OutlinedTextField(outer.value,{outer.value=it},modifier=Modifier.testTag("outer-search"))
+                      if(group.value) {
+                          DeviceGroupDetailsTabs(tab.intValue) {tab.intValue=it}
+                          if(tab.intValue==1) {
+                              DeviceGroupSearchField(search)
+                              deviceGroupSearchNodes(nodes,"one",search.query).orEmpty().forEach {Text(it.optString("name"),Modifier.testTag("result-"+it.optString("_id")))}
+                          }
+                      }
+                  }}}
+                  rule.onNodeWithTag("outer-search").assertTextContains("outer-filter")
+                  rule.runOnIdle {group.value=true}
+                  rule.onNodeWithTag("outer-search").assertDoesNotExist()
+                  rule.onNodeWithTag("profile-directory-search-toggle").assertDoesNotExist()
+                  rule.onNode(hasText("Devices") or hasText("Dispositivos")).performClick()
+                  rule.onNodeWithTag("device-group-search-input").assertDoesNotExist()
+                  rule.onNodeWithTag("profile-directory-search-toggle").performClick()
+                  rule.onNodeWithTag("device-group-search-input").performTextInput("alpha")
+                  rule.onNodeWithTag("result-a").assertIsDisplayed()
+                  rule.onNodeWithTag("result-b").assertDoesNotExist()
+                  rule.onNodeWithTag("result-c").assertDoesNotExist()
+                  rule.onNodeWithTag("profile-directory-search-toggle").performClick()
+                  rule.onNodeWithTag("device-group-search-input").assertDoesNotExist()
+                  rule.onNodeWithTag("result-c").assertIsDisplayed()
+                  rule.onNode(hasText("Access") or hasText("Accesos")).performClick()
+                  rule.onNodeWithTag("profile-directory-search-toggle").assertDoesNotExist()
+                  rule.runOnIdle {group.value=false;assertEquals("outer-filter",outer.value)}
+                  rule.onNodeWithTag("outer-search").assertTextContains("outer-filter")
+              }
+          }
+          ''')
+          allowed=['app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt','app/src/main/java/iecxiv/meshfabric/ui/management/DeviceGroupSearch.kt','app/src/test/java/iecxiv/meshfabric/ui/management/DeviceGroupSearchStateTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupSearchTest.kt']
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==set(allowed)
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Build unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.DeviceGroupSearchTest,iecxiv.meshfabric.ui.management.FourVisualCorrectionsTest,iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: group-device-search-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+      - name: Publish only after validation and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          allowed=['app/src/main/java/iecxiv/meshfabric/ui/management/ProfileScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/management/CompactProfileGroups.kt','app/src/main/java/iecxiv/meshfabric/ui/management/DeviceGroupSearch.kt','app/src/test/java/iecxiv/meshfabric/ui/management/DeviceGroupSearchStateTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/DeviceGroupSearchTest.kt']
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==set(allowed)
+          workflow='.github/workflows/group-device-search.yml'
+          Path(workflow).unlink();allowed.append(workflow)
+          subprocess.run(['git','add','--',*allowed],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(allowed)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix(ui): route group magnifier to internal device search'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
