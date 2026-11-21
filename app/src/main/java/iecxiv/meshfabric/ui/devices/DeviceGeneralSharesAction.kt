@@ -91,7 +91,7 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
                 TextButton(enabled=state.phase!="loading" && !busy && review==null,onClick={retry++},modifier=Modifier.testTag("general_shares_reload")) {Text(t("Recargar","Reload"))}
                 TextButton(onClick=close) {Text(t("Volver","Back"))}
             },subtitle=t("Compartir","Share"),tagPrefix="device_shares")
-            review?.let {share->iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest={review=null},title={Text(t("Revocar acceso propio","Revoke own sharing entry"))},text={Column {
+            review?.let {share->DeviceGeneralActionSurface(embedded=true,onDismissRequest={review=null},title={Text(t("Revocar acceso propio","Revoke own sharing entry"))},text={Column {
                 Text(t("Dispositivo: ","Device: ")+node.name);Text(node.id)
                 Text(t("Invitado: ","Guest: ")+share.guest);Text(t("Propietario: ","Owner: ")+share.owner)
                 Text(t("Huella: ","Fingerprint: ")+generalShareFingerprint(share.id))
@@ -102,7 +102,7 @@ private fun generalSharesDate(value:Long?,es:Boolean):String=if(value==null || v
                 Text(t("Consentimiento: ","Consent: ")+(share.consent?.let {generalConsentLabel(it,es)} ?: t("No informado","Not reported")))
                 Text(t("Se enviará una sola solicitud para este acceso tras comprobar que no ha cambiado. No se puede deshacer desde esta vista.","One request will be sent for this entry after checking it has not changed. This cannot be undone from this view."))
             }},confirmButton={TextButton(enabled=connected && revoker==null,onClick={revoker=DeviceGeneralShareRevoker(source,node.id,share);review=null},modifier=Modifier.testTag("general_share_revoke_confirm")) {Text(t("Revocar una vez","Revoke once"))}},dismissButton={TextButton(onClick={review=null}) {Text(t("Cancelar","Cancel"))}})}
-            if(discard) iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest={discard=false},title={Text(t("Cerrar Compartir","Close Share"))},text={Text(t("Se cerrará el seguimiento local. Cerrar no revierte una revocación que ya se haya enviado y su resultado puede quedar sin confirmar.","Local monitoring will close. Closing does not undo an already sent revocation and its outcome may remain unconfirmed."))},confirmButton={TextButton(onClick={revoker?.close();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            if(discard) DeviceGeneralActionSurface(embedded=true,onDismissRequest={discard=false},title={Text(t("Cerrar Compartir","Close Share"))},text={Text(t("Se cerrará el seguimiento local. Cerrar no revierte una revocación que ya se haya enviado y su resultado puede quedar sin confirmar.","Local monitoring will close. Closing does not undo an already sent revocation and its outcome may remain unconfirmed."))},confirmButton={TextButton(onClick={revoker?.close();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
         }
     }
 }

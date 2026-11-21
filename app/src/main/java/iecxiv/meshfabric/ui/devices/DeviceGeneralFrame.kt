@@ -40,7 +40,7 @@ internal val LocalDeviceGeneralClose=staticCompositionLocalOf<(() -> Unit)?> {nu
     val configuration=LocalConfiguration.current
     DeviceDetailsFrame(inline=inline,onDismiss=onClose) {
         DeviceDetailsContentSurface(inline=inline,modifier=if(inline) Modifier.fillMaxSize().testTag("${tagPrefix}_surface") else Modifier.padding(horizontal=16.dp,vertical=24.dp).widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp).testTag("${tagPrefix}_surface")) {
-            Column {
+            Column(if(inline) Modifier.fillMaxSize().imePadding() else Modifier) {
                 Column(Modifier.padding(start=if(inline) 16.dp else 20.dp,end=if(inline) 16.dp else 12.dp,top=if(inline) 0.dp else 12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
                     if(inline) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onClose,title={Column {
                         Text(node.name.ifBlank {stringResource(R.string.unknown_device)})
@@ -62,13 +62,14 @@ internal val LocalDeviceGeneralClose=staticCompositionLocalOf<(() -> Unit)?> {nu
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 val bodyModifier=if(scrollBody) {
-                    Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)
+                    if(inline) Modifier.weight(1f).fillMaxWidth() else Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)
                 } else Modifier.weight(1f).fillMaxWidth()
                 CompositionLocalProvider(LocalDeviceGeneralClose provides if(tagPrefix=="device_general") onClose else LocalDeviceGeneralClose.current) {
-                    Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
+                    if(inline && scrollBody) iecxiv.meshfabric.ui.components.CenteredSubviewBody(bodyModifier,body)
+                    else Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-                Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,
+                Row(Modifier.fillMaxWidth().testTag("${tagPrefix}_footer").padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,
                     verticalAlignment=Alignment.CenterVertically,content=footer)
             }
         }

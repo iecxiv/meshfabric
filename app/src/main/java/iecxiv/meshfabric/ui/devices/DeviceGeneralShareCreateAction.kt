@@ -84,6 +84,6 @@ import java.util.Date
             if(writer==null && review!=null) TextButton(onClick={review=null}) {Text(t("Volver","Back"))}
             TextButton(onClick=close) {Text(t("Volver","Back"))}
         },subtitle=t("Crear enlace","Create link"),tagPrefix="device_share_create")
-        if(discard) iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest={discard=false},title={Text(t("Cerrar creación","Close creation"))},text={Text(t("Se perderá el borrador o se cerrará el seguimiento. Cerrar no revoca un acceso que ya se haya creado ni borra una copia del portapapeles.","The draft will be lost or monitoring will close. Closing does not revoke an already created entry or erase a clipboard copy."))},confirmButton={TextButton(onClick={writer?.close();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+        if(discard) DeviceGeneralActionSurface(embedded=true,onDismissRequest={discard=false},title={Text(t("Cerrar creación","Close creation"))},text={Text(t("Se perderá el borrador o se cerrará el seguimiento. Cerrar no revoca un acceso que ya se haya creado ni borra una copia del portapapeles.","The draft will be lost or monitoring will close. Closing does not revoke an already created entry or erase a clipboard copy."))},confirmButton={TextButton(onClick={writer?.close();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
     }
 }

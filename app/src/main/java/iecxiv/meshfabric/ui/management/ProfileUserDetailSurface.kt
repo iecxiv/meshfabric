@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 
 internal val LocalProfileUserInline=staticCompositionLocalOf {false}
+internal val LocalCenteredDeviceActionBody=staticCompositionLocalOf {false}
 
 @Composable internal fun ProfileUserDetailSurface(inline:Boolean,onDismissRequest:()->Unit,modifier:Modifier=Modifier,properties:DialogProperties=DialogProperties(),title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {
     if(!inline) {
@@ -36,7 +37,8 @@ internal val LocalProfileUserInline=staticCompositionLocalOf {false}
     Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground) {
         Column(Modifier.fillMaxSize().imePadding().padding(if(LocalNoticeComposeInline.current) managementBottomFlushPadding else managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title,backTag="user-action-back")
-            Box(Modifier.weight(1f).fillMaxWidth()) {text()}
+            if(LocalCenteredDeviceActionBody.current) iecxiv.meshfabric.ui.components.CenteredSubviewBody(Modifier.weight(1f).fillMaxWidth()) {text()}
+            else Box(Modifier.weight(1f).fillMaxWidth()) {text()}
             FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.End),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 dismissButton()
                 confirmButton()

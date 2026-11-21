@@ -2,6 +2,7 @@ package iecxiv.meshfabric.ui.devices
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material3.*
@@ -54,7 +55,7 @@ import iecxiv.meshfabric.ui.management.*
                     scopeLabel=text("Eventos de este dispositivo: ","Events for this device: ")+node.name,showDeviceLabel=false,flushBottom=true)
                 HorizontalDivider(Modifier.testTag("device_events_footer_divider"),color=MaterialTheme.colorScheme.outlineVariant)
                 Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,verticalAlignment=Alignment.CenterVertically) {
-                    TextButton(onClick=onRefresh,enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("device_events_refresh")) {Text(text("Actualizar","Refresh"))}
+                    TextButton(onClick=onRefresh,enabled=enabled && state.phase!=ServerEventsPhase.LOADING,modifier=Modifier.testTag("device_events_refresh")) {Icon(Icons.Default.Refresh,null,Modifier.size(18.dp).testTag("device_events_refresh_icon"));Spacer(Modifier.width(6.dp));Text(text("Actualizar","Refresh"))}
                     TextButton(onClick=onDismiss) {Text(if(inline) text("Volver","Back") else text("Cerrar","Close"))}
                 }
             }

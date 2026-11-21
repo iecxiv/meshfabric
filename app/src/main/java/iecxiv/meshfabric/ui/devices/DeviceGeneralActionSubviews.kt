@@ -32,7 +32,7 @@ internal val LocalDeviceGeneralActionOpen=staticCompositionLocalOf<((MeshNode,De
     })
 }
 @Composable internal fun DeviceGeneralActionSurface(embedded:Boolean,onDismissRequest:()->Unit,title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit={}) {
-    if(embedded) iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)
+    if(embedded) CompositionLocalProvider(iecxiv.meshfabric.ui.management.LocalCenteredDeviceActionBody provides true) {iecxiv.meshfabric.ui.management.UserActionSurface(inline=true,onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)}
     else iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest=onDismissRequest,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)
 }
 @Composable internal fun DeviceManualEventSurface(node:MeshNode,embedded:Boolean,onDismissRequest:()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {

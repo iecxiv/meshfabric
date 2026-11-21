@@ -144,6 +144,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
             DeviceStatusDecoration(consoleNode,Modifier.fillMaxWidth().padding(horizontal=4.dp),"agent_console_device")
+            HorizontalDivider(Modifier.testTag("agent_console_device_divider"),color=MaterialTheme.colorScheme.outlineVariant)
             Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
             Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("agent_console_status_row"),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 Text(when(state.phase) {
