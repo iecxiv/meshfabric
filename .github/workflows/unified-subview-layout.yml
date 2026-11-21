@@ -1,0 +1,203 @@
+name: Validate unified scoped subview layout
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/unified-subview-layout.yml']
+permissions:
+  contents: write
+concurrency:
+  group: unified-subview-layout-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Prepare scoped corrections and protected-parent inventory
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os,hashlib,re
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          base='dba946c81d37e83c084e8cbe01f7dafb48fa9abd'
+          assert git('rev-parse','HEAD^')==base,'Base advanced; review required'
+          root=Path('app/src/main/java/iecxiv/meshfabric/ui')
+          parents=['devices/DeviceGeneralDialog.kt','devices/DeviceEventsPresentation.kt','devices/DeviceDetailsDialog.kt','devices/DeviceAgentConsoleScreen.kt','management/ProfileScreen.kt','management/NativeAccount.kt','management/UserGroupsDirectoryPane.kt','management/MyServerScreen.kt','management/ServerAdminPanel.kt','management/LogScreen.kt','management/NoticeCenterScreen.kt','management/NoticeInbox.kt','management/ProfileBroadcastDialog.kt','settings/SettingsScreen.kt','login/LoginScreen.kt','management/AgentInviteLinks.kt','management/ServerEventDetails.kt','management/MeshFabricDialogs.kt','components/MeshFabricAppBar.kt']
+          def digest(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+          protected={name:digest(root/name) for name in parents}
+          p=root/'components/SubviewBodyViewport.kt';s=p.read_text()
+          old='import androidx.compose.foundation.layout.Box'
+          assert s.count(old)==1;s=s.replace(old,old+'\nimport androidx.compose.foundation.layout.Column\nimport androidx.compose.foundation.layout.fillMaxWidth',1)
+          old='Box(modifier.testTag("shared_subview_body"),contentAlignment=Alignment.CenterStart) {content()}'
+          assert s.count(old)==1;s=s.replace(old,'Box(modifier.testTag("shared_subview_body"),contentAlignment=Alignment.CenterStart) {Column(Modifier.fillMaxWidth()) {content()}}',1)
+          p.write_text(s);paths=[str(p)]
+          test_path='app/src/androidTest/java/iecxiv/meshfabric/ui/management/UnifiedSubviewLayoutTest.kt'
+          ui='''package iecxiv.meshfabric.ui.management
+          import androidx.compose.foundation.layout.*
+          import androidx.compose.foundation.lazy.LazyColumn
+          import androidx.compose.foundation.lazy.items
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material3.*
+          import androidx.compose.runtime.*
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import androidx.compose.ui.window.DialogProperties
+          import iecxiv.meshfabric.data.model.MeshNode
+          import iecxiv.meshfabric.ui.devices.DeviceGeneralFrame
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          @Composable private fun UnifiedLayoutFixture(mode:Int,content:@Composable ()->Unit) {
+              val title:@Composable ()->Unit={Text("Title")}
+              val footer:@Composable ()->Unit={TextButton(onClick={},modifier=Modifier.testTag("unified_footer")) {Text("Back")}}
+              when(mode) {
+                  0->ProfileUserDetailSurface(true,{},title=title,text=content,confirmButton=footer,dismissButton={})
+                  1->AccountOptionSurface(true,{},DialogProperties(),title,content,footer)
+                  2->CompositionLocalProvider(LocalServerReadInline provides true) {ServerReadSurface(onDismissRequest={},title=title,text=content,confirmButton=footer)}
+                  else->DeviceGeneralFrame(MeshNode(id="node//fixture",name="Title"),{},inline=true,tagPrefix="unified_child",body={content()},footer={footer()})
+              }
+          }
+          class UnifiedSubviewLayoutTest {
+              @get:Rule val rule=createComposeRule()
+              @Test fun allInlineFamiliesCenterShortBodies() {
+                  val mode=mutableIntStateOf(0)
+                  rule.setContent {MaterialTheme {UnifiedLayoutFixture(mode.intValue) {Text("Short",Modifier.testTag("short"))}}}
+                  for(i in 0..3) {
+                      rule.runOnIdle {mode.intValue=i}
+                      val tag=if(i==3) "centered_body_viewport" else "shared_subview_body"
+                      val viewport=rule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+                      val body=rule.onNodeWithTag("short").fetchSemanticsNode().boundsInRoot
+                      assertEquals(viewport.center.y,body.center.y,2f)
+                      rule.onNodeWithText("Title").assertIsDisplayed()
+                      rule.onNodeWithTag("unified_footer").assertIsDisplayed()
+                      rule.onNode(isDialog()).assertDoesNotExist()
+                  }
+              }
+              @Test fun longBodiesScrollWithoutMovingFooters() {
+                  val mode=mutableIntStateOf(0);val long=mutableStateOf(false)
+                  rule.setContent {MaterialTheme {UnifiedLayoutFixture(mode.intValue) {
+                      val modifier=if(mode.intValue==3) Modifier else Modifier.verticalScroll(rememberScrollState())
+                      Column(modifier.fillMaxWidth()) {repeat(if(long.value) 80 else 1) {Text("Line $it",Modifier.testTag("line_$it"))}}
+                  }}}
+                  for(i in 0..3) {
+                      rule.runOnIdle {mode.intValue=i;long.value=false}
+                      val top=rule.onNodeWithTag("unified_footer").fetchSemanticsNode().boundsInRoot.top
+                      rule.runOnIdle {long.value=true}
+                      rule.onNodeWithTag("line_79").performScrollTo().assertIsDisplayed()
+                      assertEquals(top,rule.onNodeWithTag("unified_footer").fetchSemanticsNode().boundsInRoot.top,2f)
+                  }
+              }
+              @Test fun multipleBodyNodesAreGroupedInsteadOfOverlapping() {
+                  rule.setContent {MaterialTheme {UnifiedLayoutFixture(0) {
+                      Text("First",Modifier.testTag("first"));Text("Second",Modifier.testTag("second"))
+                  }}}
+                  val a=rule.onNodeWithTag("first").fetchSemanticsNode().boundsInRoot
+                  val b=rule.onNodeWithTag("second").fetchSemanticsNode().boundsInRoot
+                  val viewport=rule.onNodeWithTag("shared_subview_body").fetchSemanticsNode().boundsInRoot
+                  assertTrue(b.top>=a.bottom)
+                  assertEquals(viewport.center.y,(a.top+b.bottom)/2f,2f)
+              }
+              @Test fun listsKeepTheirFullBoundedWorkArea() {
+                  rule.setContent {MaterialTheme {UnifiedLayoutFixture(0) {
+                      LazyColumn(Modifier.fillMaxSize().testTag("list")) {items((0..79).toList()) {Text("Item $it",Modifier.testTag("item_$it"))}}
+                  }}}
+                  rule.onNodeWithTag("item_0").assertIsDisplayed()
+                  rule.onNodeWithTag("list").performScrollToIndex(79)
+                  rule.onNodeWithTag("item_79").assertIsDisplayed()
+                  rule.onNodeWithTag("unified_footer").assertIsDisplayed()
+              }
+              @Test fun eventDetailsRetainTheirDialogAndCloseAction() {
+                  var closed=0
+                  val event=ServerEventRecord("manual","Event","user","node//fixture","Device",1800000000000L)
+                  rule.setContent {MaterialTheme {ServerEventDetailsDialog(event) {closed++}}}
+                  rule.onNode(isDialog()).assertExists()
+                  rule.onNodeWithTag("log-event-details-close").performClick()
+                  rule.runOnIdle {assertEquals(1,closed)}
+              }
+          }
+          '''
+          p=Path(test_path);assert not p.exists();p.parent.mkdir(parents=True,exist_ok=True);p.write_text(ui);paths.append(test_path)
+          assert protected=={name:digest(root/name) for name in parents},'Parent screen or excluded file changed'
+          expected=set(paths)
+          actual=set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())
+          assert actual==expected,(actual,expected)
+          assert not Path('.github/workflows/settings-anchored-layout.yml').exists()
+          assert not Path('.github/workflows/scoped-subview-layout.yml').exists()
+          renderers=['DeviceGeneralFrame','DeviceGeneralActionSurface','UserActionSurface','ProfileUserDetailSurface','AccountOptionSurface','ServerReadSurface','DeviceNotesDialog','FabricDialog','ManagementDialog','AppAlertDialog']
+          inventory=[]
+          for f in sorted(root.rglob('*.kt')):
+              text=f.read_text()
+              matches={name:len(re.findall(r'\b'+name+r'\s*\(',text)) for name in renderers}
+              if any(matches.values()): inventory.append({'file':str(f),'renderer_occurrences':{k:v for k,v in matches.items() if v}})
+          report={'base':base,'changed':sorted(expected),'protected_parent_sha256':protected,'inventory_kind':'source occurrence inventory, not an exhaustive navigation proof','renderer_inventory':inventory,'ui_tests':'five instrumentation tests; shared renderer fixtures do not exercise live server operations'}
+          temp=Path(os.environ['RUNNER_TEMP'])
+          (temp/'unified-subview-layout-audit.json').write_text(json.dumps(report,indent=2))
+          (temp/'unified-subview-layout-paths.json').write_text(json.dumps(sorted(expected)))
+      - run: git diff --check
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - name: Full build unit and lint validation
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --rerun-tasks --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute unified layout instrumentation tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: bash ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unified-subview-layout-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+            ${{ runner.temp }}/unified-subview-layout-audit.json
+            ${{ runner.temp }}/unified-subview-layout-paths.json
+          if-no-files-found: ignore
+      - name: Publish only fully validated changes and retire workflow
+        shell: python
+        run: |
+          from pathlib import Path
+          import subprocess,json,os,hashlib
+          def git(*a): return subprocess.check_output(['git',*a],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no force push'
+          temp=Path(os.environ['RUNNER_TEMP']);paths=json.loads((temp/'unified-subview-layout-paths.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/ui/components/SubviewBodyViewport.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/management/UnifiedSubviewLayoutTest.kt'}
+          assert set(paths)==expected
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          report=json.loads((temp/'unified-subview-layout-audit.json').read_text());root=Path('app/src/main/java/iecxiv/meshfabric/ui')
+          assert report['protected_parent_sha256']=={name:hashlib.sha256((root/name).read_bytes()).hexdigest() for name in report['protected_parent_sha256']}
+          workflow='.github/workflows/unified-subview-layout.yml';Path(workflow).unlink();paths.append(workflow)
+          subprocess.run(['git','add','--',*paths],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==set(paths)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','ui: finalize scoped subview bodies and validate unified layout without changing parent screens'],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
