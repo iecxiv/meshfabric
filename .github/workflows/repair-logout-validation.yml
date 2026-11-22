@@ -1,0 +1,169 @@
+name: Repair isolated logout regression validation
+on:
+  push:
+    branches: [dev]
+    paths: ['.github/workflows/repair-logout-validation.yml']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: logout-preferences-dev
+  cancel-in-progress: false
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Reuse unchanged approved candidate and repair only the red-test runner
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast, subprocess, textwrap
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip()=='6debd69dc4741206cf7cd2373e4c3d3509af57c4','Base advanced'
+          path='.github/workflows/validate-logout-preferences.yml'
+          assert subprocess.check_output(['git','hash-object',path],text=True).strip()=='dd12803accdf1f8aba419709c6c66a3555ee1bf3'
+          workflow=Path(path).read_text()
+          marker='        run: |\n'
+          a=workflow.index(marker)+len(marker);b=workflow.index('      - uses: actions/setup-java@v4',a)
+          prepare=textwrap.dedent(workflow[a:b])
+          old="=='6a2a561597f88901509e6088be96aa9fa9ce3017','Base advanced'"
+          assert prepare.count(old)==1
+          prepare=prepare.replace(old,"=='6debd69dc4741206cf7cd2373e4c3d3509af57c4','Base advanced'",1)
+          exec(compile(prepare,'approved-logout-prepare','exec'),{})
+          import os
+          root=Path(os.environ['RUNNER_TEMP'])/'logout-preferences'
+          p=root/'validate.py';script=p.read_text()
+          a=script.index('if results.exists(): shutil.rmtree(results)\n')
+          b=script.index("source='app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt'",a)
+          replacement='''red=root/'red';red.mkdir(exist_ok=True)
+          receipts={}
+          allowed_types={'java.lang.AssertionError','org.junit.ComparisonFailure','junit.framework.AssertionFailedError'}
+          for method in sorted(methods):
+              if results.exists(): shutil.rmtree(results)
+              selection=name+'#'+method
+              command=['bash','./gradlew',':app:connectedDebugAndroidTest','-Pandroid.testInstrumentationRunnerArguments.class='+selection,'--rerun-tasks','--no-daemon','--stacktrace']
+              result=subprocess.run(command)
+              destination=red/method;destination.mkdir(exist_ok=True)
+              reports=sorted(results.rglob('*.xml'));cases=[]
+              for index,path in enumerate(reports):
+                  shutil.copy2(path,destination/(str(index)+'.xml'))
+                  cases.extend(ET.parse(path).getroot().iter('testcase'))
+              observed=[]
+              for case in cases:
+                  failure=case.find('failure')
+                  first_line=''
+                  failure_type=''
+                  if failure is not None:
+                      lines=''.join(failure.itertext()).strip().splitlines()
+                      first_line=lines[0] if lines else ''
+                      failure_type=(failure.get('type') or first_line.split(':',1)[0]).strip()
+                  observed.append({'classname':case.get('classname'),'name':case.get('name'),'failure_type':failure_type,'first_line':first_line,'error':case.find('error') is not None,'skipped':case.find('skipped') is not None})
+              receipt={'requested':selection,'exit_code':result.returncode,'reports':[str(path) for path in reports],'observed':observed}
+              (destination/'observed.json').write_text(json.dumps(receipt,indent=2))
+              print(json.dumps(receipt),flush=True)
+              assert result.returncode!=0,('Regression unexpectedly passed',method)
+              assert reports and len(cases)==1,('Missing or unexpected number of cases',receipt)
+              assert {(case.get('classname'),case.get('name')) for case in cases}=={(name,method)},('Wrong test executed',receipt)
+              assert all(item['failure_type'] in allowed_types and not item['error'] and not item['skipped'] for item in observed),('Not an assertion failure',receipt)
+              if method=='logoutNormalizesCorruptEnumsWithoutLosingDesktopQuality':
+                  assert 'expected:<88> but was:<50>' in observed[0]['first_line'],receipt
+              elif method=='repeatedLogoutKeepsDesktopPreferencesAndClipboardDisabled':
+                  assert 'expected:<79> but was:<50>' in observed[0]['first_line'],receipt
+              else:
+                  assert 'quality=76' in observed[0]['first_line'] and 'quality=50' in observed[0]['first_line'],receipt
+              assert 'SessionStorageSafetyTest.kt:' in ''.join(cases[0].find('failure').itertext()),receipt
+              receipts[method]=receipt
+          assert set(receipts)==methods
+          (red/'receipt.json').write_text(json.dumps(receipts,indent=2))
+          '''
+          script=script[:a]+replacement+script[b:]
+          ast.parse(script);p.write_text(script)
+          start=workflow.index('      - name: Require permanent Android CI success for this preparation commit\n')
+          a=workflow.index(marker,start)+len(marker);b=workflow.index('      - uses: actions/upload-artifact@v4',a)
+          check=textwrap.dedent(workflow[a:b]);ast.parse(check)
+          (root/'check-permanent-ci.py').write_text(check)
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Compile baseline and new instrumentation regressions
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Reproduce all three isolated failures then run full candidate validation
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 "${RUNNER_TEMP}/logout-preferences/validate.py"
+      - name: Require permanent Android CI success for this preparation commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 "${RUNNER_TEMP}/logout-preferences/check-permanent-ci.py"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repaired-logout-preferences-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/logout-preferences/
+            ${{ runner.temp }}/resume-regressions/
+            app/build/reports/
+            app/build/test-results/
+            app/build/outputs/androidTest-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Publish tested correction on unchanged dev and retire both temporary workflows
+        shell: python
+        run: |
+          from pathlib import Path
+          import ast, hashlib, json, os, subprocess
+          root=Path(os.environ['RUNNER_TEMP'])
+          red=json.loads((root/'logout-preferences/red/receipt.json').read_text())
+          methods={'logoutPreservesDesktopSettingsExceptAutomaticClipboard','repeatedLogoutKeepsDesktopPreferencesAndClipboardDisabled','logoutNormalizesCorruptEnumsWithoutLosingDesktopQuality'}
+          assert set(red)==methods and all(value['exit_code']!=0 and len(value['observed'])==1 for value in red.values())
+          summary=json.loads((root/'resume-regressions/summary.json').read_text())
+          tree=ast.parse(Path('.github/scripts/run-emulator-regressions.py').read_text())
+          classes=next(ast.literal_eval(node.value) for node in tree.body if isinstance(node,ast.Assign) and any(isinstance(target,ast.Name) and target.id=='classes' for target in node.targets))
+          assert len(classes)==9 and set(summary)==set(classes)
+          assert summary['iecxiv.meshfabric.data.local.SessionStorageSafetyTest']['expected']==7
+          assert all(value['passed']>=value['expected']>0 for value in summary.values())
+          hashes=json.loads((root/'logout-preferences/candidate.json').read_text())
+          expected={'app/src/main/java/iecxiv/meshfabric/data/local/SessionManager.kt','app/src/androidTest/java/iecxiv/meshfabric/data/local/SessionStorageSafetyTest.kt'}
+          assert set(hashes)==expected
+          assert all(hashlib.sha256(Path(path).read_bytes()).hexdigest()==value for path,value in hashes.items())
+          ci=json.loads((root/'logout-preferences/permanent-ci.json').read_text())
+          assert ci['head_sha']==os.environ['GITHUB_SHA'] and ci['status']=='completed' and ci['conclusion']=='success'
+          def git(*args): return subprocess.check_output(['git',*args],text=True).strip()
+          subprocess.run(['git','fetch','origin','dev'],check=True)
+          assert git('rev-parse','HEAD')==git('rev-parse','FETCH_HEAD'),'dev advanced; no publication'
+          assert set(git('diff','--name-only').splitlines())|set(git('ls-files','--others','--exclude-standard').splitlines())==expected
+          old='.github/workflows/validate-logout-preferences.yml'
+          assert git('hash-object',old)=='dd12803accdf1f8aba419709c6c66a3555ee1bf3'
+          temporary={old,'.github/workflows/repair-logout-validation.yml'}
+          for path in temporary: Path(path).unlink()
+          allowed=expected|temporary
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          subprocess.run(['git','diff','--cached','--check'],check=True)
+          assert set(git('diff','--cached','--name-only').splitlines())==allowed
+          body='Permanent Android CI passed for preparation '+ci['head_sha']+'; run '+str(ci['id'])+'. Three isolated pre-correction assertion failures verified.'
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','fix: preserve local desktop preferences on logout','-m',body],check=True)
+          subprocess.run(['git','push','origin','HEAD:dev'],check=True)
