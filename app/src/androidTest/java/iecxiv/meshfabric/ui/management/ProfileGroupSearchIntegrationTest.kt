@@ -70,7 +70,7 @@ class ProfileGroupSearchIntegrationTest {
     private fun open(name:String) {
         directory().performTextReplacement(name)
         query(directory(),name)
-        compose.onNodeWithText(name).assertExists()
+        compose.onNode(hasText(name) and hasTestTag("profile-directory-search-input").not()).assertExists()
         compose.onNodeWithText("Abrir").performScrollTo().performClick()
         directory().assertDoesNotExist()
         toggle().assertDoesNotExist()
