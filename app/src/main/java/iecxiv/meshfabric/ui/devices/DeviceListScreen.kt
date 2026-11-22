@@ -201,7 +201,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
                     Button(onClick={ viewModel.refresh() }) { Text(stringResource(R.string.reload_devices)) }
                 }
             }
-        } else LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp,vertical=8.dp)) {
+        } else LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),contentPadding=PaddingValues(vertical=8.dp)) {
             groups.forEach { (group,nodes)->
                 val groupExpanded = !groupBy || search.isNotBlank() || group.id !in collapsed
                 if (groupBy) item(key="group_${group.id}") {
