@@ -11,8 +11,10 @@ import java.security.MessageDigest
 import java.util.UUID
 
 internal fun generalShareFingerprint(id:String)=MessageDigest.getInstance("SHA-256").digest(id.toByteArray(Charsets.UTF_8)).take(8).joinToString("") {"%02x".format(it.toInt() and 255)}
-internal fun generalShareRevokeList(p:JsonObject,node:String,request:String):List<GeneralShare>? {
-    if(request.isBlank() || p.get("responseid")?.asString!=request) return null
+internal fun generalShareRevokeList(p:JsonObject,node:String,request:String,allowNodeOnly:Boolean=false):List<GeneralShare>? {
+    if(request.isBlank()) return null
+    val rid=p.get("responseid")?.asString.orEmpty()
+    if(rid!=request && !(allowNodeOnly && rid.isBlank() && p.get("nodeid")?.asString==node)) return null
     return generalSharesReply(p,node,request)
 }
 internal fun generalShareRevokePacket(node:String,request:String,actor:String,reviewed:GeneralShare,current:List<GeneralShare>,rights:Long):JsonObject {
@@ -81,7 +83,7 @@ internal class DeviceGeneralShareRevoker(private val source:MeshCentralClient?,p
                 rights=meta.rights;tag="";mode="preflight";if(!read()) fail("connection")
             }
             "deviceShares"->if(mode in setOf("preflight","confirm")) {
-                val shares=generalShareRevokeList(p,node,readId) ?: return
+                val shares=generalShareRevokeList(p,node,readId,true) ?: return
                 readId=""
                 if(mode=="preflight") {
                     val change=runCatching {generalShareRevokePacket(node,writeId,actor,reviewed,shares,rights)}.getOrNull() ?: run {fail("changed");return}

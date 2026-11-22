@@ -11,7 +11,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 
-@Composable internal fun DeviceGeneralNotesAction(node:MeshNode) {
+@Composable internal fun DeviceGeneralNotesAction(node:MeshNode,embedded:Boolean=false,onBack:(()->Unit)?=null) {
+    val openAction=LocalDeviceGeneralActionOpen.current
     val source=LocalDeviceDetailsClient.current
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val connected=source?.connectionState?.collectAsState()?.value==true
@@ -19,8 +20,9 @@ import iecxiv.meshfabric.data.model.MeshNode
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
-        var opened by remember {mutableStateOf(false)}
-        DeviceGeneralActionButton(label=t("Notas","Notes"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_notes"))
+        var opened by remember {mutableStateOf(embedded)}
+        if(!embedded) DeviceGeneralActionButton(label=t("Notas","Notes"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={if(openAction!=null) openAction(node,DeviceGeneralActionKind.NOTES) else opened=true},modifier=Modifier.testTag("general_notes"))
+        fun exit() {if(embedded) onBack?.invoke() else opened=false}
         if(opened) {
             var retry by remember {mutableIntStateOf(0)}
             var draft by remember {mutableStateOf("")}
@@ -47,7 +49,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) editor.start() else editor.close()
                 onDispose {owner.lifecycle.removeObserver(observer);editor.close()}
             }
-            val close:()->Unit={if(dirty || state.phase=="saving") discard=true else opened=false}
+            val close:()->Unit={if(dirty || state.phase=="saving") discard=true else exit()}
             val conflict=initialized && state.original!=null && state.original!=baseline && dirty
             val canSave=editing && dirty && state.canEdit && !conflict && generalNotesValid(draft)
             val status=when {
@@ -60,7 +62,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 state.phase=="error"->t("Conexión o lectura no disponible. El borrador local se conserva.","Connection or read unavailable. The local draft is preserved.")
                 else->""
             }
-            DeviceGeneralFrame(node,close,body={
+            if(!embedded || (!review && !discard && !replace)) DeviceGeneralFrame(node,close,inline=embedded,body={
                 Text(t("Notas del dispositivo; guardado independiente del borrador de General.","Device notes; saved independently of the General draft."),style=MaterialTheme.typography.bodySmall)
                 if(initialized) {
                     if(editing) OutlinedTextField(draft,{draft=it},readOnly=!state.canEdit,minLines=4,maxLines=10,modifier=Modifier.fillMaxWidth().testTag("general_notes_text"))
@@ -77,11 +79,11 @@ import iecxiv.meshfabric.data.model.MeshNode
                 else TextButton(enabled=canSave,onClick={review=true},modifier=Modifier.testTag("general_notes_save")) {Text(t("Revisar guardado","Review save"))}
                 TextButton(onClick=close) {Text(t("Cerrar","Close"))}
             },subtitle=t("Notas","Notes"),tagPrefix="device_notes")
-            if(review) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={review=false},title={Text(if(draft.isEmpty()) t("Eliminar contenido de notas","Clear notes content") else t("Guardar notas","Save notes"))},
+            if(review && (!embedded || (!discard && !replace))) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={review=false},title={Text(if(draft.isEmpty()) t("Eliminar contenido de notas","Clear notes content") else t("Guardar notas","Save notes"))},
                 text={Column {Text(node.name);Text(if(draft.isEmpty()) t("Se enviará un texto vacío para eliminar las notas existentes.","Empty text will be sent to clear existing notes.") else t("Se guardará el texto revisado en el editor.","The text reviewed in the editor will be saved."));Text(t("Se comprobarán de nuevo los permisos y el contenido original antes de enviar.","Permissions and original content will be checked again before sending."))}},
                 confirmButton={TextButton(enabled=canSave,onClick={review=false;editor.save(baseline,draft)}) {Text(t("Guardar","Save"))}},dismissButton={TextButton(onClick={review=false}) {Text(t("Cancelar","Cancel"))}})
-            if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar Notas","Close Notes"))},text={Text(t("Se descartará el borrador local. Cerrar no revierte un guardado ya enviado.","The local draft will be discarded. Closing does not undo an already sent save."))},confirmButton={TextButton(onClick={opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
-            if(replace) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={replace=false},title={Text(t("Descartar borrador","Discard draft"))},text={Text(t("Solo se sustituirá el borrador local por la última lectura recibida. No se enviará un guardado.","Only the local draft will be replaced with the latest received read. No save will be sent."))},confirmButton={TextButton(enabled=state.original!=null,onClick={state.original?.let {baseline=it;draft=it};replace=false}) {Text(t("Descartar borrador","Discard draft"))}},dismissButton={TextButton(onClick={replace=false}) {Text(t("Cancelar","Cancel"))}})
+            if(discard) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={discard=false},title={Text(t("Cerrar Notas","Close Notes"))},text={Text(t("Se descartará el borrador local. Cerrar no revierte un guardado ya enviado.","The local draft will be discarded. Closing does not undo an already sent save."))},confirmButton={TextButton(onClick={exit()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            if(replace && (!embedded || !discard)) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={replace=false},title={Text(t("Descartar borrador","Discard draft"))},text={Text(t("Solo se sustituirá el borrador local por la última lectura recibida. No se enviará un guardado.","Only the local draft will be replaced with the latest received read. No save will be sent."))},confirmButton={TextButton(enabled=state.original!=null,onClick={state.original?.let {baseline=it;draft=it};replace=false}) {Text(t("Descartar borrador","Discard draft"))}},dismissButton={TextButton(onClick={replace=false}) {Text(t("Cancelar","Cancel"))}})
         }
     }
 }

@@ -19,7 +19,9 @@ class SessionManager(context: Context) {
     private val terminalHistoryRoot = File(context.noBackupFilesDir, "terminal_history")
     private val terminalLegacyRoot = File(context.filesDir, "terminal_buffers")
 
-    private val prefs: SharedPreferences = try {
+    private var secureStorage = true
+
+    private fun securePrefs(context: Context): SharedPreferences? = try {
         val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
 
         EncryptedSharedPreferences.create(
@@ -30,7 +32,15 @@ class SessionManager(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
     } catch (e: Exception) {
-        context.getSharedPreferences("meshcentral_fallback_prefs", Context.MODE_PRIVATE)
+        null
+    }
+
+    private val prefs: SharedPreferences = securePrefs(context) ?: run {
+        runCatching { context.deleteSharedPreferences("meshcentral_encrypted_prefs") }
+        securePrefs(context) ?: run {
+            secureStorage = false
+            context.getSharedPreferences("meshcentral_fallback_prefs", Context.MODE_PRIVATE)
+        }
     }
 
     companion object {
@@ -155,6 +165,7 @@ class SessionManager(context: Context) {
     }
 
     fun saveSession(session: SessionData) {
+        if (!secureStorage) return
         prefs.edit()
             .putString(KEY_SERVER_URL, session.serverUrl)
             .putString(KEY_USERNAME, session.username)
@@ -171,6 +182,7 @@ class SessionManager(context: Context) {
     }
 
     fun getSession(): SessionData? {
+        if (!secureStorage) return null
         val isRemembered = prefs.getBoolean(KEY_IS_REMEMBERED, false)
         if (!isRemembered) return null
 
@@ -196,26 +208,28 @@ class SessionManager(context: Context) {
     }
 
     fun clearSession() {
+        val desktop = getDesktopSettings()
+        val barCollapsed = isDesktopBarCollapsed()
         val keepTerminalBuffers = isSaveTerminalBuffersEnabled()
-        val keepOnlineFilter = _onlyOnlineDevicesFlow.value
-        val keepNetworkInfoHidden = _hideDeviceNetworkInfoFlow.value
-        val currentAppName = _appNameFlow.value
-        val currentIconPath = _customIconPathFlow.value
-        val currentTheme = _themeModeFlow.value
-
-        prefs.edit().clear().apply()
-        prefs.edit().putBoolean(KEY_SAVE_TERMINAL_BUFFERS, keepTerminalBuffers)
-            .putBoolean("only_online_devices", keepOnlineFilter)
-            .putBoolean("hide_device_network_info", keepNetworkInfoHidden).apply()
-
-        // Preserve app settings when clearing user session
-        prefs.edit()
-            .putString(KEY_CUSTOM_APP_NAME, currentAppName)
-            .apply()
-        if (currentIconPath != null) {
-            prefs.edit().putString(KEY_CUSTOM_ICON_PATH, currentIconPath).apply()
-        }
-        prefs.edit().putString(KEY_THEME_MODE, currentTheme.name).apply()
+        val editor = prefs.edit().clear()
+            .putBoolean(KEY_SAVE_TERMINAL_BUFFERS, keepTerminalBuffers)
+            .putBoolean("only_online_devices", _onlyOnlineDevicesFlow.value)
+            .putBoolean("hide_device_network_info", _hideDeviceNetworkInfoFlow.value)
+            .putString(KEY_CUSTOM_APP_NAME, _appNameFlow.value)
+            .putString(KEY_THEME_MODE, _themeModeFlow.value.name)
+            .putBoolean(KEY_HIDE_SETTINGS_ICON, _hideSettingsIconFlow.value)
+            .putInt(KEY_DESKTOP_QUALITY, desktop.quality)
+            .putInt(KEY_DESKTOP_SCALE, desktop.scale)
+            .putString(KEY_DESKTOP_FPS, desktop.frameRate.name)
+            .putString(KEY_DESKTOP_ENCODING, desktop.encoding.name)
+            .putBoolean(KEY_DESKTOP_SWAP_MOUSE, desktop.swapMouseButtons)
+            .putBoolean(KEY_DESKTOP_REVERSE_WHEEL, desktop.reverseMouseWheel)
+            .putBoolean(KEY_DESKTOP_REMOTE_KBD, desktop.useRemoteKeyboardMap)
+            .putBoolean(KEY_DESKTOP_AUTO_CLIPBOARD, false)
+            .putBoolean(KEY_DESKTOP_LOCK_DISCONNECT, desktop.lockOnDisconnect)
+            .putBoolean(KEY_DESKTOP_BAR_COLLAPSED, barCollapsed)
+        _customIconPathFlow.value?.let { editor.putString(KEY_CUSTOM_ICON_PATH, it) }
+        editor.apply()
     }
 
     fun saveDesktopSettings(settings: DesktopSettings) {

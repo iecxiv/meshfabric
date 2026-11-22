@@ -20,16 +20,19 @@ import iecxiv.meshfabric.data.model.MeshNode
 import java.text.DateFormat
 import java.util.Date
 
-@Composable internal fun DeviceGeneralShareCreateAction(node:MeshNode,enabled:Boolean,onCreated:()->Unit) {
+@Composable internal fun DeviceSharingCreateScreen(node:MeshNode,rights:Long,onBack:()->Unit,onCreated:()->Unit) {
     val source=LocalDeviceDetailsClient.current
+    val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val context=LocalContext.current
+    val connected=source?.connectionState?.collectAsState()?.value==true && source?.isUserLogout==false
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
-    var opened by remember {mutableStateOf(false)}
-    DeviceGeneralActionButton(t("Crear enlace temporal","Create temporary link"),enabled,{opened=true},Modifier.testTag("general_share_create"))
-    if(opened) {
-        var guest by remember {mutableStateOf("")}
-        var minutes by remember {mutableIntStateOf(15)}
+    key(source,source?.serverUrl,source?.authCookie,actor,node.id) {
+        val zone=remember {java.time.ZoneId.systemDefault()}
+        val initial=remember {shareInitialForm(zone)}
+        var form by remember {mutableStateOf(initial)}
+        val guest=form.guest
+        var formError by remember {mutableStateOf(false)}
         var review by remember {mutableStateOf<GeneralShareCreateDraft?>(null)}
         var writer by remember {mutableStateOf<DeviceGeneralShareCreator?>(null)}
         var discard by remember {mutableStateOf(false)}
@@ -46,21 +49,11 @@ import java.util.Date
             onDispose {owner.lifecycle.removeObserver(observer);creator.close()}
         }}
         LaunchedEffect(state?.phase) {if(state?.phase=="confirmed" && !notified) {notified=true;onCreated()}}
-        val close:()->Unit={if(busy || writer==null && (guest.isNotEmpty() || review!=null)) discard=true else opened=false}
-        DeviceGeneralFrame(node,close,body={
-            Text(t("Enlace de acceso por posesión: la etiqueta del invitado no autentica al destinatario. Solo escritorio en modo consulta, sin terminal ni archivos. Se solicitan aviso y consentimiento remoto.","Bearer access link: the guest label does not authenticate the recipient. View-only desktop, no terminal or files. Remote notification and consent are requested."),style=MaterialTheme.typography.bodySmall)
-            Text(t("Duración limitada, sin recurrencia. Revisa antes de crear. No se envía a nadie ni se copia automáticamente. Un intento por apertura; si el resultado es incierto, recarga Compartir antes de repetir.","Time limited, non-recurring. Review before creating. Not sent to anyone or copied automatically. One attempt per opening; if the outcome is uncertain, reload Share before repeating."),style=MaterialTheme.typography.bodySmall)
-            if(writer==null && review==null) {
-                OutlinedTextField(guest,{guest=it},label={Text(t("Etiqueta del invitado, máximo 128 caracteres","Guest label, up to 128 characters"))},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("general_share_guest"))
-                Row(horizontalArrangement=Arrangement.spacedBy(androidx.compose.ui.unit.Dp(6f))) {listOf(15,30,60).forEach {n->FilterChip(selected=minutes==n,onClick={minutes=n},label={Text("$n min")})}}
-            }
-            review?.let {d->
-                Text(t("Invitado: ","Guest: ")+d.guest)
-                Text(t("Grupo revisado: ","Reviewed group: ")+d.mesh)
-                Text(t("Inicio: ","Start: ")+DateFormat.getDateTimeInstance().format(Date(d.start*1000L)))
-                Text(t("Vencimiento: ","Expiry: ")+DateFormat.getDateTimeInstance().format(Date(d.end*1000L)))
-                Text(t("El horario queda fijado. Si pasan más de dos minutos antes del envío, debes volver a revisar. La utilidad del enlace depende del agente y de las políticas del servidor.","Times are frozen. If more than two minutes pass before sending, review again. Link usability depends on the agent and server policies."),style=MaterialTheme.typography.bodySmall)
-            }
+        val close:()->Unit={if(writer==null && review!=null) review=null else if(busy || writer==null && form!=initial) discard=true else onBack()}
+        if(!discard) DeviceGeneralFrame(node,close,inline=true,body={
+            if(writer==null && review==null) DeviceSharingForm(form,rights,zone,es) {form=it;formError=false}
+            review?.let {DeviceSharingReview(it,form.consent,zone,es)}
+            if(formError) Text(t("Revisa nombre, permisos y fechas (aaaa-MM-dd HH:mm). No se admiten horas pasadas, invertidas, ambiguas o inexistentes. Si la revisión caducó, revisa de nuevo.","Check name, permissions and dates (yyyy-MM-dd HH:mm). Past, reversed, ambiguous or nonexistent times are not accepted. If the review expired, review again."),color=MaterialTheme.colorScheme.error)
             state?.let {s->
                 if(busy) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
                 Text(when(s.phase) {
@@ -76,7 +69,7 @@ import java.util.Date
                 TextButton(onClick={
                     copied=runCatching {
                         val url=requireNotNull(writer?.linkForUserAction());val manager=context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: error("Clipboard unavailable")
-                        val clip=ClipData.newPlainText(t("Acceso temporal","Temporary access"),url)
+                        val clip=ClipData.newPlainText(t("Acceso compartido","Shared access"),url)
                         if(Build.VERSION.SDK_INT>=24) clip.description.extras=PersistableBundle().apply {putBoolean("android.content.extra.IS_SENSITIVE",true)}
                         manager.setPrimaryClip(clip)
                     }.isSuccess
@@ -84,13 +77,13 @@ import java.util.Date
                 if(copied) Text(t("Enlace copiado. El portapapeles contiene una credencial de acceso.","Link copied. The clipboard contains an access credential."),style=MaterialTheme.typography.bodySmall)
             }
         },footer={
-            if(writer==null) TextButton(enabled=generalShareGuestValid(guest),onClick={
-                if(review==null) review=generalShareCreateDraft(guest,node.meshid,minutes,System.currentTimeMillis()/1000L)
-                else writer=DeviceGeneralShareCreator(source,node.id,requireNotNull(review))
+            if(writer==null) TextButton(enabled=(review==null || connected) && generalShareGuestValid(guest.trim()) && generalShareAccessAllowed(rights,form.access),onClick={
+                if(review==null) runCatching {shareFormDraft(form,node.meshid,System.currentTimeMillis()/1000L,zone)}.onSuccess {review=it;formError=false}.onFailure {formError=true}
+                else runCatching {requireNotNull(review).also {generalShareValidateOptions(it,System.currentTimeMillis()/1000L)}}.onSuccess {writer=DeviceGeneralShareCreator(source,node.id,it);formError=false}.onFailure {review=null;formError=true}
             },modifier=Modifier.testTag("general_share_create_confirm")) {Text(if(review==null) t("Revisar enlace","Review link") else t("Crear una vez","Create once"))}
             if(writer==null && review!=null) TextButton(onClick={review=null}) {Text(t("Volver","Back"))}
-            TextButton(onClick=close) {Text(t("Cerrar","Close"))}
-        },subtitle=t("Crear enlace temporal","Create temporary link"),tagPrefix="device_share_create")
-        if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={discard=false},title={Text(t("Cerrar creación","Close creation"))},text={Text(t("Se perderá el borrador o se cerrará el seguimiento. Cerrar no revoca un acceso que ya se haya creado ni borra una copia del portapapeles.","The draft will be lost or monitoring will close. Closing does not revoke an already created entry or erase a clipboard copy."))},confirmButton={TextButton(onClick={writer?.close();opened=false}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
+            TextButton(onClick=close) {Text(t("Volver","Back"))}
+        },subtitle=t("Crear enlace","Create link"),tagPrefix="device_share_create")
+        if(discard) DeviceGeneralActionSurface(embedded=true,onDismissRequest={discard=false},title={Text(t("Cerrar creación","Close creation"))},text={Text(t("Se perderá el borrador o se cerrará el seguimiento. Cerrar no revoca un acceso que ya se haya creado ni borra una copia del portapapeles.","The draft will be lost or monitoring will close. Closing does not revoke an already created entry or erase a clipboard copy."))},confirmButton={TextButton(onClick={writer?.close();onBack()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
     }
 }

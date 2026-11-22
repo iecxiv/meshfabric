@@ -3,10 +3,9 @@ name: Android build and test
 on:
   push:
     branches: [main, dev, desktop-improve]
-    # The publishing workflow validates these workflow-only preparation commits.
-    # Code changes and PRs targeting main still run the complete Android checks.
+    # Keep the isolated historical publisher excluded. CI changes are validated.
+    # Code changes and PRs targeting main run build, unit, lint and UI regressions.
     paths-ignore:
-      - '.github/workflows/android-ci.yml'
       - '.github/workflows/publish-lint-key-routing.yml'
   pull_request:
     branches: [main]
@@ -40,11 +39,12 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
+          cmdline-tools-version: '16111833'
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
 
       - name: Set up Gradle and cache
         uses: gradle/actions/setup-gradle@v4
@@ -75,3 +75,51 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: ignore
           retention-days: 7
+
+  ui-regressions:
+    name: Emulator UI and storage regressions
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute selected regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-regression-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/resume-regressions/
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+          if-no-files-found: error
+          retention-days: 14

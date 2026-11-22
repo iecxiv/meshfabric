@@ -14,7 +14,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 
-@Composable internal fun DeviceManualEventAction(node:MeshNode) {
+@Composable internal fun DeviceManualEventAction(node:MeshNode,embedded:Boolean=false,onBack:(()->Unit)?=null) {
+    val openAction=LocalDeviceGeneralActionOpen.current
     val source=LocalDeviceDetailsClient.current
     val actor=source?.userInfo?.collectAsState()?.value?.id.orEmpty()
     val connected=source?.connectionState?.collectAsState()?.value==true
@@ -22,9 +23,11 @@ import iecxiv.meshfabric.data.model.MeshNode
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     key(source,identity,actor,node.id) {
-        var opened by remember {mutableStateOf(false)}
+        var opened by remember {mutableStateOf(embedded)}
         var history by remember {mutableStateOf(false)}
-        DeviceGeneralActionButton(label=t("Registrar evento","Log event"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={opened=true},modifier=Modifier.testTag("general_log_event"))
+        var discard by remember {mutableStateOf(false)}
+        if(!embedded) DeviceGeneralActionButton(label=t("Registrar evento","Log event"),enabled=connected && actor.isNotBlank() && source?.isUserLogout==false,onClick={if(openAction!=null) openAction(node,DeviceGeneralActionKind.EVENT) else opened=true},modifier=Modifier.testTag("general_log_event"))
+        fun exit() {if(embedded) onBack?.invoke() else opened=false}
         if(opened) {
             var retry by remember {mutableIntStateOf(0)}
             var text by remember {mutableStateOf("")}
@@ -39,6 +42,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) editor.start() else editor.close()
                 onDispose {owner.lifecycle.removeObserver(observer);editor.close()}
             }
+            val close:()->Unit={if(review!=null && !submitted) review=null else if(text.isNotEmpty() || state.phase in setOf("checking","sent")) discard=true else exit()}
             val valid=runCatching {manualEventEncoded(text)}.isSuccess
             val status=when {
                 state.phase=="loading"->t("Verificando identidad, dispositivo y permiso de administración…","Verifying identity, device and management permission…")
@@ -49,9 +53,8 @@ import iecxiv.meshfabric.data.model.MeshNode
                 state.phase=="error"->t("Conexión o verificación interrumpida. No se confirma ningún registro.","Connection or verification interrupted. No event recording is confirmed.")
                 else->""
             }
-            iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={opened=false},title={Text(t("Registrar evento","Log event"))},
-                text={Column(Modifier.fillMaxWidth().heightIn(max=360.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text(node.name,style=MaterialTheme.typography.titleSmall)
+            if(!embedded || (!history && !discard)) DeviceManualEventSurface(node=node,embedded=embedded,onDismissRequest=close,
+                text={Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(t("Añade una entrada manual al historial de este dispositivo. Es independiente del borrador de General.","Adds a manual entry to this device history. Independent of the General draft."),style=MaterialTheme.typography.bodySmall)
                     if(review==null && !submitted) {
                         OutlinedTextField(text,{text=it},label={Text(t("Texto del evento","Event text"))},minLines=2,maxLines=6,enabled=state.canSubmit,modifier=Modifier.fillMaxWidth().testTag("general_event_text"))
@@ -68,9 +71,10 @@ import iecxiv.meshfabric.data.model.MeshNode
                 },modifier=Modifier.testTag("general_event_submit")) {Text(if(review==null) t("Revisar evento","Review event") else t("Enviar evento","Send event"))}},
                 dismissButton={Row {
                     if(review!=null && !submitted) TextButton(onClick={review=null}) {Text(t("Volver","Back"))}
-                    TextButton(onClick={opened=false}) {Text(t("Cerrar","Close"))}
+                    TextButton(onClick=close) {Text(t("Volver","Back"))}
                 }})
+            if(discard) DeviceGeneralActionSurface(embedded=embedded,onDismissRequest={discard=false},title={Text(t("Cerrar Registrar evento","Close Log event"))},text={Text(t("Se perderá el borrador local. Cerrar no revierte un evento ya enviado ni confirma su registro.","The local draft will be lost. Closing does not undo an already sent event or confirm its recording."))},confirmButton={TextButton(onClick={editor.close();exit()}) {Text(t("Cerrar","Close"))}},dismissButton={TextButton(onClick={discard=false}) {Text(t("Volver","Back"))}})
         }
-        if(history) DeviceEventsDialog(node) {history=false}
+        if(history && (!embedded || !discard)) {if(embedded) DeviceReadSubview(node,events=true,onDismiss={history=false}) else DeviceEventsDialog(node) {history=false}}
     }
 }

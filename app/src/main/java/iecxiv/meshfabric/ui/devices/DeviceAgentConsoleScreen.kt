@@ -18,8 +18,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -47,6 +45,7 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
     val cleanNodeId=nodeId.removePrefix("node//").removePrefix("node/").trim()
     val agentVersion=groups.asSequence().flatMap {it.second.asSequence()}.singleOrNull {it.id.removePrefix("node//").removePrefix("node/").trim()==cleanNodeId}
         ?.agent?.ver?.takeIf {it>0}?.toString()
+    val consoleNode=remember(groups,cleanNodeId) {groups.asSequence().flatMap {it.second.asSequence()}.singleOrNull {it.id.removePrefix("node//").removePrefix("node/").trim()==cleanNodeId}}
     val identity=Triple(source.serverUrl,source.authCookie,source.ignoreSsl)
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
@@ -142,16 +141,10 @@ internal val LocalDeviceAgentConsoleOpen=staticCompositionLocalOf<((MeshNode)->U
                     }
                 }
             }})}) {padding->Column(Modifier.fillMaxSize().padding(padding).padding(horizontal=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+            DeviceStatusDecoration(consoleNode,Modifier.fillMaxWidth().padding(horizontal=4.dp),"agent_console_device")
+            HorizontalDivider(Modifier.testTag("agent_console_device_divider"),color=MaterialTheme.colorScheme.outlineVariant)
             Text(t("Versión del agente: ","Agent version: ")+(reportedVersion ?: if(queryingVersion || state.phase in setOf("connecting","checking")) t("Consultando…","Querying…") else t("No disponible","Not available")),style=MaterialTheme.typography.labelSmall,maxLines=1,overflow=TextOverflow.Ellipsis,modifier=Modifier.testTag("agent_console_version"))
-            Row(Modifier.fillMaxWidth().heightIn(min=48.dp).testTag("agent_console_status_row"),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                Text(when(state.phase) {
-                    "connecting","checking"->t("Verificando canal, agente y permiso de consola…","Verifying channel, agent and console permission…")
-                    "checking_send"->t("Reverificando antes de enviar…","Rechecking before sending…")
-                    "ready"->t("Canal verificado","Channel verified")
-                    else->t("Consola desconectada","Console disconnected")
-                },style=MaterialTheme.typography.bodySmall,modifier=Modifier.weight(1f).testTag("agent_console_status"))
-                TextButton(enabled=connected && state.phase=="closed",onClick={if(state.phase=="closed") session.connect()},modifier=if(state.phase=="closed") Modifier.testTag("agent_console_reconnect") else Modifier.alpha(0f).clearAndSetSemantics {}) {Text(t("Reconectar","Reconnect"))}
-            }
+            DeviceConsoleChannelStatus(state.phase,connected) {if(state.phase=="closed") session.connect()}
             if(state.phase=="closed" && state.code.isNotBlank()) {
                 Text(t("Motivo: ","Reason: ")+agentConsoleReasonText(state.code,es),style=MaterialTheme.typography.labelSmall)
                 Text(t("Código técnico: ","Technical code: ")+state.code,style=MaterialTheme.typography.labelSmall)

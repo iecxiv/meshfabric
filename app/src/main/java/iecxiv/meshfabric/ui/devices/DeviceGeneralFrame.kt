@@ -34,21 +34,18 @@ internal val LocalDeviceGeneralClose=staticCompositionLocalOf<(() -> Unit)?> {nu
     subtitle:String="General",
     tagPrefix:String="device_general",
     scrollBody:Boolean=true,
-    onMinimize:(()->Unit)?=null
+    onMinimize:(()->Unit)?=null,
+    inline:Boolean=false
 ) {
     val configuration=LocalConfiguration.current
-    Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false)) {
-        iecxiv.meshfabric.ui.components.AppDialogSurface(
-            shape=iecxiv.meshfabric.ui.components.AppDialogAppearance.shape,
-            color=iecxiv.meshfabric.ui.components.AppDialogAppearance.containerColor(),
-            tonalElevation=iecxiv.meshfabric.ui.components.AppDialogAppearance.tonalElevation,
-            modifier=Modifier.padding(horizontal=16.dp,vertical=24.dp)
-                .widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp)
-                .testTag("${tagPrefix}_surface")
-        ) {
-            Column {
-                Column(Modifier.padding(start=20.dp,end=12.dp,top=12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+    DeviceDetailsFrame(inline=inline,onDismiss=onClose) {
+        DeviceDetailsContentSurface(inline=inline,modifier=if(inline) Modifier.fillMaxSize().testTag("${tagPrefix}_surface") else Modifier.padding(horizontal=16.dp,vertical=24.dp).widthIn(max=600.dp).fillMaxWidth().heightIn(max=(configuration.screenHeightDp*0.88f).dp).testTag("${tagPrefix}_surface")) {
+            Column(if(inline) Modifier.fillMaxSize().imePadding() else Modifier) {
+                Column(Modifier.padding(start=if(inline) 16.dp else 20.dp,end=if(inline) 16.dp else 12.dp,top=if(inline) 0.dp else 12.dp,bottom=12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    if(inline) iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onClose,title={Column {
+                        Text(node.name.ifBlank {stringResource(R.string.unknown_device)})
+                        Text(subtitle,style=MaterialTheme.typography.labelSmall,modifier=Modifier.testTag("${tagPrefix}_subtitle"))
+                    }},backTag="${tagPrefix}_close") else Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.Computer,null,Modifier.size(22.dp),tint=MaterialTheme.colorScheme.primary)
                         Column(Modifier.weight(1f)) {
                             Text(node.name.ifBlank { stringResource(R.string.unknown_device) },style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
@@ -61,23 +58,18 @@ internal val LocalDeviceGeneralClose=staticCompositionLocalOf<(() -> Unit)?> {nu
                             Icon(Icons.Default.Close,stringResource(R.string.device_details_close))
                         }
                     }
-                    Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-                        Surface(shape=RoundedCornerShape(6.dp),color=if(node.isOnline) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
-                            Text(stringResource(if(node.isOnline) R.string.device_details_online else R.string.device_details_offline),
-                                Modifier.padding(horizontal=8.dp,vertical=3.dp),style=MaterialTheme.typography.labelSmall)
-                        }
-                        if(!node.osdesc.isNullOrBlank()) Text(node.osdesc.orEmpty(),Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    DeviceStatusDecoration(node,Modifier.fillMaxWidth())
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
                 val bodyModifier=if(scrollBody) {
-                    Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)
+                    if(inline) Modifier.weight(1f).fillMaxWidth() else Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=12.dp,vertical=8.dp)
                 } else Modifier.weight(1f).fillMaxWidth()
                 CompositionLocalProvider(LocalDeviceGeneralClose provides if(tagPrefix=="device_general") onClose else LocalDeviceGeneralClose.current) {
-                    Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
+                    if(inline && scrollBody) iecxiv.meshfabric.ui.components.CenteredSubviewBody(bodyModifier,body)
+                    else Column(bodyModifier,verticalArrangement=Arrangement.spacedBy(8.dp),content=body)
                 }
                 HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-                Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,
+                Row(Modifier.fillMaxWidth().testTag("${tagPrefix}_footer").padding(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.End,
                     verticalAlignment=Alignment.CenterVertically,content=footer)
             }
         }

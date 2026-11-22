@@ -65,21 +65,25 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
         Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
     }
 }
+@Composable internal fun DeviceGroupDetailsTabs(tab:Int,onSelect:(Int)->Unit) {
+    val es=LocalConfiguration.current.locales[0].language=="es"
+    ManagementSectionTabs(listOf(if(es) "Resumen" else "Summary",if(es) "Dispositivos" else "Devices",if(es) "Accesos" else "Access"),tab) {onSelect(it)}
+}
 @Composable internal fun DeviceGroupDetailsDialog(session:ProfileSession,s:ProfileState,id:String,returningToUser:Boolean,onDismiss:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onOpenUser:((String)->Unit)?=null,onOpenUserGroup:((String)->Unit)?=null,initialTab:Int=0,onTabChanged:(Int)->Unit={},onOpenDevice:((String)->Unit)?=null,canOpenDevice:(String)->Boolean={false},onReviewUserGroupAssignment:((String)->Unit)?=null,onLoadDetails:()->Unit={session.loadGroupDetails()}) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun t(a:String,b:String)=if(es) a else b
     var tab by remember(id,initialTab) { mutableIntStateOf(initialTab.coerceIn(0,2)) }
-    var query by rememberSaveable(id) { mutableStateOf("") }
-    var advanced by remember(id) { mutableStateOf(false) }
-    if(advanced) { DeviceGroupAdvancedEditor(session,s,id) {advanced=false}; return }
+    val search=LocalDeviceGroupSearch.current ?: rememberSaveable(id,saver=DeviceGroupSearchState.Saver) {DeviceGroupSearchState(open=true)}
+    DisposableEffect(search) {onDispose {search.advanced=false}}
+    if(search.advanced) {DeviceGroupAdvancedEditor(session,s,id) {search.advanced=false};return}
     val group=s.groups.firstOrNull { it.optString("_id")==id }
     val live by session.state.collectAsState()
     GroupDetailsAutoLoad(session,id,session.connectionGeneration(),live.ready,live.loading,live.busy,live.readError,live.groups.count {it.optString("_id")==id}==1,onLoadDetails)
+    CompositionLocalProvider(LocalPinnedSubviewHeader provides {if(group!=null) DeviceGroupDetailsTabs(tab) {tab=it;onTabChanged(it)}}) {
     UserActionSurface(inline=LocalDeviceGroupInline.current,onDismissRequest=onDismiss,modifier=Modifier.widthIn(max=640.dp).fillMaxWidth(0.94f),properties=DialogProperties(securePolicy=SecureFlagPolicy.SecureOn,usePlatformDefaultWidth=false),title={Text(group?.optString("name")?.ifBlank { t("Grupo sin nombre","Unnamed group") } ?: t("Grupo no disponible","Group unavailable"))},text={
         Column(Modifier.fillMaxWidth().heightIn(max=(LocalConfiguration.current.screenHeightDp*0.68f).dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(s.busy || s.detailsBusy || s.loading) iecxiv.meshfabric.ui.components.RoutedViewLoadingIndicator(Modifier.fillMaxWidth())
             if(group==null) Text(t("El grupo ya no está disponible en los datos recibidos.","The group is no longer available in the received data.")) else {
-                ManagementSectionTabs(listOf(t("Resumen","Summary"),t("Dispositivos","Devices"),t("Accesos","Access")),tab) {tab=it;onTabChanged(it)}
                 when(tab) {
                     0->{
                         Text(group.optString("desc").ifBlank { t("Sin descripción","No description") },style=MaterialTheme.typography.bodyMedium)
@@ -87,12 +91,12 @@ internal fun profileDisclosureIcon(title:String):androidx.compose.ui.graphics.ve
                         AgentEnrollmentGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)
                         AgentInviteGroupButton(session.invitationSource(),id,s.canWrite && group.optInt("mtype")==2)
                         ProfileGroupActionButton(t("Editar nombre y descripción","Edit name and description"),Icons.Default.Edit,s.canWrite && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick=onEdit)
-                        ProfileGroupActionButton(t("Ajustes avanzados","Advanced settings"),Icons.Default.Tune,s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={advanced=true})
+                        ProfileGroupActionButton(t("Ajustes avanzados","Advanced settings"),Icons.Default.Tune,s.canWrite && !s.detailsBusy && ProfilePermissions.editGroup(s.site,s.rights(group)),onClick={search.advanced=true})
                         ProfileGroupActionButton(t("Eliminar grupo","Delete group"),Icons.Default.Delete,s.canWrite && ProfilePermissions.deleteGroup(s.site,s.rights(group)),dangerous=true,onClick=onDelete)
                     }
                     1->{
-                        OutlinedTextField(query,{query=it.take(256)},label={Text(t("Buscar dispositivo","Search device"))},singleLine=true,modifier=Modifier.fillMaxWidth())
-                        val nodes=s.nodes?.filter { it.optString("meshid")==id && deviceGroupMatches(query,it.optString("name"),it.optString("desc")) }
+                        DeviceGroupSearchField(search,collapsible=LocalDeviceGroupSearch.current!=null)
+                        val nodes=deviceGroupSearchNodes(s.nodes,id,search.query)
                         if(nodes==null) Text(t("Listado de dispositivos no disponible. Usa Actualizar.","Device list unavailable. Use Refresh.")) else {
                             Text("${nodes.size} "+t("dispositivos visibles","visible devices"),style=MaterialTheme.typography.bodySmall)
                             for(node in nodes.take(100)) ListItem(leadingContent={Icon(Icons.Default.Computer,null)},trailingContent={if(onOpenDevice!=null && canOpenDevice(node.optString("_id"))) TextButton(onClick={onOpenDevice(node.optString("_id"))}) {Text(t("Abrir ficha","Open details"))}}) { Text(node.optString("name").ifBlank { t("Dispositivo sin nombre","Unnamed device") },maxLines=2,overflow=TextOverflow.Ellipsis) }
@@ -121,4 +125,5 @@ if(presentation.usable && onReviewUserGroupAssignment!=null && profileAccessAssi
             if(s.readError) Text(t("Datos incompletos: no se habilitan modificaciones.","Incomplete data: changes remain disabled."),color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
         }
     },confirmButton={TextButton(enabled=s.ready && !s.busy && !s.detailsBusy,onClick={onLoadDetails()}){Text(t("Actualizar","Refresh"))}},dismissButton={TextButton(onClick=onDismiss){Text(if(returningToUser) t("Volver al usuario","Back to user") else t("Cerrar","Close"))}})
+    }
 }

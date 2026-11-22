@@ -14,10 +14,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 
 internal val LocalProfileUserInline=staticCompositionLocalOf {false}
+internal val LocalPinnedSubviewHeader=staticCompositionLocalOf<(@Composable ()->Unit)?> {null}
+internal val LocalCenteredDeviceActionBody=staticCompositionLocalOf {false}
 
 @Composable internal fun ProfileUserDetailSurface(inline:Boolean,onDismissRequest:()->Unit,modifier:Modifier=Modifier,properties:DialogProperties=DialogProperties(),title:@Composable ()->Unit,text:@Composable ()->Unit,confirmButton:@Composable ()->Unit,dismissButton:@Composable ()->Unit) {
+    val pinnedHeader=LocalPinnedSubviewHeader.current
     if(!inline) {
-        ManagementDialog(onDismissRequest=onDismissRequest,modifier=modifier,properties=properties,title=title,text=text,confirmButton=confirmButton,dismissButton=dismissButton)
+        CompositionLocalProvider(LocalPinnedSubviewHeader provides null) {
+            ManagementDialog(onDismissRequest=onDismissRequest,modifier=modifier,properties=properties,title={if(pinnedHeader==null) title() else Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {title();pinnedHeader()}},text=text,confirmButton=confirmButton,dismissButton=dismissButton)
+        }
         return
     }
     val context=LocalContext.current
@@ -34,13 +39,17 @@ internal val LocalProfileUserInline=staticCompositionLocalOf {false}
     }
     BackHandler(onBack=onDismissRequest)
     Surface(modifier=Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background,contentColor=MaterialTheme.colorScheme.onBackground) {
+        CompositionLocalProvider(LocalPinnedSubviewHeader provides null) {
         Column(Modifier.fillMaxSize().imePadding().padding(if(LocalNoticeComposeInline.current) managementBottomFlushPadding else managementConnectionContentPadding),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             iecxiv.meshfabric.ui.components.SubviewHeader(onBack=onDismissRequest,title=title,backTag="user-action-back")
-            Box(Modifier.weight(1f).fillMaxWidth()) {text()}
+            pinnedHeader?.invoke()
+            if(LocalCenteredDeviceActionBody.current) iecxiv.meshfabric.ui.components.CenteredSubviewBody(Modifier.weight(1f).fillMaxWidth()) {text()}
+            else iecxiv.meshfabric.ui.components.SubviewBodyViewport(Modifier.weight(1f).fillMaxWidth()) {text()}
             FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp,Alignment.End),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 dismissButton()
                 confirmButton()
             }
+        }
         }
     }
 }

@@ -32,6 +32,8 @@ import iecxiv.meshfabric.ui.theme.MeshCentralTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
+    private val remoteRuntime by lazy { androidx.lifecycle.ViewModelProvider(this)[RemoteSessionRuntime::class.java] }
+    private var runtimeReady = false
 
     internal lateinit var fidoClient: com.yubico.yubikit.fido.android.ui.FidoClient
         private set
@@ -39,7 +41,7 @@ class MainActivity : ComponentActivity() {
     internal var desktopMouseCapture: iecxiv.meshfabric.ui.desktop.DesktopMouseCapture? = null
 
     internal fun desktopPrimaryMouse(point: iecxiv.meshfabric.ui.desktop.DesktopWheelPoint?, phase: iecxiv.meshfabric.ui.desktop.DesktopPrimaryPhase): Boolean =
-        if (::desktopViewModel.isInitialized) desktopViewModel.desktopPrimaryMouse(point, phase) else false
+        if (runtimeReady) desktopViewModel.desktopPrimaryMouse(point, phase) else false
 
     private fun cancelDesktopPointerGesture(downTime: Long, eventTime: Long) {
         val cancel = android.view.MotionEvent.obtain(downTime, eventTime,
@@ -81,40 +83,18 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    private lateinit var sessionManager: SessionManager
-    private lateinit var meshClient: MeshCentralClient
-    private lateinit var desktopClient: DesktopRelayClient
-    private lateinit var terminalClient: TerminalRelayClient
-    private lateinit var fileClient: FileRelayClient
+    private val sessionManager get() = remoteRuntime.sessionManager
+    private val meshClient get() = remoteRuntime.meshClient
+    private val desktopClient get() = remoteRuntime.desktopClient
+    private val terminalClient get() = remoteRuntime.terminalClient
+    private val fileClient get() = remoteRuntime.fileClient
 
-    private lateinit var loginViewModel: LoginViewModel
-    private lateinit var deviceListViewModel: DeviceListViewModel
-    private lateinit var desktopViewModel: RemoteDesktopViewModel
-    private lateinit var terminalViewModel: TerminalViewModel
-    private lateinit var fileManagerViewModel: FileManagerViewModel
-    private lateinit var settingsViewModel: SettingsViewModel
-    private var appInForeground = true
-    private var closingSessions = false
-    private val chatSessionsChanged: () -> Unit = { updateBackgroundSessionService() }
-
-    private fun updateBackgroundSessionService() {
-        if (appInForeground || closingSessions || !::terminalClient.isInitialized ||
-            !::desktopClient.isInitialized || !::fileClient.isInitialized) return
-        val chatCount = DeviceChatKeepAlive.activeCount()
-        val totalActiveSessions = terminalClient.getSessionCount() + desktopClient.getSessionCount() +
-            fileClient.getSessionCount() + chatCount
-        val hasActiveConnected = terminalClient.hasActiveSessions() || desktopClient.hasActiveSessions() ||
-            fileClient.hasActiveSessions() || chatCount > 0
-        val hasDisconnectedSessions = terminalClient.hasDisconnectedWithBuffer() ||
-            desktopClient.hasDisconnectedWithBuffer() || fileClient.hasDisconnectedWithBuffer()
-        if (totalActiveSessions > 0) {
-            KeepAliveService.startService(applicationContext, hasActiveConnected, hasDisconnectedSessions,
-                desktopClient.hasActiveSessions() && chatCount == 0)
-        } else {
-            KeepAliveService.stopService(applicationContext)
-        }
-    }
-
+    private val loginViewModel get() = remoteRuntime.loginViewModel
+    private val deviceListViewModel get() = remoteRuntime.deviceListViewModel
+    private val desktopViewModel get() = remoteRuntime.desktopViewModel
+    private val terminalViewModel get() = remoteRuntime.terminalViewModel
+    private val fileManagerViewModel get() = remoteRuntime.fileManagerViewModel
+    private val settingsViewModel get() = remoteRuntime.settingsViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         fidoClient = com.yubico.yubikit.fido.android.ui.FidoClient(this)
@@ -122,43 +102,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         installDesktopMouseWindowCallback()
 
-        sessionManager = SessionManager(applicationContext)
-        meshClient = MeshCentralClient()
-        desktopClient = DesktopRelayClient()
-        terminalClient = TerminalRelayClient()
-        terminalClient.configureHistory(applicationContext, meshClient, sessionManager)
-        fileClient = FileRelayClient()
-
-        loginViewModel = LoginViewModel(application, meshClient, sessionManager)
-        deviceListViewModel = DeviceListViewModel(meshClient, desktopClient, terminalClient, fileClient, sessionManager)
-        desktopViewModel = RemoteDesktopViewModel(meshClient, desktopClient, sessionManager)
-        terminalViewModel = TerminalViewModel(meshClient, terminalClient)
-        fileManagerViewModel = FileManagerViewModel(meshClient, fileClient)
-        settingsViewModel = SettingsViewModel(sessionManager)
-        DeviceChatKeepAlive.onChanged = chatSessionsChanged
-
-        val isSaveBuffersEnabled = sessionManager.isSaveTerminalBuffersEnabled()
-        terminalClient.initBuffersFromDisk(applicationContext, meshClient, isSaveBuffersEnabled)
-
-        KeepAliveService.onTaskRemovedListener = {
-            closingSessions = true
-            DeviceChatKeepAlive.closeAll()
-            terminalViewModel.cancelPendingReconnections()
-            val isSaveBuffersEnabledOnExit = sessionManager.isSaveTerminalBuffersEnabled()
-            meshClient.disconnect()
-            terminalClient.saveAllBuffersAndClose(applicationContext, isSaveBuffersEnabledOnExit)
-            desktopClient.disconnectAll()
-            fileClient.disconnectAll()
-        }
-
-        MeshFabricApp.onNetworkChangedListener = {
-            meshClient.onNetworkChanged()
-            terminalClient.onNetworkChanged()
-            desktopClient.onNetworkChanged()
-            fileClient.onNetworkChanged()
-            updateBackgroundSessionService()
-        }
-
+        remoteRuntime
+        runtimeReady = true
         setContent {
             val themeMode by sessionManager.themeModeFlow.collectAsState()
             val appName by sessionManager.appNameFlow.collectAsState()
@@ -174,7 +119,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    val navController = rememberNavController()
+                    val navController = rememberSessionNavController(remoteRuntime)
                     MeshCentralNavGraph(
                         navController = navController,
                         loginViewModel = loginViewModel,
@@ -214,36 +159,23 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        appInForeground = true
         iecxiv.meshfabric.ui.management.NoticeVisibility.visible = true
-        KeepAliveService.stopService(applicationContext)
+        remoteRuntime.onForeground()
     }
 
     override fun onResume() {
         super.onResume()
-        val session = sessionManager.getSession()
-        if (session != null && session.serverUrl.isNotBlank() && session.authCookie.isNotBlank()) {
-            if (!meshClient.connectionState.value) {
-                meshClient.connectControlSocket(
-                    rawServerUrl = session.serverUrl,
-                    cookie = session.authCookie,
-                    ignoreSslCert = session.ignoreSsl
-                )
-            }
-        }
+        remoteRuntime.resumeControlConnection()
     }
 
     override fun onStop() {
         desktopMouseCapture?.reset()
-        appInForeground = false
         iecxiv.meshfabric.ui.management.NoticeVisibility.visible = false
         super.onStop()
-        terminalClient.checkpointHistory()
-        updateBackgroundSessionService()
+        remoteRuntime.onBackground()
     }
 
     override fun onDestroy() {
-        if (DeviceChatKeepAlive.onChanged === chatSessionsChanged) DeviceChatKeepAlive.onChanged = null
         desktopWindowKeys?.let { callback ->
             if (window.callback === callback) window.callback = callback.original
         }

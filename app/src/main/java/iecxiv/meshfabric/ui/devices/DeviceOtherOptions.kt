@@ -42,6 +42,9 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
     val es=spanish()
     val actions=LocalDeviceOptionActions.current
     val openConsole=LocalDeviceAgentConsoleOpen.current
+    val openGeneral=LocalDeviceGeneralOpen.current
+    val openEvents=LocalDeviceEventsSubviewOpen.current
+    val openDetails=LocalDeviceDetailsSubviewOpen.current
     var details by rememberSaveable(node.id) { mutableStateOf(false) }
     var general by rememberSaveable(node.id) { mutableStateOf(false) }
     var events by rememberSaveable(node.id) { mutableStateOf(false) }
@@ -50,9 +53,9 @@ internal val LocalDeviceOptionActions=staticCompositionLocalOf { DeviceOptionAct
         val count=if(software) 5 else 4
         val width=((maxWidth-((count-1)*4).dp)/count).coerceAtLeast(76.dp)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).testTag("device_options_row"),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-            DeviceOptionButton(if(es) "General" else "General",Icons.Default.Dashboard,"general",width,true,buttonHeight) { general=true }
-            DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,true,buttonHeight) { events=true }
-            DeviceOptionButton(if(es) "Detalles" else "Details",Icons.Default.Info,"details",width,true,buttonHeight) { details=true }
+            DeviceOptionButton(if(es) "General" else "General",Icons.Default.Dashboard,"general",width,true,buttonHeight) { if(openGeneral!=null) openGeneral(node) else general=true }
+            DeviceOptionButton(if(es) "Eventos" else "Events",Icons.Default.Event,"events",width,true,buttonHeight) { if(openEvents!=null) openEvents(node) else events=true }
+            DeviceOptionButton(if(es) "Detalles" else "Details",Icons.Default.Info,"details",width,true,buttonHeight) { if(openDetails!=null) openDetails(node) else details=true }
             DeviceOptionButton(if(es) "Consola" else "Console",Icons.Default.Code,"console",width,openConsole!=null,buttonHeight) { openConsole?.invoke(node) }
             if(software) DeviceOptionButton("Software",Icons.Default.Apps,"software",width,true) { actions.software?.invoke(node) }
         }

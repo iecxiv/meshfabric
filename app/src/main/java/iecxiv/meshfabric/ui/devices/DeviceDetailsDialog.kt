@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -46,8 +47,10 @@ internal val LocalDeviceDetailsClient = staticCompositionLocalOf<MeshCentralClie
 
 @Composable
 internal fun DeviceDetailsButton(node: MeshNode) {
+    val openDetails=LocalDeviceDetailsSubviewOpen.current
+    val embedded=LocalDeviceDetailsInline.current
     var visible by rememberSaveable(node.id) { mutableStateOf(false) }
-    IconButton(onClick = { visible = true }, modifier = Modifier.offset(x = (-6).dp)) {
+    IconButton(onClick = { if(openDetails!=null && !embedded) openDetails(node) else visible=true }, modifier = Modifier.offset(x = (-6).dp)) {
         Icon(Icons.Default.Info, stringResource(R.string.device_details_open, node.name), modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
     if (visible) DeviceDetailsDialog(node) { visible = false }
@@ -145,11 +148,12 @@ internal fun DeviceDetailsDialog(node: MeshNode, onDismiss: () -> Unit) {
                         if (!node.osdesc.isNullOrBlank()) Text(node.osdesc.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(if (es) "Toca para copiar · Mantén pulsado para copiar el original" else "Tap to copy · Hold to copy the original",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                HorizontalDivider(Modifier.testTag("device_details_header_divider"),color = MaterialTheme.colorScheme.outlineVariant)
                 LazyColumn(Modifier.weight(1f, fill = inline), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                    item(key = "copy_hint") {
+                        Text(if(es) "Toca para copiar · Mantén pulsado para copiar el original" else "Tap to copy · Hold to copy the original",Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp).testTag("device_details_copy_hint"),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     item(key = "inventory_notice") {
                         Text(if (es) "Inventario guardado por MeshCentral; no es una lectura en tiempo real."
                             else "Inventory stored by MeshCentral; not a live reading.", Modifier.padding(horizontal = 8.dp, vertical = 6.dp),

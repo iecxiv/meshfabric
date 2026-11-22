@@ -18,10 +18,12 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import iecxiv.meshfabric.data.model.MeshNode
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun DeviceGeneralDialog(node:MeshNode,onDismiss:()->Unit) {
+@Composable internal fun DeviceGeneralDialog(node:MeshNode,inline:Boolean=false,onDismiss:()->Unit) {
     val es=LocalConfiguration.current.locales[0].language=="es"
     fun text(a:String,b:String)=if(es) a else b
+    val openSharing=LocalDeviceSharingOpen.current
     val source=LocalDeviceDetailsClient.current
+    val connected=source?.connectionState?.collectAsState()?.value==true
     val scope=rememberCoroutineScope()
     val owner=LocalLifecycleOwner.current
     var retry by remember { mutableIntStateOf(0) }
@@ -37,6 +39,8 @@ import iecxiv.meshfabric.data.model.MeshNode
     var invalid by remember(source,identity,node.id) { mutableStateOf(false) }
     var discard by remember(source,identity,node.id) { mutableStateOf(false) }
     var editing by remember(source,identity,node.id) { mutableStateOf<String?>(null) }
+    var suspended by remember(source,identity,node.id) {mutableStateOf(false)}
+    var interruptedWrite by remember(source,identity,node.id) {mutableStateOf(false)}
     val meta=state.meta
     val dirty=initialized && meta!=null && runCatching {!generalMatches(meta,generalDraft(name,tags,description,consent))}.getOrDefault(true)
     LaunchedEffect(meta,state.phase) {
@@ -45,10 +49,20 @@ import iecxiv.meshfabric.data.model.MeshNode
         }
     }
     DisposableEffect(editor,owner) {
-        val observer=LifecycleEventObserver { _,event->if(event==Lifecycle.Event.ON_STOP) editor.close() }
+        val observer=LifecycleEventObserver { _,event->
+            if(event==Lifecycle.Event.ON_STOP) {
+                if(generalInterruptedWrite(editor.state.value.phase,editor.state.value.code)) interruptedWrite=true
+                review=null;suspended=true;editor.close()
+            } else if(event==Lifecycle.Event.ON_RESUME && generalResumeRead(suspended,source?.connectionState?.value==true,true)) {
+                suspended=false;retry++
+            }
+        }
         owner.lifecycle.addObserver(observer)
-        if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) editor.start() else editor.close()
+        if(owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && source?.connectionState?.value==true) editor.start() else {suspended=true;editor.close()}
         onDispose { owner.lifecycle.removeObserver(observer);editor.close() }
+    }
+    LaunchedEffect(connected,owner) {
+        if(generalResumeRead(suspended,connected,owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))) {suspended=false;retry++}
     }
     val close:()->Unit={ if(dirty || state.phase=="saving") discard=true else onDismiss() }
     val code=when(state.code) {
@@ -60,7 +74,7 @@ import iecxiv.meshfabric.data.model.MeshNode
         ""->""
         else->text("Conexión o respuesta no disponible. El borrador local se conserva.","Connection or response unavailable. The local draft is preserved.")
     }
-    DeviceGeneralFrame(node.copy(osdesc=meta?.os ?: node.osdesc),close,
+    DeviceGeneralFrame(node.copy(osdesc=meta?.os ?: node.osdesc),close,inline=inline,
         body={
             if(meta==null) Text(text("Nombre: ","Name: ")+node.name)
             if(meta!=null) {
@@ -81,8 +95,7 @@ import iecxiv.meshfabric.data.model.MeshNode
                 DeviceGeneralRunAction(node)
                 DeviceGeneralMessageAction(node)
                 DeviceGeneralChatAction(node)
-                // Temporarily hidden for 1.3.9; restore when sharing implementation is complete.
-                // DeviceGeneralSharesAction(node)
+                DeviceGeneralActionButton(text("Compartir","Share"),enabled=openSharing!=null && !dirty && state.phase in setOf("ready","confirmed") && meta!=null && generalSharesAllowed(meta.rights),onClick={openSharing?.invoke(node)},modifier=Modifier.testTag("general_shares"))
             }
             DevicePowerSection(node.id)
             DeviceAuthorizationSection(node.id,meta?.mesh.orEmpty())
@@ -93,9 +106,10 @@ import iecxiv.meshfabric.data.model.MeshNode
             if(state.phase=="confirmed") Text(text("Guardado confirmado por relectura.","Save confirmed by re-reading."),modifier=Modifier.testTag("general_saved"))
             if(code.isNotEmpty()) Text(code,color=MaterialTheme.colorScheme.error)
             if(invalid) Text(text("Revisa el nombre, las etiquetas, la descripción y el consentimiento.","Check the name, tags, description and consent."),color=MaterialTheme.colorScheme.error)
-            TextButton(onClick={ retry++ },enabled=state.phase!="saving") { Text(text("Recargar datos y permisos","Reload device data and permissions")) }
+            if(interruptedWrite) Text(text("Guardado interrumpido: resultado sin confirmar. No se reenviará. Comprueba los datos y recarga explícitamente antes de revisar otro guardado.","Save interrupted: outcome unconfirmed. It will not be resent. Check the data and explicitly reload before reviewing another save."),color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("general_interrupted_write"))
+            TextButton(onClick={ interruptedWrite=false;review=null;retry++ },enabled=state.phase!="saving") { Text(text("Recargar datos y permisos","Reload device data and permissions")) }
         },
-        footer={ TextButton(enabled=state.canEdit && dirty,onClick={
+        footer={ TextButton(enabled=state.canEdit && dirty && !interruptedWrite,onClick={
             runCatching { generalDraft(name,tags,description,consent) }.onSuccess { review=it }.onFailure { invalid=true }
         },modifier=Modifier.testTag("general_save")) { Text(text("Revisar guardado","Review save")) }
             TextButton(onClick=close) { Text(text("Cerrar","Close")) }
@@ -127,7 +141,7 @@ import iecxiv.meshfabric.data.model.MeshNode
             Text(text("Consentimiento propio del dispositivo: ","Device-specific consent: ")+generalConsentLabel(draft.consent ?: consent,es))
             Text(text("Etiquetas: ","Tags: ")+draft.tags.joinToString(", "))
         } },
-        confirmButton={ TextButton(enabled=state.canEdit,onClick={ review=null;editor.save(draft) }) { Text(text("Guardar","Save")) } },
+        confirmButton={ TextButton(enabled=state.canEdit && !interruptedWrite,onClick={ review=null;editor.save(draft) }) { Text(text("Guardar","Save")) } },
         dismissButton={ TextButton(onClick={ review=null }) { Text(text("Cancelar","Cancel")) } }) }
     if(discard) iecxiv.meshfabric.ui.components.AppAlertDialog(onDismissRequest={ discard=false },
         title={ Text(text("Cerrar General","Close General"),fontSize=18.sp,fontWeight=FontWeight.Bold) },

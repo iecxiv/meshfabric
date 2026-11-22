@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class LoginViewModel(
     application: Application,
@@ -94,6 +96,22 @@ class LoginViewModel(
         }
     }
 
+    private suspend fun verifyControlSession(url: String, cookie: String, ssl: Boolean): Boolean {
+        meshClient.connectControlSocket(
+            rawServerUrl = url,
+            cookie = cookie,
+            ignoreSslCert = ssl
+        )
+        return withTimeoutOrNull(15_000L) {
+            meshClient.userInfo.first { it?.id?.isNotBlank() == true }
+        } != null
+    }
+
+    private fun verificationError(): String =
+        if (getApplication<Application>().resources.configuration.locales[0].language == "es")
+            "No se pudo verificar la sesión con el servidor. Comprueba las credenciales y vuelve a intentarlo."
+        else "The session could not be verified with the server. Check your credentials and try again."
+
     fun login() {
         fidoLogin.cancel()
         val url = serverUrl.value.trim()
@@ -122,11 +140,17 @@ class LoginViewModel(
             ignoreSslCert = ssl
         ) { result ->
             viewModelScope.launch {
-                _isLoading.value = false
                 when (result) {
                     is AuthResult.Success -> {
+                        val verified = result.authCookie.isNotBlank() &&
+                            verifyControlSession(url, result.authCookie, ssl)
+                        _isLoading.value = false
+                        if (!verified) {
+                            meshClient.disconnect()
+                            _errorMessage.value = verificationError()
+                            return@launch
+                        }
                         _requires2FA.value = false
-                        _loginSuccess.value = true
 
                         if (rememberMe.value) {
                             sessionManager.saveSession(
@@ -139,19 +163,15 @@ class LoginViewModel(
                                 )
                             )
                         }
-
-                        // Connect control WebSocket
-                        meshClient.connectControlSocket(
-                            rawServerUrl = url,
-                            cookie = result.authCookie,
-                            ignoreSslCert = ssl
-                        )
+                        _loginSuccess.value = true
                     }
                     is AuthResult.Requires2FA -> {
+                        _isLoading.value = false
                         _requires2FA.value = true
                         _errorMessage.value = result.message
                     }
                     is AuthResult.Error -> {
+                        _isLoading.value = false
                         _errorMessage.value = result.message
                     }
                 }
