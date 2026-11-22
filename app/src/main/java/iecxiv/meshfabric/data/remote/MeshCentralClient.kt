@@ -78,7 +78,8 @@ class MeshCentralClient {
     private val _userInfo = MutableStateFlow<UserInfo?>(null)
     val userInfo: StateFlow<UserInfo?> = _userInfo.asStateFlow()
 
-    private val meshesMap = ConcurrentHashMap<String, MeshGroup>()
+    @Volatile private var meshesMap = ConcurrentHashMap<String, MeshGroup>()
+    private val meshSnapshots = MeshSnapshotRequests()
     @Volatile private var nodesMap = ConcurrentHashMap<String, MeshNode>()
     private val nodeSnapshots = NodeSnapshotRequests()
 
@@ -220,6 +221,7 @@ class MeshCentralClient {
             val epoch=controlGeneration.advance()
             nodeNetworkInfo.connectionChanged()
             nodeSnapshots.reset()
+            meshSnapshots.reset()
             cancelControlWork()
             controlTimeout?.cancel()
             controlTimeout=null
@@ -323,7 +325,7 @@ class MeshCentralClient {
 
     fun requestServerData() {
         webSocket?.send("""{"action":"userinfo"}""")
-        webSocket?.send("""{"action":"meshes"}""")
+        sendMeshSnapshotRequest(webSocket)
         sendNodeSnapshotRequest(webSocket)
         webSocket?.send("""{"action":"authcookie"}""")
     }
@@ -410,10 +412,40 @@ class MeshCentralClient {
                 updateGroupedDevices()
                 if(meshesMap.isEmpty()) launchControlWork { socket ->
                     delay(300)
-                    socket?.send("""{"action":"meshes"}""")
+                    sendMeshSnapshotRequest(socket)
                 }
                 return true
             }
+        }
+    }
+
+    private fun sendMeshSnapshotRequest(socket: WebSocket?) {
+        controlGeneration.locked {
+            if(socket==null || socket!==webSocket || isUserLogout) return@locked
+            socket.send(meshSnapshots.request().toString())
+        }
+    }
+    private fun applyCompleteMeshSnapshot(packet: JsonObject): Boolean {
+        when(meshSnapshots.mode(packet)) {
+            MeshSnapshotRequests.Mode.LEGACY -> return false
+            MeshSnapshotRequests.Mode.IGNORE -> return true
+            MeshSnapshotRequests.Mode.COMPLETE -> {
+                val snapshot=CompleteMeshSnapshot.decode(packet.get("meshes"),gson) ?: run {
+                    iecxiv.meshfabric.diagnostics.AppDiagnostics.fault("MeshCentralClient","Invalid complete mesh snapshot; groups preserved")
+                    return true
+                }
+                meshesMap=ConcurrentHashMap(snapshot)
+                meshSnapshots.accept(packet)
+                updateGroupedDevices()
+                return true
+            }
+        }
+    }
+    private fun refreshGroupInventory() {
+        launchControlWork { socket ->
+            delay(100)
+            sendMeshSnapshotRequest(socket)
+            sendNodeSnapshotRequest(socket)
         }
     }
 
@@ -451,6 +483,7 @@ class MeshCentralClient {
                     }
                 }
                 "meshes" -> {
+                    if (applyCompleteMeshSnapshot(json)) return
                     val meshesElem = json.get("meshes")
                     if (meshesElem != null) {
                         if (meshesElem.isJsonObject) {
@@ -523,7 +556,7 @@ class MeshCentralClient {
                         if (meshesMap.isEmpty()) {
                             launchControlWork { webSocket ->
                                 delay(300)
-                                webSocket?.send("""{"action":"meshes"}""")
+                                sendMeshSnapshotRequest(webSocket)
                             }
                         }
                     }
@@ -535,12 +568,15 @@ class MeshCentralClient {
                         sendNodeSnapshotRequest(webSocket)
                     }
                 }
+                "meshchange", "createmesh", "deletemesh" -> refreshGroupInventory()
                 "event" -> {
                     val eventObj=json.get("event")?.takeIf { it.isJsonObject }?.asJsonObject
                     if (eventObj != null) {
                         val eventAction=NodeEventConnectivity.action(eventObj)
                         val nodeId=NodeEventConnectivity.nodeId(eventObj).orEmpty()
-                        if (nodeId.isNotEmpty() || eventAction.contains("node",ignoreCase=true)) {
+                        if (eventAction in setOf("meshchange","createmesh","deletemesh")) {
+                            refreshGroupInventory()
+                        } else if (nodeId.isNotEmpty() || eventAction.contains("node",ignoreCase=true)) {
                             iecxiv.meshfabric.diagnostics.AppDiagnostics.trace(3,"MeshCentralClient","MeshCentralClient.kt:node-event") { "Node event received: $eventAction for $nodeId" }
                             applyNodeConnectivityEvent(eventObj)
                             launchControlWork { webSocket ->
@@ -637,7 +673,7 @@ class MeshCentralClient {
                 delay(10000)
                 if (_connectionState.value && webSocket != null) {
                     sendNodeSnapshotRequest(webSocket)
-                    webSocket?.send("""{"action":"meshes"}""")
+                    sendMeshSnapshotRequest(webSocket)
                 }
             }
         }
