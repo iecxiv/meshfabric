@@ -1,4 +1,4 @@
-name: Update dev READMEs for notice continuity
+name: Update dev READMEs for search and validation
 on:
   push:
     branches: [dev]
@@ -19,61 +19,67 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
-      - name: Update only the reviewed README content
+      - name: Read complete files and apply only reviewed substitutions
+        shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           import hashlib,re
-          hashes={'README.md':'0ca4880cd1e91654b4ffef1988f3383bc13e2f3e','README_ES.md':'30c81f6b661277cacb7bcc9361a73ecbb674225f'}
-          additions={'README.md':'''### Connection status and dialog stability
+          hashes={'README.md':'2290f91870f5ea4db85c01ffbed4276c2b4e9287','README_ES.md':'c648856c9a757d6c7e10e133fd0a3806a9388cd3'}
+          additions={'README.md':'''### Management search and local preferences
           
-          - Shared management-channel indicators keep the same bounds across connecting, connected and disconnected states at the same available width and font scale. Reconnect is integrated into the disconnected text rather than added as a separate side button. Hidden state labels are excluded from accessibility semantics.
-          - Broadcast and Messages use the shared status/content spacing rather than adding a separate vertical inset around the status.
-          - Management no longer inserts a temporary previous-data banner above its section tabs. Connection state remains in the existing indicator, and actions remain blocked when current data or authorization is unavailable.
-          - Device-group details load automatically once per open group and real connection generation after the required state is available. Completing that load does not start another load; Refresh remains an explicit action.
-          - Continuity is not unlimited restoration: changing identity, permissions, inventory or selection can invalidate context. Sensitive confirmations keep their own safety rules, and dialog state is not restored after process death.
+          - Directory search opens and closes from the header and accepts up to 256 characters.
+          - Device search inside a group is scoped to that group's devices. Each group retains its own query across trips back to the directory, whose filter is preserved separately.
+          - Group search is hidden on Access and Summary; returning to Devices restores its query. Back first closes an open group device search; another Back returns to the directory.
+          - Signing out preserves local application preferences; it does not preserve an authenticated session.
           
-          ''','README_ES.md':'''### Estado de conexión y estabilidad de diálogos
+          Full-screen search integration tests cover section changes, Back navigation and input limits, including a font scale of 1.8. The permanent regression suite includes eleven instrumentation classes, and the maintainer reports both CI jobs passing for the search correction. Controlled session data does not validate live-server permissions or delivery.
           
-          - Los indicadores compartidos del canal de gestión conservan las mismas dimensiones entre conectando, conectado y desconectado para un mismo ancho disponible y escala de fuente. Reconectar se integra en el texto desconectado, sin añadir un botón lateral. Los textos de estados ocultos quedan fuera de la semántica de accesibilidad.
-          - Broadcast y Mensajes utilizan el espaciado compartido entre estado y contenido, sin añadir un margen vertical propio alrededor del indicador.
-          - Gestión ya no inserta un aviso temporal de datos anteriores por encima de sus pestañas. El estado se muestra en el indicador existente y las acciones permanecen bloqueadas si faltan datos actuales o autorización.
-          - La ficha de grupo de dispositivos realiza una carga automática por grupo abierto y generación real de conexión, cuando están disponibles los datos necesarios. Terminar esa carga no dispara otra; Actualizar sigue siendo una acción explícita.
-          - La continuidad no es restauración ilimitada: cambios de identidad, permisos, inventario o selección pueden invalidar el contexto. Las confirmaciones sensibles mantienen sus reglas y los diálogos no se restauran tras morir el proceso.
+          The maintainer confirms manual sign-in, Sharing and return from the background to remote desktop and terminal in the tested environment. Restricted-role permissions, event reception and inventory updates still require live-server checks. These reports do not cover every server/device, file-manager resume or process-death recovery. See [Management and validation scope](docs/profile.md).
+          
+          ''','README_ES.md':'''### Búsqueda en Gestión y preferencias locales
+          
+          - La búsqueda del directorio se abre y cierra desde la cabecera y admite hasta 256 caracteres.
+          - La búsqueda dentro de un grupo filtra únicamente sus dispositivos. Cada grupo conserva su consulta al volver al directorio, cuyo filtro se mantiene por separado.
+          - La búsqueda del grupo se oculta en Accesos y Resumen; regresar a Dispositivos recupera su consulta. Atrás primero cierra la búsqueda de dispositivos del grupo abierta; otra pulsación vuelve al directorio.
+          - Cerrar sesión conserva las preferencias locales de la aplicación, no una sesión autenticada.
+          
+          Las pruebas de integración de pantalla completa cubren cambios de sección, navegación con Atrás y límites de entrada, también con escala de fuente de 1,8. La suite permanente incluye once clases instrumentadas y el mantenedor confirma ambos jobs de CI en verde para la corrección de búsqueda. Los datos de sesión controlados no validan permisos ni entrega contra un servidor real.
+          
+          El mantenedor confirma manualmente el inicio de sesión, Compartir y el retorno desde segundo plano al escritorio remoto y al terminal en el entorno probado. Los permisos con roles restringidos, la recepción de eventos y la actualización de inventarios siguen pendientes de comprobación contra el servidor real. Estas confirmaciones no cubren todos los servidores/dispositivos, el retorno al gestor de archivos ni la recuperación tras morir el proceso. Consulta [Gestión y alcance de validación](docs/es/profile.md).
           
           '''}
-          activity={
-              'README.md':('- The activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.','- The activity journal retains up to 200 entries in memory. It is a session-level view, not a persistent or complete server audit-log archive.\n- A control-channel interruption preserves received entries and marks pending action results unknown without automatic resending. Logout, owner destruction or process death can clear this journal; persistent received notices belong to the separate Notices inbox.'),
-              'README_ES.md':('- Hasta 200 entradas en memoria: es una vista de la sesión, no un archivo persistente ni completo de auditoría del servidor.','- Hasta 200 entradas en memoria: es una vista de la sesión, no un archivo persistente ni completo de auditoría del servidor.\n- Una interrupción del canal conserva las entradas recibidas y marca resultados pendientes como desconocidos, sin reenviar automáticamente. Cerrar sesión, destruir su propietario o terminar el proceso puede borrar este diario; los avisos recibidos persistentes pertenecen a la bandeja independiente de Avisos.')
+          sharing={
+              'README.md':('- Device sharing is hidden while its implementation is incomplete.','- Device sharing is available subject to server capabilities and account permissions. Manual use is confirmed in the maintainer\'s tested environment; restricted-role scenarios remain to be checked.'),
+              'README_ES.md':('- Compartir permanece oculto mientras su implementación está incompleta.','- Compartir está disponible según las capacidades del servidor y los permisos de la cuenta. El mantenedor confirma su uso manual en el entorno probado; siguen pendientes los escenarios con roles restringidos.')
           }
-          acceptance={
-              'README.md':'\nThe Notices and dialog-continuity acceptance checklist remains a manual device/server check: verify saved unread/read state after reopening, account/server isolation, Android-alert dismissal, deletion persistence, background/resume navigation and stable status transitions. Automated success is not proof of these physical-device or delivery scenarios.\n',
-              'README_ES.md':'\nLa aceptación de Avisos y continuidad de diálogos sigue requiriendo comprobación manual en dispositivo/servidor: lectura y no leídos al reabrir, separación de cuentas/servidores, descarte de alertas Android, persistencia del borrado, navegación al volver de segundo plano y transiciones de estado sin desplazamientos. El éxito automatizado no demuestra esos escenarios físicos ni la entrega.\n'
-          }
+          updates={}
           for name,sha in hashes.items():
               p=Path(name);raw=p.read_bytes()
-              if hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()!=sha: raise SystemExit(name+' changed; review required')
-              text=raw.decode()
-              marker='### Agent installation and invitations' if name=='README.md' else '### Instalación de agentes e invitaciones'
-              if text.count(marker)!=1: raise SystemExit('Section anchor changed')
-              text=text.replace(marker,additions[name]+marker,1)
-              old,new=activity[name]
-              if text.count(old)!=1: raise SystemExit('Activity anchor changed')
-              text=text.replace(old,new,1)
-              marker='## Technology' if name=='README.md' else '## Tecnología'
-              if text.count(marker)!=1: raise SystemExit('Verification anchor changed')
-              text=text.replace(marker,acceptance[name]+'\n'+marker,1)
-              for target in re.findall(r'\]\(([^)]+)\)',text):
+              actual=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+              if actual!=sha: raise SystemExit(name+' changed; review required')
+              text=raw.decode('utf-8')
+              marker='### Security keys (FIDO2/WebAuthn)' if name=='README.md' else '### Llaves de seguridad (FIDO2/WebAuthn)'
+              old,new=sharing[name]
+              if text.count(marker)!=1 or text.count(old)!=1: raise SystemExit(name+': section or sharing anchor changed')
+              updated=text.replace(marker,additions[name]+marker,1).replace(old,new,1)
+              restored=updated.replace(additions[name]+marker,marker,1).replace(new,old,1)
+              if restored.encode('utf-8')!=raw: raise SystemExit(name+': unexpected content change')
+              for target in re.findall(r'\]\(([^)]+)\)',updated):
                   if '://' in target or target.startswith('#'): continue
                   target=target.split('#',1)[0]
                   if target and not (p.parent/target).exists(): raise SystemExit('Broken link: '+target)
-              p.write_text(text)
+              updates[p]=updated.encode('utf-8')
+              print(name+': complete input verified; only reviewed additions and sharing sentence changed')
+          for p,raw in updates.items(): p.write_bytes(raw)
           PY
           git diff --check
+          git diff -- README.md README_ES.md
       - name: Publish README files only on unchanged dev
         env:
           EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
         run: |
           set -euo pipefail
           git fetch origin dev
@@ -87,5 +93,5 @@ jobs:
           PY
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git commit -m "Update EN and ES READMEs for stable connection status and dialog continuity"
+          git commit -m "docs: align EN and ES READMEs with management search and validation"
           git push origin HEAD:refs/heads/dev
