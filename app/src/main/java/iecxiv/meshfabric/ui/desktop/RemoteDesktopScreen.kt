@@ -171,6 +171,9 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
         viewModel.startSession(nodeId)
         onDispose { viewModel.pauseSession(nodeId) }
     }
+    DesktopResumeRefreshEffect(nodeId, androidx.lifecycle.compose.LocalLifecycleOwner.current) {
+        viewModel.resumeSession(nodeId)
+    }
     DesktopAutoClipboard(nodeId = nodeId, enabled = settings.autoClipboard, connected = isConnected, viewModel = viewModel)
     LaunchedEffect(showClipboardDialog) {
         if (showClipboardDialog) viewModel.requestRemoteClipboard(nodeId)

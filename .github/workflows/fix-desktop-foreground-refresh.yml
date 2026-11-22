@@ -1,0 +1,239 @@
+name: Validate desktop foreground refresh
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-desktop-foreground-refresh.yml]
+permissions:
+  contents: write
+concurrency:
+  group: desktop-foreground-refresh-publication
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare narrowly scoped candidate and regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          screen=Path('app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt')
+          runner=Path('.github/scripts/run-emulator-regressions.py')
+          helper=screen.with_name('DesktopResumeRefreshEffect.kt')
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopForegroundRefreshTest.kt')
+          for p,sha in [(screen,'ba2bd0ef8be6cc418c25d3cd360e12f31335855e'),(runner,'a21dba02c8ea926f7ba57230fb9bd22309bf104b')]:
+              if subprocess.check_output(['git','hash-object',str(p)],text=True).strip()!=sha: raise SystemExit(str(p)+' changed; review required')
+          if helper.exists() or test.exists(): raise SystemExit('New helper or test already exists; review required')
+          old='    DesktopAutoClipboard(nodeId = nodeId, enabled = settings.autoClipboard, connected = isConnected, viewModel = viewModel)'
+          text=screen.read_text()
+          if text.count(old)!=1: raise SystemExit('Desktop binding anchor changed')
+          screen.write_text(text.replace(old,'''    DesktopResumeRefreshEffect(nodeId, androidx.lifecycle.compose.LocalLifecycleOwner.current) {
+                  viewModel.resumeSession(nodeId)
+              }
+          '''+old,1))
+          helper.write_text('''package iecxiv.meshfabric.ui.desktop
+          
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.DisposableEffect
+          import androidx.compose.runtime.rememberUpdatedState
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.LifecycleEventObserver
+          import androidx.lifecycle.LifecycleOwner
+          
+          @Composable
+          internal fun DesktopResumeRefreshEffect(sessionKey: String, owner: LifecycleOwner, onResume: () -> Unit) {
+              val currentResume = rememberUpdatedState(onResume)
+              DisposableEffect(sessionKey, owner) {
+                  var paused = false
+                  val observer = LifecycleEventObserver { _, event ->
+                      when (event) {
+                          Lifecycle.Event.ON_PAUSE -> paused = true
+                          Lifecycle.Event.ON_RESUME -> if (paused) {
+                              paused = false
+                              currentResume.value()
+                          }
+                          Lifecycle.Event.ON_DESTROY -> paused = false
+                          else -> Unit
+                      }
+                  }
+                  owner.lifecycle.addObserver(observer)
+                  onDispose { owner.lifecycle.removeObserver(observer) }
+              }
+          }
+          ''')
+          test.write_text('''package iecxiv.meshfabric.ui.desktop
+          
+          import android.graphics.Color
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import androidx.lifecycle.Lifecycle
+          import androidx.lifecycle.LifecycleOwner
+          import androidx.lifecycle.LifecycleRegistry
+          import iecxiv.meshfabric.data.remote.DesktopSession
+          import iecxiv.meshfabric.data.remote.MeshCentralClient
+          import kotlinx.coroutines.CoroutineScope
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.Job
+          import kotlinx.coroutines.cancel
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import okhttp3.Request
+          import okhttp3.WebSocket
+          import okio.ByteString
+          import org.junit.Assert.*
+          import org.junit.Rule
+          import org.junit.Test
+          
+          class DesktopForegroundRefreshTest {
+              @get:Rule val compose = createComposeRule()
+              private class Owner : LifecycleOwner {
+                  val registry = LifecycleRegistry(this)
+                  override val lifecycle: Lifecycle get() = registry
+              }
+              private class Socket : WebSocket {
+                  val packets = mutableListOf<ByteString>()
+                  override fun request(): Request = Request.Builder().url("https://example.invalid/").build()
+                  override fun queueSize(): Long = 0L
+                  override fun send(text: String): Boolean = true
+                  override fun send(bytes: ByteString): Boolean { packets.add(bytes); return true }
+                  override fun close(code: Int, reason: String?): Boolean = true
+                  override fun cancel() = Unit
+                  fun refreshes() = packets.count { it.hex() == "00060004" }
+              }
+              private fun resumedOwner(): Owner {
+                  lateinit var owner: Owner
+                  compose.runOnIdle { owner = Owner(); owner.registry.currentState = Lifecycle.State.RESUMED }
+                  return owner
+              }
+              private fun cycle(owner: Owner) {
+                  compose.runOnIdle { owner.registry.currentState = Lifecycle.State.CREATED }
+                  compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
+              }
+              @Test fun refreshesOncePerResumeNotOnInitialAttachmentAndStopsAfterDisposal() {
+                  val owner = resumedOwner()
+                  val showing = mutableStateOf(true)
+                  var calls = 0
+                  compose.setContent { if (showing.value) DesktopResumeRefreshEffect("desktop", owner) { calls++ } }
+                  compose.runOnIdle { assertEquals(0, calls) }
+                  cycle(owner)
+                  compose.runOnIdle { assertEquals(1, calls) }
+                  cycle(owner)
+                  compose.runOnIdle { assertEquals(2, calls); showing.value = false }
+                  compose.waitForIdle()
+                  cycle(owner)
+                  compose.runOnIdle { assertEquals(2, calls) }
+              }
+              @Test fun actualSessionSendsFullRefreshAndPreservesRetainedBitmapAcrossResume() {
+                  val owner = resumedOwner()
+                  val scope = CoroutineScope(Dispatchers.Unconfined + Job())
+                  val mesh = MeshCentralClient().apply { isUserLogout = true }
+                  val session = DesktopSession("foreground-fixture", mesh, scope)
+                  val socket = Socket()
+                  try {
+                      compose.runOnIdle {
+                          session.isUserDisconnect = false
+                          session.webSocket = socket
+                          @Suppress("UNCHECKED_CAST")
+                          val connected = DesktopSession::class.java.getDeclaredField("_connectionState").apply { isAccessible = true }.get(session) as MutableStateFlow<Boolean>
+                          connected.value = true
+                          DesktopSession::class.java.getDeclaredMethod("initCanvas", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType).apply { isAccessible = true }.invoke(session, 4, 4)
+                          requireNotNull(session.desktopBitmap.value).eraseColor(Color.GREEN)
+                      }
+                      val retained = requireNotNull(session.desktopBitmap.value)
+                      compose.setContent { DesktopResumeRefreshEffect("desktop", owner) { session.resumeSession() } }
+                      compose.runOnIdle { assertEquals(0, socket.refreshes()) }
+                      cycle(owner)
+                      compose.runOnIdle {
+                          assertEquals(1, socket.refreshes())
+                          assertSame(retained, session.desktopBitmap.value)
+                          assertEquals(Color.GREEN, retained.getPixel(3, 3))
+                          assertSame(socket, session.webSocket)
+                      }
+                      cycle(owner)
+                      compose.runOnIdle {
+                          assertEquals(2, socket.refreshes())
+                          assertSame(retained, session.desktopBitmap.value)
+                          assertEquals(Color.GREEN, retained.getPixel(0, 0))
+                      }
+                  } finally {
+                      compose.runOnIdle { session.isUserDisconnect = true; session.webSocket = null }
+                      scope.cancel()
+                      (MeshCentralClient::class.java.getDeclaredField("scope").apply { isAccessible = true }.get(mesh) as CoroutineScope).cancel()
+                  }
+              }
+          }
+          ''')
+          text=runner.read_text()
+          if text.count('classes=[')!=1: raise SystemExit('CI class-list anchor changed')
+          runner.write_text(text.replace('classes=[',"classes=['iecxiv.meshfabric.ui.desktop.DesktopForegroundRefreshTest',",1))
+          PY
+          git diff --check
+      - name: Build, compile instrumentation, unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute all permanent regressions including desktop foreground refresh
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - name: Publish validated candidate only on unchanged dev
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          allowed={'.github/scripts/run-emulator-regressions.py','app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopResumeRefreshEffect.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopForegroundRefreshTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected changed files: '+repr(changed))
+          subprocess.run(['git','add','--',*sorted(allowed)],check=True)
+          PY
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix(desktop): refresh retained desktop on foreground resume"
+          git push origin HEAD:refs/heads/dev
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-foreground-refresh-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+            ${{ runner.temp }}/resume-regressions/
+          if-no-files-found: warn
+          retention-days: 14
