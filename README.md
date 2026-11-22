@@ -62,6 +62,17 @@ Availability depends on the MeshCentral server, account permissions, remote agen
 
 Guides: [Management](docs/profile.md), [My Account](docs/profile-native.md), [User and access administration](docs/profile-user-administration.md).
 
+### Management search and local preferences
+
+- Directory search opens and closes from the header and accepts up to 256 characters.
+- Device search inside a group is scoped to that group's devices. Each group retains its own query across trips back to the directory, whose filter is preserved separately.
+- Group search is hidden on Access and Summary; returning to Devices restores its query. Back first closes an open group device search; another Back returns to the directory.
+- Signing out preserves local application preferences; it does not preserve an authenticated session.
+
+Full-screen search integration tests cover section changes, Back navigation and input limits, including a font scale of 1.8. The permanent regression suite includes eleven instrumentation classes, and the maintainer reports both CI jobs passing for the search correction. Controlled session data does not validate live-server permissions or delivery.
+
+The maintainer confirms manual sign-in, Sharing and return from the background to remote desktop and terminal in the tested environment. Restricted-role permissions, event reception and inventory updates still require live-server checks. These reports do not cover every server/device, file-manager resume or process-death recovery. See [Management and validation scope](docs/profile.md).
+
 ### Security keys (FIDO2/WebAuthn)
 
 - Native sign-in with a security key and verification of the authenticated account before completing login.
@@ -255,7 +266,7 @@ A request being sent or accepted is not the same as an action being executed. Me
 ### Device General and chat
 
 - General provides device metadata editing and reviewed actions according to verified permissions. Notes, command execution, notifications, chat and agent-console tools remain subject to server and agent capabilities.
-- Device sharing is hidden while its implementation is incomplete.
+- Device sharing is available subject to server capabilities and account permissions. Manual use is confirmed in the maintainer's tested environment; restricted-role scenarios remain to be checked.
 - Chat supports text messages and can be minimized into movable in-app bubbles. Starting a chat explicitly asks the selected device to open its remote browser.
 - Open chats are included in background keep-alive session accounting. Backgrounding alone no longer deliberately disconnects them; the existing active-sessions notification is used. Closing a chat, ending its authenticated context or removing the task still closes it.
 - Drafts and chat history remain in memory, with no delivery/read receipts or automatic message replay. Process death and network/permission loss can end the chat.

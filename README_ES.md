@@ -62,6 +62,17 @@ La disponibilidad depende del servidor MeshCentral, los permisos de la cuenta, e
 
 Guías: [Gestión](docs/es/profile.md), [Mi cuenta](docs/es/profile-native.md), [Administración de usuarios y accesos](docs/es/profile-user-administration.md).
 
+### Búsqueda en Gestión y preferencias locales
+
+- La búsqueda del directorio se abre y cierra desde la cabecera y admite hasta 256 caracteres.
+- La búsqueda dentro de un grupo filtra únicamente sus dispositivos. Cada grupo conserva su consulta al volver al directorio, cuyo filtro se mantiene por separado.
+- La búsqueda del grupo se oculta en Accesos y Resumen; regresar a Dispositivos recupera su consulta. Atrás primero cierra la búsqueda de dispositivos del grupo abierta; otra pulsación vuelve al directorio.
+- Cerrar sesión conserva las preferencias locales de la aplicación, no una sesión autenticada.
+
+Las pruebas de integración de pantalla completa cubren cambios de sección, navegación con Atrás y límites de entrada, también con escala de fuente de 1,8. La suite permanente incluye once clases instrumentadas y el mantenedor confirma ambos jobs de CI en verde para la corrección de búsqueda. Los datos de sesión controlados no validan permisos ni entrega contra un servidor real.
+
+El mantenedor confirma manualmente el inicio de sesión, Compartir y el retorno desde segundo plano al escritorio remoto y al terminal en el entorno probado. Los permisos con roles restringidos, la recepción de eventos y la actualización de inventarios siguen pendientes de comprobación contra el servidor real. Estas confirmaciones no cubren todos los servidores/dispositivos, el retorno al gestor de archivos ni la recuperación tras morir el proceso. Consulta [Gestión y alcance de validación](docs/es/profile.md).
+
 ### Llaves de seguridad (FIDO2/WebAuthn)
 
 - Inicio de sesión nativo con llave de seguridad y verificación de la cuenta autenticada antes de completar el acceso.
@@ -247,7 +258,7 @@ Enviar o aceptar una solicitud no equivale a ejecutarla. MeshFabric informa de r
 ### General del dispositivo y chat
 
 - General permite editar metadatos y revisar acciones según permisos verificados. Notas, ejecución de comandos, notificaciones, chat y herramientas de consola dependen del servidor y del agente.
-- Compartir permanece oculto mientras su implementación está incompleta.
+- Compartir está disponible según las capacidades del servidor y los permisos de la cuenta. El mantenedor confirma su uso manual en el entorno probado; siguen pendientes los escenarios con roles restringidos.
 - El chat admite texto y puede minimizarse en burbujas móviles dentro de la app. Iniciarlo solicita explícitamente al equipo seleccionado abrir su navegador remoto.
 - Los chats abiertos se incluyen en el cómputo de sesiones del servicio keep-alive. Pasar a segundo plano ya no los desconecta deliberadamente y utiliza la notificación existente de sesiones activas. Cerrar el chat, terminar su contexto autenticado o retirar la tarea sigue cerrándolo.
 - El borrador y el historial permanecen en memoria, sin confirmaciones de entrega/lectura ni reenvío automático. La muerte del proceso y la pérdida de red o permisos pueden terminar el chat.
