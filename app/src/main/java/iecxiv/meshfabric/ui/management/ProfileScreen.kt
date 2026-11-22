@@ -31,14 +31,18 @@ import org.json.JSONObject
 
 internal data class ProfileForm(val users:Boolean,val operation:String,val id:String="",val name:String="",val email:String="",val description:String="")
 
+private val defaultProfileSessionFactory:(MeshCentralClient)->ProfileSession={ProfileSession(it)}
 @Composable internal fun ProfileScreen(source:MeshCentralClient,modifier:Modifier=Modifier,header:@Composable (@Composable ()->Unit)->Unit={}) {
+    ProfileScreen(source,modifier,defaultProfileSessionFactory,header)
+}
+@Composable internal fun ProfileScreen(source:MeshCentralClient,modifier:Modifier,sessionFactory:(MeshCentralClient)->ProfileSession,header:@Composable (@Composable ()->Unit)->Unit={}) {
 val agentActor by source.userInfo.collectAsState()
 val agentIdentity=remember(source,source.serverUrl,source.authCookie,source.ignoreSsl,agentActor?.id) {Any()}
 AgentGroupSubviewHost(agentIdentity) {
 val es=LocalConfiguration.current.locales[0].language=="es"
 fun t(s:String,e:String)=if(es) s else e
 val lifecycle=LocalLifecycleOwner.current.lifecycle
-val session=remember(source) { ProfileSession(source) }
+val session=remember(source,sessionFactory) { sessionFactory(source) }
 val liveState by session.state.collectAsState()
 val state=rememberProfileDialogPresentation(liveState,agentIdentity,agentActor?.id.orEmpty())
 iecxiv.meshfabric.ui.components.ReportViewLoading(liveState.loading || liveState.busy || liveState.detailsBusy || liveState.historyBusy || liveState.userGroupPhase=="loading")
