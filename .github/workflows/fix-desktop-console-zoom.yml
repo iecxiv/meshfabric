@@ -1,0 +1,230 @@
+name: Validate desktop console message and zoom
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/fix-desktop-console-zoom.yml]
+permissions:
+  contents: write
+concurrency:
+  group: desktop-console-zoom-publication
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare candidate and regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          screen=Path('app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt')
+          relay=Path('app/src/main/java/iecxiv/meshfabric/data/remote/DesktopRelayClient.kt')
+          runner=Path('.github/scripts/run-emulator-regressions.py')
+          overlay=Path('app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopConsoleMessage.kt')
+          protocol=Path('app/src/main/java/iecxiv/meshfabric/data/remote/DesktopConsoleProtocol.kt')
+          jvmtest=Path('app/src/test/java/iecxiv/meshfabric/data/remote/DesktopConsoleProtocolTest.kt')
+          uitest=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopConsoleMessageTest.kt')
+          for p in (overlay,protocol,jvmtest,uitest):
+              if p.exists(): raise SystemExit(str(p)+' already exists; review required')
+          def once(text, anchor, label):
+              if text.count(anchor)!=1: raise SystemExit('Anchor changed: '+label)
+          r=relay.read_text()
+          a='val viewerCount: StateFlow<Int?> = _viewerCount.asStateFlow()'
+          once(r,a,'viewerCount')
+          r=r.replace(a,a+'\n    private val _consoleMessage = MutableStateFlow<String?>(null)\n    val consoleMessage: StateFlow<String?> = _consoleMessage.asStateFlow()',1)
+          b='_viewerCount.value = null'
+          once(r,b,'retire viewerCount')
+          r=r.replace(b,b+'\n        _consoleMessage.value = null',1)
+          c='"metadata" -> {'
+          once(r,c,'metadata branch')
+          r=r.replace(c,'"console" -> { _consoleMessage.value = desktopConsoleMessage(json) }\n                '+c,1)
+          relay.write_text(r)
+          s=screen.read_text()
+          d='val bitmap = desktopBitmap'
+          once(s,d,'bitmap')
+          s=s.replace(d,d+'\n            val consoleMessage by remember(nodeId, viewModel) { viewModel.desktopClient.getSession(viewModel.meshClient, nodeId).consoleMessage }.collectAsState()\n            DesktopConsoleMessage(consoleMessage)',1)
+          pat=re.compile(r'val initial = point\(down\.position\) \?: run \{\s*tapSequence\.flush\(\)\s*return@awaitEachGesture\s*\}')
+          if len(pat.findall(s))!=1: raise SystemExit('Anchor changed: gesture initial point')
+          new='''val initial = point(down.position) ?: run {
+                                                  tapSequence.flush()
+                                                  rightClickAssist.latch.cancel()
+                                                  do {
+                                                      val outside = awaitPointerEvent()
+                                                      if (outside.changes.any { it.isConsumed }) break
+                                                      if (outside.changes.count { it.pressed } >= 2) {
+                                                          val outsideZoom = outside.calculateZoom()
+                                                          val outsidePan = outside.calculatePan()
+                                                          scale = (scale * outsideZoom).coerceIn(1f, 6f)
+                                                          val outsideMaxX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                          val outsideMaxY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                          offsetX = (offsetX + outsidePan.x).coerceIn(-outsideMaxX, outsideMaxX)
+                                                          offsetY = (offsetY + outsidePan.y).coerceIn(-outsideMaxY, outsideMaxY)
+                                                          outside.changes.forEach { it.consume() }
+                                                      }
+                                                  } while (outside.changes.any { it.pressed })
+                                                  return@awaitEachGesture
+                                              }'''
+          s=pat.sub(lambda m: new, s, count=1)
+          screen.write_text(s)
+          protocol.write_text('''package iecxiv.meshfabric.data.remote
+
+          import com.google.gson.JsonObject
+
+          internal fun desktopConsoleMessage(json: JsonObject): String? {
+              val value = json.get("msg") ?: return null
+              if (!value.isJsonPrimitive) return null
+              return value.asString.trim().take(500).ifEmpty { null }
+          }
+          ''')
+          overlay.write_text('''package iecxiv.meshfabric.ui.desktop
+
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.fillMaxSize
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.material3.Text
+          import androidx.compose.runtime.Composable
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.zIndex
+
+          @Composable
+          internal fun DesktopConsoleMessage(message: String?) {
+              if (message.isNullOrBlank()) return
+              Box(Modifier.fillMaxSize().zIndex(1f), contentAlignment = Alignment.TopCenter) {
+                  Text(
+                      text = message,
+                      color = Color(0xFFFFEB3B),
+                      textAlign = TextAlign.Center,
+                      modifier = Modifier.padding(16.dp).testTag("desktop-console-message")
+                  )
+              }
+          }
+          ''')
+          jvmtest.parent.mkdir(parents=True, exist_ok=True)
+          jvmtest.write_text('''package iecxiv.meshfabric.data.remote
+
+          import com.google.gson.Gson
+          import com.google.gson.JsonObject
+          import org.junit.Assert.assertEquals
+          import org.junit.Assert.assertNull
+          import org.junit.Test
+
+          class DesktopConsoleProtocolTest {
+              private fun parse(text: String) = desktopConsoleMessage(Gson().fromJson(text, JsonObject::class.java))
+              @Test fun returnsTrimmedAgentText() {
+                  assertEquals("Waiting for user to grant access...", parse("{\\"type\\":\\"console\\",\\"msg\\":\\"  Waiting for user to grant access...  \\"}"))
+              }
+              @Test fun clearsOnEmptyBlankNullMissingOrNonText() {
+                  assertNull(parse("{\\"type\\":\\"console\\",\\"msg\\":\\"\\"}"))
+                  assertNull(parse("{\\"type\\":\\"console\\",\\"msg\\":\\"   \\"}"))
+                  assertNull(parse("{\\"type\\":\\"console\\",\\"msg\\":null}"))
+                  assertNull(parse("{\\"type\\":\\"console\\"}"))
+                  assertNull(parse("{\\"type\\":\\"console\\",\\"msg\\":{\\"a\\":1}}"))
+              }
+              @Test fun boundsVeryLongText() {
+                  assertEquals(500, parse("{\\"msg\\":\\"" + "x".repeat(900) + "\\"}")!!.length)
+              }
+          }
+          ''')
+          uitest.write_text('''package iecxiv.meshfabric.ui.desktop
+
+          import androidx.compose.ui.test.assertIsDisplayed
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import androidx.compose.ui.test.onNodeWithTag
+          import androidx.compose.ui.test.onNodeWithText
+          import androidx.compose.runtime.mutableStateOf
+          import org.junit.Rule
+          import org.junit.Test
+
+          class DesktopConsoleMessageTest {
+              @get:Rule val compose = createComposeRule()
+              @Test fun showsAgentTextAndRemovesItWhenCleared() {
+                  val message = mutableStateOf<String?>("Waiting for user to grant access...")
+                  compose.setContent { DesktopConsoleMessage(message.value) }
+                  compose.onNodeWithText("Waiting for user to grant access...").assertIsDisplayed()
+                  compose.runOnIdle { message.value = null }
+                  compose.waitForIdle()
+                  compose.onNodeWithTag("desktop-console-message").assertDoesNotExist()
+              }
+          }
+          ''')
+          t=runner.read_text()
+          cls='iecxiv.meshfabric.ui.desktop.DesktopConsoleMessageTest'
+          if t.count('classes=[')!=1: raise SystemExit('CI class-list anchor changed')
+          if cls not in t: runner.write_text(t.replace('classes=[',"classes=['"+cls+"',",1))
+          PY
+          git diff --check
+      - name: Build, compile instrumentation, unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute permanent emulator regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - name: Publish validated candidate only on unchanged dev
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          allowed={'.github/scripts/run-emulator-regressions.py','app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt','app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopConsoleMessage.kt','app/src/main/java/iecxiv/meshfabric/data/remote/DesktopRelayClient.kt','app/src/main/java/iecxiv/meshfabric/data/remote/DesktopConsoleProtocol.kt','app/src/test/java/iecxiv/meshfabric/data/remote/DesktopConsoleProtocolTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopConsoleMessageTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if not changed<=allowed: raise SystemExit('Unexpected changed files: '+repr(changed-allowed))
+          subprocess.run(['git','add','--',*sorted(changed)],check=True)
+          PY
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "fix(desktop): show agent console messages and allow zoom outside canvas"
+          git push origin HEAD:refs/heads/dev
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-console-zoom-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+            ${{ runner.temp }}/resume-regressions/
+          if-no-files-found: warn
+          retention-days: 14
