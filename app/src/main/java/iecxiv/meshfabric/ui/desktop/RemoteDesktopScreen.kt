@@ -306,7 +306,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                   do {
                                       val outside = awaitPointerEvent()
                                       if (outside.changes.any { it.isConsumed }) break
-                                      if (outside.changes.count { it.pressed } >= 2) {
+                                      if (outside.changes.any { it.pressed }) {
                                           val outsideZoom = outside.calculateZoom()
                                           val outsidePan = outside.calculatePan()
                                           scale = (scale * outsideZoom).coerceIn(1f, 6f)
