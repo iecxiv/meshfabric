@@ -64,25 +64,27 @@ jobs:
           s=s.replace(d,d+'\n            val consoleMessage by remember(nodeId, viewModel) { viewModel.desktopClient.getSession(viewModel.meshClient, nodeId).consoleMessage }.collectAsState()\n            DesktopConsoleMessage(consoleMessage)',1)
           pat=re.compile(r'val initial = point\(down\.position\) \?: run \{\s*tapSequence\.flush\(\)\s*return@awaitEachGesture\s*\}')
           if len(pat.findall(s))!=1: raise SystemExit('Anchor changed: gesture initial point')
-          new='''val initial = point(down.position) ?: run {
-                                                  tapSequence.flush()
-                                                  rightClickAssist.latch.cancel()
-                                                  do {
-                                                      val outside = awaitPointerEvent()
-                                                      if (outside.changes.any { it.isConsumed }) break
-                                                      if (outside.changes.count { it.pressed } >= 2) {
-                                                          val outsideZoom = outside.calculateZoom()
-                                                          val outsidePan = outside.calculatePan()
-                                                          scale = (scale * outsideZoom).coerceIn(1f, 6f)
-                                                          val outsideMaxX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                          val outsideMaxY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
-                                                          offsetX = (offsetX + outsidePan.x).coerceIn(-outsideMaxX, outsideMaxX)
-                                                          offsetY = (offsetY + outsidePan.y).coerceIn(-outsideMaxY, outsideMaxY)
-                                                          outside.changes.forEach { it.consume() }
-                                                      }
-                                                  } while (outside.changes.any { it.pressed })
-                                                  return@awaitEachGesture
-                                              }'''
+          new='''val initialPoint = point(down.position)
+                                        if (initialPoint == null) {
+                                            tapSequence.flush()
+                                            rightClickAssist.latch.cancel()
+                                            do {
+                                                val outside = awaitPointerEvent()
+                                                if (outside.changes.any { it.isConsumed }) break
+                                                if (outside.changes.count { it.pressed } >= 2) {
+                                                    val outsideZoom = outside.calculateZoom()
+                                                    val outsidePan = outside.calculatePan()
+                                                    scale = (scale * outsideZoom).coerceIn(1f, 6f)
+                                                    val outsideMaxX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                    val outsideMaxY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                                    offsetX = (offsetX + outsidePan.x).coerceIn(-outsideMaxX, outsideMaxX)
+                                                    offsetY = (offsetY + outsidePan.y).coerceIn(-outsideMaxY, outsideMaxY)
+                                                    outside.changes.forEach { it.consume() }
+                                                }
+                                            } while (outside.changes.any { it.pressed })
+                                            return@awaitEachGesture
+                                        }
+                                        val initial: DesktopWheelPoint = initialPoint'''
           s=pat.sub(lambda m: new, s, count=1)
           screen.write_text(s)
           protocol.write_text('''package iecxiv.meshfabric.data.remote
