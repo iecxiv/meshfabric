@@ -73,6 +73,8 @@ class DesktopSession(
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
     private val _viewerCount = MutableStateFlow<Int?>(null)
     val viewerCount: StateFlow<Int?> = _viewerCount.asStateFlow()
+    private val _consoleMessage = MutableStateFlow<String?>(null)
+    val consoleMessage: StateFlow<String?> = _consoleMessage.asStateFlow()
 
     private val _displays = MutableStateFlow(DesktopDisplayState())
     val displays: StateFlow<DesktopDisplayState> = _displays.asStateFlow()
@@ -258,6 +260,7 @@ class DesktopSession(
         displaySelectionTimeout = null
         _displays.value = DesktopDisplayState()
         _viewerCount.value = null
+        _consoleMessage.value = null
         logFrameDiagnostics("retire", true)
         clipboardReadTimeout?.cancel()
         clipboardWriteTimeout?.cancel()
@@ -410,6 +413,7 @@ class DesktopSession(
                     }
                     webSocket?.send(pong.toString())
                 }
+                "console" -> { _consoleMessage.value = desktopConsoleMessage(json) }
                 "metadata" -> {
                     _viewerCount.value = desktopViewerCount(json)
                 }

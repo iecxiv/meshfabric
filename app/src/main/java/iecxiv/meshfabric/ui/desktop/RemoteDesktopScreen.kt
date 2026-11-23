@@ -245,6 +245,8 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
             val maxContainerHeightPx = constraints.maxHeight.toFloat()
             val maxUpwardOffsetPx = desktopControlsBarLimit(maxContainerHeightPx, controlsBarHeightPx, 0f)
             val bitmap = desktopBitmap
+            val consoleMessage by remember(nodeId, viewModel) { viewModel.desktopClient.getSession(viewModel.meshClient, nodeId).consoleMessage }.collectAsState()
+            DesktopConsoleMessage(consoleMessage)
             if (bitmap != null) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                     val imgWidth = bitmap.width.toFloat()
@@ -297,10 +299,27 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                             tapSequence.cancel()
                                             return@awaitEachGesture
                                         }
-                                        val initial = point(down.position) ?: run {
-                                            tapSequence.flush()
-                                            return@awaitEachGesture
-                                        }
+                                        val initialPoint = point(down.position)
+                              if (initialPoint == null) {
+                                  tapSequence.flush()
+                                  rightClickAssist.latch.cancel()
+                                  do {
+                                      val outside = awaitPointerEvent()
+                                      if (outside.changes.any { it.isConsumed }) break
+                                      if (outside.changes.count { it.pressed } >= 2) {
+                                          val outsideZoom = outside.calculateZoom()
+                                          val outsidePan = outside.calculatePan()
+                                          scale = (scale * outsideZoom).coerceIn(1f, 6f)
+                                          val outsideMaxX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                          val outsideMaxY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                          offsetX = (offsetX + outsidePan.x).coerceIn(-outsideMaxX, outsideMaxX)
+                                          offsetY = (offsetY + outsidePan.y).coerceIn(-outsideMaxY, outsideMaxY)
+                                          outside.changes.forEach { it.consume() }
+                                      }
+                                  } while (outside.changes.any { it.pressed })
+                                  return@awaitEachGesture
+                              }
+                              val initial: DesktopWheelPoint = initialPoint
                                         val gestureOrigin = tapSequence.currentBinding()
                                         val tapInterval = down.uptimeMillis - lastTapUp
                                         val doubleTapDrag = lastTapUp >= 0L &&
