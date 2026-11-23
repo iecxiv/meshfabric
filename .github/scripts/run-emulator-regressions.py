@@ -1,7 +1,7 @@
 from pathlib import Path
 import json, os, re, shutil, subprocess
 import xml.etree.ElementTree as ET
-classes=['iecxiv.meshfabric.ui.desktop.DesktopForegroundRefreshTest','iecxiv.meshfabric.data.remote.MeshSnapshotControlTest','iecxiv.meshfabric.data.remote.NodeSnapshotControlTest','iecxiv.meshfabric.data.remote.NodeConnectivityControlTest','iecxiv.meshfabric.SessionRuntimeCallbacksTest','iecxiv.meshfabric.SessionResumeAndDeviceCardTest','iecxiv.meshfabric.data.local.SessionStorageSafetyTest','iecxiv.meshfabric.ui.management.DeviceGroupSearchTest','iecxiv.meshfabric.ui.management.ProfileScreenSearchIntegrationTest','iecxiv.meshfabric.ui.management.ProfileGroupSearchIntegrationTest','iecxiv.meshfabric.ui.management.FourVisualCorrectionsTest','iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest']
+classes=['iecxiv.meshfabric.ui.desktop.DesktopConsoleMessageTest','iecxiv.meshfabric.ui.desktop.DesktopForegroundRefreshTest','iecxiv.meshfabric.data.remote.MeshSnapshotControlTest','iecxiv.meshfabric.data.remote.NodeSnapshotControlTest','iecxiv.meshfabric.data.remote.NodeConnectivityControlTest','iecxiv.meshfabric.SessionRuntimeCallbacksTest','iecxiv.meshfabric.SessionResumeAndDeviceCardTest','iecxiv.meshfabric.data.local.SessionStorageSafetyTest','iecxiv.meshfabric.ui.management.DeviceGroupSearchTest','iecxiv.meshfabric.ui.management.ProfileScreenSearchIntegrationTest','iecxiv.meshfabric.ui.management.ProfileGroupSearchIntegrationTest','iecxiv.meshfabric.ui.management.FourVisualCorrectionsTest','iecxiv.meshfabric.ui.management.UnifiedSubviewLayoutTest']
 archive=Path(os.environ['RUNNER_TEMP'])/'resume-regressions'
 archive.mkdir(exist_ok=True)
 summary={}
