@@ -340,6 +340,28 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 900
           script: python3 .github/scripts/run-emulator-regressions.py
+      - name: Show failing instrumentation tests
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          files=glob.glob('app/build/outputs/androidTest-results/**/*.xml', recursive=True)
+          print('result files:', files)
+          for f in files:
+              try:
+                  root=ET.parse(f).getroot()
+              except Exception as e:
+                  print('unreadable', f, e)
+                  continue
+              for tc in root.iter('testcase'):
+                  for kind in ('failure','error'):
+                      for n in tc.findall(kind):
+                          print('FAILED', tc.get('classname'), tc.get('name'))
+                          print((n.get('message') or '')[:800])
+                          print((n.text or '')[:2000])
+          PY
       - name: Publish validated candidate only on unchanged dev
         env:
           EXPECTED_SHA: ${{ github.sha }}
