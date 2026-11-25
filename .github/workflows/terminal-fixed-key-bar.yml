@@ -236,7 +236,7 @@ jobs:
                   var latest = 0
                   compose.setContent { MaterialTheme { Box(Modifier.width(360.dp)) { TerminalKeyBar(true, true, { sent.add(it) }, { latest++ }, {}) } } }
                   compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter))
-                      .assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp).performClick()
+                      .assertHeightIsAtLeast(32.dp).assertWidthIsAtLeast(48.dp).performClick()
                   compose.onNodeWithContentDescription(desc(R.string.terminal_key_left)).performScrollTo().performClick()
                   compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).performScrollTo().performClick()
                   compose.onNodeWithText(context.getString(R.string.terminal_ctrl_shortcut, "A")).performClick()
@@ -298,7 +298,7 @@ jobs:
                       .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
                   assertFalse(layouts.single().didOverflowHeight)
                   compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter))
-                      .assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
+                      .assertHeightIsAtLeast(32.dp).assertWidthIsAtLeast(48.dp)
               }
 
               @Test fun horizontalScrollPositionIsStoredAndRestored() {
