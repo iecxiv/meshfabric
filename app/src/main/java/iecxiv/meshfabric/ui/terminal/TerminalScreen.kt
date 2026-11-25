@@ -402,11 +402,7 @@ fun TerminalScreen(
                 }
             }
 
-            Surface(
-                modifier = Modifier.fillMaxWidth().imePadding(),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 4.dp
-            ) {
+            Box(modifier = Modifier.fillMaxWidth().imePadding().background(Color(0xFF0D1117)).padding(horizontal = 8.dp, vertical = 6.dp)) {
                 key(renderer) {
                     TerminalKeyBar(
                         enabled = inputEnabled,
