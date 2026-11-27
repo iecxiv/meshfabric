@@ -31,10 +31,9 @@ class TerminalKeyBarTest {
         compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter))
             .assertHeightIsAtLeast(32.dp).assertWidthIsAtLeast(48.dp).performClick()
         compose.onNodeWithContentDescription(desc(R.string.terminal_key_left)).performScrollTo().performClick()
-        compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).performScrollTo().performClick()
-        compose.onNodeWithText(context.getString(R.string.terminal_ctrl_shortcut, "A")).performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.terminal_ctrl_shortcut, "Z")).performScrollTo().performClick()
         compose.onNodeWithContentDescription(desc(R.string.terminal_latest)).performScrollTo().performClick()
-        compose.runOnIdle { assertEquals(listOf("enter", "left", "ctrl-a"), sent); assertEquals(1, latest) }
+        compose.runOnIdle { assertEquals(listOf("enter", "left", "ctrl-z"), sent); assertEquals(1, latest) }
     }
 
     @Test fun noExpanderRemains() {
@@ -42,6 +41,7 @@ class TerminalKeyBarTest {
         compose.onNodeWithContentDescription(desc(R.string.terminal_keys_more)).assertDoesNotExist()
         compose.onNodeWithContentDescription(desc(R.string.terminal_keys_less)).assertDoesNotExist()
         compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).assertDoesNotExist()
     }
 
     @Test fun disconnectedKeysDisabledButHistoryAvailable() {

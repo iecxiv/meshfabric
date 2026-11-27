@@ -3,10 +3,8 @@ package iecxiv.meshfabric.ui.terminal
 import android.content.Context
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -15,8 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -146,7 +142,6 @@ internal fun TerminalKeyBar(
     val prefs = remember(context) { context.applicationContext.getSharedPreferences(KEY_BAR_PREFS, Context.MODE_PRIVATE) }
     val scroll = androidx.compose.foundation.rememberScrollState(remember(prefs) { prefs.getInt(KEY_BAR_SCROLL, 0).coerceAtLeast(0) })
     var keyIds by remember(prefs) { mutableStateOf(parseTerminalKeyIds(prefs.getString(KEY_BAR_KEYS, null))) }
-    var ctrlMenu by remember { mutableStateOf(false) }
     var showEditor by remember { mutableStateOf(false) }
     LaunchedEffect(scroll, prefs) {
         snapshotFlow { scroll.value }.collectLatest { value ->
@@ -155,8 +150,7 @@ internal fun TerminalKeyBar(
         }
     }
     DisposableEffect(scroll, prefs) { onDispose { prefs.edit().putInt(KEY_BAR_SCROLL, scroll.value).apply() } }
-    LaunchedEffect(ctrlMenu, showEditor) { onPopup(ctrlMenu || showEditor) }
-    LaunchedEffect(enabled) { if (!enabled) ctrlMenu = false }
+    LaunchedEffect(showEditor) { onPopup(showEditor) }
     DisposableEffect(Unit) { onDispose { onPopup(false) } }
     Surface(
         modifier = Modifier.fillMaxWidth().testTag("terminal-key-bar"),
@@ -173,20 +167,11 @@ internal fun TerminalKeyBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             keyIds.forEach { KeyButton(it, enabled, onKey) }
-            Box {
-                BarButton(stringResource(R.string.terminal_ctrl_more_label), stringResource(R.string.terminal_ctrl_more), enabled) { ctrlMenu = true }
-                DropdownMenu(expanded = ctrlMenu, onDismissRequest = { ctrlMenu = false }, modifier = Modifier.heightIn(max = 280.dp)) {
-                    ('A'..'Z').forEach { letter ->
-                        DropdownMenuItem(text = { Text(stringResource(R.string.terminal_ctrl_shortcut, letter.toString())) },
-                            onClick = { ctrlMenu = false; onPopup(false); onKey("ctrl-" + letter.lowercaseChar()) })
-                    }
-                }
-            }
             BarButton(stringResource(R.string.terminal_latest_glyph), stringResource(R.string.terminal_latest), historyEnabled, largeLabel = true, onClick = onLatest)
             BarButton(
                 "", if (es) "Editar teclas" else "Edit keys", true,
                 icon = Icons.Default.Build, tag = "terminal-key-editor-button", iconTag = "terminal-wrench-icon"
-            ) { ctrlMenu = false; showEditor = true }
+            ) { showEditor = true }
         }
     }
     if (showEditor) {
