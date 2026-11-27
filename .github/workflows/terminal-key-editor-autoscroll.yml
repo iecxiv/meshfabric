@@ -98,6 +98,8 @@ jobs:
           newTest='''    @Test fun draggingNearTheEdgeAutoScrollsTheList() {
                   showBar()
                   openEditor()
+                  compose.waitForIdle()
+                  compose.onNodeWithTag("terminal-key-handle-esc").assertExists()
                   compose.mainClock.autoAdvance = false
                   compose.onNodeWithTag("terminal-key-handle-esc").performTouchInput {
                       down(center)
