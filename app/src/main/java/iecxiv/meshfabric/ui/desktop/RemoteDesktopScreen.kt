@@ -405,7 +405,17 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                                         }
                                                         else -> if (moved) change.consume()
                                                     }
-                                                } else event.changes.forEach { it.consume() }
+                                                } else {
+                                          val remaining = event.changes.firstOrNull { it.pressed }
+                                          if (remaining != null) {
+                                              val remainingPan = remaining.positionChange()
+                                              val remainingMaxX = (drawWidth * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                              val remainingMaxY = (drawHeight * (scale - 1f) / 2f).coerceAtLeast(0f)
+                                              offsetX = (offsetX + remainingPan.x).coerceIn(-remainingMaxX, remainingMaxX)
+                                              offsetY = (offsetY + remainingPan.y).coerceIn(-remainingMaxY, remainingMaxY)
+                                          }
+                                          event.changes.forEach { it.consume() }
+                                      }
                                             } while (event.changes.any { it.pressed })
                                             val tap = drag.finish() && !moved && !transformed && !cancelled
                                             if (tap && desktopMouseCapture.ready()) {
