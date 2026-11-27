@@ -42,7 +42,7 @@ jobs:
           users=set(subprocess.run(['grep','-rl','terminal_ctrl_more','app/src','--include=*.kt'],capture_output=True,text=True).stdout.split())
           if users!={str(bar),str(test)}: raise SystemExit('Unexpected users of terminal_ctrl_more: '+repr(users))
           def rep(s, old, new):
-              if s.count(old)!=1: raise SystemExit('anchor not unique: '+old[:70])
+              if s.count(old)!=1: raise SystemExit('anchor not unique ('+str(s.count(old))+'): '+old[:70])
               return s.replace(old,new,1)
           s=bar.read_text(encoding='utf-8')
           for imp in ('androidx.compose.foundation.layout.Box','androidx.compose.foundation.layout.heightIn','androidx.compose.material3.DropdownMenu','androidx.compose.material3.DropdownMenuItem'):
@@ -56,9 +56,9 @@ jobs:
           if 'ctrlMenu' in s or 'DropdownMenu' in s: raise SystemExit('leftover ctrl menu code')
           bar.write_text(s, encoding='utf-8')
           t=test.read_text(encoding='utf-8')
-          t=rep(t,'                  compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).performScrollTo().performClick()\n                  compose.onNodeWithText(context.getString(R.string.terminal_ctrl_shortcut, "A")).performClick()\n','                  compose.onNodeWithContentDescription(context.getString(R.string.terminal_ctrl_shortcut, "Z")).performScrollTo().performClick()\n')
+          t=rep(t,'        compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).performScrollTo().performClick()\n        compose.onNodeWithText(context.getString(R.string.terminal_ctrl_shortcut, "A")).performClick()\n','        compose.onNodeWithContentDescription(context.getString(R.string.terminal_ctrl_shortcut, "Z")).performScrollTo().performClick()\n')
           t=rep(t,'listOf("enter", "left", "ctrl-a")','listOf("enter", "left", "ctrl-z")')
-          t=rep(t,'                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()\n','                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()\n                  compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).assertDoesNotExist()\n')
+          t=rep(t,'        compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()\n','        compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()\n        compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).assertDoesNotExist()\n')
           test.write_text(t, encoding='utf-8')
           PY
           git diff --check
