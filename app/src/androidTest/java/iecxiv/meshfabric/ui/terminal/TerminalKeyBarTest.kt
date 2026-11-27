@@ -50,20 +50,27 @@ class TerminalKeyBarTest {
         compose.onNodeWithContentDescription(desc(R.string.terminal_latest)).performScrollTo().assertIsEnabled()
     }
 
-    @Test fun arrowSizesAndLargeLabelsAreConsistent() {
+    @Test fun arrowAndEnterIconsShareSizeAndEnterIsCentered() {
         compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
-        fun assertLargeText(resource: Int) {
-            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-            compose.onNodeWithText(context.getString(resource), useUnmergedTree = true)
-                .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
-            assertEquals(20.sp, layouts.single().layoutInput.style.fontSize)
-            assertFalse(layouts.single().didOverflowHeight)
-        }
-        assertLargeText(R.string.terminal_key_enter_glyph)
         for (rotation in listOf(0, 90, 180, 270)) {
             compose.onNodeWithTag("terminal-arrow-$rotation", useUnmergedTree = true)
                 .assertWidthIsEqualTo(20.dp).assertHeightIsEqualTo(20.dp)
         }
+        compose.onNodeWithTag("terminal-enter-icon", useUnmergedTree = true)
+            .assertWidthIsEqualTo(20.dp).assertHeightIsEqualTo(20.dp)
+        val chip = compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter)).getUnclippedBoundsInRoot()
+        val icon = compose.onNodeWithTag("terminal-enter-icon", useUnmergedTree = true).getUnclippedBoundsInRoot()
+        assertEquals(((chip.left + chip.right) / 2).value, ((icon.left + icon.right) / 2).value, 1f)
+        assertEquals(((chip.top + chip.bottom) / 2).value, ((icon.top + icon.bottom) / 2).value, 1f)
+    }
+
+    @Test fun largeLabelsAndHomeEndStylesAreConsistent() {
+        compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+        val latestLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        compose.onNodeWithText(context.getString(R.string.terminal_latest_glyph), useUnmergedTree = true)
+            .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(latestLayouts) }
+        assertEquals(20.sp, latestLayouts.single().layoutInput.style.fontSize)
+        assertFalse(latestLayouts.single().didOverflowHeight)
         val homeLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         val endLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         compose.onNodeWithText(context.getString(R.string.terminal_key_home), useUnmergedTree = true)
@@ -76,7 +83,6 @@ class TerminalKeyBarTest {
         assertEquals(homeStyle.lineHeight, endStyle.lineHeight)
         assertEquals(homeStyle.fontWeight, endStyle.fontWeight)
         assertFalse(endLayouts.single().didOverflowHeight)
-        assertLargeText(R.string.terminal_latest_glyph)
     }
 
     @Test fun increasedFontScaleKeepsLabelsUnclipped() {
@@ -87,7 +93,7 @@ class TerminalKeyBarTest {
             ) { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
         }
         val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-        compose.onNodeWithText(context.getString(R.string.terminal_key_enter_glyph), useUnmergedTree = true)
+        compose.onNodeWithText(context.getString(R.string.terminal_latest_glyph), useUnmergedTree = true)
             .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
         assertFalse(layouts.single().didOverflowHeight)
         compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter))
