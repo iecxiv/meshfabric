@@ -66,6 +66,24 @@ class TerminalKeyEditorTest {
         assertTrue(savedKeys().indexOf("esc") > 0)
     }
 
+    @Test fun draggingNearTheEdgeAutoScrollsTheList() {
+        showBar()
+        openEditor()
+        compose.waitForIdle()
+        compose.onNodeWithTag("terminal-key-handle-esc").assertExists()
+        compose.mainClock.autoAdvance = false
+        compose.onNodeWithTag("terminal-key-handle-esc").performTouchInput {
+            down(center)
+            moveBy(Offset(0f, 1200f))
+        }
+        compose.mainClock.advanceTimeBy(3000)
+        compose.onNodeWithTag("terminal-key-handle-esc").performTouchInput { up() }
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
+        compose.onNodeWithTag("terminal-key-editor-save").performClick()
+        assertTrue(savedKeys().indexOf("esc") > 12)
+    }
+
     @Test fun cancelKeepsStoredKeysUntouched() {
         showBar()
         openEditor()
