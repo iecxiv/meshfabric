@@ -1,0 +1,137 @@
+name: Validate removal of Ctrl dropdown
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/terminal-remove-ctrl-menu.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-remove-ctrl-menu-publication
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare candidate and regression test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          bar=Path('app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt')
+          test=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt')
+          if subprocess.check_output(['git','hash-object',str(bar)],text=True).strip()!='b3714dee3dcaad7b1792a3197c1a2713400bee2d': raise SystemExit('TerminalKeyBar.kt changed; review required')
+          users=set(subprocess.run(['grep','-rl','terminal_ctrl_more','app/src','--include=*.kt'],capture_output=True,text=True).stdout.split())
+          if users!={str(bar),str(test)}: raise SystemExit('Unexpected users of terminal_ctrl_more: '+repr(users))
+          def rep(s, old, new):
+              if s.count(old)!=1: raise SystemExit('anchor not unique: '+old[:70])
+              return s.replace(old,new,1)
+          s=bar.read_text(encoding='utf-8')
+          for imp in ('androidx.compose.foundation.layout.Box','androidx.compose.foundation.layout.heightIn','androidx.compose.material3.DropdownMenu','androidx.compose.material3.DropdownMenuItem'):
+              s=rep(s,'import '+imp+'\n','')
+          s=rep(s,'    var ctrlMenu by remember { mutableStateOf(false) }\n','')
+          s=rep(s,'    LaunchedEffect(ctrlMenu, showEditor) { onPopup(ctrlMenu || showEditor) }\n','    LaunchedEffect(showEditor) { onPopup(showEditor) }\n')
+          s=rep(s,'    LaunchedEffect(enabled) { if (!enabled) ctrlMenu = false }\n','')
+          s,n=re.subn(r"            Box \{\n.*?\n            \}\n(?=            BarButton\(stringResource\(R\.string\.terminal_latest_glyph\))", "", s, count=1, flags=re.S)
+          if n!=1: raise SystemExit('Ctrl dropdown block not found')
+          s=rep(s,') { ctrlMenu = false; showEditor = true }',') { showEditor = true }')
+          if 'ctrlMenu' in s or 'DropdownMenu' in s: raise SystemExit('leftover ctrl menu code')
+          bar.write_text(s, encoding='utf-8')
+          t=test.read_text(encoding='utf-8')
+          t=rep(t,'                  compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).performScrollTo().performClick()\n                  compose.onNodeWithText(context.getString(R.string.terminal_ctrl_shortcut, "A")).performClick()\n','                  compose.onNodeWithContentDescription(context.getString(R.string.terminal_ctrl_shortcut, "Z")).performScrollTo().performClick()\n')
+          t=rep(t,'listOf("enter", "left", "ctrl-a")','listOf("enter", "left", "ctrl-z")')
+          t=rep(t,'                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()\n','                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()\n                  compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).assertDoesNotExist()\n')
+          test.write_text(t, encoding='utf-8')
+          PY
+          git diff --check
+      - name: Build, compile instrumentation, unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute permanent emulator regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - name: Show failing instrumentation tests
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          files=glob.glob('app/build/outputs/androidTest-results/**/*.xml', recursive=True)
+          print('result files:', files)
+          for f in files:
+              try:
+                  root=ET.parse(f).getroot()
+              except Exception as e:
+                  print('unreadable', f, e)
+                  continue
+              for tc in root.iter('testcase'):
+                  for kind in ('failure','error'):
+                      for n in tc.findall(kind):
+                          print('FAILED', tc.get('classname'), tc.get('name'))
+                          print((n.get('message') or '')[:800])
+                          print((n.text or '')[:2000])
+          PY
+      - name: Publish validated candidate only on unchanged dev
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          allowed={'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected changed files: '+repr(changed))
+          subprocess.run(['git','add','--',*sorted(changed)],check=True)
+          PY
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "feat(terminal): remove Ctrl+ dropdown from key bar"
+          git push origin HEAD:refs/heads/dev
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-remove-ctrl-menu-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+            ${{ runner.temp }}/resume-regressions/
+          if-no-files-found: warn
+          retention-days: 14
