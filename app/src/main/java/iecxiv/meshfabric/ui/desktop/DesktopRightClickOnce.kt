@@ -76,7 +76,7 @@ internal fun DesktopRightClickOnceToggle(state: DesktopRightClickOnceState) {
             onClick = state::toggle,
             modifier = Modifier.size(32.dp).testTag("desktop-right-click-once-toggle").semantics { selected = on }
         ) {
-            DesktopRightClickHeaderGlyph(on, label, iconSize = 20.dp)
+            DesktopRightClickHeaderGlyph(on, label, iconSize = 20.dp, activeColor = MaterialTheme.colorScheme.primary)
         }
     }
 }

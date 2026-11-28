@@ -17,8 +17,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-@Composable internal fun DesktopRightClickHeaderGlyph(active: Boolean, label: String?, rightButtonBlue: Boolean = true, iconSize: Dp = 24.dp, leftButtonBlue: Boolean = false) {
-    val blue = Color(0xFF2196F3)
+@Composable internal fun DesktopRightClickHeaderGlyph(active: Boolean, label: String?, rightButtonBlue: Boolean = true, iconSize: Dp = 24.dp, leftButtonBlue: Boolean = false, activeColor: Color = Color(0xFF2196F3)) {
+    val blue = activeColor
     val body = if (active) blue else LocalContentColor.current
     val accessibility = if (label != null) Modifier.semantics { contentDescription = label } else Modifier
     Canvas(Modifier.size(iconSize).then(accessibility)) {
