@@ -1,0 +1,2 @@
+Reproducible builds.
+- Git metadata is no longer embedded in the APK, so builds are identical in any environment.
