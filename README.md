@@ -120,17 +120,17 @@ Guide: [Agent installation and invitations](docs/agent-installation.md).
 - Resume and refresh use separate control packets; frame timing is sent with compression settings rather than through a periodic refresh loop. This does not guarantee compatibility with every server or agent.
 
 - Native remote desktop (KVM) with touchscreen mouse controls, left/right click, scrolling, zoom, and pan.
-- Virtual keyboard and shortcuts such as Ctrl+Alt+Del, Win+R, Alt+Tab, and function keys, subject to the remote environment and OS restrictions.
+- Virtual keyboard and shortcuts such as Ctrl+Alt+Del, Win+R, Alt+Tab, and function keys, subject to the remote environment and OS restrictions. Custom shortcuts are shown as buttons; drag their handle to reorder them and tap the cross to remove one.
 - Configurable quality, scale, frame rate, and encoding settings.
 - Clipboard controls and optional clipboard synchronization, subject to remote-session and server restrictions.
 - Settings for mouse-button swapping, wheel direction, remote keyboard mapping, and locking on disconnect.
 - Gesture capture is renewed when viewport or fitted-image dimensions change, so the handler no longer retains pre-rotation geometry. Test clicks, long presses, and scroll after rotating on the intended device.
 
-#### Displays and floating controls
+#### Displays and controls
 
 - Select a desktop monitor, or All displays when the agent supports it; unavailable capabilities are not invented.
-- One persistent toggle alternates left/right mouse mode and highlights the active button in blue. Scroll has its own icon and restores the remembered click mode when leaving it.
-- The separate one-shot right-click assistant is toggled after the toolbar collapse control, without a frame or visible text. Information remains last.
+- One persistent toggle alternates left and right click, keeps the same width in both states and highlights the active mouse button in the theme blue. Scroll has its own button and restores the remembered click mode when leaving it. In Scroll mode, a short tap with two fingers anywhere on the canvas, over the desktop image or the black area, leaves Scroll and switches to left click without sending a click.
+- A right-click toggle with a numeric badge sits after the toolbar collapse control. While the badge is on, each switch to right click lasts for one click and then returns to left click; with the badge off, right click stays selected until you change it. The setting is remembered until you turn it off. Information remains last.
 - New desktop sessions start in left-click mode; reconnecting or rotating an existing session preserves its mode.
 
 #### Software and physical keyboard input
@@ -190,9 +190,8 @@ Each preview permits one dispatch attempt, without automatic retries. An accepte
 
 #### Special keys and scrolling
 
-- Compact default row: Esc, Tab, Ctrl+C, Enter, and Backspace.
-- Expand with the downward chevron; collapse with the same icon inverted.
-- Additional rows provide arrows, Home/End, Insert/Delete, PgUp/PgDn, Ctrl shortcuts, and a Ctrl+A through Ctrl+Z picker.
+- The key bar is a single horizontally scrollable row of keys that you choose. Tap the wrench at its end to edit it: drag the handle to reorder, tap the cross to remove a key, add keys from the catalog (Esc, Tab, arrows, Home/End, Insert/Delete, PgUp/PgDn, Enter, Backspace and Ctrl+A through Ctrl+Z), reset to the defaults, then save or cancel.
+- The chosen keys and the bar scroll position are remembered.
 - Keys use a filled, small-corner style. Their visible height is compact at normal font scale, while minimum interaction space is retained; larger font settings can increase height to avoid clipping.
 - Arrow symbols use one consistently sized vector icon rotated by direction. Enter and the latest-output symbol remain enlarged; End uses the same typography as Home.
 - Cursor keys honor xterm's application-cursor mode. Backspace retains byte 8, and Enter sends CR.

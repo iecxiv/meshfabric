@@ -120,17 +120,17 @@ Guía: [Instalación de agentes e invitaciones](docs/es/agent-installation.md).
 - Reanudar y refrescar utilizan paquetes distintos; el intervalo de imágenes se envía con la compresión, sin un bucle de refrescos periódicos. No garantiza compatibilidad con todos los servidores o agentes.
 
 - Escritorio remoto nativo (KVM) con control táctil del ratón, clic izquierdo/derecho, desplazamiento, zoom y movimiento de la imagen.
-- Teclado virtual y atajos como Ctrl+Alt+Supr, Win+R, Alt+Tab y teclas de función, sujetos al entorno y a las restricciones del sistema remoto.
+- Teclado virtual y atajos como Ctrl+Alt+Supr, Win+R, Alt+Tab y teclas de función, sujetos al entorno y a las restricciones del sistema remoto. Los atajos personalizados se muestran como botones; arrastra su asa para reordenarlos y pulsa la cruz para quitar uno.
 - Configuración de calidad, escala, frecuencia de imágenes y codificación.
 - Controles de portapapeles y sincronización opcional, sujetos a las restricciones de la sesión y del servidor.
 - Intercambio de botones del ratón, dirección de la rueda, distribución remota del teclado y bloqueo al desconectar.
 - La captura de gestos se renueva cuando cambian las dimensiones del área visible o de la imagen ajustada. Comprueba clics, pulsaciones largas y desplazamiento después de girar el dispositivo.
 
-#### Pantallas y controles flotantes
+#### Pantallas y controles
 
 - Selecciona un monitor remoto o Todas las pantallas cuando lo permita el agente; no se inventan capacidades ausentes.
-- Un selector persistente alterna clic izquierdo/derecho y resalta en azul el botón activo. Scroll tiene icono propio y permite recuperar el modo de clic recordado al abandonarlo.
-- El asistente independiente de clic derecho de un solo uso se muestra u oculta después del colapsador de la barra, sin recuadro ni texto visible. Información permanece al final.
+- Un selector persistente alterna clic izquierdo y derecho, mantiene la misma anchura en ambos estados y resalta en el azul del tema el botón del ratón activo. Scroll tiene botón propio y permite recuperar el modo de clic recordado al abandonarlo. En modo Scroll, un toque corto con dos dedos en cualquier parte del lienzo, sobre la imagen del escritorio o la zona negra, abandona Scroll y activa el clic izquierdo sin enviar ningún clic.
+- Un botón de clic derecho con insignia numérica se sitúa después del colapsador de la barra. Con la insignia activa, cada cambio a clic derecho dura un solo clic y después vuelve a clic izquierdo; con la insignia apagada, el clic derecho permanece seleccionado hasta que lo cambies. El ajuste se recuerda hasta que lo desactives. Información permanece al final.
 - Las sesiones nuevas empiezan en clic izquierdo; reconectar o girar una sesión existente conserva su modo.
 
 #### Teclado físico y teclado en pantalla
@@ -189,9 +189,8 @@ Cada vista previa permite un intento de envío sin reintentos automáticos. La a
 
 #### Teclas especiales y desplazamiento
 
-- Fila compacta inicial: Esc, Tab, Ctrl+C, Intro y Retroceso.
-- El chevrón permite expandir o contraer las filas adicionales.
-- Las filas adicionales ofrecen flechas, Inicio/Fin, Insert/Supr, RePág/AvPág, atajos Ctrl y un selector de Ctrl+A a Ctrl+Z.
+- La barra de teclas es una única fila desplazable horizontalmente con las teclas que elijas. Pulsa la llave inglesa del final para editarla: arrastra el asa para ordenar, pulsa la cruz para quitar una tecla, añade teclas del catálogo (Esc, Tab, flechas, Inicio/Fin, Insert/Supr, RePág/AvPág, Intro, Retroceso y de Ctrl+A a Ctrl+Z), restablece los valores predeterminados y guarda o cancela.
+- Las teclas elegidas y la posición de desplazamiento de la barra se recuerdan.
 - Las teclas tienen fondo y esquinas pequeñas; conservan un espacio mínimo de interacción y pueden crecer con fuentes grandes para evitar recortes.
 - Las flechas usan un mismo icono vectorial girado por dirección. Intro y el control de última salida mantienen un tamaño mayor; Fin usa la tipografía de Inicio.
 - Las flechas respetan el modo de cursor de aplicación de xterm. Retroceso envía el byte 8 e Intro envía CR.
