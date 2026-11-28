@@ -280,6 +280,11 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     }
                                 }
                             )
+                            .desktopTwoFingerTap(enabled = desktopKeyboardActive && selectedMode == MouseMode.SCROLL) {
+                                viewModel.releaseDesktopKeys(nodeId)
+                                lastClickMode = MouseMode.LEFT_CLICK
+                                selectedMode = MouseMode.LEFT_CLICK
+                            }
                             .pointerInput(nodeId, selectedMode, desktopKeyboardActive, containerWidth, containerHeight, drawWidth, drawHeight) {
                                 if (!desktopKeyboardActive) return@pointerInput
                                 val touchSlop = viewConfiguration.touchSlop
