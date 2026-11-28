@@ -1,0 +1,3 @@
+Primera versión preparada para F-Droid.
+- Nuevo esquema de versionCode (mayor*10000 + menor*100 + parche).
+- APK de release firmado con la clave propia del proyecto.
