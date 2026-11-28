@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Constraints
@@ -113,9 +114,20 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
 }
 
 @Composable internal fun DesktopRightClickAssistToolbar(state: DesktopRightClickAssistState) {
-    val label = stringResource(if (state.latch.visible) R.string.desktop_right_assist_hide else R.string.desktop_right_assist_show)
-    IconButton(onClick = state::toggleVisible, modifier = Modifier.size(32.dp).semantics { selected = state.latch.visible }) {
-        DesktopRightClickHeaderGlyph(state.latch.visible, label, iconSize = 20.dp)
+    val es = LocalConfiguration.current.locales[0].language == "es"
+    val on = state.latch.visible
+    val label = if (es) {
+        if (on) "Clic derecho de un solo uso activado: pulsa para desactivar" else "Activar clic derecho de un solo uso"
+    } else {
+        if (on) "One-shot right click on: tap to turn off" else "Turn on one-shot right click"
+    }
+    BadgedBox(badge = { if (on) Badge(modifier = Modifier.testTag("desktop-right-click-once-badge")) { Text("1") } }) {
+        IconButton(
+            onClick = state::toggleVisible,
+            modifier = Modifier.size(32.dp).testTag("desktop-right-click-once-toggle").semantics { selected = on }
+        ) {
+            DesktopRightClickHeaderGlyph(on, label, iconSize = 20.dp)
+        }
     }
 }
 
@@ -123,30 +135,9 @@ internal class DesktopRightClickAssistState(context: Context, orientation: Int) 
     state: DesktopRightClickAssistState, capture: DesktopMouseCapture,
     relativeY: Float, collapsed: Boolean, enabled: Boolean, controls: @Composable () -> Unit
 ) {
-    val label = stringResource(R.string.desktop_right_assist_click)
-    val status = stringResource(if (state.latch.armed) R.string.desktop_right_assist_armed else R.string.desktop_right_assist_idle)
     val rightToLeft = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val interaction = remember(state) { MutableInteractionSource() }
-    var dragX = 0f; var dragY = 0f; var previousX = 0f; var previousY = 0f
     Layout(modifier = Modifier.fillMaxSize(), content = {
         Box { controls() }
-        if (state.latch.visible) Surface(
-            modifier = Modifier.clip(CircleShape).onGloballyPositioned { capture.assistControls = it.boundsInWindow() }
-                .semantics { contentDescription = label; stateDescription = status; selected = state.latch.armed }
-                .pointerInput(state, enabled) {
-                    if (!enabled) return@pointerInput
-                    detectDragGestures(
-                        onDragStart = { state.latch.cancel(); dragX = state.placedX; dragY = state.placedY; previousX = state.x; previousY = state.y },
-                        onDragCancel = { state.x = previousX; state.y = previousY },
-                        onDragEnd = state::savePosition,
-                        onDrag = { change, amount -> change.consume(); dragX += amount.x; dragY += amount.y; state.desired(dragX, dragY) })
-                }.clickable(interactionSource = interaction, indication = null, enabled = enabled) { state.latch.toggle() },
-            shape = CircleShape,
-            shadowElevation = 0.dp,
-            border = BorderStroke(if (state.latch.armed) 2.dp else 1.dp, MaterialTheme.colorScheme.outline),
-            color = if (state.latch.armed) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = if (state.latch.armed) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-        ) { Box(contentAlignment = androidx.compose.ui.Alignment.Center) { DesktopRightClickHeaderGlyph(active = false, label = null, rightButtonBlue = state.latch.armed) } }
     }) { measurables, constraints ->
         val width = constraints.maxWidth; val height = constraints.maxHeight
         val margin = 12.dp.roundToPx(); val gap = 8.dp.roundToPx(); val size = 48.dp.roundToPx()

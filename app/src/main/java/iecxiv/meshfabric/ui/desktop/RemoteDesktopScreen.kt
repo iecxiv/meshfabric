@@ -419,10 +419,15 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                             } while (event.changes.any { it.pressed })
                                             val tap = drag.finish() && !moved && !transformed && !cancelled
                                             if (tap && desktopMouseCapture.ready()) {
-                                                if (rightClickAssist.latch.consume()) {
-                                                    viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
-                                                } else when (selectedMode) {
-                                                    MouseMode.RIGHT_CLICK -> viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
+                                                when (selectedMode) {
+                                          MouseMode.RIGHT_CLICK -> {
+                                              viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
+                                              val afterClick = desktopModeAfterClick(selectedMode, rightClickAssist.latch.visible)
+                                              if (afterClick != selectedMode) {
+                                                  lastClickMode = afterClick
+                                                  selectedMode = afterClick
+                                              }
+                                          }
                                                     MouseMode.MIDDLE_CLICK -> viewModel.performMiddleClick(nodeId, initial.xFraction, initial.yFraction)
                                                     MouseMode.LEFT_CLICK -> {
                                                         val (width, height) = viewModel.screenResolution(nodeId).value
