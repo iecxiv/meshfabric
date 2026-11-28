@@ -577,7 +577,8 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     DesktopRightClickHeaderGlyph(active = false, label = null,
                                         rightButtonBlue = mouseModeActive && clickMode == MouseMode.RIGHT_CLICK,
                                         iconSize = 18.dp,
-                                        leftButtonBlue = mouseModeActive && clickMode == MouseMode.LEFT_CLICK)
+                                        leftButtonBlue = mouseModeActive && clickMode == MouseMode.LEFT_CLICK,
+                                        activeColor = MaterialTheme.colorScheme.primary)
                                 }
                             }, modifier = Modifier.height(32.dp).semantics { stateDescription = mouseModeDescription })
                             FilterChip(selected = selectedMode == MouseMode.SCROLL, onClick = {
