@@ -1,0 +1,35 @@
+name: Inspect desktop toolbar code
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/desktop-toolbar-inspect.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Print relevant code (read-only)
+        shell: bash
+        run: |
+          set -u
+          F=app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt
+          echo "=== MouseMode definition ==="
+          grep -rn "enum class MouseMode" -A8 app/src/main || true
+          echo "=== matches in RemoteDesktopScreen ==="
+          grep -n "RIGHT_CLICK\|lastClickMode\|desktopToggleClickMode\|desktopRememberedClickMode\|rightClickAssist\|DesktopRightAssistLayout\|DesktopRightClickAssistToolbar\|SCROLL" "$F" || true
+          START=$(grep -n "DesktopRightAssistLayout(" "$F" | head -1 | cut -d: -f1)
+          echo "=== toolbar region from line ${START:-none} ==="
+          if [ -n "${START:-}" ]; then sed -n "$((START-12)),$((START+150))p" "$F"; fi
+          echo "=== DesktopMouseCapture rightClick / assist hooks ==="
+          grep -n "assist\|rightClick\|fun ready" app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopMouseCapture.kt || true
+          echo "=== files referencing assist / right click strings ==="
+          grep -rln "DesktopRightClickArm\|DesktopRightClickAssist\|DesktopRightAssistLayout\|desktop_right_assist\|desktopToolbarStartMouseMode" app/src || true
+          echo "=== strings ==="
+          grep -rn "desktop_right_assist" app/src/main/res | head -40 || true
+          echo "=== toolbar layout policy ==="
+          cat app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopToolbarLayoutPolicy.kt
