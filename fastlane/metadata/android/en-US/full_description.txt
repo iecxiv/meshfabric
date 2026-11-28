@@ -1,0 +1,13 @@
+MeshFabric is an unofficial native Android client for MeshCentral. It provides remote desktop, an interactive terminal, file management, device notes, remote actions and an activity and events log, without embedding the MeshCentral web administration interface.
+
+Features:
+• Browse devices by group, with online status and search
+• Remote desktop with touch controls, virtual keyboard and shortcuts
+• Interactive terminal with history, paste preview and a configurable key bar
+• File manager with upload, download, ZIP and a text editor
+• Device notes, commands, notifications, Wake-on-LAN and power actions
+• Native management of users, groups, access and account security
+• Sign-in with FIDO2 security keys
+• Encrypted local notice inbox and optional background alerts
+
+You need your own MeshCentral server and an account on it. Availability of each feature depends on the server, your permissions, the agent and the remote operating system. MeshFabric is not affiliated with MeshCentral and does not replace its full administration console.

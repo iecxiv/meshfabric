@@ -1,0 +1,3 @@
+Prepared for F-Droid.
+- Reproducible-build setting: dependency metadata is no longer embedded in the APK.
+- Official Apache-2.0 license text and store metadata added.
