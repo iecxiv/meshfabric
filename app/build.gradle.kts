@@ -38,6 +38,11 @@ android {
     buildFeatures {
         compose = true
     }
+    // Required for reproducible builds (F-Droid): do not embed dependency metadata in the APK
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
 }
 
 dependencies {
