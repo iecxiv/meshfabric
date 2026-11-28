@@ -1,0 +1,71 @@
+name: Validate idle right button (fast)
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/desktop-idle-right-button.yml]
+permissions:
+  contents: write
+concurrency:
+  group: desktop-idle-right-button-publication
+  cancel-in-progress: false
+jobs:
+  static:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - run: python3 .github/scripts/prepare_idle_right_button.py
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Assemble, unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --continue --parallel --stacktrace
+      - name: Upload reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-reports-${{ github.run_id }}
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+  publish:
+    needs: [static]
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Publish validated candidate only on unchanged dev
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 .github/scripts/prepare_idle_right_button.py
+          git add -A app
+          test "$(git diff --cached --name-only | sort | tr '\n' ' ')" = "app/src/main/java/iecxiv/meshfabric/ui/desktop/DesktopRightClickHeaderGlyph.kt app/src/main/java/iecxiv/meshfabric/ui/desktop/RemoteDesktopScreen.kt "
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "style(desktop): left-click mode glyph leaves the right button unfilled"
+          git push origin HEAD:refs/heads/dev
