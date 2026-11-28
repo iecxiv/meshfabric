@@ -13,9 +13,6 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,7 +24,10 @@ import iecxiv.meshfabric.R
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopViewModel, connected: Boolean) {
+internal fun DesktopShortcutSections(
+    nodeId: String, viewModel: RemoteDesktopViewModel, connected: Boolean,
+    scrollState: androidx.compose.foundation.ScrollState? = null, viewportPx: Int = 0
+) {
     val held by viewModel.heldDesktopModifiers(nodeId).collectAsState()
     val context = LocalContext.current.applicationContext
     val preferences = remember(context) { context.getSharedPreferences("desktop_shortcuts_v1", Context.MODE_PRIVATE) }
@@ -39,15 +39,6 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
         entries = items
         preferences.edit().putString("items", DesktopShortcuts.encode(items)).apply()
     }
-    fun move(index: Int, delta: Int) {
-        val target = index + delta
-        if (target !in entries.indices) return
-        val updated = entries.toMutableList()
-        val value = updated.removeAt(index)
-        updated.add(target, value)
-        save(updated)
-    }
-
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Text(stringResource(R.string.desktop_shortcuts_hold_title), style = MaterialTheme.typography.titleSmall)
     FlowRow(modifier = Modifier.fillMaxWidth(),
@@ -68,28 +59,10 @@ internal fun DesktopShortcutSections(nodeId: String, viewModel: RemoteDesktopVie
 
     HorizontalDivider(Modifier.padding(vertical = 12.dp))
     Text(stringResource(R.string.desktop_shortcuts_custom_title), style = MaterialTheme.typography.titleSmall)
-    entries.forEachIndexed { index, shortcut ->
-        val shortcutLabel = desktopShortcutDisplayLabel(shortcut)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            FilterChip(selected = true,
-                onClick = { viewModel.sendKeyCombo(nodeId, *shortcut.keys.toIntArray()) },
-                enabled = connected, modifier = Modifier.weight(1f).heightIn(min = 32.dp),
-                label = { Text(shortcutLabel, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
-                    fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) })
-            IconButton(onClick = { move(index, -1) }, enabled = index > 0,
-                modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = stringResource(R.string.desktop_shortcuts_move_up, shortcutLabel), modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = { move(index, 1) }, enabled = index < entries.lastIndex,
-                modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.KeyboardArrowDown, contentDescription = stringResource(R.string.desktop_shortcuts_move_down, shortcutLabel), modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = { save(entries.filterIndexed { i, _ -> i != index }) },
-                modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.desktop_shortcuts_remove, shortcutLabel), modifier = Modifier.size(20.dp))
-            }
-        }
-    }
+    Text(stringResource(R.string.desktop_shortcuts_edit_hint), style = MaterialTheme.typography.bodySmall)
+    DesktopShortcutList(entries, connected,
+        onSend = { shortcut -> viewModel.sendKeyCombo(nodeId, *shortcut.keys.toIntArray()) },
+        onChange = { save(it) }, scrollState = scrollState, viewportPx = viewportPx)
     DesktopShortcutEditorControls(modifiers, selectedKey, showKeys,
         onModifierChange = { key, checked ->
             modifiers = if (checked) modifiers + key else modifiers - key

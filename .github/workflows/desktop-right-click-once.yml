@@ -1,0 +1,234 @@
+name: Validate one-shot right click toggle
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/desktop-right-click-once.yml]
+permissions:
+  contents: write
+concurrency:
+  group: desktop-right-click-once-publication
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/desktop')
+          assist=base/'DesktopRightClickAssist.kt'
+          screen=base/'RemoteDesktopScreen.kt'
+          def h(p): return subprocess.check_output(['git','hash-object',str(p)],text=True).strip()
+          if h(assist)!='f01541dd0436df4d0cd06b4d12a27f9e7ec0293a': raise SystemExit('DesktopRightClickAssist.kt changed; review required')
+          if h(screen)!='ced9f090dadd2742b80ae140e6163cd59ba1baff': raise SystemExit('RemoteDesktopScreen.kt changed; review required')
+          def rep(s, old, new):
+              if s.count(old)!=1: raise SystemExit('anchor count '+str(s.count(old))+': '+old[:70])
+              return s.replace(old,new,1)
+          def sub(s, pattern, new, label):
+              out,n=re.subn(pattern, lambda m: new, s, count=1, flags=re.S)
+              if n!=1: raise SystemExit('pattern not found: '+label)
+              return out
+          a=assist.read_text(encoding='utf-8')
+          a=rep(a,'import androidx.compose.ui.platform.LocalLayoutDirection\n','import androidx.compose.ui.platform.LocalLayoutDirection\nimport androidx.compose.ui.platform.testTag\n')
+          a=rep(a,'    val label = stringResource(R.string.desktop_right_assist_click)\n','')
+          a=rep(a,'    val status = stringResource(if (state.latch.armed) R.string.desktop_right_assist_armed else R.string.desktop_right_assist_idle)\n','')
+          a=rep(a,'    val interaction = remember(state) { MutableInteractionSource() }\n','')
+          a=rep(a,'    var dragX = 0f; var dragY = 0f; var previousX = 0f; var previousY = 0f\n','')
+          a=sub(a, r'        if \(state\.latch\.visible\) Surface\(\n.*?rightButtonBlue = state\.latch\.armed\) \} \}\n', '', 'floating bubble block')
+          toolbar='''@Composable internal fun DesktopRightClickAssistToolbar(state: DesktopRightClickAssistState) {
+              val es = LocalConfiguration.current.locales[0].language == "es"
+              val on = state.latch.visible
+              val label = if (es) {
+                  if (on) "Clic derecho de un solo uso activado: pulsa para desactivar" else "Activar clic derecho de un solo uso"
+              } else {
+                  if (on) "One-shot right click on: tap to turn off" else "Turn on one-shot right click"
+              }
+              BadgedBox(badge = { if (on) Badge(modifier = Modifier.testTag("desktop-right-click-once-badge")) { Text("1") } }) {
+                  IconButton(
+                      onClick = state::toggleVisible,
+                      modifier = Modifier.size(32.dp).testTag("desktop-right-click-once-toggle").semantics { selected = on }
+                  ) {
+                      DesktopRightClickHeaderGlyph(on, label, iconSize = 20.dp)
+                  }
+              }
+          }
+          '''
+          a=sub(a, r'@Composable internal fun DesktopRightClickAssistToolbar\(state: DesktopRightClickAssistState\) \{\n.*?\n\}\n', toolbar, 'assist toolbar')
+          if 'Surface(' in a or 'detectDragGestures(' in a: raise SystemExit('bubble code still present')
+          assist.write_text(a, encoding='utf-8')
+          s=screen.read_text(encoding='utf-8')
+          tap='''when (selectedMode) {
+                                                    MouseMode.RIGHT_CLICK -> {
+                                                        viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
+                                                        val afterClick = desktopModeAfterClick(selectedMode, rightClickAssist.latch.visible)
+                                                        if (afterClick != selectedMode) {
+                                                            lastClickMode = afterClick
+                                                            selectedMode = afterClick
+                                                        }
+                                                    }
+          '''
+          s=sub(s, r'if \(rightClickAssist\.latch\.consume\(\)\) \{\s*viewModel\.performMouseClick\(nodeId, initial\.xFraction, initial\.yFraction, isRightClick = true\)\s*\} else when \(selectedMode\) \{\s*MouseMode\.RIGHT_CLICK -> viewModel\.performMouseClick\(nodeId, initial\.xFraction, initial\.yFraction, isRightClick = true\)\n', tap, 'right click tap branch')
+          if 'latch.consume()' in s: raise SystemExit('armed branch still present')
+          screen.write_text(s, encoding='utf-8')
+          (base/'DesktopRightClickOnce.kt').write_text('''package iecxiv.meshfabric.ui.desktop
+
+          /** With one-shot right click on, a right click returns the mode button to left click after one use. */
+          internal fun desktopModeAfterClick(mode: MouseMode, oneShot: Boolean): MouseMode =
+              if (oneShot && mode == MouseMode.RIGHT_CLICK) MouseMode.LEFT_CLICK else mode
+          ''', encoding='utf-8')
+          ut=Path('app/src/test/java/iecxiv/meshfabric/ui/desktop/DesktopRightClickOnceTest.kt')
+          ut.write_text('''package iecxiv.meshfabric.ui.desktop
+
+          import org.junit.Assert.assertEquals
+          import org.junit.Test
+
+          class DesktopRightClickOnceTest {
+              @Test fun rightClickReturnsToLeftWhenOneShotIsOn() =
+                  assertEquals(MouseMode.LEFT_CLICK, desktopModeAfterClick(MouseMode.RIGHT_CLICK, true))
+
+              @Test fun rightClickStaysWhenOneShotIsOff() =
+                  assertEquals(MouseMode.RIGHT_CLICK, desktopModeAfterClick(MouseMode.RIGHT_CLICK, false))
+
+              @Test fun otherModesAreNeverChanged() {
+                  for (mode in MouseMode.entries.filter { it != MouseMode.RIGHT_CLICK }) {
+                      assertEquals(mode, desktopModeAfterClick(mode, true))
+                      assertEquals(mode, desktopModeAfterClick(mode, false))
+                  }
+              }
+          }
+          ''', encoding='utf-8')
+          it=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopRightClickOnceToggleTest.kt')
+          it.write_text('''package iecxiv.meshfabric.ui.desktop
+
+          import android.content.Context
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.ui.test.junit4.createComposeRule
+          import androidx.compose.ui.test.onNodeWithTag
+          import androidx.compose.ui.test.performClick
+          import androidx.test.platform.app.InstrumentationRegistry
+          import org.junit.Assert.assertFalse
+          import org.junit.Assert.assertTrue
+          import org.junit.Before
+          import org.junit.Rule
+          import org.junit.Test
+
+          class DesktopRightClickOnceToggleTest {
+              @get:Rule val compose = createComposeRule()
+              private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+              private val portrait = android.content.res.Configuration.ORIENTATION_PORTRAIT
+
+              @Before fun cleanPreferences() {
+                  context.getSharedPreferences("desktop_right_click_assist", Context.MODE_PRIVATE).edit().clear().commit()
+              }
+
+              @Test fun badgeFollowsTheToggleAndIsRemembered() {
+                  val state = DesktopRightClickAssistState(context, portrait)
+                  compose.setContent { MaterialTheme { DesktopRightClickAssistToolbar(state) } }
+                  compose.onNodeWithTag("desktop-right-click-once-badge", useUnmergedTree = true).assertDoesNotExist()
+                  compose.onNodeWithTag("desktop-right-click-once-toggle").performClick()
+                  compose.onNodeWithTag("desktop-right-click-once-badge", useUnmergedTree = true).assertExists()
+                  assertTrue(DesktopRightClickAssistState(context, portrait).latch.visible)
+                  compose.onNodeWithTag("desktop-right-click-once-toggle").performClick()
+                  compose.onNodeWithTag("desktop-right-click-once-badge", useUnmergedTree = true).assertDoesNotExist()
+                  assertFalse(DesktopRightClickAssistState(context, portrait).latch.visible)
+              }
+          }
+          ''', encoding='utf-8')
+          PY
+          git diff --check
+      - name: Build, compile instrumentation, unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute permanent and new emulator regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            python3 .github/scripts/run-emulator-regressions.py
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=iecxiv.meshfabric.ui.desktop.DesktopRightClickOnceToggleTest --no-daemon --stacktrace
+      - name: Show failing instrumentation tests
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          files=glob.glob('app/build/outputs/androidTest-results/**/*.xml', recursive=True)
+          print('result files:', files)
+          for f in files:
+              try:
+                  root=ET.parse(f).getroot()
+              except Exception as e:
+                  print('unreadable', f, e)
+                  continue
+              for tc in root.iter('testcase'):
+                  for kind in ('failure','error'):
+                      for n in tc.findall(kind):
+                          print('FAILED', tc.get('classname'), tc.get('name'))
+                          print((n.get('message') or '')[:800])
+                          print((n.text or '')[:2000])
+          PY
+      - name: Publish validated candidate only on unchanged dev
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          d='app/src/main/java/iecxiv/meshfabric/ui/desktop/'
+          allowed={d+'DesktopRightClickAssist.kt',d+'RemoteDesktopScreen.kt',d+'DesktopRightClickOnce.kt','app/src/test/java/iecxiv/meshfabric/ui/desktop/DesktopRightClickOnceTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/desktop/DesktopRightClickOnceToggleTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if changed!=allowed: raise SystemExit('Unexpected changed files: '+repr(changed))
+          subprocess.run(['git','add','--',*sorted(changed)],check=True)
+          PY
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "feat(desktop): one-shot right click toggle with badge; remove floating bubble"
+          git push origin HEAD:refs/heads/dev
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-right-click-once-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,7 +1,0 @@
-<resources>
-    <string name="desktop_right_assist_show">Mostrar botón de clic derecho</string>
-    <string name="desktop_right_assist_hide">Ocultar botón de clic derecho</string>
-    <string name="desktop_right_assist_click">Preparar el siguiente clic derecho</string>
-    <string name="desktop_right_assist_armed">Siguiente clic: derecho. Pulsa de nuevo para cancelar.</string>
-    <string name="desktop_right_assist_idle">Botón de clic derecho sin preparar</string>
-</resources>

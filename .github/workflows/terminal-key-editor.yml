@@ -1,0 +1,727 @@
+name: Validate terminal key editor
+on:
+  push:
+    branches: [dev]
+    paths: [.github/workflows/terminal-key-editor.yml]
+permissions:
+  contents: write
+concurrency:
+  group: terminal-key-editor-publication
+  cancel-in-progress: false
+jobs:
+  validate-and-publish:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '16111833'
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager "platforms;android-37.2" "platforms;android-35" "build-tools;37.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare candidate and regression tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+          base=Path('app/src/main/java/iecxiv/meshfabric/ui/terminal')
+          bar=base/'TerminalKeyBar.kt'
+          layout=base/'TerminalKeyLayout.kt'
+          editor=base/'TerminalKeyEditorDialog.kt'
+          barTest=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt')
+          editorTest=Path('app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyEditorTest.kt')
+          layoutTest=Path('app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalKeyLayoutTest.kt')
+          runner=Path('.github/scripts/run-emulator-regressions.py')
+          if subprocess.check_output(['git','hash-object',str(bar)],text=True).strip()!='9a85713656c588a1ad369105483337eee6a86474': raise SystemExit('TerminalKeyBar.kt changed; review required')
+          for p in (layout,editor,editorTest,layoutTest):
+              if p.exists(): raise SystemExit(str(p)+' already exists; review required')
+          layoutTest.parent.mkdir(parents=True, exist_ok=True)
+          layout.write_text('''package iecxiv.meshfabric.ui.terminal
+
+          internal val terminalBaseKeyIds = listOf(
+              "esc", "tab", "ctrl-c", "enter", "backspace", "left", "down", "up", "right",
+              "home", "end", "insert", "delete", "pageup", "pagedown"
+          )
+          internal val terminalCatalogKeyIds: List<String> =
+              terminalBaseKeyIds + ('a'..'z').map { "ctrl-$it" }.filter { it != "ctrl-c" }
+          internal val terminalDefaultKeyIds: List<String> =
+              terminalBaseKeyIds + listOf("ctrl-z", "ctrl-x", "ctrl-o", "ctrl-w")
+
+          internal fun parseTerminalKeyIds(raw: String?): List<String> {
+              if (raw == null) return terminalDefaultKeyIds
+              val allowed = terminalCatalogKeyIds.toSet()
+              return raw.split(',').map { it.trim() }.filter { it in allowed }.distinct()
+          }
+
+          internal fun serializeTerminalKeyIds(ids: List<String>): String {
+              val allowed = terminalCatalogKeyIds.toSet()
+              return ids.filter { it in allowed }.distinct().joinToString(",")
+          }
+          ''', encoding='utf-8')
+          layoutTest.write_text('''package iecxiv.meshfabric.ui.terminal
+
+          import org.junit.Assert.assertEquals
+          import org.junit.Assert.assertTrue
+          import org.junit.Test
+
+          class TerminalKeyLayoutTest {
+              @Test fun missingPreferenceUsesDefaultOrder() {
+                  assertEquals(terminalDefaultKeyIds, parseTerminalKeyIds(null))
+                  assertTrue(terminalDefaultKeyIds.containsAll(listOf("ctrl-z", "ctrl-x", "ctrl-o", "ctrl-w")))
+              }
+              @Test fun emptyPreferenceMeansUserRemovedEveryKey() {
+                  assertEquals(emptyList<String>(), parseTerminalKeyIds(""))
+              }
+              @Test fun unknownAndDuplicateIdsAreDropped() {
+                  assertEquals(listOf("tab", "esc"), parseTerminalKeyIds("tab,tab,bogus, esc ,"))
+              }
+              @Test fun serializationRoundTripKeepsOrder() {
+                  val ids = listOf("ctrl-a", "enter", "esc")
+                  assertEquals(ids, parseTerminalKeyIds(serializeTerminalKeyIds(ids)))
+              }
+              @Test fun catalogHasNoDuplicatesAndIncludesEveryDefault() {
+                  assertEquals(terminalCatalogKeyIds.size, terminalCatalogKeyIds.toSet().size)
+                  assertTrue(terminalCatalogKeyIds.containsAll(terminalDefaultKeyIds))
+                  assertEquals(40, terminalCatalogKeyIds.size)
+              }
+          }
+          ''', encoding='utf-8')
+          editor.write_text('''package iecxiv.meshfabric.ui.terminal
+
+          import androidx.compose.foundation.background
+          import androidx.compose.foundation.gestures.detectDragGestures
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Column
+          import androidx.compose.foundation.layout.ExperimentalLayoutApi
+          import androidx.compose.foundation.layout.FlowRow
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.height
+          import androidx.compose.foundation.layout.heightIn
+          import androidx.compose.foundation.layout.offset
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.foundation.rememberScrollState
+          import androidx.compose.foundation.verticalScroll
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.filled.Close
+          import androidx.compose.material.icons.filled.DragHandle
+          import androidx.compose.material3.FilterChip
+          import androidx.compose.material3.HorizontalDivider
+          import androidx.compose.material3.Icon
+          import androidx.compose.material3.IconButton
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Text
+          import androidx.compose.material3.TextButton
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.key
+          import androidx.compose.runtime.mutableFloatStateOf
+          import androidx.compose.runtime.mutableStateListOf
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.setValue
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.graphics.Color
+          import androidx.compose.ui.input.pointer.pointerInput
+          import androidx.compose.ui.platform.LocalDensity
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.unit.IntOffset
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.compose.ui.zIndex
+          import iecxiv.meshfabric.ui.components.AppAlertDialog
+          import kotlin.math.roundToInt
+
+          @OptIn(ExperimentalLayoutApi::class)
+          @Composable
+          internal fun TerminalKeyEditorDialog(
+              initial: List<String>, es: Boolean,
+              onSave: (List<String>) -> Unit, onDismiss: () -> Unit
+          ) {
+              fun label(spanish: String, english: String) = if (es) spanish else english
+              val keys = remember { mutableStateListOf<String>().apply { addAll(initial) } }
+              var dragging by remember { mutableStateOf<String?>(null) }
+              var dragOffset by remember { mutableFloatStateOf(0f) }
+              val rowHeight = 52.dp
+              val rowPx = with(LocalDensity.current) { rowHeight.toPx() }
+              AppAlertDialog(
+                  onDismissRequest = onDismiss,
+                  title = { Text(label("Teclas de la barra", "Bar keys")) },
+                  text = {
+                      Column(
+                          Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                          verticalArrangement = Arrangement.spacedBy(8.dp)
+                      ) {
+                          Text(
+                              label("Arrastra el icono de asa para ordenar y pulsa la cruz para quitar una tecla.",
+                                  "Drag the handle icon to reorder and tap the cross to remove a key."),
+                              style = MaterialTheme.typography.bodySmall
+                          )
+                          Column(Modifier.fillMaxWidth()) {
+                              keys.forEach { id ->
+                                  key(id) {
+                                      val isDragging = dragging == id
+                                      Row(
+                                          Modifier.fillMaxWidth().height(rowHeight)
+                                              .zIndex(if (isDragging) 1f else 0f)
+                                              .offset { IntOffset(0, if (isDragging) dragOffset.roundToInt() else 0) }
+                                              .background(if (isDragging) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent),
+                                          verticalAlignment = Alignment.CenterVertically
+                                      ) {
+                                          Icon(
+                                              Icons.Default.DragHandle, contentDescription = null,
+                                              modifier = Modifier.size(40.dp).testTag("terminal-key-handle-$id")
+                                                  .pointerInput(id, rowPx) {
+                                                      detectDragGestures(
+                                                          onDragStart = { dragging = id; dragOffset = 0f },
+                                                          onDragEnd = { dragging = null; dragOffset = 0f },
+                                                          onDragCancel = { dragging = null; dragOffset = 0f },
+                                                          onDrag = { change, amount ->
+                                                              change.consume()
+                                                              dragOffset += amount.y
+                                                              val from = keys.indexOf(id)
+                                                              if (from >= 0) {
+                                                                  val target = (from + (dragOffset / rowPx).roundToInt()).coerceIn(0, keys.lastIndex)
+                                                                  if (target != from) {
+                                                                      keys.add(target, keys.removeAt(from))
+                                                                      dragOffset -= (target - from) * rowPx
+                                                                  }
+                                                              }
+                                                          }
+                                                      )
+                                                  }
+                                                  .padding(8.dp)
+                                          )
+                                          Text(terminalKeyDescription(id), Modifier.weight(1f))
+                                          IconButton(
+                                              onClick = { keys.remove(id) },
+                                              modifier = Modifier.testTag("terminal-key-remove-$id")
+                                          ) { Icon(Icons.Default.Close, contentDescription = label("Quitar", "Remove")) }
+                                      }
+                                  }
+                              }
+                          }
+                          HorizontalDivider()
+                          Text(label("Añadir teclas", "Add keys"), style = MaterialTheme.typography.labelLarge)
+                          FlowRow(
+                              horizontalArrangement = Arrangement.spacedBy(6.dp),
+                              verticalArrangement = Arrangement.spacedBy(6.dp)
+                          ) {
+                              terminalCatalogKeyIds.filter { it !in keys }.forEach { id ->
+                                  FilterChip(
+                                      selected = false,
+                                      onClick = { keys.add(id) },
+                                      label = { Text(terminalKeyDescription(id), fontSize = 11.sp) },
+                                      modifier = Modifier.testTag("terminal-key-add-$id")
+                                  )
+                              }
+                          }
+                      }
+                  },
+                  confirmButton = {
+                      TextButton(onClick = { onSave(keys.toList()) }, modifier = Modifier.testTag("terminal-key-editor-save")) {
+                          Text(label("Guardar", "Save"))
+                      }
+                  },
+                  dismissButton = {
+                      Row {
+                          TextButton(onClick = { keys.clear(); keys.addAll(terminalDefaultKeyIds) }) { Text(label("Restablecer", "Reset")) }
+                          TextButton(onClick = onDismiss) { Text(label("Cancelar", "Cancel")) }
+                      }
+                  }
+              )
+          }
+          ''', encoding='utf-8')
+          bar.write_text('''package iecxiv.meshfabric.ui.terminal
+
+          import android.content.Context
+          import androidx.compose.foundation.horizontalScroll
+          import androidx.compose.foundation.layout.Arrangement
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.Row
+          import androidx.compose.foundation.layout.fillMaxWidth
+          import androidx.compose.foundation.layout.heightIn
+          import androidx.compose.foundation.layout.padding
+          import androidx.compose.foundation.layout.size
+          import androidx.compose.foundation.layout.widthIn
+          import androidx.compose.foundation.shape.RoundedCornerShape
+          import androidx.compose.material.icons.Icons
+          import androidx.compose.material.icons.automirrored.filled.KeyboardReturn
+          import androidx.compose.material.icons.filled.ArrowUpward
+          import androidx.compose.material.icons.filled.Build
+          import androidx.compose.material3.DropdownMenu
+          import androidx.compose.material3.DropdownMenuItem
+          import androidx.compose.material3.FilterChip
+          import androidx.compose.material3.Icon
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.material3.Surface
+          import androidx.compose.material3.Text
+          import androidx.compose.material3.minimumInteractiveComponentSize
+          import androidx.compose.runtime.Composable
+          import androidx.compose.runtime.DisposableEffect
+          import androidx.compose.runtime.LaunchedEffect
+          import androidx.compose.runtime.getValue
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.runtime.remember
+          import androidx.compose.runtime.setValue
+          import androidx.compose.runtime.snapshotFlow
+          import androidx.compose.ui.Alignment
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.draw.rotate
+          import androidx.compose.ui.graphics.vector.ImageVector
+          import androidx.compose.ui.platform.LocalConfiguration
+          import androidx.compose.ui.platform.LocalContext
+          import androidx.compose.ui.platform.testTag
+          import androidx.compose.ui.res.stringResource
+          import androidx.compose.ui.semantics.contentDescription
+          import androidx.compose.ui.semantics.semantics
+          import androidx.compose.ui.text.font.FontWeight
+          import androidx.compose.ui.text.style.TextAlign
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import iecxiv.meshfabric.R
+          import iecxiv.meshfabric.ui.theme.appCardBackground
+          import iecxiv.meshfabric.ui.theme.appCardTonalElevation
+          import kotlinx.coroutines.delay
+          import kotlinx.coroutines.flow.collectLatest
+
+          private const val KEY_BAR_PREFS = "terminal_key_bar"
+          private const val KEY_BAR_SCROLL = "scroll_x"
+          private const val KEY_BAR_KEYS = "keys"
+
+          internal data class TerminalBarKey(val id: String, val label: Int, val description: Int = label)
+          internal val terminalBarKeyDefs: Map<String, TerminalBarKey> = listOf(
+              TerminalBarKey("esc", R.string.terminal_key_esc), TerminalBarKey("tab", R.string.terminal_key_tab),
+              TerminalBarKey("ctrl-c", R.string.terminal_key_ctrl_c),
+              TerminalBarKey("enter", R.string.terminal_key_enter_glyph, R.string.terminal_key_enter),
+              TerminalBarKey("backspace", R.string.terminal_key_backspace_glyph, R.string.terminal_key_backspace),
+              TerminalBarKey("left", R.string.terminal_key_left_glyph, R.string.terminal_key_left),
+              TerminalBarKey("down", R.string.terminal_key_down_glyph, R.string.terminal_key_down),
+              TerminalBarKey("up", R.string.terminal_key_up_glyph, R.string.terminal_key_up),
+              TerminalBarKey("right", R.string.terminal_key_right_glyph, R.string.terminal_key_right),
+              TerminalBarKey("home", R.string.terminal_key_home), TerminalBarKey("end", R.string.terminal_key_end),
+              TerminalBarKey("insert", R.string.terminal_key_insert), TerminalBarKey("delete", R.string.terminal_key_delete),
+              TerminalBarKey("pageup", R.string.terminal_key_pageup), TerminalBarKey("pagedown", R.string.terminal_key_pagedown)
+          ).associateBy { it.id }
+
+          @Composable
+          internal fun terminalKeyDescription(id: String): String =
+              terminalBarKeyDefs[id]?.let { stringResource(it.description) }
+                  ?: stringResource(R.string.terminal_ctrl_shortcut, id.removePrefix("ctrl-").uppercase())
+
+          @Composable
+          private fun terminalKeyLabel(id: String): String =
+              terminalBarKeyDefs[id]?.let { stringResource(it.label) }
+                  ?: stringResource(R.string.terminal_ctrl_shortcut, id.removePrefix("ctrl-").uppercase())
+
+          @Composable
+          private fun BarButton(
+              label: String, description: String, enabled: Boolean,
+              largeLabel: Boolean = false, arrowRotation: Float? = null,
+              icon: ImageVector? = null, tag: String? = null, iconTag: String? = null,
+              onClick: () -> Unit
+          ) {
+              val labelStyle = if (largeLabel) MaterialTheme.typography.labelLarge.copy(
+                  fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold
+              ) else MaterialTheme.typography.labelLarge.copy(fontSize = 10.sp)
+              FilterChip(
+                  selected = true,
+                  onClick = onClick,
+                  enabled = enabled,
+                  shape = MaterialTheme.shapes.small,
+                  modifier = Modifier.semantics { contentDescription = description }
+                      .then(if (tag != null) Modifier.testTag(tag) else Modifier)
+                      .minimumInteractiveComponentSize().widthIn(min = 48.dp),
+                  label = {
+                      when {
+                          arrowRotation != null -> Icon(
+                              Icons.Default.ArrowUpward, contentDescription = null,
+                              modifier = Modifier.size(20.dp).rotate(arrowRotation).testTag("terminal-arrow-${arrowRotation.toInt()}")
+                          )
+                          icon != null -> Icon(
+                              icon, contentDescription = null,
+                              modifier = Modifier.size(20.dp).testTag(iconTag ?: "terminal-key-icon")
+                          )
+                          else -> Text(
+                              label, maxLines = 1, style = labelStyle,
+                              textAlign = TextAlign.Center, modifier = Modifier.widthIn(min = 16.dp)
+                          )
+                      }
+                  }
+              )
+          }
+
+          @Composable
+          private fun KeyButton(id: String, enabled: Boolean, onKey: (String) -> Unit) {
+              val arrow = when (id) {
+                  "up" -> 0f
+                  "right" -> 90f
+                  "down" -> 180f
+                  "left" -> 270f
+                  else -> null
+              }
+              val enter = id == "enter"
+              BarButton(
+                  terminalKeyLabel(id), terminalKeyDescription(id), enabled,
+                  arrowRotation = arrow,
+                  icon = if (enter) Icons.AutoMirrored.Filled.KeyboardReturn else null,
+                  iconTag = if (enter) "terminal-enter-icon" else null,
+                  onClick = { onKey(id) }
+              )
+          }
+
+          @Composable
+          internal fun TerminalKeyBar(
+              enabled: Boolean, historyEnabled: Boolean, onKey: (String) -> Unit,
+              onLatest: () -> Unit, onPopup: (Boolean) -> Unit
+          ) {
+              val context = LocalContext.current
+              val es = LocalConfiguration.current.locales[0].language == "es"
+              val prefs = remember(context) { context.applicationContext.getSharedPreferences(KEY_BAR_PREFS, Context.MODE_PRIVATE) }
+              val scroll = androidx.compose.foundation.rememberScrollState(remember(prefs) { prefs.getInt(KEY_BAR_SCROLL, 0).coerceAtLeast(0) })
+              var keyIds by remember(prefs) { mutableStateOf(parseTerminalKeyIds(prefs.getString(KEY_BAR_KEYS, null))) }
+              var ctrlMenu by remember { mutableStateOf(false) }
+              var showEditor by remember { mutableStateOf(false) }
+              LaunchedEffect(scroll, prefs) {
+                  snapshotFlow { scroll.value }.collectLatest { value ->
+                      delay(250L)
+                      prefs.edit().putInt(KEY_BAR_SCROLL, value).apply()
+                  }
+              }
+              DisposableEffect(scroll, prefs) { onDispose { prefs.edit().putInt(KEY_BAR_SCROLL, scroll.value).apply() } }
+              LaunchedEffect(ctrlMenu, showEditor) { onPopup(ctrlMenu || showEditor) }
+              LaunchedEffect(enabled) { if (!enabled) ctrlMenu = false }
+              DisposableEffect(Unit) { onDispose { onPopup(false) } }
+              Surface(
+                  modifier = Modifier.fillMaxWidth().testTag("terminal-key-bar"),
+                  shape = RoundedCornerShape(24.dp),
+                  color = appCardBackground(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+                  shadowElevation = 8.dp,
+                  contentColor = MaterialTheme.colorScheme.onSurface,
+                  tonalElevation = appCardTonalElevation(0.dp)
+              ) {
+                  Row(
+                      Modifier.fillMaxWidth().horizontalScroll(scroll).padding(horizontal = 4.dp, vertical = 4.dp)
+                          .testTag("terminal-key-bar-scroll"),
+                      horizontalArrangement = Arrangement.spacedBy(4.dp),
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      keyIds.forEach { KeyButton(it, enabled, onKey) }
+                      Box {
+                          BarButton(stringResource(R.string.terminal_ctrl_more_label), stringResource(R.string.terminal_ctrl_more), enabled) { ctrlMenu = true }
+                          DropdownMenu(expanded = ctrlMenu, onDismissRequest = { ctrlMenu = false }, modifier = Modifier.heightIn(max = 280.dp)) {
+                              ('A'..'Z').forEach { letter ->
+                                  DropdownMenuItem(text = { Text(stringResource(R.string.terminal_ctrl_shortcut, letter.toString())) },
+                                      onClick = { ctrlMenu = false; onPopup(false); onKey("ctrl-" + letter.lowercaseChar()) })
+                              }
+                          }
+                      }
+                      BarButton(stringResource(R.string.terminal_latest_glyph), stringResource(R.string.terminal_latest), historyEnabled, largeLabel = true, onClick = onLatest)
+                      BarButton(
+                          "", if (es) "Editar teclas" else "Edit keys", true,
+                          icon = Icons.Default.Build, tag = "terminal-key-editor-button", iconTag = "terminal-wrench-icon"
+                      ) { ctrlMenu = false; showEditor = true }
+                  }
+              }
+              if (showEditor) {
+                  TerminalKeyEditorDialog(
+                      initial = keyIds, es = es,
+                      onSave = { updated ->
+                          keyIds = updated
+                          prefs.edit().putString(KEY_BAR_KEYS, serializeTerminalKeyIds(updated)).apply()
+                          showEditor = false
+                      },
+                      onDismiss = { showEditor = false }
+                  )
+              }
+          }
+          ''', encoding='utf-8')
+          barTest.write_text('''package iecxiv.meshfabric.ui.terminal
+
+          import android.content.Context
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.width
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.runtime.mutableStateOf
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import androidx.compose.ui.unit.dp
+          import androidx.compose.ui.unit.sp
+          import androidx.test.platform.app.InstrumentationRegistry
+          import iecxiv.meshfabric.R
+          import org.junit.Assert.*
+          import org.junit.Before
+          import org.junit.Rule
+          import org.junit.Test
+
+          class TerminalKeyBarTest {
+              @get:Rule val compose = createComposeRule()
+              private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+              private val prefs get() = context.applicationContext.getSharedPreferences("terminal_key_bar", Context.MODE_PRIVATE)
+              private fun desc(id: Int) = context.getString(id)
+              @Before fun clearScroll() { prefs.edit().clear().commit() }
+
+              @Test fun singleScrollableBarSendsEveryKeyOnce() {
+                  val sent = mutableListOf<String>()
+                  var latest = 0
+                  compose.setContent { MaterialTheme { Box(Modifier.width(360.dp)) { TerminalKeyBar(true, true, { sent.add(it) }, { latest++ }, {}) } } }
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter))
+                      .assertHeightIsAtLeast(32.dp).assertWidthIsAtLeast(48.dp).performClick()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_left)).performScrollTo().performClick()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_ctrl_more)).performScrollTo().performClick()
+                  compose.onNodeWithText(context.getString(R.string.terminal_ctrl_shortcut, "A")).performClick()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_latest)).performScrollTo().performClick()
+                  compose.runOnIdle { assertEquals(listOf("enter", "left", "ctrl-a"), sent); assertEquals(1, latest) }
+              }
+
+              @Test fun noExpanderRemains() {
+                  compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_keys_more)).assertDoesNotExist()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_keys_less)).assertDoesNotExist()
+                  compose.onNodeWithTag("terminal-chevron-0", useUnmergedTree = true).assertDoesNotExist()
+              }
+
+              @Test fun disconnectedKeysDisabledButHistoryAvailable() {
+                  compose.setContent { MaterialTheme { Box(Modifier.width(360.dp)) { TerminalKeyBar(false, true, {}, {}, {}) } } }
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter)).assertIsNotEnabled()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_latest)).performScrollTo().assertIsEnabled()
+              }
+
+              @Test fun arrowAndEnterIconsShareSizeAndEnterIsCentered() {
+                  compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+                  for (rotation in listOf(0, 90, 180, 270)) {
+                      compose.onNodeWithTag("terminal-arrow-$rotation", useUnmergedTree = true)
+                          .assertWidthIsEqualTo(20.dp).assertHeightIsEqualTo(20.dp)
+                  }
+                  compose.onNodeWithTag("terminal-enter-icon", useUnmergedTree = true)
+                      .assertWidthIsEqualTo(20.dp).assertHeightIsEqualTo(20.dp)
+                  val chip = compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter)).getUnclippedBoundsInRoot()
+                  val icon = compose.onNodeWithTag("terminal-enter-icon", useUnmergedTree = true).getUnclippedBoundsInRoot()
+                  assertEquals(((chip.left + chip.right) / 2).value, ((icon.left + icon.right) / 2).value, 1f)
+                  assertEquals(((chip.top + chip.bottom) / 2).value, ((icon.top + icon.bottom) / 2).value, 1f)
+              }
+
+              @Test fun largeLabelsAndHomeEndStylesAreConsistent() {
+                  compose.setContent { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+                  val latestLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                  compose.onNodeWithText(context.getString(R.string.terminal_latest_glyph), useUnmergedTree = true)
+                      .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(latestLayouts) }
+                  assertEquals(20.sp, latestLayouts.single().layoutInput.style.fontSize)
+                  assertFalse(latestLayouts.single().didOverflowHeight)
+                  val homeLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                  val endLayouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                  compose.onNodeWithText(context.getString(R.string.terminal_key_home), useUnmergedTree = true)
+                      .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(homeLayouts) }
+                  compose.onNodeWithText(context.getString(R.string.terminal_key_end), useUnmergedTree = true)
+                      .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(endLayouts) }
+                  val homeStyle = homeLayouts.single().layoutInput.style
+                  val endStyle = endLayouts.single().layoutInput.style
+                  assertEquals(homeStyle.fontSize, endStyle.fontSize)
+                  assertEquals(homeStyle.lineHeight, endStyle.lineHeight)
+                  assertEquals(homeStyle.fontWeight, endStyle.fontWeight)
+                  assertFalse(endLayouts.single().didOverflowHeight)
+              }
+
+              @Test fun increasedFontScaleKeepsLabelsUnclipped() {
+                  compose.setContent {
+                      val density = androidx.compose.ui.platform.LocalDensity.current
+                      androidx.compose.runtime.CompositionLocalProvider(
+                          androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 2f)
+                      ) { MaterialTheme { TerminalKeyBar(true, true, {}, {}, {}) } }
+                  }
+                  val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                  compose.onNodeWithText(context.getString(R.string.terminal_latest_glyph), useUnmergedTree = true)
+                      .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { action -> action(layouts) }
+                  assertFalse(layouts.single().didOverflowHeight)
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter))
+                      .assertHeightIsAtLeast(32.dp).assertWidthIsAtLeast(48.dp)
+              }
+
+              @Test fun horizontalScrollPositionIsStoredAndRestored() {
+                  val visible = mutableStateOf(true)
+                  compose.setContent { MaterialTheme { if (visible.value) Box(Modifier.width(240.dp)) { TerminalKeyBar(true, true, {}, {}, {}) } } }
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_latest)).performScrollTo()
+                  compose.waitForIdle()
+                  compose.runOnIdle { visible.value = false }
+                  compose.waitForIdle()
+                  assertTrue(prefs.getInt("scroll_x", 0) > 0)
+                  compose.runOnIdle { visible.value = true }
+                  compose.waitForIdle()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_latest)).assertIsDisplayed()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_esc)).assertIsNotDisplayed()
+              }
+          }
+          ''', encoding='utf-8')
+          editorTest.write_text('''package iecxiv.meshfabric.ui.terminal
+
+          import android.content.Context
+          import androidx.compose.foundation.layout.Box
+          import androidx.compose.foundation.layout.width
+          import androidx.compose.material3.MaterialTheme
+          import androidx.compose.ui.Modifier
+          import androidx.compose.ui.geometry.Offset
+          import androidx.compose.ui.test.*
+          import androidx.compose.ui.test.junit4.v2.createComposeRule
+          import androidx.compose.ui.unit.dp
+          import androidx.test.platform.app.InstrumentationRegistry
+          import iecxiv.meshfabric.R
+          import org.junit.Assert.*
+          import org.junit.Before
+          import org.junit.Rule
+          import org.junit.Test
+
+          class TerminalKeyEditorTest {
+              @get:Rule val compose = createComposeRule()
+              private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+              private val prefs get() = context.applicationContext.getSharedPreferences("terminal_key_bar", Context.MODE_PRIVATE)
+              private fun desc(id: Int) = context.getString(id)
+              private fun savedKeys() = prefs.getString("keys", "")!!.split(',')
+              @Before fun clear() { prefs.edit().clear().commit() }
+              private fun showBar() = compose.setContent { MaterialTheme { Box(Modifier.width(360.dp)) { TerminalKeyBar(true, true, {}, {}, {}) } } }
+              private fun openEditor() { compose.onNodeWithTag("terminal-key-editor-button").performScrollTo().performClick() }
+
+              @Test fun wrenchButtonIsTheLastControl() {
+                  showBar()
+                  compose.onNodeWithTag("terminal-wrench-icon", useUnmergedTree = true).assertExists()
+                  val wrench = compose.onNodeWithTag("terminal-key-editor-button").getUnclippedBoundsInRoot()
+                  val latest = compose.onNodeWithContentDescription(desc(R.string.terminal_latest)).getUnclippedBoundsInRoot()
+                  val enter = compose.onNodeWithContentDescription(desc(R.string.terminal_key_enter)).getUnclippedBoundsInRoot()
+                  assertTrue(wrench.left >= latest.right - 1.dp)
+                  assertTrue(latest.left > enter.left)
+              }
+
+              @Test fun editorRemovesAddsAndPersistsKeys() {
+                  showBar()
+                  openEditor()
+                  compose.onNodeWithTag("terminal-key-remove-esc").performClick()
+                  compose.onNodeWithTag("terminal-key-editor-save").performClick()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_esc)).assertDoesNotExist()
+                  assertFalse(savedKeys().contains("esc"))
+                  openEditor()
+                  compose.onNodeWithTag("terminal-key-add-esc").performScrollTo().performClick()
+                  compose.onNodeWithTag("terminal-key-editor-save").performClick()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_esc)).assertExists()
+                  assertEquals("esc", savedKeys().last())
+              }
+
+              @Test fun dragHandleReordersKeys() {
+                  showBar()
+                  openEditor()
+                  compose.onNodeWithTag("terminal-key-handle-esc").performTouchInput {
+                      down(center)
+                      moveBy(Offset(0f, 30f))
+                      moveBy(Offset(0f, 60f))
+                      moveBy(Offset(0f, 90f))
+                      moveBy(Offset(0f, 120f))
+                      up()
+                  }
+                  compose.waitForIdle()
+                  compose.onNodeWithTag("terminal-key-editor-save").performClick()
+                  assertTrue(savedKeys().indexOf("esc") > 0)
+              }
+
+              @Test fun cancelKeepsStoredKeysUntouched() {
+                  showBar()
+                  openEditor()
+                  compose.onNodeWithTag("terminal-key-remove-esc").performClick()
+                  compose.onNodeWithText(if (java.util.Locale.getDefault().language == "es") "Cancelar" else "Cancel").performClick()
+                  compose.onNodeWithContentDescription(desc(R.string.terminal_key_esc)).assertExists()
+                  assertNull(prefs.getString("keys", null))
+              }
+          }
+          ''', encoding='utf-8')
+          t=runner.read_text()
+          cls='iecxiv.meshfabric.ui.terminal.TerminalKeyEditorTest'
+          if cls not in t:
+              if t.count('classes=[')!=1: raise SystemExit('CI class-list anchor changed')
+              runner.write_text(t.replace('classes=[',"classes=['"+cls+"',",1))
+          PY
+          git diff --check
+      - name: Build, compile instrumentation, unit tests and lint
+        run: bash ./gradlew :app:assembleDebug :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug --continue --no-daemon --stacktrace
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute permanent emulator regressions
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: python3 .github/scripts/run-emulator-regressions.py
+      - name: Show failing instrumentation tests
+        if: failure()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+          files=glob.glob('app/build/outputs/androidTest-results/**/*.xml', recursive=True)
+          print('result files:', files)
+          for f in files:
+              try:
+                  root=ET.parse(f).getroot()
+              except Exception as e:
+                  print('unreadable', f, e)
+                  continue
+              for tc in root.iter('testcase'):
+                  for kind in ('failure','error'):
+                      for n in tc.findall(kind):
+                          print('FAILED', tc.get('classname'), tc.get('name'))
+                          print((n.get('message') or '')[:800])
+                          print((n.text or '')[:2000])
+          PY
+      - name: Publish validated candidate only on unchanged dev
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin dev
+          test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
+          python3 - <<'PY'
+          import subprocess
+          allowed={'.github/scripts/run-emulator-regressions.py','app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt','app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyLayout.kt','app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyEditorDialog.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBarTest.kt','app/src/androidTest/java/iecxiv/meshfabric/ui/terminal/TerminalKeyEditorTest.kt','app/src/test/java/iecxiv/meshfabric/ui/terminal/TerminalKeyLayoutTest.kt'}
+          changed=set(subprocess.check_output(['git','diff','--name-only'],text=True).splitlines())|set(subprocess.check_output(['git','ls-files','--others','--exclude-standard'],text=True).splitlines())
+          if not changed<=allowed or 'app/src/main/java/iecxiv/meshfabric/ui/terminal/TerminalKeyBar.kt' not in changed: raise SystemExit('Unexpected changed files: '+repr(changed))
+          subprocess.run(['git','add','--',*sorted(changed)],check=True)
+          PY
+          git diff --cached --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m "feat(terminal): customizable key bar with wrench editor and enter icon"
+          git push origin HEAD:refs/heads/dev
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-key-editor-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            app/build/reports/tests/
+            app/build/test-results/
+            app/build/reports/lint-results-debug.*
+            app/build/outputs/androidTest-results/
+            app/build/reports/androidTests/
+            ${{ runner.temp }}/resume-regressions/
+          if-no-files-found: warn
+          retention-days: 14
