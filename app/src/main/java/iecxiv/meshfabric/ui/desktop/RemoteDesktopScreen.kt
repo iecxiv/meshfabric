@@ -627,7 +627,9 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                     Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                         Text(stringResource(R.string.keyboard_and_shortcuts), fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Spacer(modifier = Modifier.height(10.dp))
-                        Column(modifier = Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                        val shortcutsScroll = rememberScrollState()
+                        var shortcutsViewportPx by remember { mutableIntStateOf(0) }
+                        Column(modifier = Modifier.weight(1f, fill = false).fillMaxWidth().onSizeChanged { shortcutsViewportPx = it.height }.verticalScroll(shortcutsScroll)) {
                             Text(stringResource(R.string.send_direct_text), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(4.dp))
                             OutlinedTextField(value = textInput, onValueChange = { textInput = it }, label = { Text(stringResource(R.string.text_to_send_placeholder)) }, maxLines = 3, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp, max = 90.dp))
@@ -674,7 +676,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                             FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 for (f in 1..12) FilterChip(selected = true, onClick = { viewModel.sendSingleKey(nodeId, 111 + f) }, label = { Text("F$f", fontSize = 11.sp) })
                             }
-                            DesktopShortcutSections(nodeId, viewModel, isConnected)
+                            DesktopShortcutSections(nodeId, viewModel, isConnected, shortcutsScroll, shortcutsViewportPx)
                         }
                         Spacer(modifier = Modifier.height(10.dp))
                         HorizontalDivider()
