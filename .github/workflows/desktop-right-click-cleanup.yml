@@ -19,7 +19,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - run: python3 .github/scripts/prepare_desktop_right_click_cleanup.py
+      - run: |
+          python3 .github/scripts/prepare_desktop_right_click_cleanup.py
+          python3 .github/scripts/prepare_desktop_right_click_en_strings.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -53,7 +55,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - run: python3 .github/scripts/prepare_desktop_right_click_cleanup.py
+      - run: |
+          python3 .github/scripts/prepare_desktop_right_click_cleanup.py
+          python3 .github/scripts/prepare_desktop_right_click_en_strings.py
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -125,6 +129,7 @@ jobs:
           git fetch origin dev
           test "$(git rev-parse FETCH_HEAD)" = "$EXPECTED_SHA"
           python3 .github/scripts/prepare_desktop_right_click_cleanup.py
+          python3 .github/scripts/prepare_desktop_right_click_en_strings.py
           git add -A app
           python3 - <<'PY'
           import subprocess
@@ -139,7 +144,7 @@ jobs:
               a + 'DesktopRightClickOnceToggleTest.kt',
               r + 'values/desktop_gestures.xml', r + 'values-en/desktop_gestures.xml', r + 'values-es/desktop_gestures.xml',
               r + 'values/desktop_right_assist.xml', r + 'values-en/desktop_right_assist.xml', r + 'values-es/desktop_right_assist.xml',
-              r + 'values/desktop_right_click_once.xml', r + 'values-es/desktop_right_click_once.xml',
+              r + 'values/desktop_right_click_once.xml', r + 'values-en/desktop_right_click_once.xml', r + 'values-es/desktop_right_click_once.xml',
           }
           changed = set(subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines())
           if not changed or not changed <= allowed:
