@@ -1,0 +1,2 @@
+Compilaciones reproducibles.
+- El APK ya no incluye metadatos de git, por lo que las compilaciones son idénticas en cualquier entorno.

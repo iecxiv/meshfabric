@@ -16,8 +16,8 @@ android {
         applicationId = "iecxiv.meshfabric"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10408
-        versionName = "1.4.8"
+        versionCode = 10409
+        versionName = "1.4.9"
         //20261023
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -42,6 +42,10 @@ android {
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
+    }
+    // Required for reproducible builds (F-Droid): do not embed git info (META-INF/version-control-info.textproto)
+    vcsInfo {
+        include = false
     }
 }
 
