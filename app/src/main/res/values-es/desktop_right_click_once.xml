@@ -1,0 +1,4 @@
+<resources>
+    <string name="desktop_right_click_once_on">Clic derecho de un solo uso activado. Pulsa para desactivarlo.</string>
+    <string name="desktop_right_click_once_off">Activar clic derecho de un solo uso</string>
+</resources>

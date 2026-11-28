@@ -1,0 +1,4 @@
+<resources>
+    <string name="desktop_right_click_once_on">One-shot right click is on. Tap to turn it off.</string>
+    <string name="desktop_right_click_once_off">Turn on one-shot right click</string>
+</resources>

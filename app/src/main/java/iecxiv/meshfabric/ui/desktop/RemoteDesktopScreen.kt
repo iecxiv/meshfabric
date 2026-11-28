@@ -78,7 +78,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
     val drawDiagnostics = remember(nodeId) { longArrayOf(0L, 0L) }
     val settings by viewModel.settings(nodeId).collectAsState()
     val desktopMouseCapture = remember(nodeId) { DesktopMouseCapture() }
-    val rightClickAssist = rememberDesktopRightClickAssist(nodeId)
+    val rightClickOnce = rememberDesktopRightClickOnce()
     val desktopDialogConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
     val desktopDialogsLandscape = desktopDialogConfiguration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val desktopLandscapeDialogWidth = (desktopDialogConfiguration.screenWidthDp - 48).coerceIn(1, 600).dp
@@ -98,7 +98,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                 offsetX = 0f
                 offsetY = 0f
                 viewModel.releaseDesktopKeys(nodeId)
-                rightClickAssist.latch.cancel()
             }
             previousDisplay.value = selected
         }
@@ -136,7 +135,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
     val desktopLifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val desktopKeyboardActive = isConnected && displayState.pendingId == null && !displayState.selectionUnconfirmed && !showKeyboardDialog && !showClipboardDialog && !showSettingsDialog && !showGestureHelp &&
         desktopLifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
-    DesktopRightClickAssistBinding(rightClickAssist, desktopMouseCapture, desktopKeyboardActive)
     LaunchedEffect(desktopKeyboard, desktopKeyboardActive) {
         desktopKeyboard.setActive(desktopKeyboardActive)
         if (desktopKeyboardActive) focusRequester.requestFocus()
@@ -203,7 +201,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                             connected = isConnected,
                             onOpen = { viewModel.requestDisplays(nodeId) },
                             onSelect = { displayId, generation ->
-                                rightClickAssist.latch.cancel()
                                 viewModel.selectDisplay(nodeId, displayId, generation)
                             }
                         )
@@ -262,7 +259,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                 capture = desktopMouseCapture, enabled = desktopKeyboardActive,
                                 geometry = DesktopWheelGeometry(containerWidth, containerHeight, drawWidth, drawHeight, scale, offsetX, offsetY),
                                 onRightClick = { point ->
-                                    rightClickAssist.latch.cancel()
                                     val (remoteWidth, remoteHeight) = viewModel.screenResolution(nodeId).value
                                     if (remoteWidth <= 0 || remoteHeight <= 0) false else {
                                         viewModel.performMouseClick(nodeId, point.xFraction, point.yFraction, isRightClick = true)
@@ -302,7 +298,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                         val initialPoint = point(down.position)
                               if (initialPoint == null) {
                                   tapSequence.flush()
-                                  rightClickAssist.latch.cancel()
                                   do {
                                       val outside = awaitPointerEvent()
                                       if (outside.changes.any { it.isConsumed }) break
@@ -325,7 +320,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                         val doubleTapDrag = lastTapUp >= 0L &&
                                             tapInterval in viewConfiguration.doubleTapMinTimeMillis..viewConfiguration.doubleTapTimeoutMillis &&
                                             (down.position - lastTapPosition).getDistance() <= touchSlop * 2f &&
-                                            selectedMode == MouseMode.LEFT_CLICK && !rightClickAssist.latch.armed
+                                            selectedMode == MouseMode.LEFT_CLICK
                                         if (doubleTapDrag) tapSequence.reserveSecond() else tapSequence.flush()
                                         lastTapUp = -1L
                                         var tapUpTime = down.uptimeMillis
@@ -350,7 +345,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                                 val pointerCount = event.changes.count { it.pressed }
                                                 if (pointerCount >= 2) {
                                                     tapSequence.flush()
-                                                    rightClickAssist.latch.cancel()
                                                     drag.cancel()
                                                     transformed = true
                                                     moved = true
@@ -370,7 +364,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                                     }
                                                     if (!change.pressed) tapUpTime = change.uptimeMillis
                                                     val distance = (change.position - down.position).getDistance()
-                                                    if (distance > touchSlop) { moved = true; rightClickAssist.latch.cancel() }
+                                                    if (distance > touchSlop) { moved = true }
                                                     when (selectedMode) {
                                                         MouseMode.LEFT_CLICK, MouseMode.DRAG_MOVE -> {
                                                             if (doubleTapDrag || selectedMode == MouseMode.DRAG_MOVE) {
@@ -422,7 +416,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                                 when (selectedMode) {
                                           MouseMode.RIGHT_CLICK -> {
                                               viewModel.performMouseClick(nodeId, initial.xFraction, initial.yFraction, isRightClick = true)
-                                              val afterClick = desktopModeAfterClick(selectedMode, rightClickAssist.latch.visible)
+                                              val afterClick = desktopModeAfterClick(selectedMode, rightClickOnce.enabled)
                                               if (afterClick != selectedMode) {
                                                   lastClickMode = afterClick
                                                   selectedMode = afterClick
@@ -492,7 +486,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                     Text(text = stringResource(R.string.desktop_loading_remote), color = Color.White, style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            DesktopRightAssistLayout(rightClickAssist, desktopMouseCapture, barRelativeY, isControlsBarCollapsed, desktopKeyboardActive) {
+            DesktopToolbarLayout(barRelativeY, isControlsBarCollapsed) {
                 val diameterPx = with(density) {
                     desktopToolbarDiameter(constraints.maxWidth, constraints.maxHeight,
                         42.dp.roundToPx(), 12.dp.roundToPx(), 8.dp.roundToPx())
@@ -563,7 +557,7 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = stringResource(R.string.collapse_controls), modifier = Modifier.size(20.dp))
                                 }
                             }
-                            DesktopRightClickAssistToolbar(rightClickAssist)
+                            DesktopRightClickOnceToggle(rightClickOnce)
                             val clickMode = desktopRememberedClickMode(selectedMode, lastClickMode)
                             val mouseModeActive = selectedMode == MouseMode.LEFT_CLICK || selectedMode == MouseMode.RIGHT_CLICK
                             val mouseModeDescription = stringResource(
@@ -572,7 +566,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                             )
                             FilterChip(selected = mouseModeActive, onClick = {
                                 viewModel.releaseDesktopKeys(nodeId)
-                                rightClickAssist.latch.cancel()
                                 val next = desktopToggleClickMode(selectedMode, lastClickMode)
                                 lastClickMode = next
                                 selectedMode = next
@@ -589,7 +582,6 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                             }, modifier = Modifier.height(32.dp).semantics { stateDescription = mouseModeDescription })
                             FilterChip(selected = selectedMode == MouseMode.SCROLL, onClick = {
                                 viewModel.releaseDesktopKeys(nodeId)
-                                rightClickAssist.latch.cancel()
                                 lastClickMode = desktopRememberedClickMode(selectedMode, lastClickMode)
                                 selectedMode = MouseMode.SCROLL
                             }, label = { Text(stringResource(R.string.scroll), fontSize = 10.sp) },
