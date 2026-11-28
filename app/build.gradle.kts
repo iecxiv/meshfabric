@@ -29,6 +29,10 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Required for reproducible builds (F-Droid): do not embed git info (META-INF/version-control-info.textproto)
+            vcsInfo {
+                include = false
+            }
         }
     }
     compileOptions {
@@ -42,10 +46,6 @@ android {
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
-    }
-    // Required for reproducible builds (F-Droid): do not embed git info (META-INF/version-control-info.textproto)
-    vcsInfo {
-        include = false
     }
 }
 
