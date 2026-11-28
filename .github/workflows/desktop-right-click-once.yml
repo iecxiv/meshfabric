@@ -88,7 +88,7 @@ jobs:
                                                         }
                                                     }
           '''
-          s=sub(s, r'if \(rightClickAssist\.latch\.consume\(\)\) \{\s*viewModel\.performMouseClick\(nodeId, initial\.xFraction, initial\.yFraction, isRightClick = true\)\s*\} else when \(selectedMode\) \{\s*MouseMode\.RIGHT_CLICK -> viewModel\.performMouseClick\(nodeId, initial\.xFraction, initial\.yFraction, isRightClick = true\)\n', tap.rstrip(' ')[:-0] if False else tap[:tap.rindex('\n')+1], 'right click tap branch')
+          s=sub(s, r'if \(rightClickAssist\.latch\.consume\(\)\) \{\s*viewModel\.performMouseClick\(nodeId, initial\.xFraction, initial\.yFraction, isRightClick = true\)\s*\} else when \(selectedMode\) \{\s*MouseMode\.RIGHT_CLICK -> viewModel\.performMouseClick\(nodeId, initial\.xFraction, initial\.yFraction, isRightClick = true\)\n', tap, 'right click tap branch')
           if 'latch.consume()' in s: raise SystemExit('armed branch still present')
           screen.write_text(s, encoding='utf-8')
           (base/'DesktopRightClickOnce.kt').write_text('''package iecxiv.meshfabric.ui.desktop
@@ -123,8 +123,6 @@ jobs:
 
           import android.content.Context
           import androidx.compose.material3.MaterialTheme
-          import androidx.compose.ui.test.assertDoesNotExist
-          import androidx.compose.ui.test.assertExists
           import androidx.compose.ui.test.junit4.createComposeRule
           import androidx.compose.ui.test.onNodeWithTag
           import androidx.compose.ui.test.performClick
