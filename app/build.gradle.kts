@@ -16,8 +16,8 @@ android {
         applicationId = "iecxiv.meshfabric"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10409
-        versionName = "1.4.9"
+        versionCode = 10500
+        versionName = "1.5.0"
         //20261023
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
