@@ -52,6 +52,7 @@ import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextRange
@@ -570,8 +571,13 @@ fun RemoteDesktopScreen(nodeId: String, nodeName: String, viewModel: RemoteDeskt
                                 lastClickMode = next
                                 selectedMode = next
                             }, label = {
-                                Text(stringResource(if (clickMode == MouseMode.RIGHT_CLICK) R.string.desktop_mouse_mode_right_short
-                                    else R.string.desktop_mouse_mode_left_short), fontSize = 10.sp)
+                                val leftModeText = stringResource(R.string.desktop_mouse_mode_left_short)
+                                val rightModeText = stringResource(R.string.desktop_mouse_mode_right_short)
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(leftModeText, fontSize = 10.sp, modifier = Modifier.alpha(0f).clearAndSetSemantics {})
+                                    Text(rightModeText, fontSize = 10.sp, modifier = Modifier.alpha(0f).clearAndSetSemantics {})
+                                    Text(if (clickMode == MouseMode.RIGHT_CLICK) rightModeText else leftModeText, fontSize = 10.sp)
+                                }
                             }, leadingIcon = {
                                 CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
                                     DesktopRightClickHeaderGlyph(active = false, label = null,
